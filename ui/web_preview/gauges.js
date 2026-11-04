@@ -4321,13 +4321,10 @@ function renderAnimationsDrawer() {
   }
 
   container.innerHTML = filtered.map(item => {
-    const badgeColor = (item.type === 'VRMA') ? 'rgba(168,85,247,0.35)' : 'rgba(56,189,248,0.25)';
-    const badgeTextColor = (item.type === 'VRMA') ? '#d8b4fe' : '#7dd3fc';
     return `
-      <button class="anim-card-btn" data-cat="${item.cat}" onclick="triggerDrawerAnim('${item.key}')" title="${item.label} (${item.type})" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; padding:10px 6px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:10px; cursor:pointer; transition:all 0.15s ease; min-height:76px; text-align:center;">
-        <span class="anim-card-emoji" style="font-size:22px; line-height:1.2;">${item.emoji}</span>
-        <span class="anim-card-name" style="font-size:11px; font-weight:800; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:115px;">${item.label}</span>
-        <span class="anim-card-type" style="font-size:9px; font-weight:800; padding:1px 6px; border-radius:4px; background:${badgeColor}; color:${badgeTextColor}; border:1px solid ${badgeTextColor}40;">${item.type}</span>
+      <button class="anim-card-btn" data-cat="${item.cat}" onclick="triggerDrawerAnim('${item.key}')" title="${item.label}" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; padding:12px 10px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:12px; cursor:pointer; transition:all 0.15s ease; min-height:86px; text-align:center; box-sizing:border-box;">
+        <span class="anim-card-emoji" style="font-size:28px; line-height:1.1;">${item.emoji}</span>
+        <span class="anim-card-name" style="font-size:13px; font-weight:800; color:#ffffff; line-height:1.25; word-break:break-word; max-width:100%; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${item.label}</span>
       </button>
     `;
   }).join('');

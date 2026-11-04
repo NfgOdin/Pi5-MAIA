@@ -1903,40 +1903,42 @@
   </div>
 
   <!-- ANIMATIONS & POSES DRAWER MODAL -->
-  <div class="config-modal-overlay" id="animationsDrawerModal" onclick="if(event.target === this) closeAnimationsDrawer()">
-    <div class="config-modal-content" style="max-width:720px; width:94%; max-height:88vh; display:flex; flex-direction:column; overflow:hidden;">
-      <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center; padding:12px 18px; border-bottom:1px solid var(--panel-border);">
+  <div class="config-modal-overlay" id="animationsDrawerModal" onclick="if(event.target === this) closeAnimationsDrawer()" style="padding:10px;">
+    <div class="config-modal-content" style="max-width:820px; width:96%; height:92vh; max-height:560px; display:flex; flex-direction:column; overflow:hidden; padding:0; background:rgba(15,23,42,0.96); border:2px solid var(--panel-border); border-radius:16px;">
+      
+      <!-- Modal Header (Fixed height, no shrink) -->
+      <div class="modal-header" style="flex-shrink:0; display:flex; justify-content:space-between; align-items:center; padding:10px 18px; border-bottom:1px solid var(--panel-border); background:rgba(0,0,0,0.3);">
         <div style="display:flex; align-items:center; gap:10px;">
           <span style="font-size:22px;">🎭</span>
           <div>
-            <div style="font-size:16px; font-weight:900; color:#fff; letter-spacing:0.5px;">RUM ANIMATIONS & POSES <span id="animHeaderCount" style="color:var(--accent-purple,#a855f7); font-size:13px; font-weight:800;">(135)</span></div>
-            <div style="font-size:11px; color:var(--text-secondary);">Select any pose or action to play with smooth 3D crossfading</div>
+            <div style="font-size:16px; font-weight:900; color:#fff; letter-spacing:0.5px;">RUM ANIMATIONS & POSES <span id="animHeaderCount" style="color:var(--accent-purple,#a855f7); font-size:14px; font-weight:800;">(137)</span></div>
+            <div style="font-size:11px; color:var(--text-secondary);">Tap any animation to play with smooth 3D crossfading</div>
           </div>
         </div>
-        <button class="graph-close-btn" onclick="closeAnimationsDrawer()" style="padding:6px 14px; font-size:11px;">✕ CLOSE</button>
+        <button class="graph-close-btn" onclick="closeAnimationsDrawer()" style="padding:6px 14px; font-size:12px; font-weight:800;">✕ CLOSE</button>
       </div>
 
-      <!-- Quick Search Bar -->
-      <div style="padding:8px 16px; background:rgba(0,0,0,0.35); border-bottom:1px solid var(--panel-border); display:flex; align-items:center; gap:8px;">
-        <span style="font-size:14px; color:var(--text-secondary);">🔍</span>
-        <input type="text" id="animSearchInput" placeholder="Search 130+ animations (dance, wave, jump, emotion, hit...)..." oninput="handleAnimSearch(this.value)" style="flex:1; background:rgba(255,255,255,0.06); border:1px solid #334; border-radius:8px; padding:6px 12px; color:#fff; font-size:12px; outline:none;" />
-        <button onclick="clearAnimSearch()" style="background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:13px; padding:0 4px;">✕</button>
+      <!-- Quick Search Bar (Fixed height, no shrink) -->
+      <div style="flex-shrink:0; padding:8px 16px; background:rgba(0,0,0,0.4); border-bottom:1px solid var(--panel-border); display:flex; align-items:center; gap:8px;">
+        <span style="font-size:15px; color:var(--text-secondary);">🔍</span>
+        <input type="text" id="animSearchInput" placeholder="Search animations (dance, wave, jump, emotion, hit, pose...)..." oninput="handleAnimSearch(this.value)" style="flex:1; background:rgba(255,255,255,0.08); border:1px solid #475569; border-radius:8px; padding:7px 12px; color:#fff; font-size:13px; font-weight:600; outline:none;" />
+        <button onclick="clearAnimSearch()" style="background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:14px; padding:2px 8px;">✕</button>
       </div>
 
-      <!-- Category Filter Tabs -->
-      <div style="display:flex; gap:6px; padding:8px 16px; background:rgba(0,0,0,0.22); border-bottom:1px solid var(--panel-border); overflow-x:auto; -webkit-overflow-scrolling:touch;">
-        <button class="anim-tab-btn active" id="animTabAll" onclick="filterAnimationCategory('all', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:var(--accent-purple, #a855f7); color:#fff; border:none; white-space:nowrap;">ALL (<span id="animCountAll">135</span>)</button>
-        <button class="anim-tab-btn" onclick="filterAnimationCategory('poses', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #445; white-space:nowrap;">✨ POSES (<span id="animCountPoses">13</span>)</button>
-        <button class="anim-tab-btn" onclick="filterAnimationCategory('dance', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #445; white-space:nowrap;">💃 DANCE (<span id="animCountDance">12</span>)</button>
-        <button class="anim-tab-btn" onclick="filterAnimationCategory('reactions', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #445; white-space:nowrap;">😊 EMOTIONS (<span id="animCountReactions">64</span>)</button>
-        <button class="anim-tab-btn" onclick="filterAnimationCategory('motion', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #445; white-space:nowrap;">🚶 MOTION (<span id="animCountMotion">14</span>)</button>
-        <button class="anim-tab-btn" onclick="filterAnimationCategory('exercise', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #445; white-space:nowrap;">🏃 EXERCISE (<span id="animCountExercise">7</span>)</button>
-        <button class="anim-tab-btn" onclick="filterAnimationCategory('combat', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #445; white-space:nowrap;">💥 HITS (<span id="animCountCombat">9</span>)</button>
-        <button class="anim-tab-btn" onclick="filterAnimationCategory('idles', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #445; white-space:nowrap;">🛋️ IDLES (<span id="animCountIdles">16</span>)</button>
+      <!-- Category Filter Tabs (Horizontal touch scrolling, Fixed height, no shrink) -->
+      <div id="animCategoriesBar" style="flex-shrink:0; display:flex; gap:8px; padding:8px 14px; background:rgba(0,0,0,0.25); border-bottom:1px solid var(--panel-border); overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch; touch-action:pan-x; scrollbar-width:thin;">
+        <button class="anim-tab-btn active" id="animTabAll" onclick="filterAnimationCategory('all', this)" style="flex-shrink:0; padding:6px 14px; border-radius:12px; font-size:12px; font-weight:800; cursor:pointer; background:var(--accent-purple, #a855f7); color:#fff; border:none; white-space:nowrap; touch-action:manipulation;">ALL (<span id="animCountAll">137</span>)</button>
+        <button class="anim-tab-btn" onclick="filterAnimationCategory('poses', this)" style="flex-shrink:0; padding:6px 14px; border-radius:12px; font-size:12px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #475569; white-space:nowrap; touch-action:manipulation;">✨ POSES (<span id="animCountPoses">13</span>)</button>
+        <button class="anim-tab-btn" onclick="filterAnimationCategory('dance', this)" style="flex-shrink:0; padding:6px 14px; border-radius:12px; font-size:12px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #475569; white-space:nowrap; touch-action:manipulation;">💃 DANCE (<span id="animCountDance">12</span>)</button>
+        <button class="anim-tab-btn" onclick="filterAnimationCategory('reactions', this)" style="flex-shrink:0; padding:6px 14px; border-radius:12px; font-size:12px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #475569; white-space:nowrap; touch-action:manipulation;">😊 EMOTIONS (<span id="animCountReactions">64</span>)</button>
+        <button class="anim-tab-btn" onclick="filterAnimationCategory('motion', this)" style="flex-shrink:0; padding:6px 14px; border-radius:12px; font-size:12px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #475569; white-space:nowrap; touch-action:manipulation;">🚶 MOTION (<span id="animCountMotion">14</span>)</button>
+        <button class="anim-tab-btn" onclick="filterAnimationCategory('exercise', this)" style="flex-shrink:0; padding:6px 14px; border-radius:12px; font-size:12px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #475569; white-space:nowrap; touch-action:manipulation;">🏃 EXERCISE (<span id="animCountExercise">7</span>)</button>
+        <button class="anim-tab-btn" onclick="filterAnimationCategory('combat', this)" style="flex-shrink:0; padding:6px 14px; border-radius:12px; font-size:12px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #475569; white-space:nowrap; touch-action:manipulation;">💥 HITS (<span id="animCountCombat">9</span>)</button>
+        <button class="anim-tab-btn" onclick="filterAnimationCategory('idles', this)" style="flex-shrink:0; padding:6px 14px; border-radius:12px; font-size:12px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #475569; white-space:nowrap; touch-action:manipulation;">🛋️ IDLES (<span id="animCountIdles">18</span>)</button>
       </div>
 
-      <!-- Animation Buttons Dynamic Grid -->
-      <div class="anim-grid" id="animGridContainer" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(130px, 1fr)); gap:10px; padding:16px; overflow-y:auto; flex:1; min-height:0; max-height:calc(88vh - 150px); -webkit-overflow-scrolling:touch; touch-action:pan-y;">
+      <!-- Animation Buttons Dynamic Grid (Fills remaining height, scrolls vertically) -->
+      <div class="anim-grid" id="animGridContainer" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:12px; padding:14px; overflow-y:auto; overflow-x:hidden; flex:1; min-height:0; -webkit-overflow-scrolling:touch; touch-action:pan-y;">
         <!-- Populated dynamically via renderAnimationsDrawer() -->
       </div>
     </div>
