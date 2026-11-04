@@ -16,3 +16,7 @@ node_modules/
 !ui/web_preview/models/**/*.jpeg
 !ui/web_preview/models/**/*.bin
 
+
+# Secret credentials & personal keys
+backend/ai/ai_config.json
+backend/ai/google_oauth_tokens.json

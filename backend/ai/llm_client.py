@@ -257,6 +257,16 @@ class LLMClient:
                     default_settings.update(data)
             except Exception as e:
                 print(f"[LLM] Error reading settings: {e}")
+
+        # Also load from ai_config.json if user edited that file directly
+        alt_config = os.path.join(os.path.dirname(__file__), "ai_config.json")
+        if os.path.exists(alt_config):
+            try:
+                with open(alt_config, "r") as f:
+                    alt_data = json.load(f)
+                    default_settings.update(alt_data)
+            except Exception:
+                pass
         # Always prefer LOCAL_GGUF if model is present and not explicitly set otherwise
         if local_gguf and default_settings.get("mode") == "BUILTIN":
             default_settings["mode"] = "LOCAL_GGUF"
@@ -268,6 +278,13 @@ class LLMClient:
         try:
             with open(self.config_file, "w") as f:
                 json.dump(self.settings, f, indent=2)
+            # Sync to ai_config.json as well
+            alt_config = os.path.join(os.path.dirname(__file__), "ai_config.json")
+            try:
+                with open(alt_config, "w") as f:
+                    json.dump(self.settings, f, indent=2)
+            except Exception:
+                pass
             print("[LLM] Saved updated AI settings.")
         except Exception as e:
             print(f"[LLM] Failed saving settings: {e}")
@@ -606,7 +623,9 @@ class LLMClient:
         if not token and not api_key:
             return None
 
-        model_name = self.settings.get("gemini_model", "gemini-1.5-flash")
+        model_name = self.settings.get("gemini_model", "gemini-3.5-flash")
+        if model_name in ("gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.5-flash"):
+            model_name = "gemini-3.5-flash"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
 
         headers = {"Content-Type": "application/json"}
@@ -627,7 +646,10 @@ class LLMClient:
             },
             "generationConfig": {
                 "temperature": 0.75,
-                "maxOutputTokens": 120
+                "maxOutputTokens": 200,
+                "thinkingConfig": {
+                    "thinkingBudget": 0
+                }
             }
         }
 
