@@ -10629,6 +10629,9 @@ let vrmRoamCurrentWaypoint = null;
 let vrmRoamWalkAction = null;
 
 // Dynamic Celestial Ephemeris & Ocean Simulation State
+let vrmBaseAmbientLight = null;
+let vrmBaseKeyLight = null;
+let vrmBaseRimLight = null;
 let vrmSolarEphemeris = null;
 let vrmCelestialPhase = 'DAY'; // 'NIGHT', 'CIVIL_DAWN', 'SUNRISE', 'DAY', 'GOLDEN_HOUR', 'SUNSET', 'CIVIL_DUSK'
 let vrmCelestialDayProgress = 0.5; // 0.0 at sunrise, 0.5 noon, 1.0 at sunset
@@ -12460,25 +12463,25 @@ function initVrmEngine() {
 
 
 
-  const ambientLight = new THREE.AmbientLight(0xfff0ff, 0.90);
+  vrmBaseAmbientLight = new THREE.AmbientLight(0xfff0ff, 0.90);
 
-  vrmScene.add(ambientLight);
-
-
-
-  const keyLight = new THREE.DirectionalLight(0xffffff, 0.68);
-
-  keyLight.position.set(1.2, 2.4, 2.6);
-
-  vrmScene.add(keyLight);
+  vrmScene.add(vrmBaseAmbientLight);
 
 
 
-  const rimLight = new THREE.DirectionalLight(0xc084fc, 0.45);
+  vrmBaseKeyLight = new THREE.DirectionalLight(0xffffff, 0.68);
 
-  rimLight.position.set(-1.5, 1.5, -2.0);
+  vrmBaseKeyLight.position.set(1.2, 2.4, 2.6);
 
-  vrmScene.add(rimLight);
+  vrmScene.add(vrmBaseKeyLight);
+
+
+
+  vrmBaseRimLight = new THREE.DirectionalLight(0xc084fc, 0.45);
+
+  vrmBaseRimLight.position.set(-1.5, 1.5, -2.0);
+
+  vrmScene.add(vrmBaseRimLight);
 
 
 
@@ -13826,26 +13829,32 @@ function createTatamiDeckTexture() {
   canvas.height = 512;
   const ctx = canvas.getContext('2d');
 
-  ctx.fillStyle = '#d4b895';
+  // Rich warm cedar base
+  ctx.fillStyle = '#7a4b28';
   ctx.fillRect(0, 0, 512, 512);
 
-  const slatW = 32;
+  const slatW = 48;
   for (let x = 0; x < 512; x += slatW) {
-    const tint = (Math.random() - 0.5) * 12;
-    ctx.fillStyle = `rgb(${212 + tint}, ${184 + tint * 0.8}, ${149 + tint * 0.6})`;
-    ctx.fillRect(x, 0, slatW - 2, 512);
+    const tint = (Math.random() - 0.5) * 18;
+    const r = Math.round(Math.min(255, Math.max(0, 140 + tint)));
+    const g = Math.round(Math.min(255, Math.max(0, 95 + tint * 0.75)));
+    const b = Math.round(Math.min(255, Math.max(0, 56 + tint * 0.55)));
+    ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+    ctx.fillRect(x + 1, 0, slatW - 2, 512);
 
-    ctx.strokeStyle = 'rgba(120, 90, 50, 0.18)';
+    // Subtle natural wood grain streaks
+    ctx.strokeStyle = 'rgba(60, 32, 14, 0.22)';
     ctx.lineWidth = 1;
-    for (let k = 0; k < 4; k++) {
+    for (let k = 0; k < 5; k++) {
       ctx.beginPath();
-      const gx = x + Math.random() * (slatW - 4);
+      const gx = x + 3 + Math.random() * (slatW - 6);
       ctx.moveTo(gx, 0);
-      ctx.lineTo(gx + (Math.random() - 0.5) * 4, 512);
+      ctx.lineTo(gx + (Math.random() - 0.5) * 6, 512);
       ctx.stroke();
     }
 
-    ctx.strokeStyle = '#634832';
+    // Dark plank groove border
+    ctx.strokeStyle = '#381c0c';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(x + slatW - 1, 0);
@@ -13856,7 +13865,7 @@ function createTatamiDeckTexture() {
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(4, 4);
+  tex.repeat.set(3, 4);
   return tex;
 }
 
@@ -14181,20 +14190,24 @@ function updateCelestialVisuals() {
     vrmStarParticles.visible = isNight;
   }
 
-  // Ocean Water Base Color
+  // Ocean Water Base Color & Specular
   if (vrmOceanMat) {
     if (isSunset) {
-      vrmOceanMat.color.setHex(0xb83824); // fiery crimson reflection
-      vrmOceanMat.roughness = 0.14;
+      vrmOceanMat.color.setHex(0xa8341e);
+      vrmOceanMat.roughness = 0.12;
+      vrmOceanMat.metalness = 0.88;
     } else if (isGolden) {
-      vrmOceanMat.color.setHex(0xa86c18); // golden hour amber
-      vrmOceanMat.roughness = 0.16;
+      vrmOceanMat.color.setHex(0x945e14);
+      vrmOceanMat.roughness = 0.14;
+      vrmOceanMat.metalness = 0.85;
     } else if (isNight) {
-      vrmOceanMat.color.setHex(0x061124); // midnight deep indigo
-      vrmOceanMat.roughness = 0.22;
-    } else {
-      vrmOceanMat.color.setHex(0x0a406c); // clear deep azure
+      vrmOceanMat.color.setHex(0x040e1e);
       vrmOceanMat.roughness = 0.18;
+      vrmOceanMat.metalness = 0.90;
+    } else {
+      vrmOceanMat.color.setHex(0x0a4a75);
+      vrmOceanMat.roughness = 0.16;
+      vrmOceanMat.metalness = 0.82;
     }
   }
 
@@ -14202,16 +14215,50 @@ function updateCelestialVisuals() {
   if (vrmCelestialLight) {
     if (isSunset) {
       vrmCelestialLight.color.setHex(0xff5722);
-      vrmCelestialLight.intensity = 1.60;
+      vrmCelestialLight.intensity = 1.10;
     } else if (isGolden) {
       vrmCelestialLight.color.setHex(0xffa726);
-      vrmCelestialLight.intensity = 1.40;
+      vrmCelestialLight.intensity = 0.95;
     } else if (isNight) {
       vrmCelestialLight.color.setHex(0x7fa8d6);
-      vrmCelestialLight.intensity = 0.42;
+      vrmCelestialLight.intensity = 0.35;
     } else {
       vrmCelestialLight.color.setHex(0xfff5e6);
-      vrmCelestialLight.intensity = 1.25;
+      vrmCelestialLight.intensity = 0.85;
+    }
+  }
+
+  // Modulate Scene Ambient & Key Lighting based on Garden Time of Day
+  if (currentEnvironmentName === 'GARDEN') {
+    if (vrmBaseAmbientLight) {
+      if (isNight) {
+        vrmBaseAmbientLight.color.setHex(0x1a263e);
+        vrmBaseAmbientLight.intensity = 0.45;
+      } else if (isSunset) {
+        vrmBaseAmbientLight.color.setHex(0x7b2354);
+        vrmBaseAmbientLight.intensity = 0.60;
+      } else if (isGolden) {
+        vrmBaseAmbientLight.color.setHex(0xd48842);
+        vrmBaseAmbientLight.intensity = 0.72;
+      } else {
+        vrmBaseAmbientLight.color.setHex(0xfff0ff);
+        vrmBaseAmbientLight.intensity = 0.78;
+      }
+    }
+    if (vrmBaseKeyLight) {
+      if (isNight) {
+        vrmBaseKeyLight.color.setHex(0x506899);
+        vrmBaseKeyLight.intensity = 0.28;
+      } else if (isSunset) {
+        vrmBaseKeyLight.color.setHex(0xff6e40);
+        vrmBaseKeyLight.intensity = 0.75;
+      } else if (isGolden) {
+        vrmBaseKeyLight.color.setHex(0xffb74d);
+        vrmBaseKeyLight.intensity = 0.65;
+      } else {
+        vrmBaseKeyLight.color.setHex(0xffffff);
+        vrmBaseKeyLight.intensity = 0.60;
+      }
     }
   }
 
@@ -14220,10 +14267,10 @@ function updateCelestialVisuals() {
     const ignite = (isNight || isSunset);
     vrmGardenLanterns.forEach(lant => {
       if (lant.mesh && lant.mesh.material) {
-        lant.mesh.material.emissiveIntensity = ignite ? 0.85 : 0.08;
+        lant.mesh.material.emissiveIntensity = ignite ? 0.75 : 0.05;
       }
       if (lant.light) {
-        lant.light.intensity = ignite ? 1.85 : 0.10;
+        lant.light.intensity = ignite ? 1.20 : 0.05;
       }
     });
   }
@@ -14287,7 +14334,7 @@ window.setVrmCelestialPhase = function(phase, progress) {
 };
 
 function updateGardenOceanAndSky(time, delta) {
-  // 1. Undulating Ocean Waves
+  // 1. Undulating Ocean Waves with specular wave normal computation
   if (vrmOceanGeo && vrmOceanBasePos) {
     const pos = vrmOceanGeo.attributes.position;
     const base = vrmOceanBasePos;
@@ -14303,22 +14350,23 @@ function updateGardenOceanAndSky(time, delta) {
       pos.setY(i, waveY);
     }
     pos.needsUpdate = true;
+    vrmOceanGeo.computeVertexNormals();
   }
 
-  // 2. Position Sun Orb along Day Arc
+  // 2. Position Sun Orb along Day Arc (centered in visible camera frame: x: -5.5 to +5.5)
   if (vrmSunMesh && vrmSunMesh.visible) {
-    const sunX = -13.0 + 26.0 * vrmCelestialDayProgress;
-    const sunY = (vrmBaseY + 0.3) + Math.sin(vrmCelestialDayProgress * Math.PI) * 9.2;
+    const sunX = -5.5 + 11.0 * vrmCelestialDayProgress;
+    const sunY = (vrmBaseY + 0.42) + Math.sin(vrmCelestialDayProgress * Math.PI) * 8.6;
     vrmSunMesh.position.set(sunX, sunY, -24.8);
     if (vrmCelestialLight) {
       vrmCelestialLight.position.set(sunX, sunY, -24.8);
     }
   }
 
-  // 3. Position Moon Orb along Night Arc
+  // 3. Position Moon Orb along Night Arc (centered in visible camera frame: x: -5.0 to +5.0)
   if (vrmMoonMesh && vrmMoonMesh.visible) {
-    const moonX = -12.5 + 25.0 * vrmCelestialNightProgress;
-    const moonY = (vrmBaseY + 0.6) + Math.sin(vrmCelestialNightProgress * Math.PI) * 8.6;
+    const moonX = -5.0 + 10.0 * vrmCelestialNightProgress;
+    const moonY = (vrmBaseY + 1.2) + Math.sin(vrmCelestialNightProgress * Math.PI) * 7.6;
     vrmMoonMesh.position.set(moonX, moonY, -24.8);
     if (vrmCelestialLight) {
       vrmCelestialLight.position.set(moonX, moonY, -24.8);
@@ -14327,16 +14375,16 @@ function updateGardenOceanAndSky(time, delta) {
 
   // 4. Starfield Twinkle
   if (vrmStarParticles && vrmStarParticles.visible) {
-    vrmStarParticles.material.opacity = 0.65 + Math.sin(time * 3.0) * 0.25;
+    vrmStarParticles.material.opacity = 0.70 + Math.sin(time * 3.2) * 0.25;
   }
 
   // 5. Veranda Lantern Candle Flicker
   if (vrmGardenLanterns && vrmGardenLanterns.length > 0) {
     const isNightLike = (vrmCelestialPhase === 'NIGHT' || vrmCelestialPhase === 'SUNSET' || vrmCelestialPhase === 'CIVIL_DUSK');
     if (isNightLike) {
-      const flicker = 1.0 + Math.sin(time * 7.5) * 0.05 + Math.cos(time * 11.2) * 0.03;
+      const flicker = 1.0 + Math.sin(time * 7.5) * 0.06 + Math.cos(time * 11.2) * 0.04;
       vrmGardenLanterns.forEach(lant => {
-        if (lant.light) lant.light.intensity = 1.85 * flicker;
+        if (lant.light) lant.light.intensity = 1.20 * flicker;
       });
     }
   }
@@ -14350,6 +14398,7 @@ function buildGardenEnvironment() {
   const deckTex = createTatamiDeckTexture();
   const deckMat = new THREE.MeshStandardMaterial({
     map: deckTex,
+    color: 0xaa7848,
     roughness: 0.65,
     metalness: 0.05
   });
@@ -14360,42 +14409,42 @@ function buildGardenEnvironment() {
   vrmEnvironmentGroup.add(deck);
 
   // 2. Real Moving Dynamic Ocean with Undulating Waves
-  // Starts right under the veranda deck edge at z = -2.25 and extends back to z = -26.25
-  const oceanWidth = 36.0;
-  const oceanDepth = 24.0;
+  // Starts right under the veranda deck edge at z = -2.25 and extends to horizon at z = -26.5
+  const oceanWidth = 54.0;
+  const oceanDepth = 30.0;
   vrmOceanGeo = new THREE.PlaneGeometry(oceanWidth, oceanDepth, 48, 36);
   vrmOceanGeo.rotateX(-Math.PI / 2);
   vrmOceanBasePos = vrmOceanGeo.attributes.position.clone();
 
   vrmOceanMat = new THREE.MeshStandardMaterial({
-    color: 0x0a406c,
-    roughness: 0.18,
+    color: 0x0a4a75,
+    roughness: 0.16,
     metalness: 0.82,
     flatShading: true
   });
   vrmOceanMesh = new THREE.Mesh(vrmOceanGeo, vrmOceanMat);
-  vrmOceanMesh.position.set(0, vrmBaseY - 0.28, -14.25);
+  vrmOceanMesh.position.set(0, vrmBaseY - 0.28, -16.5);
   vrmOceanMesh.receiveShadow = true;
   vrmEnvironmentGroup.add(vrmOceanMesh);
 
-  // 3. Dynamic Celestial Sky Dome Plane at Horizon (z = -26.2)
-  const skyGeo = new THREE.PlaneGeometry(42.0, 18.0);
+  // 3. Dynamic Celestial Sky Dome Plane at Horizon (z = -26.5) - Fills complete camera frustum
+  const skyGeo = new THREE.PlaneGeometry(72.0, 36.0);
   vrmSkyCanvas = createCelestialSkyCanvas();
   vrmSkyTexture = new THREE.CanvasTexture(vrmSkyCanvas);
   const skyMat = new THREE.MeshBasicMaterial({ map: vrmSkyTexture });
   vrmSkyMesh = new THREE.Mesh(skyGeo, skyMat);
-  vrmSkyMesh.position.set(0, vrmBaseY + 7.8, -26.2);
+  vrmSkyMesh.position.set(0, vrmBaseY + 12.0, -26.5);
   vrmEnvironmentGroup.add(vrmSkyMesh);
 
-  // 4. 3D Sun Orb + Corona Halo
-  const sunGeo = new THREE.SphereGeometry(0.55, 20, 20);
-  const sunMat = new THREE.MeshBasicMaterial({ color: 0xfff6cf });
+  // 4. 3D Sun Orb + Radiant Corona Disc
+  const sunGeo = new THREE.SphereGeometry(0.65, 20, 20);
+  const sunMat = new THREE.MeshBasicMaterial({ color: 0xfffae0 });
   vrmSunMesh = new THREE.Mesh(sunGeo, sunMat);
-  const coronaGeo = new THREE.PlaneGeometry(2.6, 2.6);
+  const coronaGeo = new THREE.PlaneGeometry(3.6, 3.6);
   const coronaMat = new THREE.MeshBasicMaterial({
-    color: 0xffa022,
+    color: 0xff9922,
     transparent: true,
-    opacity: 0.45,
+    opacity: 0.50,
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide
   });
@@ -14404,20 +14453,20 @@ function buildGardenEnvironment() {
   vrmSunMesh.position.set(0, vrmBaseY + 6.0, -24.8);
   vrmEnvironmentGroup.add(vrmSunMesh);
 
-  // 5. 3D Moon Orb + Soft Lunar Glow
-  const moonGeo = new THREE.SphereGeometry(0.48, 20, 20);
+  // 5. 3D Moon Orb + Soft Lunar Halo
+  const moonGeo = new THREE.SphereGeometry(0.52, 20, 20);
   const moonMat = new THREE.MeshStandardMaterial({
-    color: 0xe8eef5,
-    emissive: 0x82a9db,
-    emissiveIntensity: 0.50,
+    color: 0xecf2f9,
+    emissive: 0x90b8f0,
+    emissiveIntensity: 0.55,
     roughness: 0.85
   });
   vrmMoonMesh = new THREE.Mesh(moonGeo, moonMat);
-  const moonHaloGeo = new THREE.PlaneGeometry(2.0, 2.0);
+  const moonHaloGeo = new THREE.PlaneGeometry(2.6, 2.6);
   const moonHaloMat = new THREE.MeshBasicMaterial({
-    color: 0x5b92e5,
+    color: 0x64b5f6,
     transparent: true,
-    opacity: 0.32,
+    opacity: 0.35,
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide
   });
@@ -14432,7 +14481,7 @@ function buildGardenEnvironment() {
   vrmEnvironmentGroup.add(vrmStarParticles);
 
   // 7. Dynamic Directional Celestial Light
-  vrmCelestialLight = new THREE.DirectionalLight(0xfff5e6, 1.25);
+  vrmCelestialLight = new THREE.DirectionalLight(0xfff5e6, 0.85);
   vrmCelestialLight.position.set(0, vrmBaseY + 6.0, -24.8);
   vrmCelestialLight.castShadow = true;
   vrmEnvironmentGroup.add(vrmCelestialLight);
@@ -14463,25 +14512,42 @@ function buildGardenEnvironment() {
     vrmEnvironmentGroup.add(slat);
   }
 
-  // 9. Traditional Veranda Paper Lanterns with Warm Soft Glow
+  // 9. Authentic Japanese Veranda Paper Lanterns with Warm Amber Glow
   vrmGardenLanterns = [];
-  [-1.6, 1.6].forEach(x => {
-    const lanternGeo = new THREE.CylinderGeometry(0.12, 0.14, 0.32, 16);
-    const lanternMat = new THREE.MeshStandardMaterial({
-      color: 0xffecd0,
-      emissive: 0xff8844,
-      emissiveIntensity: 0.55
-    });
-    const lantern = new THREE.Mesh(lanternGeo, lanternMat);
-    lantern.position.set(x, vrmBaseY + 1.25, -2.1);
-    vrmEnvironmentGroup.add(lantern);
+  const darkWoodMat = new THREE.MeshStandardMaterial({ color: 0x2e1810, roughness: 0.70 });
+  const washiMat = new THREE.MeshStandardMaterial({
+    color: 0xffecd0,
+    emissive: 0xff8833,
+    emissiveIntensity: 0.55,
+    roughness: 0.50
+  });
 
-    const lantLight = new THREE.PointLight(0xff9955, 1.6, 4.5);
-    lantLight.position.set(x, vrmBaseY + 1.25, -2.1);
+  [-1.35, 1.35].forEach(x => {
+    const lantGroup = new THREE.Group();
+
+    // Dark wood top cap
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.03, 0.22), darkWoodMat);
+    cap.position.y = 0.16;
+    lantGroup.add(cap);
+
+    // Warm translucent washi paper cylinder body
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.28, 16), washiMat);
+    lantGroup.add(body);
+
+    // Dark wood bottom base
+    const base = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.03, 0.20), darkWoodMat);
+    base.position.y = -0.16;
+    lantGroup.add(base);
+
+    lantGroup.position.set(x, vrmBaseY + 1.15, -2.15);
+    vrmEnvironmentGroup.add(lantGroup);
+
+    const lantLight = new THREE.PointLight(0xff9944, 1.2, 4.5);
+    lantLight.position.set(x, vrmBaseY + 1.15, -2.15);
     vrmEnvironmentGroup.add(lantLight);
     envLights.push(lantLight);
 
-    vrmGardenLanterns.push({ mesh: lantern, light: lantLight });
+    vrmGardenLanterns.push({ mesh: body, light: lantLight });
   });
 
   // 10. 60 Animated Sakura Blossom Petals
