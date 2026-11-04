@@ -12218,7 +12218,8 @@ function buildRetargetedBvhClip(actionKey, bvhText) {
       // In zero-centered clips (motion ~ -6.0 to -8.0), baseline standing is 0.0.
       const f0_y = rawHipsPos[0].y;
       const baselineY = (f0_y > 4.0) ? f0_y : 0.0;
-      const bvhScale = 0.0225; // Calibrated: places knees and shins resting perfectly flush on ground
+      // bvhScale ~0.035 drops hips by ~0.60m so knees/shins rest flush on the floor surface
+      const bvhScale = 0.035;
 
       for (let f = 0; f < rawHipsPos.length; f++) {
         // Clamp frame 0 if it's an un-transitioned T-pose spike
@@ -12234,15 +12235,15 @@ function buildRetargetedBvhClip(actionKey, bvhText) {
       // For standing, dancing, jumping, and walking actions:
       // The character is standing on her feet on the floor.
       // Dynamic baseline is the motion's median standing height.
-      // Small bounce/groove (±0.03m) and jumps (upward) are preserved, but feet NEVER clip into floor.
+      // Small bounce/groove (±0.02m) and jumps (upward) are preserved, but feet NEVER clip into floor.
       const baselineY = medianY;
       const bvhScale = 0.020;
 
       for (let f = 0; f < rawHipsPos.length; f++) {
         const curY = (f === 0 && rawHipsPos[0].y > 4.0 && rawHipsPos.length > 1) ? rawHipsPos[1].y : rawHipsPos[f].y;
         const rawDy = (curY - baselineY) * bvhScale;
-        // Never allow hips to sink more than -0.015m below resting standing height while dancing/walking
-        const dy = Math.max(-0.015, Math.min(0.35, rawDy));
+        // Strictly prevent hips from sinking below resting standing height while dancing/walking (floor collision clamp)
+        const dy = Math.max(0.0, Math.min(0.35, rawDy));
         const baseIdx = f * 3;
         hipsVals[baseIdx]     = restPos.x;
         hipsVals[baseIdx + 1] = restPos.y + dy;
