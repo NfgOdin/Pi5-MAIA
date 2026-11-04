@@ -508,7 +508,7 @@
     </div>
 
     <!-- 5. SETTINGS SCREEN (EXPANDABLE ACCORDIONS & SYSTEM PREFERENCES) -->
-    <div class="screen-view" id="screenSettings" style="overflow-y:auto; padding-bottom:30px;">
+    <div class="screen-view" id="screenSettings" style="overflow-y:auto; padding-bottom:90px;">
 
       <!-- ACCORDION 1: R.U.M. & AI NEURAL ENGINE (Default Open) -->
       <div class="settings-accordion-group active" id="accAiGroup">
@@ -944,21 +944,45 @@
       <!-- PERSISTENT VEHICLE TRIP LOGS (SQLITE) -->
       
           <div class="settings-card" id="tripLogsCard" style="border-color:var(--accent-blue);">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
           <div class="settings-title" style="color:var(--accent-blue); margin-bottom:0;">
-            <span>📜</span> PERSISTENT VEHICLE TRIP LOGS (SQLITE)
+            <span>📜</span> PERSISTENT VEHICLE TRIP LOGS & TELEMETRY
           </div>
-          <button class="cluster-action-btn" onclick="fetchTripLogs()" style="font-size:10px;">
-            🔄 REFRESH LOGS
-          </button>
+          <div style="display:flex; gap:8px;">
+            <button class="cluster-action-btn" onclick="fetchTripLogs()" style="font-size:10px; padding:6px 12px;">
+              🔄 REFRESH
+            </button>
+            <button class="cluster-action-btn" onclick="promptClearTripLogs()" style="font-size:10px; padding:6px 12px; background:rgba(239,68,68,0.15); border-color:#ef4444; color:#ef4444;">
+              🗑️ CLEAR ALL LOGS
+            </button>
+          </div>
         </div>
         <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">
-          Permanent driving history stored in <code>vehicle_data.db</code>. Records peak boost, top speed, and fuel economy.
+          Permanent Dodge Dart telemetry archive in <code>vehicle_data.db</code>. Tracks distance, speed, peak boost, RPM, MultiAir temps, economy, DTC incidents, and full-throttle pulls.
         </p>
+
+        <!-- Auto-Delete Retention Selector -->
+        <div style="display:flex; align-items:center; justify-content:space-between; background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+          <div style="font-size:11px; color:#fff; display:flex; align-items:center; gap:6px;">
+            <span>⏳</span> <strong>AUTO-DELETE TRIP RETENTION:</strong>
+          </div>
+          <select id="tripRetentionSelect" onchange="updateTripRetention(this.value)" class="slot-dropdown" style="width:auto; padding:5px 10px; font-size:11px;">
+            <option value="0">Never (Keep All Trips Forever)</option>
+            <option value="7">Auto-Delete After 7 Days</option>
+            <option value="14">Auto-Delete After 14 Days</option>
+            <option value="30">Auto-Delete After 30 Days</option>
+            <option value="60">Auto-Delete After 60 Days</option>
+            <option value="90">Auto-Delete After 90 Days</option>
+          </select>
+        </div>
+
+        <!-- Comprehensive Lifetime Telemetry Stats (8 metrics) -->
         <div id="tripLifetimeStats" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:14px;">
           <!-- Lifetime stats cards -->
         </div>
-        <div id="recentTripsTableContainer" style="max-height:160px; overflow-y:auto;">
+
+        <!-- Scrollable High-Res Trips Table -->
+        <div id="recentTripsTableContainer" style="max-height:220px; overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;">
           <!-- Recent trips rows -->
         </div>
       </div>
@@ -1649,6 +1673,22 @@
   <!-- HARDWARE / SCREEN BRIGHTNESS OVERLAY -->
   <div id="screenBrightnessOverlay" class="screen-brightness-overlay"></div>
 
+  <!-- CLEAR TRIP LOGS CONFIRMATION MODAL -->
+  <div class="config-modal-overlay" id="confirmClearTripsModal" style="display:none;" onclick="if(event.target === this) closeClearTripsModal()">
+    <div class="config-modal-content" style="max-width:440px; width:90%; padding:22px; text-align:center; border:2px solid #ef4444; box-shadow:0 0 25px rgba(239,68,68,0.4);">
+      <div style="font-size:40px; margin-bottom:10px;">⚠️</div>
+      <div style="font-size:16px; font-weight:900; color:#ef4444; margin-bottom:8px; letter-spacing:0.5px;">DELETE ALL VEHICLE TRIP LOGS?</div>
+      <p style="font-size:12px; color:var(--text-secondary); line-height:1.5; margin-bottom:18px;">
+        Are you sure you want to permanently delete all trip sessions, mileage records, and high-resolution sensor logs from <code>vehicle_data.db</code>?<br><br>
+        <strong style="color:#fff;">This action cannot be undone.</strong>
+      </p>
+      <div style="display:flex; justify-content:center; gap:12px;">
+        <button class="cluster-action-btn" onclick="closeClearTripsModal()" style="font-size:11px; padding:10px 22px;">CANCEL</button>
+        <button class="cluster-action-btn" onclick="executeClearTripLogs()" style="background:#ef4444; border-color:#ef4444; color:#fff; font-size:11px; padding:10px 22px; font-weight:900;">YES, CLEAR ALL LOGS</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ANIMATIONS & POSES DRAWER MODAL -->
   <div class="config-modal-overlay" id="animationsDrawerModal" onclick="if(event.target === this) closeAnimationsDrawer()">
     <div class="config-modal-content" style="max-width:680px; width:92%; max-height:85vh; display:flex; flex-direction:column; overflow:hidden;">
@@ -1673,7 +1713,7 @@
       </div>
 
       <!-- Animation Buttons Grid -->
-      <div class="anim-grid" id="animGridContainer" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(130px, 1fr)); gap:10px; padding:16px; overflow-y:auto; flex:1;">
+      <div class="anim-grid" id="animGridContainer" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(130px, 1fr)); gap:10px; padding:16px; overflow-y:auto; flex:1; min-height:0; max-height:calc(85vh - 120px); -webkit-overflow-scrolling:touch; touch-action:pan-y;">
         <!-- Poses -->
         <button class="anim-card-btn" data-cat="poses" onclick="triggerDrawerAnim('bend_over')"><span class="anim-card-emoji">🎀</span><span class="anim-card-name">Lean In</span><span class="anim-card-type">VRMA</span></button>
         <button class="anim-card-btn" data-cat="poses" onclick="triggerDrawerAnim('peace')"><span class="anim-card-emoji">✌️</span><span class="anim-card-name">Peace Sign</span><span class="anim-card-type">VRMA</span></button>

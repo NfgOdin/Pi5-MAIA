@@ -137,7 +137,8 @@ body {
   flex: 1;
   position: relative;
   overflow: hidden;
-  height: calc(100vh - 98px);
+  height: calc(100vh - 102px);
+  min-height: 0;
 }
 
 .screen-view {
@@ -152,7 +153,6 @@ body {
   touch-action: pan-y !important;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
-  scroll-behavior: smooth;
   pointer-events: none !important;
   visibility: hidden !important;
 }
@@ -983,7 +983,8 @@ body {
   overflow-x: hidden !important;
   touch-action: pan-y !important;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: 50px;
+  overscroll-behavior-y: contain;
+  padding-bottom: 90px !important;
 }
 
 #screenSettings.active {
@@ -2584,7 +2585,34 @@ body {
 /* ==========================================================================
    ANIMATIONS & POSES DRAWER STYLING
    ========================================================================== */
+#animGridContainer {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y !important;
+  overscroll-behavior-y: contain;
+  min-height: 0;
+  max-height: calc(85vh - 120px);
+}
+
+#animGridContainer::-webkit-scrollbar {
+  width: 8px;
+}
+
+#animGridContainer::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+}
+
+#animGridContainer::-webkit-scrollbar-thumb {
+  background: var(--accent-purple, #a855f7);
+  border-radius: 4px;
+}
+
 .anim-card-btn {
+  touch-action: pan-y !important;
+  user-select: none;
+  -webkit-user-select: none;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 12px;

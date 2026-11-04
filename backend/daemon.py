@@ -994,6 +994,15 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(stats).encode("utf-8"))
             return
 
+        elif parsed.path == "/api/trips/retention":
+            res = {"retention_days": state.trip_logger.retention_days}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
         elif parsed.path == "/api/media/playlist":
             tracks = get_media_playlist()
             self.send_response(200)
@@ -1638,6 +1647,35 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
                 self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/trips/clear":
+            success = state.trip_logger.clear_all_trips()
+            self.send_response(200 if success else 500)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok" if success else "error", "message": "All trip logs cleared"}).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/trips/delete":
+            trip_id = req_data.get("id")
+            success = state.trip_logger.delete_trip(int(trip_id)) if trip_id else False
+            self.send_response(200 if success else 400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok" if success else "error"}).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/trips/retention":
+            days = req_data.get("retention_days", 0)
+            saved_days = state.trip_logger.set_retention_days(int(days))
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "retention_days": saved_days}).encode("utf-8"))
             return
 
         elif parsed.path == "/api/games/launch_retroarch":

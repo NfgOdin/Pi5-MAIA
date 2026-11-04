@@ -87,7 +87,7 @@ window.addEventListener('touchmove', (e) => {
     const dy = Math.abs(e.touches[0].clientY - touchStartY);
     const dx = Math.abs(e.touches[0].clientX - touchStartX);
     touchScrollDistance = Math.max(touchScrollDistance, Math.hypot(dx, dy));
-    if (touchScrollDistance > 8) {
+    if (touchScrollDistance > 20) {
       isTouchScrolling = true;
     }
   }
@@ -102,7 +102,7 @@ window.addEventListener('touchend', () => {
 
 // Prevent accidental clicks on accordion headers/buttons if user was dragging to scroll!
 window.addEventListener('click', (e) => {
-  if (isTouchScrolling || touchScrollDistance > 8) {
+  if (isTouchScrolling || touchScrollDistance > 20) {
     e.stopPropagation();
     e.preventDefault();
   }
@@ -710,14 +710,20 @@ function connectTelemetryStream() {
       renderHistoryGraph(activeGraphSensor);
     }
 
-    // Real-Time Hardware Speech Lip-Sync synchronization
+    // Real-Time Hardware Speech Lip-Sync synchronization & Shotgun Auto-Popup
     if (typeof data.is_speaking === 'boolean') {
+      const wasSpeaking = isHardwareSpeaking;
       isWaifuSpeaking = data.is_speaking;
       isHardwareSpeaking = data.is_speaking;
       const stage = document.getElementById('waifuStage');
       if (stage) {
         if (isWaifuSpeaking) stage.classList.add('speaking');
         else stage.classList.remove('speaking');
+      }
+      if (data.is_speaking && currentScreen !== 'ai') {
+        handleSpeechAutoShotgun(null, 4500);
+      } else if (wasSpeaking && !data.is_speaking) {
+        scheduleShotgunAutoDismiss(2800);
       }
     }
 
@@ -1674,8 +1680,48 @@ function showAiSpeechToast(speech) {
   }
 }
 
+// --- AUTO-SHOTGUN FLOATING HUD ON SPEECH ---
+let isShotgunAutoPopped = false;
+let shotgunAutoDismissTimer = null;
+
+function handleSpeechAutoShotgun(text, durationMs) {
+  if (currentScreen === 'ai') return;
+  const floatingHud = document.getElementById('vrmFloatingHud');
+  if (!floatingHud) return;
+
+  if (shotgunAutoDismissTimer) {
+    clearTimeout(shotgunAutoDismissTimer);
+    shotgunAutoDismissTimer = null;
+  }
+
+  if (!isCompanionFloating) {
+    popOutFloatingCompanion(true);
+    isShotgunAutoPopped = true;
+  }
+
+  if (text) {
+    showVrmSpeech(text, durationMs || 5000);
+  }
+}
+
+function scheduleShotgunAutoDismiss(delayMs = 2800) {
+  if (!isShotgunAutoPopped || currentScreen === 'ai') return;
+  if (shotgunAutoDismissTimer) clearTimeout(shotgunAutoDismissTimer);
+  shotgunAutoDismissTimer = setTimeout(() => {
+    if (isShotgunAutoPopped && !isHardwareSpeaking && currentScreen !== 'ai') {
+      dockCompanionToAi();
+      isShotgunAutoPopped = false;
+    }
+    shotgunAutoDismissTimer = null;
+  }, delayMs);
+}
+
 function speakUtterance(text, emotion) {
   if (!text || currentVoiceMode === "MUTED") return;
+
+  if (currentScreen !== 'ai') {
+    handleSpeechAutoShotgun(text, Math.max(2200, (text.length / 9.5) * 1000 + 400));
+  }
 
   if (emotion) {
     setWaifuEmotion(emotion);
@@ -1696,6 +1742,7 @@ function speakUtterance(text, emotion) {
       if (stage) stage.classList.remove('speaking');
       setWaifuEmotion("DEVOTED");
       isWaifuSpeaking = false;
+      scheduleShotgunAutoDismiss(2500);
     }, estimatedDurationMs);
   }
 
@@ -2001,6 +2048,11 @@ function handleSpokenTranscript(text, isFromMic = true) {
 }
 
 // --- ANIMATIONS & POSES DRAWER CONTROLS ---
+
+function openAnimationsDrawer() {
+  const m = document.getElementById('animationsDrawerModal');
+  if (m) m.style.display = 'flex';
+}
 
 function toggleAnimationsDrawer() {
   const m = document.getElementById('animationsDrawerModal');
@@ -3985,70 +4037,173 @@ function fetchGpioPins() {
     .catch(err => console.warn("[GPIO] Pins fetch error:", err));
 }
 
-// 5. SQLite Persistent Trip Logs
+// 5. SQLite Persistent Trip Logs & Driving Diagnostics
 function fetchTripLogs() {
   Promise.all([
-    fetch('/api/trips/stats').then(r => r.json()),
-    fetch('/api/trips/recent').then(r => r.json())
+    fetch('/api/trips/stats').then(r => r.json()).catch(() => ({})),
+    fetch('/api/trips/recent').then(r => r.json()).catch(() => []),
+    fetch('/api/trips/retention').then(r => r.json()).catch(() => ({ retention_days: 0 }))
   ])
-  .then(([stats, trips]) => {
+  .then(([stats, trips, retention]) => {
+    // 1. Retention dropdown synchronization
+    const retentionSelect = document.getElementById('tripRetentionSelect');
+    if (retentionSelect && retention && retention.retention_days !== undefined) {
+      retentionSelect.value = String(retention.retention_days);
+    }
+
+    // 2. Lifetime Telemetry Stats Cards (8 metrics)
     const statsContainer = document.getElementById('tripLifetimeStats');
     if (statsContainer) {
       statsContainer.innerHTML = `
         <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
           <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">TOTAL DRIVES</div>
-          <div style="font-size:16px; font-weight:900; color:#fff;">${stats.total_trips || 1}</div>
+          <div style="font-size:16px; font-weight:900; color:#fff;">${stats.total_trips || 0}</div>
+        </div>
+        <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
+          <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">TOTAL MILES</div>
+          <div style="font-size:16px; font-weight:900; color:var(--accent-blue);">${stats.total_distance_miles || 0} MI</div>
+        </div>
+        <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
+          <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">TOTAL DRIVE TIME</div>
+          <div style="font-size:16px; font-weight:900; color:#fff;">${stats.total_drive_hours || 0} HRS</div>
         </div>
         <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
           <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">PEAK BOOST EVER</div>
-          <div style="font-size:16px; font-weight:900; color:var(--accent-green);">+${stats.peak_boost_ever} PSI</div>
+          <div style="font-size:16px; font-weight:900; color:var(--accent-green);">+${stats.peak_boost_ever || 0} PSI</div>
         </div>
         <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
           <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">TOP SPEED</div>
-          <div style="font-size:16px; font-weight:900; color:var(--accent-blue);">${stats.top_speed_ever} MPH</div>
+          <div style="font-size:16px; font-weight:900; color:var(--accent-blue);">${stats.top_speed_ever || 0} MPH</div>
+        </div>
+        <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
+          <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">MAX RPM EVER</div>
+          <div style="font-size:16px; font-weight:900; color:var(--accent-red);">${stats.max_rpm_ever || 0} RPM</div>
         </div>
         <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
           <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">LIFETIME AVG MPG</div>
-          <div style="font-size:16px; font-weight:900; color:var(--accent-yellow);">${stats.lifetime_avg_mpg} MPG</div>
+          <div style="font-size:16px; font-weight:900; color:var(--accent-yellow);">${stats.lifetime_avg_mpg || 0} MPG</div>
+        </div>
+        <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
+          <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">BOOST PULLS</div>
+          <div style="font-size:16px; font-weight:900; color:var(--accent-purple);">${stats.total_boost_pulls || 0} PULLS</div>
         </div>
       `;
     }
 
+    // 3. High-Resolution Recent Trips Table
     const tableContainer = document.getElementById('recentTripsTableContainer');
     if (tableContainer) {
       const validTrips = Array.isArray(trips) ? trips : ((trips && trips.trips) || []);
       if (validTrips.length === 0) {
-        tableContainer.innerHTML = '<div style="color:var(--text-secondary); font-size:11px; padding:8px;">No trip history recorded yet.</div>';
+        tableContainer.innerHTML = '<div style="color:var(--text-secondary); font-size:11px; padding:12px; text-align:center;">No trip history recorded in vehicle_data.db yet. Go for a drive to begin logging!</div>';
         return;
       }
 
       tableContainer.innerHTML = `
-        <table style="width:100%; border-collapse:collapse; font-size:11px; text-align:left;">
+        <table style="width:100%; border-collapse:collapse; font-size:11px; text-align:left; white-space:nowrap;">
           <thead>
-            <tr style="border-bottom:1px solid #212b38; color:var(--text-secondary);">
-              <th style="padding:6px;">DATE / TIME</th>
-              <th style="padding:6px;">DURATION</th>
-              <th style="padding:6px;">MAX BOOST</th>
-              <th style="padding:6px;">MAX SPEED</th>
-              <th style="padding:6px;">AVG MPG</th>
+            <tr style="border-bottom:1px solid #212b38; color:var(--text-secondary); background:rgba(0,0,0,0.3);">
+              <th style="padding:6px 8px;">DATE / TIME</th>
+              <th style="padding:6px 8px;">DURATION & DIST</th>
+              <th style="padding:6px 8px;">MAX BOOST</th>
+              <th style="padding:6px 8px;">SPEED</th>
+              <th style="padding:6px 8px;">MAX RPM</th>
+              <th style="padding:6px 8px;">MULTIAIR TEMPS</th>
+              <th style="padding:6px 8px;">AVG MPG & FUEL</th>
+              <th style="padding:6px 8px;">DTC FAULTS</th>
+              <th style="padding:6px 8px; text-align:center;">DEL</th>
             </tr>
           </thead>
           <tbody>
-            ${validTrips.map(t => `
-              <tr style="border-bottom:1px solid #141b24;">
-                <td style="padding:6px; color:#fff;">${t.start_time}</td>
-                <td style="padding:6px; color:var(--text-secondary);">${t.duration_min || 1} min</td>
-                <td style="padding:6px; color:var(--accent-green); font-weight:700;">+${t.max_boost_psi} PSI</td>
-                <td style="padding:6px; color:var(--accent-blue); font-weight:700;">${t.max_speed_mph} MPH</td>
-                <td style="padding:6px; color:var(--accent-yellow);">${t.avg_mpg} MPG</td>
-              </tr>
-            `).join('')}
+            ${validTrips.map(t => {
+              const dtcBadge = (t.dtc_count > 0) 
+                ? `<span style="background:rgba(239,68,68,0.25); color:#ef4444; border:1px solid #ef4444; padding:1px 6px; border-radius:4px; font-weight:800;">${t.dtc_count} DTC</span>`
+                : `<span style="color:var(--accent-green); font-weight:700;">✓ Clean</span>`;
+              return `
+                <tr style="border-bottom:1px solid #141b24;">
+                  <td style="padding:6px 8px; color:#fff; font-weight:700;">${t.start_time}</td>
+                  <td style="padding:6px 8px; color:var(--text-secondary);">${t.duration_min || 0} min <span style="color:#fff;">(${t.distance_miles || 0} mi)</span></td>
+                  <td style="padding:6px 8px; color:var(--accent-green); font-weight:800;">+${t.max_boost_psi || 0} PSI</td>
+                  <td style="padding:6px 8px; color:var(--accent-blue); font-weight:800;">${t.max_speed_mph || 0} MPH <span style="font-size:9px; color:var(--text-secondary);">avg ${t.avg_speed_mph || 0}</span></td>
+                  <td style="padding:6px 8px; color:var(--accent-red); font-weight:700;">${t.max_rpm || 0} RPM</td>
+                  <td style="padding:6px 8px; color:var(--text-secondary);">${t.peak_coolant_f ? t.peak_coolant_f + '°F' : '--'} / ${t.peak_iat_f ? t.peak_iat_f + '°F' : '--'}</td>
+                  <td style="padding:6px 8px; color:var(--accent-yellow); font-weight:700;">${t.avg_mpg || 0} MPG <span style="font-size:9px; color:var(--text-secondary);">(${t.fuel_used_gal || 0} gal)</span></td>
+                  <td style="padding:6px 8px;">${dtcBadge}</td>
+                  <td style="padding:6px 8px; text-align:center;">
+                    <button onclick="deleteSingleTrip(${t.id})" style="background:transparent; border:none; color:var(--text-secondary); cursor:pointer; font-size:12px; padding:2px 6px;" title="Delete this trip">🗑️</button>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
           </tbody>
         </table>
       `;
     }
   })
   .catch(err => console.warn("[TRIP] Fetch error:", err));
+}
+
+function promptClearTripLogs() {
+  const m = document.getElementById('confirmClearTripsModal');
+  if (m) m.style.display = 'flex';
+}
+
+function closeClearTripsModal() {
+  const m = document.getElementById('confirmClearTripsModal');
+  if (m) m.style.display = 'none';
+}
+
+function executeClearTripLogs() {
+  closeClearTripsModal();
+  fetch('/api/trips/clear', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({})
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.status === 'ok') {
+      showAiSpeechToast("All trip logs and sensor data cleared successfully.");
+      fetchTripLogs();
+    } else {
+      showAiSpeechToast("Failed to clear trip logs: " + (data.message || 'Error'));
+    }
+  })
+  .catch(err => {
+    console.error("[TRIP] Clear error:", err);
+    showAiSpeechToast("Error clearing trip logs.");
+  });
+}
+
+function updateTripRetention(days) {
+  fetch('/api/trips/retention', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ retention_days: parseInt(days) })
+  })
+  .then(r => r.json())
+  .then(data => {
+    const d = data.retention_days;
+    showAiSpeechToast(d > 0 ? `Trip logs older than ${d} days will be automatically deleted.` : "Trip auto-deletion disabled (logs kept forever).");
+    fetchTripLogs();
+  })
+  .catch(err => console.warn("[TRIP] Retention error:", err));
+}
+
+function deleteSingleTrip(tripId) {
+  if (!tripId) return;
+  fetch('/api/trips/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: tripId })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.status === 'ok') {
+      fetchTripLogs();
+    }
+  })
+  .catch(err => console.warn("[TRIP] Delete trip error:", err));
 }
 
 // Hook into initial page startup
@@ -4061,7 +4216,7 @@ fetchTripLogs();
 
 // Enhanced Universal Kinetic Touch Drag-to-Scroll for Touchscreens
 function initTouchScrollEngine() {
-  const scrollTargets = document.querySelectorAll('.screen-view, #screenSettings, #screenHome, #screenMedia, #screenGames, .explorer-body, .ai-chat-messages');
+  const scrollTargets = document.querySelectorAll('.screen-view, #screenSettings, #screenHome, #screenMedia, #screenGames, .explorer-body, .ai-chat-messages, #animGridContainer');
   scrollTargets.forEach(el => {
     let isDown = false;
     let startY = 0;
@@ -6253,15 +6408,22 @@ function updateCameraDirector(delta, isSpeaking, isReacting) {
   const portraitDist = isCompanionFloating ? 1.05 : 1.15;
 
   const isDoingAction = (Date.now() < vrmActionEndTime);
-  if (vrmFramingMode === 'ROOM') {
-    targetCamPos.set(2.8, vrmBaseY + 1.9, 3.8);
-    targetLookAt.set(0.2, vrmBaseY + 0.8, -0.3);
+  if (isCompanionFloating) {
+    // Shotgun HUD: close-up on Rum's expressive face
+    targetCamPos.set(0.65, headY + 0.05, 1.35);
+    targetLookAt.set(0.0, headY, 0.0);
+  } else if (vrmFramingMode === 'ROOM') {
+    // Room View: wide diorama view of Rum, Yoshi plush, table, plant, and sunlit window
+    targetCamPos.set(2.4, vrmBaseY + 1.45, 3.2);
+    targetLookAt.set(0.1, vrmBaseY + 0.60, -0.1);
   } else if (!isDoingAction && (vrmFramingMode === 'PORTRAIT' || (vrmFramingMode === 'AUTO' && (isSpeaking || isReacting)))) {
-    targetCamPos.set(0, headY, portraitDist);
-    targetLookAt.set(0, headY, 0);
+    // Portrait / Speaking Zoom: close-up on Rum's face and upper body
+    targetCamPos.set(0.70, headY + 0.05, 1.45);
+    targetLookAt.set(0.0, headY, 0.0);
   } else {
-    targetCamPos.set(0, 0.02, fullBodyDist);
-    targetLookAt.set(0, 0.0, 0);
+    // Full Body: unobstructed full-body view of Rum and Yoshi framed cleanly with cozy room background
+    targetCamPos.set(1.25, vrmBaseY + 1.15, 2.95);
+    targetLookAt.set(0.0, vrmBaseY + 0.65, 0.0);
   }
 
   const lerpFactor = Math.min(1.0, delta * 4.2);
@@ -6303,7 +6465,8 @@ function loadRumVrmModel(modelName = 'Rum.vrm') {
       const rawBox = new THREE.Box3().setFromObject(vrmModel);
       const rawSize = rawBox.getSize(new THREE.Vector3());
       const isPetiteModel = /rum|rem/i.test(modelName) || rawSize.y < 1.56;
-      const targetScale = isPetiteModel ? 0.85 : Math.min(0.95, 1.42 / Math.max(1.0, rawSize.y));
+      // Beautiful proportion: scale Rum up to 1.18x so she fills the frame nicely with the room
+      const targetScale = isPetiteModel ? 1.18 : Math.min(1.25, 1.42 / Math.max(1.0, rawSize.y));
       vrmModel.scale.set(targetScale, targetScale, targetScale);
       vrmModel.updateMatrixWorld(true);
 
@@ -6426,7 +6589,7 @@ function showVrmSpeech(text, durationMs = 5000) {
 }
 
 // Floating Shotgun Companion Mode (Rum Riding Shotgun Anywhere on Screen)
-function popOutFloatingCompanion() {
+function popOutFloatingCompanion(isAuto = false) {
   const canvas = document.getElementById('vrmCanvas');
   const floatingBody = document.getElementById('vrmFloatingBody');
   const floatingHud = document.getElementById('vrmFloatingHud');
@@ -6435,16 +6598,24 @@ function popOutFloatingCompanion() {
   floatingHud.style.display = 'flex';
   floatingBody.appendChild(canvas);
   isCompanionFloating = true;
+  isShotgunAutoPopped = !!isAuto;
 
   resizeVrmToStage();
-  triggerVrmReaction();
-  showVrmSpeech("Master! Rum is riding shotgun with you across all screens!", 4500);
+  if (!isAuto) {
+    triggerVrmReaction();
+    showVrmSpeech("Master! Rum is riding shotgun with you across all screens!", 4500);
+  }
 }
 
 function dockCompanionToAi() {
   const canvas = document.getElementById('vrmCanvas');
   const stageContainer = document.getElementById('vrmStageContainer');
   const floatingHud = document.getElementById('vrmFloatingHud');
+  if (shotgunAutoDismissTimer) {
+    clearTimeout(shotgunAutoDismissTimer);
+    shotgunAutoDismissTimer = null;
+  }
+  isShotgunAutoPopped = false;
   if (!canvas || !stageContainer || !floatingHud) return;
 
   floatingHud.style.display = 'none';
@@ -6455,6 +6626,7 @@ function dockCompanionToAi() {
 }
 
 function dismissFloatingHud() {
+  isShotgunAutoPopped = false;
   dockCompanionToAi();
 }
 
@@ -6554,14 +6726,29 @@ function loadBedroomEnvironment() {
       // Center the bedroom around origin and align room floor directly under Rum's feet (vrmBaseY = -0.68)
       bedroomModel.position.set(-center.x, vrmBaseY - box.min.y, -center.z);
 
+      // Cutaway / Invisible outer walls & ceiling so camera has zero obstruction in all views
+      const hideMeshNames = [
+        'BackSide', 'FrontSide_0', 'FrontSide_84', 'FrontSide_52', 'FrontSide_17',
+        'FrontSide_19', 'FrontSide_36', 'FrontSide_54', 'FrontSide_58', 'FrontSide_62',
+        'FrontSide_82', 'FrontSide_12', 'FrontSide_11', 'FrontSide_75', 'FrontSide_76',
+        'FrontSide_73', 'FrontSide_81', 'FrontSide_56', 'FrontSide_4', 'FrontSide_15'
+      ];
       bedroomModel.traverse((node) => {
         if (node.isMesh) {
-          node.castShadow = true;
-          node.receiveShadow = true;
-          node.frustumCulled = false;
-          if (node.material) {
-            node.material.side = THREE.DoubleSide;
-            node.material.depthWrite = true;
+          for (const h of hideMeshNames) {
+            if (node.name.includes(h) || (node.material && node.material.name.includes(h))) {
+              node.visible = false;
+              break;
+            }
+          }
+          if (node.visible) {
+            node.castShadow = true;
+            node.receiveShadow = true;
+            node.frustumCulled = false;
+            if (node.material) {
+              node.material.side = THREE.DoubleSide;
+              node.material.depthWrite = true;
+            }
           }
         }
       });
@@ -6597,10 +6784,10 @@ function loadYoshiPlushProp() {
     yoshiUrl,
     (gltf) => {
       yoshiModel = gltf.scene;
-      // 1:1 plush scale (~28cm tall)
-      yoshiModel.scale.set(0.95, 0.95, 0.95);
-      // Place Yoshi resting cutely on the rug next to Rum
-      yoshiModel.position.set(0.42, vrmBaseY + 0.14, 0.20);
+      // Scale Yoshi up proportionally (1.35x) so he looks like a huggable plushie beside Rum
+      yoshiModel.scale.set(1.35, 1.35, 1.35);
+      // Place Yoshi resting cutely on the rug right next to Rum
+      yoshiModel.position.set(0.48, vrmBaseY + 0.16, 0.22);
       yoshiModel.rotation.set(0, -0.4, 0);
 
       yoshiModel.traverse((node) => {
