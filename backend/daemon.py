@@ -285,7 +285,8 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                     payload = {
                         "telemetry": frame_dict,
                         "ai_event": ai_dict if ai_dict != last_ai_id else None,
-                        "action": action_to_send
+                        "action": action_to_send,
+                        "is_speaking": getattr(state.audio, "is_speaking", False)
                     }
                     if ai_dict:
                         last_ai_id = ai_dict

@@ -24,9 +24,9 @@ class WifiManager:
             "always_on": True,
             "saved_networks": [
                 {
-                    "ssid": "Driver Phone Hotspot",
+                    "ssid": "NfgHotspot",
                     "auto_connect": True,
-                    "last_connected": "Auto-Configured",
+                    "last_connected": "Primary Phone Hotspot",
                     "security": "WPA2-Personal"
                 }
             ]

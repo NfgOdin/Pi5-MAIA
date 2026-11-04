@@ -676,6 +676,16 @@ function connectTelemetryStream() {
       renderHistoryGraph(activeGraphSensor);
     }
 
+    // Real-Time Hardware Speech Lip-Sync synchronization
+    if (typeof data.is_speaking === 'boolean') {
+      isWaifuSpeaking = data.is_speaking;
+      const stage = document.getElementById('waifuStage');
+      if (stage) {
+        if (isWaifuSpeaking) stage.classList.add('speaking');
+        else stage.classList.remove('speaking');
+      }
+    }
+
     // 9. AI Voice Toast Banner & Real-Time Event Log
     if (data.ai_event) {
       appendSpeechLogItem(data.ai_event);
@@ -684,8 +694,6 @@ function connectTelemetryStream() {
       }
       if (currentVoiceMode !== "MUTED" && data.ai_event.speech) {
         showAiSpeechToast(data.ai_event.speech);
-        isWaifuSpeaking = true;
-        waifuSpeechEndTime = Date.now() + Math.max(1600, (data.ai_event.speech.length / 13) * 1000);
       }
     }
   };
@@ -1645,17 +1653,20 @@ function speakUtterance(text, emotion) {
     setWaifuEmotion(emotion);
   }
 
-  // 1. Activate Animated Waifu Mouth & Emotion Pill
-  isWaifuSpeaking = true;
-  const estimatedDurationMs = Math.max(1600, (text.length / 13) * 1000);
+  // Fallback timer only if SSE stream is disconnected
+  const estimatedDurationMs = Math.max(2200, (text.length / 9.5) * 1000 + 300);
   waifuSpeechEndTime = Date.now() + estimatedDurationMs;
   const stage = document.getElementById('waifuStage');
-  if (stage) stage.classList.add('speaking');
 
-  setTimeout(() => {
-    if (stage) stage.classList.remove('speaking');
-    setWaifuEmotion("DEVOTED");
-  }, estimatedDurationMs);
+  if (!eventSource || eventSource.readyState !== 1) {
+    isWaifuSpeaking = true;
+    if (stage) stage.classList.add('speaking');
+    setTimeout(() => {
+      if (stage) stage.classList.remove('speaking');
+      setWaifuEmotion("DEVOTED");
+      isWaifuSpeaking = false;
+    }, estimatedDurationMs);
+  }
 
   // Avatar CSS voice pulse
   const avatarEls = [
@@ -3802,7 +3813,7 @@ function initWaifuTalkingHead() {
     // Clear with 100% transparency - floating borderless bust
     ctx.clearRect(0, 0, w, h);
 
-    if (now > waifuSpeechEndTime) {
+    if (now > waifuSpeechEndTime && (!eventSource || eventSource.readyState !== 1)) {
       isWaifuSpeaking = false;
       const stage = document.getElementById('waifuStage');
       if (stage) stage.classList.remove('speaking');

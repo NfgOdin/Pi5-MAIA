@@ -1,4 +1,11 @@
 {
   "always_on": true,
-  "saved_networks": []
+  "saved_networks": [
+    {
+      "ssid": "NfgHotspot",
+      "auto_connect": true,
+      "last_connected": "Primary Phone Hotspot",
+      "security": "WPA2-Personal"
+    }
+  ]
 }

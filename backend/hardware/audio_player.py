@@ -37,6 +37,7 @@ class AudioPlayer:
         
         self.speech_queue = queue.Queue()
         self.is_playing = False
+        self.is_speaking = False
         self._piper_voice = None
         self._piper_loaded = False
         
@@ -140,7 +141,7 @@ class AudioPlayer:
                     params = r.getparams()
                     frames = r.readframes(params.nframes)
 
-                silent_count = int(params.framerate * 0.8)
+                silent_count = int(params.framerate * 0.12)
                 silence = b"\x00" * (silent_count * params.nchannels * params.sampwidth)
 
                 with wave.open(wav_path, "wb") as w:
@@ -149,8 +150,8 @@ class AudioPlayer:
             except Exception as ex:
                 print(f"[AUDIO] Prepend silence note: {ex}")
 
-            # Play the generated WAV file
-            self._play_file_direct(wav_path)
+            # Play the generated WAV file with exact speaking state tracking
+            self._play_file_direct(wav_path, lead_in_silence_sec=0.12)
 
         except Exception as e:
             print(f"[AUDIO] TTS synthesize failed: {e}")
@@ -161,39 +162,49 @@ class AudioPlayer:
                 except Exception:
                     pass
 
-    def _play_file_direct(self, file_path: str):
-        """Play WAV audio via aplay on HDMI 0 (or fallback to pw-play / aplay default)."""
+    def _play_file_direct(self, file_path: str, lead_in_silence_sec: float = 0.0):
+        """Play WAV audio via aplay on HDMI 0 (or fallback to pw-play / aplay default) with speaking state tracking."""
         if not os.path.exists(file_path):
             return
 
-        if sys.platform.startswith("linux"):
-            # Try 1: Direct ALSA HDMI 0
-            played = False
-            try:
-                res = subprocess.run(["aplay", "-D", "plughw:0,0", "-B", "100000", "-q", file_path], capture_output=True, timeout=15)
-                if res.returncode == 0:
-                    played = True
-            except Exception:
-                pass
+        def mark_speaking():
+            if lead_in_silence_sec > 0:
+                time.sleep(lead_in_silence_sec)
+            self.is_speaking = True
 
-            # Try 2: PipeWire pw-play
-            if not played:
+        threading.Thread(target=mark_speaking, daemon=True).start()
+
+        try:
+            if sys.platform.startswith("linux"):
+                # Try 1: Direct ALSA HDMI 0
+                played = False
                 try:
-                    res = subprocess.run(["pw-play", file_path], capture_output=True, timeout=15)
+                    res = subprocess.run(["aplay", "-D", "plughw:0,0", "-B", "100000", "-q", file_path], capture_output=True, timeout=25)
                     if res.returncode == 0:
                         played = True
                 except Exception:
                     pass
 
-            # Try 3: Default ALSA
-            if not played:
+                # Try 2: PipeWire pw-play
+                if not played:
+                    try:
+                        res = subprocess.run(["pw-play", file_path], capture_output=True, timeout=25)
+                        if res.returncode == 0:
+                            played = True
+                    except Exception:
+                        pass
+
+                # Try 3: Default ALSA
+                if not played:
+                    try:
+                        subprocess.run(["aplay", "-B", "100000", "-q", file_path], capture_output=True, timeout=25)
+                    except Exception:
+                        pass
+            elif sys.platform == "win32":
                 try:
-                    subprocess.run(["aplay", "-B", "100000", "-q", file_path], capture_output=True, timeout=15)
+                    import winsound
+                    winsound.PlaySound(file_path, winsound.SND_FILENAME)
                 except Exception:
                     pass
-        elif sys.platform == "win32":
-            try:
-                import winsound
-                winsound.PlaySound(file_path, winsound.SND_FILENAME)
-            except Exception:
-                pass
+        finally:
+            self.is_speaking = False
