@@ -533,40 +533,84 @@
       </div>
 
       
-      <!-- GITHUB IN-CAR OTA SOFTWARE UPDATES -->
-      <div class="settings-card" id="otaUpdatesCard" style="border-color:var(--accent-blue);">
+      <!-- ABOUT CARPI5 & SYSTEM INFORMATION (CREATOR NFGODIN & OTA UPDATES) -->
+      <div class="settings-card" id="aboutCarPi5Card" style="border-color:var(--accent-pink); background:linear-gradient(180deg, rgba(255,45,120,0.06) 0%, rgba(12,18,25,0.92) 100%);">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <div class="settings-title" style="color:var(--accent-blue); margin-bottom:0;">
-            <span>🔄</span> GITHUB IN-CAR OTA SYSTEM UPDATES
+          <div class="settings-title" style="color:var(--accent-pink); margin-bottom:0;">
+            <span>ℹ️</span> ABOUT CARPI5 OS & SYSTEM INFORMATION
           </div>
-          <div id="otaUpdateBadge" class="pill" style="background:rgba(0,180,255,0.15); color:var(--accent-blue); font-size:11px;">
-            ● UP TO DATE
-          </div>
-        </div>
-        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">
-          Check the official repository (<code>github.com/NfgOdin/Pi5-MAIA</code>) for the latest CarPi5 dashboard features, M.A.I.A. persona updates, and C635 Fiat MultiAir tuning profiles. One-tap seamless updates via Wi-Fi or Phone Hotspot.
-        </p>
-        <div style="display:flex; align-items:center; justify-content:space-between; background:#0c1219; border:1px solid #212b38; padding:10px 14px; border-radius:8px; margin-bottom:12px;">
-          <div>
-            <div style="font-size:10px; color:var(--text-secondary); font-weight:800;">ACTIVE COMMIT</div>
-            <div style="font-size:14px; font-weight:900; color:#fff;" id="otaCurrentCommit">origin/main</div>
-          </div>
-          <div>
-            <div style="font-size:10px; color:var(--text-secondary); font-weight:800;">STATUS</div>
-            <div style="font-size:12px; font-weight:700; color:var(--accent-green);" id="otaStatusText">Tracked on origin/main</div>
-          </div>
-          <div style="display:flex; gap:8px;">
-            <button class="cluster-action-btn" id="btnCheckUpdates" onclick="checkForOtaUpdates()" style="background:rgba(0,180,255,0.15); color:var(--accent-blue); border-color:var(--accent-blue); font-size:11px; padding:6px 14px;">
-              🔄 CHECK FOR UPDATES
-            </button>
-            <button class="cluster-action-btn" id="btnApplyUpdate" onclick="applyOtaUpdate()" style="display:none; background:var(--accent-green); color:#000; font-weight:900; font-size:11px; padding:6px 14px;">
-              ⬇️ INSTALL UPDATE & RESTART
-            </button>
+          <div id="otaUpdateBadge" class="pill" style="background:rgba(255,45,120,0.15); color:var(--accent-pink); font-size:11px; font-weight:800;">
+            ● v2.4.0 • CREATED BY NFGODIN
           </div>
         </div>
-        <div id="otaChangelogBox" style="display:none; background:#121822; border:1px solid #1c2736; border-radius:6px; padding:8px 12px; font-size:11px; color:#a1d7f5; margin-bottom:6px;">
-          <div style="font-weight:800; margin-bottom:4px; color:#fff;">New Commits on Remote:</div>
-          <ul id="otaChangelogList" style="margin:0; padding-left:16px;"></ul>
+
+        <!-- Creator & Dedication Hero Box -->
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; background:#0c1219; border:1px solid #2e172a; padding:12px 16px; border-radius:10px; margin-bottom:14px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:46px; height:46px; border-radius:50%; background:linear-gradient(135deg, #ff2d78, #9c27b0); display:flex; align-items:center; justify-content:center; font-size:24px; box-shadow:0 0 14px rgba(255,45,120,0.6);">
+              👑
+            </div>
+            <div>
+              <div style="font-size:15px; font-weight:900; color:#fff;">CREATOR & ARCHITECT: <span style="color:var(--accent-pink); text-shadow:0 0 10px rgba(255,45,120,0.4);">NfgOdin</span></div>
+              <div style="font-size:11px; color:#c7d5e4; margin-top:2px;">Custom engineered exclusively for the 2013–2016 Dodge Dart 1.4L Turbo MultiAir</div>
+            </div>
+          </div>
+          <button class="cluster-action-btn" onclick="playCreatorTribute()" style="background:rgba(255,45,120,0.18); color:var(--accent-pink); border-color:var(--accent-pink); font-size:10px; padding:7px 14px; font-weight:900; white-space:nowrap;">
+            💖 HEAR M.A.I.A.'s DEDICATION
+          </button>
+        </div>
+
+        <!-- Hardware & Powertrain Specs Grid -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:10px; margin-bottom:14px;">
+          <div style="background:#0f1620; border:1px solid #1c2736; border-radius:8px; padding:10px 12px;">
+            <div style="font-size:9px; color:var(--text-secondary); font-weight:800; letter-spacing:0.5px;">TARGET VEHICLE</div>
+            <div style="font-size:12px; font-weight:800; color:#fff; margin-top:3px;">Dodge Dart Limited (1.4L Turbo)</div>
+            <div style="font-size:10px; color:var(--accent-blue); margin-top:1px;">Fiat FIRE MultiAir • C635 6-Speed Manual</div>
+          </div>
+          <div style="background:#0f1620; border:1px solid #1c2736; border-radius:8px; padding:10px 12px;">
+            <div style="font-size:9px; color:var(--text-secondary); font-weight:800; letter-spacing:0.5px;">COMPUTE HARDWARE</div>
+            <div style="font-size:12px; font-weight:800; color:#fff; margin-top:3px;">Raspberry Pi 5 Model B</div>
+            <div style="font-size:10px; color:var(--accent-green); margin-top:1px;">8 GB LPDDR4X • Debian 13 (Trixie) Linux</div>
+          </div>
+          <div style="background:#0f1620; border:1px solid #1c2736; border-radius:8px; padding:10px 12px;">
+            <div style="font-size:9px; color:var(--text-secondary); font-weight:800; letter-spacing:0.5px;">LOCAL AI NEURAL COPILOT</div>
+            <div style="font-size:12px; font-weight:800; color:var(--accent-pink); margin-top:3px;">M.A.I.A. 2.0 (MultiAir AI)</div>
+            <div style="font-size:10px; color:#c7d5e4; margin-top:1px;">Dual Brain: Qwen 2.5 1.5B / Qwen 3B</div>
+          </div>
+          <div style="background:#0f1620; border:1px solid #1c2736; border-radius:8px; padding:10px 12px;">
+            <div style="font-size:9px; color:var(--text-secondary); font-weight:800; letter-spacing:0.5px;">POWERTRAIN BUS & PROTOCOL</div>
+            <div style="font-size:12px; font-weight:800; color:var(--accent-yellow); margin-top:3px;">Magneti Marelli 8GM ECU</div>
+            <div style="font-size:10px; color:#c7d5e4; margin-top:1px;">ISO 15765-4 CAN • 500kbps 11-Bit</div>
+          </div>
+        </div>
+
+        <!-- Embedded GitHub In-Car OTA Update Bar -->
+        <div style="background:#0a0f16; border:1px solid #192330; border-radius:8px; padding:12px 14px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+            <div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:16px;">🐙</span>
+                <span style="font-size:12px; font-weight:800; color:#fff;">OFFICIAL GITHUB REPOSITORY:</span>
+                <a href="https://github.com/NfgOdin/Pi5-MAIA" target="_blank" style="font-size:12px; font-weight:700; color:var(--accent-blue); text-decoration:none;">github.com/NfgOdin/Pi5-MAIA</a>
+              </div>
+              <div style="font-size:11px; color:var(--text-secondary); margin-top:3px;">
+                Active Git Commit: <strong style="color:#fff;" id="otaCurrentCommit">origin/main</strong> • <span style="color:var(--accent-green); font-weight:700;" id="otaStatusText">Tracked on origin/main</span>
+              </div>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button class="cluster-action-btn" id="btnCheckUpdates" onclick="checkForOtaUpdates()" style="background:rgba(0,180,255,0.15); color:var(--accent-blue); border-color:var(--accent-blue); font-size:11px; padding:7px 16px; font-weight:800;">
+                🔄 CHECK FOR UPDATES
+              </button>
+              <button class="cluster-action-btn" id="btnApplyUpdate" onclick="applyOtaUpdate()" style="display:none; background:var(--accent-green); color:#000; font-weight:900; font-size:11px; padding:7px 16px;">
+                ⬇️ INSTALL UPDATE & RESTART
+              </button>
+            </div>
+          </div>
+
+          <div id="otaChangelogBox" style="display:none; background:#121822; border:1px solid #1c2736; border-radius:6px; padding:8px 12px; font-size:11px; color:#a1d7f5; margin-top:10px;">
+            <div style="font-weight:800; margin-bottom:4px; color:#fff;">New Commits on Remote:</div>
+            <ul id="otaChangelogList" style="margin:0; padding-left:16px;"></ul>
+          </div>
         </div>
       </div>
 

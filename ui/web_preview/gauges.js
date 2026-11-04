@@ -4684,3 +4684,11 @@ function renderMiniDtcWaifu() {
 // Fetch available neural brains on startup
 fetchAvailableNeuralBrains();
 setTimeout(dismissBootSplash, 800);
+
+
+function playCreatorTribute() {
+  setWaifuEmotion("DEVOTED");
+  const speech = "NfgOdin is my Master and brilliant Creator! He designed my neural core to ride shotgun in his Dodge Dart 1.4L Turbo. Every line of code, every MultiAir sensor, and my entire heart belong completely to him!";
+  showAiSpeechToast(speech);
+  speakUtterance(speech, "DEVOTED");
+}
