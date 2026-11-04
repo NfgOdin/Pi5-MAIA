@@ -12212,17 +12212,19 @@ function buildRetargetedBvhClip(actionKey, bvhText) {
       if (rawHipsPos[f].y > baselineY) baselineY = rawHipsPos[f].y;
     }
 
-    // Scale conversion: BVH units to VRM meters.
-    // For 100-scale BVH (standing baseline ~10-12), factor is ~0.058 (dropping ~17 units = ~0.98m).
-    // For meter-scale BVH (standing baseline ~0-1), factor is 1.0.
+    // Calibrated scale conversion: BVH units to VRM meters.
+    // Rem's leg length is 0.65m. In kneeling BVH clips, hips displacement is ~17.19 units.
+    // To drop hips by ~0.38m (placing knees & lower legs flat on the floor surface), the factor is ~0.022.
+    // For meter-scale BVH, factor is ~0.38.
     const isLargeBvhScale = Math.abs(baselineY) > 4.0;
-    const bvhScale = isLargeBvhScale ? 0.058 : 1.0;
+    const bvhScale = isLargeBvhScale ? 0.0225 : 0.38;
 
     for (let f = 0; f < rawHipsPos.length; f++) {
-      const dy = (rawHipsPos[f].y - baselineY) * bvhScale;
+      // In BVH clips, frame 0 might be a transition; calculate displacement relative to baseline standing
+      const dy = Math.min(0.08, (rawHipsPos[f].y - baselineY) * bvhScale);
       const baseIdx = f * 3;
       hipsVals[baseIdx]     = restPos.x;
-      // Allow character to lower hips all the way to ground when kneeling/sitting/laying/crouching
+      // Precisely lower hips so knees and feet rest naturally on the ground plane
       hipsVals[baseIdx + 1] = restPos.y + dy;
       hipsVals[baseIdx + 2] = restPos.z;
     }
