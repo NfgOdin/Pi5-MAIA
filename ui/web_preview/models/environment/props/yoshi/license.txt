@@ -1,0 +1,8 @@
+Model Information:
+* title:	Yoshi Attempt
+* source:	https://sketchfab.com/3d-models/yoshi-attempt-a7f8c951cd4647eeb1512c66a8c826a4
+* author:	yussiimae (https://sketchfab.com/yussiimae)
+
+Model License:
+* license type:	SKETCHFAB Standard (https://sketchfab.com/licenses)
+* requirements:	Under basic restrictions, use worldwide, on all types of media, commercially or not, and in all types of derivative works

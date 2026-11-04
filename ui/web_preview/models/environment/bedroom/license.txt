@@ -1,0 +1,8 @@
+Model Information:
+* title:	Hand painted bedroom
+* source:	https://sketchfab.com/3d-models/hand-painted-bedroom-d48cf489b5064a62ab8cb28c0f6c39bf
+* author:	katydid (https://sketchfab.com/Katydid.)
+
+Model License:
+* license type:	SKETCHFAB Standard (https://sketchfab.com/licenses)
+* requirements:	Under basic restrictions, use worldwide, on all types of media, commercially or not, and in all types of derivative works

@@ -5,8 +5,14 @@ __pycache__/
 scratch/
 _ref_sbc_core/
 *.tmp
-*.png
 *.bak
 models/*.gguf
 models/*.bin
 node_modules/
+
+# Allow model textures and 3D assets in ui/web_preview
+!ui/web_preview/models/**/*.png
+!ui/web_preview/models/**/*.jpg
+!ui/web_preview/models/**/*.jpeg
+!ui/web_preview/models/**/*.bin
+

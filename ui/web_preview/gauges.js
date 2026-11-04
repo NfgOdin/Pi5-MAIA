@@ -5129,6 +5129,13 @@ let vrmAllBones = [];
 let vrmSecondaryBones = [];
 let vrmInitialized = false;
 
+// 3D Environment (Cozy Bedroom, Yoshi Plush & Dynamic Lights)
+let bedroomModel = null;
+let yoshiModel = null;
+let roomLampLight = null;
+let roomCeilingLight = null;
+let isHoldingYoshi = false;
+
 // VRMA & BVH Motion Pack Mixer, Smooth Crossfading & Clips
 let vrmMixer = null;
 let vrmaClips = {};
@@ -6006,7 +6013,7 @@ function initVrmEngine() {
   vrmScene = new THREE.Scene();
   vrmClock = new THREE.Clock();
 
-  vrmCamera = new THREE.PerspectiveCamera(28, width / height, 0.1, 20.0);
+  vrmCamera = new THREE.PerspectiveCamera(28, width / height, 0.1, 60.0);
   currentLookAt = new THREE.Vector3(0, 0.0, 0);
   targetLookAt = new THREE.Vector3(0, 0.0, 0);
   targetCamPos = new THREE.Vector3(0, 0.02, 3.12);
@@ -6043,6 +6050,8 @@ function initVrmEngine() {
   initFloatingHudDraggable();
   initAvatarPokeRaycaster(canvas);
   loadRumVrmModel();
+  loadBedroomEnvironment();
+  loadYoshiPlushProp();
 
   function animateVrm() {
     requestAnimationFrame(animateVrm);
@@ -6230,7 +6239,10 @@ function updateCameraDirector(delta, isSpeaking, isReacting) {
   const portraitDist = isCompanionFloating ? 1.05 : 1.15;
 
   const isDoingAction = (Date.now() < vrmActionEndTime);
-  if (!isDoingAction && (vrmFramingMode === 'PORTRAIT' || (vrmFramingMode === 'AUTO' && (isSpeaking || isReacting)))) {
+  if (vrmFramingMode === 'ROOM') {
+    targetCamPos.set(2.8, vrmBaseY + 1.9, 3.8);
+    targetLookAt.set(0.2, vrmBaseY + 0.8, -0.3);
+  } else if (!isDoingAction && (vrmFramingMode === 'PORTRAIT' || (vrmFramingMode === 'AUTO' && (isSpeaking || isReacting)))) {
     targetCamPos.set(0, headY, portraitDist);
     targetLookAt.set(0, headY, 0);
   } else {
@@ -6351,16 +6363,18 @@ function updateFramingButtonLabel() {
   const hudBtn = document.getElementById('btnHudViewToggle');
   const labels = {
     'FULL_BODY': '🔍 FULL BODY',
+    'ROOM': '🏠 ROOM VIEW',
     'AUTO': '🤖 AUTO ZOOM',
     'PORTRAIT': '👤 PORTRAIT'
   };
   const label = labels[vrmFramingMode] || '🔍 FULL BODY';
   if (btn) btn.innerText = label;
-  if (hudBtn) hudBtn.innerText = (vrmFramingMode === 'PORTRAIT') ? '👤' : '🔍';
+  if (hudBtn) hudBtn.innerText = (vrmFramingMode === 'ROOM') ? '🏠' : ((vrmFramingMode === 'PORTRAIT') ? '👤' : '🔍');
 }
 
 function toggleVrmFraming() {
-  if (vrmFramingMode === 'FULL_BODY') vrmFramingMode = 'PORTRAIT';
+  if (vrmFramingMode === 'FULL_BODY') vrmFramingMode = 'ROOM';
+  else if (vrmFramingMode === 'ROOM') vrmFramingMode = 'PORTRAIT';
   else if (vrmFramingMode === 'PORTRAIT') vrmFramingMode = 'AUTO';
   else vrmFramingMode = 'FULL_BODY';
   updateFramingButtonLabel();
@@ -6508,3 +6522,160 @@ window.addEventListener('load', () => {
 window.addEventListener('resize', () => {
   if (typeof resizeVrmToStage === 'function') resizeVrmToStage();
 });
+
+
+function loadBedroomEnvironment() {
+  if (typeof THREE === 'undefined' || !vrmScene) return;
+  const loader = new THREE.GLTFLoader();
+  const roomUrl = 'models/environment/bedroom/scene.gltf';
+
+  loader.load(
+    roomUrl,
+    (gltf) => {
+      bedroomModel = gltf.scene;
+      const box = new THREE.Box3().setFromObject(bedroomModel);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+
+      // Center the bedroom around origin and align room floor directly under Rum's feet (vrmBaseY = -0.68)
+      bedroomModel.position.set(-center.x, vrmBaseY - box.min.y, -center.z);
+
+      bedroomModel.traverse((node) => {
+        if (node.isMesh) {
+          node.castShadow = true;
+          node.receiveShadow = true;
+          node.frustumCulled = false;
+          if (node.material) {
+            node.material.side = THREE.DoubleSide;
+            node.material.depthWrite = true;
+          }
+        }
+      });
+
+      vrmScene.add(bedroomModel);
+
+      // Dynamic Cozy Room Lights:
+      // 1. Bedside/Desk Lamp - Warm amber point light casting real dynamic illumination
+      roomLampLight = new THREE.PointLight(0xffb048, 2.2, 7.5, 1.4);
+      roomLampLight.position.set(2.4, vrmBaseY + 1.6, 0.8);
+      vrmScene.add(roomLampLight);
+
+      // 2. Ceiling Center Pendant Light - Soft warm fill
+      roomCeilingLight = new THREE.PointLight(0xffecd0, 1.2, 12.0, 1.2);
+      roomCeilingLight.position.set(0.0, vrmBaseY + 3.4, 0.0);
+      vrmScene.add(roomCeilingLight);
+
+      console.log('[Room] Hand-painted bedroom & dynamic lights loaded successfully!', { size, center });
+    },
+    (progress) => {},
+    (err) => {
+      console.warn('[Room] Bedroom model load note:', err);
+    }
+  );
+}
+
+function loadYoshiPlushProp() {
+  if (typeof THREE === 'undefined' || !vrmScene) return;
+  const loader = new THREE.GLTFLoader();
+  const yoshiUrl = 'models/environment/props/yoshi/scene.gltf';
+
+  loader.load(
+    yoshiUrl,
+    (gltf) => {
+      yoshiModel = gltf.scene;
+      // 1:1 plush scale (~28cm tall)
+      yoshiModel.scale.set(0.95, 0.95, 0.95);
+      // Place Yoshi resting cutely on the rug next to Rum
+      yoshiModel.position.set(0.42, vrmBaseY + 0.14, 0.20);
+      yoshiModel.rotation.set(0, -0.4, 0);
+
+      yoshiModel.traverse((node) => {
+        if (node.isMesh) {
+          node.castShadow = true;
+          node.receiveShadow = true;
+          node.frustumCulled = false;
+        }
+      });
+
+      vrmScene.add(yoshiModel);
+      console.log('[Yoshi] Yoshi plushie placed in room successfully!');
+    },
+    (progress) => {},
+    (err) => {
+      console.warn('[Yoshi] Yoshi model load note:', err);
+    }
+  );
+}
+
+function initAvatarPokeRaycaster(canvas) {
+  if (!canvas || !vrmCamera) return;
+  const raycaster = new THREE.Raycaster();
+  const mouse = new THREE.Vector2();
+
+  canvas.addEventListener('pointerdown', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, vrmCamera);
+
+    // 1. Check if user tapped Yoshi Plush
+    if (yoshiModel) {
+      const yoshiHits = raycaster.intersectObjects(yoshiModel.children, true);
+      if (yoshiHits.length > 0) {
+        triggerYoshiPlushInteraction();
+        return;
+      }
+    }
+
+    // 2. Check if user tapped Rum VRM
+    if (vrmModel) {
+      const hits = raycaster.intersectObjects(vrmModel.children, true);
+      if (hits.length > 0) {
+        const hitPoint = hits[0].point;
+        const box = new THREE.Box3().setFromObject(vrmModel);
+        const relY = (hitPoint.y - box.min.y) / Math.max(0.1, box.max.y - box.min.y);
+        triggerAvatarPokeReaction(relY);
+      }
+    }
+  });
+}
+
+function triggerAvatarPokeReaction(relY) {
+  if (relY >= 0.78) {
+    playVrmAction('greeting', 3200);
+    setWaifuEmotion('HAPPY', '😊 HAPPY • HEADPAT RECEIVED');
+    speakUtterance('Ehehe! That tickles, Master! Headpats make Rum so happy!');
+  } else if (relY >= 0.52) {
+    playVrmAction('pose_shy_wave', 3500);
+    setWaifuEmotion('SURPRISED', '😳 SURPRISED • KEEP EYES ON ROAD');
+    speakUtterance('Hey Master! Keep both hands on the steering wheel, eyes on the road!');
+  } else if (relY >= 0.28) {
+    playVrmAction('amusement', 3400);
+    setWaifuEmotion('DEVOTED', '💖 DEVOTED • TICKLED');
+    speakUtterance('Whoa! That tickles! Rum is your co-pilot, focus on the boost!');
+  } else {
+    playVrmAction('action_jump', 3000);
+    setWaifuEmotion('EXCITED', '✨ EXCITED • READY FOR HYPERDRIVE');
+    speakUtterance('One, two! Rum feet are ready to jump into hyperdrive!');
+  }
+}
+
+function triggerYoshiPlushInteraction() {
+  if (!yoshiModel) return;
+  isHoldingYoshi = !isHoldingYoshi;
+
+  if (isHoldingYoshi) {
+    playVrmAction('pose_v_sign', 4000);
+    setWaifuEmotion('HAPPY', '🦖 YOSHI TIME! • BEST FRIENDS');
+    speakUtterance('Yay! Master, look at my Yoshi plushie! He loves riding shotgun in the car too!');
+    yoshiModel.position.set(0.08, vrmBaseY + (vrmSize.y * 0.52), 0.32);
+    yoshiModel.rotation.set(-0.2, 0.2, 0);
+  } else {
+    playVrmAction('greeting', 3000);
+    setWaifuEmotion('DEVOTED', '🦖 YOSHI RESTING');
+    speakUtterance('Okay! Let us put Yoshi right here so he can watch the road with us!');
+    yoshiModel.position.set(0.42, vrmBaseY + 0.14, 0.20);
+    yoshiModel.rotation.set(0, -0.4, 0);
+  }
+}
