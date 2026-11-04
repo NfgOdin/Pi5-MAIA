@@ -14815,9 +14815,9 @@ function stopRoamWalkAnimation() {
 }
 
 function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, dancing, isSpeedPanic) {
-  const isInteracting = isSpeaking || isReacting || isSpeedPanic || dancing || (isActionActive && vrmaActiveName !== 'walk_loop');
+  const isDriverInteracting = isSpeaking || isReacting || isSpeedPanic || dancing;
 
-  if (!vrmRoamEnabled || isInteracting) {
+  if (!vrmRoamEnabled || isDriverInteracting) {
     if (vrmRoamState === 'WALKING') {
       stopRoamWalkAnimation();
     }
@@ -14837,6 +14837,9 @@ function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, 
   const now = Date.now();
 
   if (vrmRoamState === 'IDLE') {
+    if (vrmRoamCurrentWaypoint && vrmRoamCurrentWaypoint.faceOcean && !isDriverInteracting) {
+      vrmRoamCurrentRotY = 0.0;
+    }
     if (now >= vrmNextRoamTime) {
       const candidates = VRM_ROAM_WAYPOINTS.filter(wp => {
         const d = Math.hypot(wp.x - vrmRoamCurrentPos.x, wp.z - vrmRoamCurrentPos.z);
@@ -14885,20 +14888,19 @@ function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, 
       vrmRoamState = 'ARRIVED';
 
       if (vrmRoamCurrentWaypoint && vrmRoamCurrentWaypoint.faceOcean) {
-        // Rem turns to gaze out at the ocean horizon (rotation.y = 0.05 faces -Z)
-        vrmRoamTargetRotY = 0.05;
+        // Rem turns to gaze out at the ocean horizon (rotation.y = 0.0 faces -Z)
+        vrmRoamTargetRotY = 0.0;
       } else {
         // Face forward toward master / driver
         vrmRoamTargetRotY = Math.PI;
-      }
-
-      const roll = Math.random();
-      if (roll < 0.22 && vrmaClips['pose_shy_wave']) {
-        playVrmAction('pose_shy_wave', 3500, true);
-      } else if (roll < 0.40 && vrmaClips['greeting_wave_right']) {
-        playVrmAction('greeting_wave_right', 3000, true);
-      } else if (roll < 0.55 && vrmaClips['model_pose']) {
-        playVrmAction('model_pose', 3200, true);
+        const roll = Math.random();
+        if (roll < 0.22 && vrmaClips['pose_shy_wave']) {
+          playVrmAction('pose_shy_wave', 3500, true);
+        } else if (roll < 0.40 && vrmaClips['greeting_wave_right']) {
+          playVrmAction('greeting_wave_right', 3000, true);
+        } else if (roll < 0.55 && vrmaClips['model_pose']) {
+          playVrmAction('model_pose', 3200, true);
+        }
       }
 
       vrmNextRoamTime = Date.now() + 8000 + Math.random() * 7000;
