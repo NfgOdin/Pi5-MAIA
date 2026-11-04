@@ -10601,17 +10601,39 @@ let vrmInitialized = false;
 
 
 
-// 3D Environment (Cozy Bedroom, Yoshi Plush & Dynamic Lights)
-
+// 3D Multi-World Environment Suite (Loft, Cyber Garage, Sakura Garden, Repaired Bedroom)
+let vrmEnvironmentGroup = null;
+const VRM_ENVIRONMENTS = ['LOFT', 'GARAGE', 'GARDEN', 'BEDROOM'];
+let currentEnvironmentName = localStorage.getItem('vrmEnvironment') || 'LOFT';
 let bedroomModel = null;
-
 let yoshiModel = null;
-
 let roomLampLight = null;
-
 let roomCeilingLight = null;
-
+let envLights = [];
+let sakuraPetals = [];
 let isHoldingYoshi = false;
+
+// 3D VRM Avatar Character Selection (Rem / Rum)
+let currentVrmModelName = localStorage.getItem('vrmCurrentAvatar') || 'Rem.vrm';
+
+// Autonomous Roaming State Engine
+let vrmRoamEnabled = (localStorage.getItem('vrmRoamEnabled') !== 'false');
+let vrmRoamState = 'IDLE'; // 'IDLE', 'TURNING', 'WALKING', 'ARRIVED'
+let vrmRoamCurrentPos = { x: 0.0, z: 0.0 };
+let vrmRoamTargetPos = { x: 0.0, z: 0.0 };
+let vrmRoamCurrentRotY = Math.PI; // facing forward/driver
+let vrmRoamTargetRotY = Math.PI;
+let vrmNextRoamTime = Date.now() + 4500;
+let vrmRoamCurrentWaypoint = null;
+let vrmRoamWalkAction = null;
+
+const VRM_ROAM_WAYPOINTS = [
+  { id: 'center',  x:  0.00, z:  0.02, name: 'Center Stage', desc: 'Standing proudly in center stage' },
+  { id: 'yoshi',   x:  0.34, z:  0.15, name: 'Yoshi Corner', desc: 'Visiting Yoshi plushie' },
+  { id: 'window',  x: -0.36, z: -0.10, name: 'Window View',  desc: 'Looking out at panoramic city view' },
+  { id: 'cozy',    x: -0.22, z:  0.20, name: 'Cozy Front',   desc: 'Stepping forward close to dashboard' },
+  { id: 'lounge',  x:  0.22, z: -0.16, name: 'Lounge Spot',  desc: 'Checking the side lounge shelf' }
+];
 
 
 
@@ -10835,9 +10857,10 @@ function startClipWithSmoothCrossfade(resolvedKey, durationMs = 3800) {
 
   nextAction.enabled = true;
 
+  const isWalkOrJog = resolvedKey.includes('walk') || resolvedKey.includes('jog');
   const isLoopingPose = (clip.duration <= 4.05 && resolvedKey.startsWith('pose_')) || resolvedKey.includes('loop') || resolvedKey.includes('dance');
-
-  nextAction.setLoop(isLoopingPose ? THREE.LoopPingPong : THREE.LoopOnce, isLoopingPose ? Infinity : 1);
+  const loopMode = isWalkOrJog ? THREE.LoopRepeat : (isLoopingPose ? THREE.LoopPingPong : THREE.LoopOnce);
+  nextAction.setLoop(loopMode, (isLoopingPose || isWalkOrJog) ? Infinity : 1);
 
   nextAction.clampWhenFinished = true;
 
@@ -12441,9 +12464,12 @@ function initVrmEngine() {
 
   initAvatarPokeRaycaster(canvas);
 
-  loadRumVrmModel();
+  vrmEnvironmentGroup = new THREE.Group();
+  vrmScene.add(vrmEnvironmentGroup);
 
-  loadBedroomEnvironment();
+  loadRumVrmModel(currentVrmModelName);
+
+  setVrmEnvironment(currentEnvironmentName);
 
   loadYoshiPlushProp();
 
@@ -12523,17 +12549,21 @@ function initVrmEngine() {
 
     if (vrmModel) {
 
-      // Anchor feet firmly on the stage floor (vrmBaseY) with zero vertical floating
-
-      vrmModel.rotation.set(0, Math.PI, 0);
-
-      vrmModel.position.set(-vrmCenter.x, vrmBaseY, (-vrmCenter.z) + rumCurrentInertiaZ);
-
-
-
       const isActionActive = (now < vrmActionEndTime);
 
-      if (!isActionActive && vrmaActiveAction) {
+      // Autonomous Roaming State Update
+      updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, dancing, isSpeedPanic);
+
+      // Anchor feet firmly on stage floor (vrmBaseY), apply autonomous roaming X/Z & G-force inertia
+      vrmModel.rotation.set(0, vrmRoamCurrentRotY, 0);
+
+      vrmModel.position.set(
+        -vrmCenter.x + vrmRoamCurrentPos.x,
+        vrmBaseY,
+        (-vrmCenter.z) + vrmRoamCurrentPos.z + rumCurrentInertiaZ
+      );
+
+      if (!isActionActive && vrmaActiveAction && vrmaActiveName !== 'walk_loop') {
 
         stopActiveVrmaClip(0.45);
 
@@ -12551,9 +12581,9 @@ function initVrmEngine() {
 
 
 
-      // Update AnimationMixer (drives both active VRMA/BVH clips AND neutral_idle.bvh standby!)
+      // Update AnimationMixer (drives active VRMA/BVH clips, neutral_idle.bvh standby AND roaming walk!)
 
-      if (vrmMixer && (vrmaActiveAction || vrmaIdleAction)) {
+      if (vrmMixer && (vrmaActiveAction || vrmaIdleAction || vrmRoamWalkAction)) {
 
         vrmMixer.update(delta);
 
@@ -12785,6 +12815,23 @@ function initVrmEngine() {
 
 
 
+    // 5b. Animated Sakura Blossom Petals in Garden Environment
+    if (currentEnvironmentName === 'GARDEN' && sakuraPetals && sakuraPetals.length > 0) {
+      for (let i = 0; i < sakuraPetals.length; i++) {
+        const p = sakuraPetals[i];
+        p.position.y -= delta * p.userData.fallSpeed;
+        p.position.x += Math.sin(time * 1.5 + p.userData.seed) * (delta * 0.15);
+        p.position.z += Math.cos(time * 1.2 + p.userData.seed) * (delta * 0.12);
+        p.rotation.z += delta * p.userData.rotSpeed;
+        p.rotation.x += delta * (p.userData.rotSpeed * 0.8);
+        if (p.position.y < vrmBaseY) {
+          p.position.y = vrmBaseY + 3.2;
+          p.position.x = (Math.random() - 0.5) * 3.5;
+          p.position.z = (Math.random() - 0.5) * 2.5;
+        }
+      }
+    }
+
     // 6. Render
 
     if (vrmRenderer && vrmScene && vrmCamera) {
@@ -12851,7 +12898,8 @@ function updateCameraDirector(delta, isSpeaking, isReacting) {
 
     targetCamPos.set(0.80, vrmBaseY + 0.82, 4.05 * vrmZoomMultiplier);
 
-    targetLookAt.set(0.0, vrmBaseY + 0.68, 0.0);
+    // Smoothly track Rem's horizontal wandering position on the stage
+    targetLookAt.set(vrmRoamCurrentPos.x * 0.40, vrmBaseY + 0.68, vrmRoamCurrentPos.z * 0.40);
 
   }
 
@@ -12869,7 +12917,10 @@ function updateCameraDirector(delta, isSpeaking, isReacting) {
 
 
 
-function loadRumVrmModel(modelName = 'Rum.vrm') {
+function loadRumVrmModel(modelName = (currentVrmModelName || 'Rem.vrm')) {
+
+  currentVrmModelName = modelName;
+  localStorage.setItem('vrmCurrentAvatar', modelName);
 
   const notice = document.getElementById('vrmLoadingNotice');
 
@@ -12995,11 +13046,19 @@ function loadRumVrmModel(modelName = 'Rum.vrm') {
 
       vrmMixer = new THREE.AnimationMixer(vrmModel);
 
+      vrmRoamWalkAction = null;
+
       preloadVrmaMotionPack();
 
 
 
       updateFramingButtonLabel();
+
+      updateWorldButtonLabel();
+
+      updateRoamButtonLabel();
+
+      updateModelButtonLabel();
 
       resizeVrmToStage();
 
@@ -13009,7 +13068,8 @@ function loadRumVrmModel(modelName = 'Rum.vrm') {
 
       if (emotionPill) {
 
-        emotionPill.innerText = "💖 R.U.M. (3D VRM) • DEVOTED TO MASTER";
+        const isRem = (currentVrmModelName.includes('Rem') || currentVrmModelName.toLowerCase().includes('rem'));
+        emotionPill.innerText = isRem ? "💙 REM (3D VRM) • DEVOTED TO MASTER" : "💜 RUM (3D VRM) • PLAYFUL SISTER";
 
       }
 
@@ -13031,7 +13091,13 @@ function loadRumVrmModel(modelName = 'Rum.vrm') {
 
       console.warn(`[VRM] Fallback checking Rem.vrm:`, error);
 
-      if (modelName === 'Rum.vrm') {
+      if (modelName === 'Rem.vrm') {
+
+        loadRumVrmModel('Rum.vrm');
+
+        return;
+
+      } else if (modelName === 'Rum.vrm') {
 
         loadRumVrmModel('Rem.vrm');
 
@@ -13425,198 +13491,966 @@ window.addEventListener('resize', () => {
 
 
 
-function loadBedroomEnvironment() {
-
-  if (typeof THREE === 'undefined' || !vrmScene) return;
-
-  const loader = new THREE.GLTFLoader();
-
-  const roomUrl = 'models/environment/bedroom/scene.gltf';
-
-
-
-  loader.load(
-
-    roomUrl,
-
-    (gltf) => {
-
-      bedroomModel = gltf.scene;
-
-      const box = new THREE.Box3().setFromObject(bedroomModel);
-
-      const size = box.getSize(new THREE.Vector3());
-
-      const center = box.getCenter(new THREE.Vector3());
-
-
-
-      // Center the bedroom around origin and align room floor directly under Rum's feet (vrmBaseY = -0.68)
-
-      bedroomModel.position.set(-center.x, vrmBaseY - box.min.y, -center.z);
-
-
-
-      // Cutaway / Invisible outer walls & ceiling so camera has zero obstruction in all views
-
-      const hideMeshNames = [
-
-        'BackSide', 'FrontSide_0', 'FrontSide_84', 'FrontSide_52', 'FrontSide_17',
-
-        'FrontSide_19', 'FrontSide_36', 'FrontSide_54', 'FrontSide_58', 'FrontSide_62',
-
-        'FrontSide_82', 'FrontSide_12', 'FrontSide_11', 'FrontSide_75', 'FrontSide_76',
-
-        'FrontSide_73', 'FrontSide_81', 'FrontSide_56', 'FrontSide_4', 'FrontSide_15'
-
-      ];
-
-      bedroomModel.traverse((node) => {
-
-        if (node.isMesh) {
-
-          for (const h of hideMeshNames) {
-
-            if (node.name.includes(h) || (node.material && node.material.name.includes(h))) {
-
-              node.visible = false;
-
-              break;
-
-            }
-
-          }
-
-          if (node.visible) {
-
-            node.castShadow = true;
-
-            node.receiveShadow = true;
-
-            node.frustumCulled = false;
-
-            if (node.material) {
-
-              node.material.side = THREE.DoubleSide;
-
-              node.material.depthWrite = true;
-
-            }
-
-          }
-
-        }
-
-      });
-
-
-
-      vrmScene.add(bedroomModel);
-
-
-
-      // Dynamic Cozy Room Lights:
-
-      // 1. Bedside/Desk Lamp - Warm amber point light casting real dynamic illumination
-
-      roomLampLight = new THREE.PointLight(0xffb048, 2.2, 7.5, 1.4);
-
-      roomLampLight.position.set(2.4, vrmBaseY + 1.6, 0.8);
-
-      vrmScene.add(roomLampLight);
-
-
-
-      // 2. Ceiling Center Pendant Light - Soft warm fill
-
-      roomCeilingLight = new THREE.PointLight(0xffecd0, 1.2, 12.0, 1.2);
-
-      roomCeilingLight.position.set(0.0, vrmBaseY + 3.4, 0.0);
-
-      vrmScene.add(roomCeilingLight);
-
-
-
-      console.log('[Room] Hand-painted bedroom & dynamic lights loaded successfully!', { size, center });
-
-    },
-
-    (progress) => {},
-
-    (err) => {
-
-      console.warn('[Room] Bedroom model load note:', err);
-
+// ============================================================================
+// --- PROCEDURAL TEXTURE GENERATORS (Zero network lag, 100% solid & seamless) ---
+// ============================================================================
+
+function createWoodPlankTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#4a2e1b';
+  ctx.fillRect(0, 0, 512, 512);
+
+  const plankH = 64;
+  for (let y = 0; y < 512; y += plankH) {
+    const tint = (Math.random() - 0.5) * 18;
+    ctx.fillStyle = `rgb(${74 + tint}, ${46 + tint * 0.7}, ${27 + tint * 0.5})`;
+    ctx.fillRect(0, y, 512, plankH - 2);
+
+    ctx.strokeStyle = 'rgba(30, 16, 8, 0.25)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 5; i++) {
+      ctx.beginPath();
+      const gy = y + 8 + Math.random() * (plankH - 16);
+      ctx.moveTo(0, gy);
+      ctx.bezierCurveTo(128, gy + (Math.random() - 0.5) * 6, 384, gy + (Math.random() - 0.5) * 6, 512, gy);
+      ctx.stroke();
     }
 
-  );
+    ctx.strokeStyle = '#22140a';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, y + plankH - 1);
+    ctx.lineTo(512, y + plankH - 1);
+    ctx.stroke();
 
+    const offset = (y / plankH) % 2 === 0 ? 0 : 256;
+    ctx.beginPath();
+    ctx.moveTo(offset + 180, y);
+    ctx.lineTo(offset + 180, y + plankH - 2);
+    ctx.stroke();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(4, 4);
+  return tex;
+}
+
+function createPlushRugTexture(baseColor = '#f6efe3', trimColor = '#9c7cb0') {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = baseColor;
+  ctx.fillRect(0, 0, 512, 512);
+
+  ctx.fillStyle = 'rgba(210, 195, 175, 0.28)';
+  for (let x = 0; x < 512; x += 8) {
+    for (let y = 0; y < 512; y += 8) {
+      if ((x + y) % 16 === 0) {
+        ctx.fillRect(x, y, 4, 4);
+      }
+    }
+  }
+
+  ctx.strokeStyle = trimColor;
+  ctx.lineWidth = 14;
+  ctx.beginPath();
+  ctx.arc(256, 256, 240, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = '#f472b6';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(256, 256, 224, 0, Math.PI * 2);
+  ctx.stroke();
+
+  return new THREE.CanvasTexture(canvas);
+}
+
+function createCityTwilightTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+
+  const grad = ctx.createLinearGradient(0, 0, 0, 512);
+  grad.addColorStop(0.0, '#0a0d24');
+  grad.addColorStop(0.4, '#1e1b4b');
+  grad.addColorStop(0.7, '#4c1d95');
+  grad.addColorStop(0.9, '#c2410c');
+  grad.addColorStop(1.0, '#fbbf24');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 1024, 512);
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  for (let i = 0; i < 75; i++) {
+    const sx = Math.random() * 1024;
+    const sy = Math.random() * 240;
+    const sr = Math.random() * 1.5 + 0.5;
+    ctx.beginPath();
+    ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = '#17112c';
+  ctx.beginPath();
+  ctx.moveTo(0, 380);
+  ctx.lineTo(150, 340);
+  ctx.lineTo(320, 370);
+  ctx.lineTo(520, 330);
+  ctx.lineTo(720, 360);
+  ctx.lineTo(890, 320);
+  ctx.lineTo(1024, 350);
+  ctx.lineTo(1024, 512);
+  ctx.lineTo(0, 512);
+  ctx.fill();
+
+  ctx.fillStyle = '#0f0b1e';
+  const buildings = [
+    { x: 30,  w: 70,  h: 180 },
+    { x: 120, w: 90,  h: 240 },
+    { x: 230, w: 60,  h: 160 },
+    { x: 310, w: 110, h: 290 },
+    { x: 440, w: 80,  h: 210 },
+    { x: 540, w: 100, h: 260 },
+    { x: 660, w: 75,  h: 190 },
+    { x: 755, w: 115, h: 310 },
+    { x: 890, w: 95,  h: 220 }
+  ];
+  buildings.forEach(b => {
+    ctx.fillRect(b.x, 512 - b.h, b.w, b.h);
+
+    ctx.fillStyle = 'rgba(254, 240, 138, 0.75)';
+    for (let wy = 512 - b.h + 15; wy < 490; wy += 14) {
+      for (let wx = b.x + 8; wx < b.x + b.w - 10; wx += 10) {
+        if (Math.random() > 0.45) {
+          ctx.fillRect(wx, wy, 5, 8);
+        }
+      }
+    }
+    ctx.fillStyle = '#0f0b1e';
+  });
+
+  return new THREE.CanvasTexture(canvas);
+}
+
+function createCyberGridTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#0a0d14';
+  ctx.fillRect(0, 0, 512, 512);
+
+  ctx.strokeStyle = 'rgba(0, 229, 255, 0.18)';
+  ctx.lineWidth = 1.5;
+  const step = 64;
+  for (let i = 0; i <= 512; i += step) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i, 512);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(0, i);
+    ctx.lineTo(512, i);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = 'rgba(255, 23, 68, 0.45)';
+  for (let x = step; x < 512; x += step) {
+    for (let y = step; y < 512; y += step) {
+      ctx.fillRect(x - 2, y - 2, 4, 4);
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(5, 5);
+  return tex;
+}
+
+function createGarageHoloTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = 'rgba(6, 11, 25, 0.85)';
+  ctx.fillRect(0, 0, 1024, 512);
+
+  ctx.strokeStyle = 'rgba(0, 229, 255, 0.22)';
+  ctx.lineWidth = 1.5;
+  for (let x = 0; x <= 1024; x += 64) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(1024, 512);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= 512; y += 64) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(1024, y);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = '#ff1744';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(40, 40, 944, 432);
+
+  ctx.fillStyle = '#00e5ff';
+  ctx.font = 'bold 36px monospace';
+  ctx.fillText('DODGE DART • MULTIAIR TURBO 1.4L', 80, 100);
+
+  ctx.fillStyle = '#ff1744';
+  ctx.font = 'bold 24px monospace';
+  ctx.fillText('CARPI5 CYBER WORKSPACE & TELEMETRY HUB', 80, 140);
+
+  ctx.strokeStyle = '#00e5ff';
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.arc(512, 330, 130, Math.PI * 0.8, Math.PI * 2.2);
+  ctx.stroke();
+
+  ctx.strokeStyle = '#ff1744';
+  ctx.lineWidth = 8;
+  ctx.beginPath();
+  ctx.arc(512, 330, 130, Math.PI * 0.8, Math.PI * 1.6);
+  ctx.stroke();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 42px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('18.5 PSI', 512, 325);
+  ctx.font = '18px monospace';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+  ctx.fillText('BOOST PRESSURE • ACTIVE', 512, 360);
+
+  return new THREE.CanvasTexture(canvas);
+}
+
+function createSakuraNightSkyTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+
+  const grad = ctx.createLinearGradient(0, 0, 0, 512);
+  grad.addColorStop(0.0, '#050716');
+  grad.addColorStop(0.5, '#131138');
+  grad.addColorStop(1.0, '#2b1b4a');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 1024, 512);
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  for (let i = 0; i < 90; i++) {
+    const sx = Math.random() * 1024;
+    const sy = Math.random() * 380;
+    const sr = Math.random() * 1.6 + 0.5;
+    ctx.beginPath();
+    ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = '#fef08a';
+  ctx.beginPath();
+  ctx.arc(820, 110, 48, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#0e0f2c';
+  ctx.beginPath();
+  ctx.arc(802, 102, 42, 0, Math.PI * 2);
+  ctx.fill();
+
+  const moonGlow = ctx.createRadialGradient(820, 110, 30, 820, 110, 110);
+  moonGlow.addColorStop(0.0, 'rgba(254, 240, 138, 0.25)');
+  moonGlow.addColorStop(1.0, 'rgba(254, 240, 138, 0.0)');
+  ctx.fillStyle = moonGlow;
+  ctx.beginPath();
+  ctx.arc(820, 110, 110, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#0b0817';
+  ctx.fillRect(0, 470, 1024, 42);
+
+  return new THREE.CanvasTexture(canvas);
+}
+
+function createTatamiDeckTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#d4b895';
+  ctx.fillRect(0, 0, 512, 512);
+
+  const slatW = 32;
+  for (let x = 0; x < 512; x += slatW) {
+    const tint = (Math.random() - 0.5) * 12;
+    ctx.fillStyle = `rgb(${212 + tint}, ${184 + tint * 0.8}, ${149 + tint * 0.6})`;
+    ctx.fillRect(x, 0, slatW - 2, 512);
+
+    ctx.strokeStyle = 'rgba(120, 90, 50, 0.18)';
+    ctx.lineWidth = 1;
+    for (let k = 0; k < 4; k++) {
+      ctx.beginPath();
+      const gx = x + Math.random() * (slatW - 4);
+      ctx.moveTo(gx, 0);
+      ctx.lineTo(gx + (Math.random() - 0.5) * 4, 512);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = '#634832';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x + slatW - 1, 0);
+    ctx.lineTo(x + slatW - 1, 512);
+    ctx.stroke();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(4, 4);
+  return tex;
 }
 
 
+// ============================================================================
+// --- MULTI-WORLD 3D ENVIRONMENTS (Loft, Cyber Garage, Sakura Garden, Bedroom) ---
+// ============================================================================
+
+function clearVrmEnvironment() {
+  if (!vrmEnvironmentGroup) return;
+  while (vrmEnvironmentGroup.children.length > 0) {
+    const obj = vrmEnvironmentGroup.children[0];
+    vrmEnvironmentGroup.remove(obj);
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) {
+      if (Array.isArray(obj.material)) {
+        obj.material.forEach(m => m.dispose());
+      } else {
+        obj.material.dispose();
+      }
+    }
+  }
+  envLights = [];
+  sakuraPetals = [];
+}
+
+function buildLoftEnvironment() {
+  clearVrmEnvironment();
+
+  // 1. Solid Walnut Wood Plank Floor (10x10m)
+  const floorGeo = new THREE.PlaneGeometry(10, 10);
+  const floorTex = createWoodPlankTexture();
+  const floorMat = new THREE.MeshStandardMaterial({
+    map: floorTex,
+    roughness: 0.68,
+    metalness: 0.08
+  });
+  const floor = new THREE.Mesh(floorGeo, floorMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.set(0, vrmBaseY, 0);
+  floor.receiveShadow = true;
+  vrmEnvironmentGroup.add(floor);
+
+  // 2. Circular Plush Cream Rug with Lavender Trim (1.75m radius)
+  const rugGeo = new THREE.CircleGeometry(1.75, 48);
+  const rugTex = createPlushRugTexture('#f6efe3', '#9c7cb0');
+  const rugMat = new THREE.MeshStandardMaterial({
+    map: rugTex,
+    roughness: 0.85,
+    metalness: 0.02
+  });
+  const rug = new THREE.Mesh(rugGeo, rugMat);
+  rug.rotation.x = -Math.PI / 2;
+  rug.position.set(0.05, vrmBaseY + 0.003, 0.05);
+  rug.receiveShadow = true;
+  vrmEnvironmentGroup.add(rug);
+
+  // 3. Panoramic Twilight City Window Backdrop
+  const winGeo = new THREE.PlaneGeometry(6.5, 3.8);
+  const winTex = createCityTwilightTexture();
+  const winMat = new THREE.MeshBasicMaterial({ map: winTex });
+  const windowBackdrop = new THREE.Mesh(winGeo, winMat);
+  windowBackdrop.position.set(0, vrmBaseY + 1.9, -2.85);
+  vrmEnvironmentGroup.add(windowBackdrop);
+
+  // Window mullions (sleek modern black beams)
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x181820, roughness: 0.4 });
+  const fTop = new THREE.Mesh(new THREE.BoxGeometry(6.55, 0.08, 0.06), frameMat);
+  fTop.position.set(0, vrmBaseY + 3.8, -2.82);
+  vrmEnvironmentGroup.add(fTop);
+
+  const fBottom = new THREE.Mesh(new THREE.BoxGeometry(6.55, 0.08, 0.06), frameMat);
+  fBottom.position.set(0, vrmBaseY + 0.02, -2.82);
+  vrmEnvironmentGroup.add(fBottom);
+
+  [-2.15, 0, 2.15].forEach(x => {
+    const vBeam = new THREE.Mesh(new THREE.BoxGeometry(0.06, 3.8, 0.06), frameMat);
+    vBeam.position.set(x, vrmBaseY + 1.9, -2.82);
+    vrmEnvironmentGroup.add(vBeam);
+  });
+
+  const hBeam = new THREE.Mesh(new THREE.BoxGeometry(6.55, 0.05, 0.06), frameMat);
+  hBeam.position.set(0, vrmBaseY + 1.9, -2.82);
+  vrmEnvironmentGroup.add(hBeam);
+
+  // 4. Floor Lamp with Warm Amber Illumination
+  const lampPoleMat = new THREE.MeshStandardMaterial({ color: 0x222226, metalness: 0.8, roughness: 0.2 });
+  const lampPole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.85, 12), lampPoleMat);
+  lampPole.position.set(1.9, vrmBaseY + 0.92, -0.4);
+  vrmEnvironmentGroup.add(lampPole);
+
+  const lampShadeMat = new THREE.MeshStandardMaterial({ color: 0xffe2b8, roughness: 0.3, emissive: 0xffaa44, emissiveIntensity: 0.35 });
+  const lampShade = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.32, 24, 1, true), lampShadeMat);
+  lampShade.position.set(1.9, vrmBaseY + 1.78, -0.4);
+  lampShade.rotation.x = Math.PI;
+  vrmEnvironmentGroup.add(lampShade);
+
+  const warmLampLight = new THREE.PointLight(0xffa544, 2.0, 7.5, 1.4);
+  warmLampLight.position.set(1.9, vrmBaseY + 1.70, -0.4);
+  vrmEnvironmentGroup.add(warmLampLight);
+  envLights.push(warmLampLight);
+
+  // 5. Yoshi Round Wooden End-Table
+  const tableTop = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.38, 0.38, 0.04, 24),
+    new THREE.MeshStandardMaterial({ color: 0x613d23, roughness: 0.5 })
+  );
+  tableTop.position.set(0.68, vrmBaseY + 0.28, 0.22);
+  vrmEnvironmentGroup.add(tableTop);
+
+  const tableLeg = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.03, 0.04, 0.28, 12),
+    new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.6 })
+  );
+  tableLeg.position.set(0.68, vrmBaseY + 0.14, 0.22);
+  vrmEnvironmentGroup.add(tableLeg);
+
+  // Potted indoor bonsai / monstera on floor
+  const pot = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.18, 0.12, 0.35, 16),
+    new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 })
+  );
+  pot.position.set(-1.8, vrmBaseY + 0.175, -0.8);
+  vrmEnvironmentGroup.add(pot);
+
+  const foliage = new THREE.Mesh(
+    new THREE.DodecahedronGeometry(0.36, 1),
+    new THREE.MeshStandardMaterial({ color: 0x228b22, roughness: 0.7 })
+  );
+  foliage.position.set(-1.8, vrmBaseY + 0.55, -0.8);
+  vrmEnvironmentGroup.add(foliage);
+
+  updateYoshiEnvironmentRest();
+}
+
+function buildGarageEnvironment() {
+  clearVrmEnvironment();
+
+  // 1. Dark Obsidian / Hex Grid Floor (10x10m)
+  const floorGeo = new THREE.PlaneGeometry(10, 10);
+  const floorTex = createCyberGridTexture();
+  const floorMat = new THREE.MeshStandardMaterial({
+    map: floorTex,
+    roughness: 0.25,
+    metalness: 0.85
+  });
+  const floor = new THREE.Mesh(floorGeo, floorMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.set(0, vrmBaseY, 0);
+  floor.receiveShadow = true;
+  vrmEnvironmentGroup.add(floor);
+
+  // 2. Dual Concentric Glowing Neon Floor Rings
+  // Outer Ring: Dodge Dart Red (#ff1744)
+  const ringOuterGeo = new THREE.RingGeometry(1.65, 1.72, 64);
+  const ringOuterMat = new THREE.MeshBasicMaterial({ color: 0xff1744, side: THREE.DoubleSide });
+  const ringOuter = new THREE.Mesh(ringOuterGeo, ringOuterMat);
+  ringOuter.rotation.x = -Math.PI / 2;
+  ringOuter.position.set(0, vrmBaseY + 0.003, 0);
+  vrmEnvironmentGroup.add(ringOuter);
+
+  // Inner Ring: Cyber Cyan (#00e5ff)
+  const ringInnerGeo = new THREE.RingGeometry(0.95, 1.00, 64);
+  const ringInnerMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff, side: THREE.DoubleSide });
+  const ringInner = new THREE.Mesh(ringInnerGeo, ringInnerMat);
+  ringInner.rotation.x = -Math.PI / 2;
+  ringInner.position.set(0, vrmBaseY + 0.003, 0);
+  vrmEnvironmentGroup.add(ringInner);
+
+  // 3. MultiAir Turbo Holographic Wall Screen
+  const holoGeo = new THREE.PlaneGeometry(6.0, 3.2);
+  const holoTex = createGarageHoloTexture();
+  const holoMat = new THREE.MeshBasicMaterial({
+    map: holoTex,
+    transparent: true,
+    opacity: 0.90
+  });
+  const holoWall = new THREE.Mesh(holoGeo, holoMat);
+  holoWall.position.set(0, vrmBaseY + 1.8, -2.8);
+  vrmEnvironmentGroup.add(holoWall);
+
+  // 4. Cyber Showroom Overhead Spotlights
+  const spotLight = new THREE.SpotLight(0xffffff, 3.0, 12, Math.PI / 4, 0.4);
+  spotLight.position.set(0, vrmBaseY + 3.8, 1.0);
+  spotLight.target.position.set(0, vrmBaseY, 0);
+  vrmEnvironmentGroup.add(spotLight);
+  vrmEnvironmentGroup.add(spotLight.target);
+  envLights.push(spotLight);
+
+  const redAccent = new THREE.PointLight(0xff1744, 2.2, 5.5);
+  redAccent.position.set(2.2, vrmBaseY + 1.0, 0.2);
+  vrmEnvironmentGroup.add(redAccent);
+  envLights.push(redAccent);
+
+  const cyanAccent = new THREE.PointLight(0x00e5ff, 2.2, 5.5);
+  cyanAccent.position.set(-2.2, vrmBaseY + 1.0, 0.2);
+  vrmEnvironmentGroup.add(cyanAccent);
+  envLights.push(cyanAccent);
+
+  updateYoshiEnvironmentRest();
+}
+
+function buildGardenEnvironment() {
+  clearVrmEnvironment();
+
+  // 1. Traditional Hinoki Wood Deck (10x10m)
+  const deckGeo = new THREE.PlaneGeometry(10, 10);
+  const deckTex = createTatamiDeckTexture();
+  const deckMat = new THREE.MeshStandardMaterial({
+    map: deckTex,
+    roughness: 0.65,
+    metalness: 0.05
+  });
+  const deck = new THREE.Mesh(deckGeo, deckMat);
+  deck.rotation.x = -Math.PI / 2;
+  deck.position.set(0, vrmBaseY, 0);
+  deck.receiveShadow = true;
+  vrmEnvironmentGroup.add(deck);
+
+  // 2. Starry Twilight Sky with Glowing Moon
+  const skyGeo = new THREE.PlaneGeometry(7.0, 4.0);
+  const skyTex = createSakuraNightSkyTexture();
+  const skyMat = new THREE.MeshBasicMaterial({ map: skyTex });
+  const sky = new THREE.Mesh(skyGeo, skyMat);
+  sky.position.set(0, vrmBaseY + 2.0, -2.9);
+  vrmEnvironmentGroup.add(sky);
+
+  // 3. Wooden Veranda Railing (Lacquered vermilion wood)
+  const woodMat = new THREE.MeshStandardMaterial({ color: 0x992222, roughness: 0.6 });
+  const beamTop = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.08, 0.08), woodMat);
+  beamTop.position.set(0, vrmBaseY + 0.95, -2.6);
+  vrmEnvironmentGroup.add(beamTop);
+
+  [-2.2, 0, 2.2].forEach(x => {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.10, 1.0, 0.10), woodMat);
+    post.position.set(x, vrmBaseY + 0.50, -2.6);
+    vrmEnvironmentGroup.add(post);
+  });
+
+  // 4. Paper Lanterns with Warm Soft Glow
+  [-1.6, 1.6].forEach(x => {
+    const lanternGeo = new THREE.CylinderGeometry(0.12, 0.14, 0.32, 16);
+    const lanternMat = new THREE.MeshStandardMaterial({
+      color: 0xffecd0,
+      emissive: 0xff8844,
+      emissiveIntensity: 0.45
+    });
+    const lantern = new THREE.Mesh(lanternGeo, lanternMat);
+    lantern.position.set(x, vrmBaseY + 1.25, -2.4);
+    vrmEnvironmentGroup.add(lantern);
+
+    const lantLight = new THREE.PointLight(0xff9955, 1.6, 4.5);
+    lantLight.position.set(x, vrmBaseY + 1.25, -2.4);
+    vrmEnvironmentGroup.add(lantLight);
+    envLights.push(lantLight);
+  });
+
+  // 5. 60 Animated Sakura Blossom Petals
+  sakuraPetals = [];
+  const petalGeo = new THREE.PlaneGeometry(0.045, 0.045);
+  const petalMat = new THREE.MeshBasicMaterial({
+    color: 0xffb7c5,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.88
+  });
+  for (let i = 0; i < 60; i++) {
+    const petal = new THREE.Mesh(petalGeo, petalMat);
+    petal.position.set(
+      (Math.random() - 0.5) * 3.5,
+      vrmBaseY + Math.random() * 3.0,
+      (Math.random() - 0.5) * 2.5
+    );
+    petal.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+    petal.userData = {
+      fallSpeed: 0.22 + Math.random() * 0.28,
+      rotSpeed: (Math.random() - 0.5) * 2.0,
+      seed: Math.random() * 10
+    };
+    vrmEnvironmentGroup.add(petal);
+    sakuraPetals.push(petal);
+  }
+
+  // Yoshi Red Felt Bench Mat
+  const matGeo = new THREE.BoxGeometry(0.55, 0.03, 0.55);
+  const matMat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.8 });
+  const redMat = new THREE.Mesh(matGeo, matMat);
+  redMat.position.set(0.62, vrmBaseY + 0.015, 0.18);
+  vrmEnvironmentGroup.add(redMat);
+
+  updateYoshiEnvironmentRest();
+}
+
+function buildBedroomEnvironment() {
+  clearVrmEnvironment();
+
+  // 1. GUARANTEED UNBROKEN SOLID OAK UNDERLAYER (10x10m) - Zero gaps or holes forever!
+  const floorGeo = new THREE.PlaneGeometry(10, 10);
+  const floorTex = createWoodPlankTexture();
+  const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.70 });
+  const floor = new THREE.Mesh(floorGeo, floorMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.set(0, vrmBaseY - 0.005, 0);
+  floor.receiveShadow = true;
+  vrmEnvironmentGroup.add(floor);
+
+  // 2. Load Sketchfab bedroom GLTF if not already cached
+  if (!bedroomModel) {
+    const loader = new THREE.GLTFLoader();
+    loader.load('models/environment/bedroom/scene.gltf', (gltf) => {
+      bedroomModel = gltf.scene;
+      const box = new THREE.Box3().setFromObject(bedroomModel);
+      const center = box.getCenter(new THREE.Vector3());
+      bedroomModel.position.set(-center.x, vrmBaseY - box.min.y, -center.z);
+
+      // FIXED: Only hide true obstructing front walls and ceiling!
+      // Do NOT hide floor boards (FrontSide_4, FrontSide_11, FrontSide_12, etc.)!
+      const hideMeshNames = [
+        'BackSide', 'FrontSide_0', 'FrontSide_84', 'FrontSide_52', 'FrontSide_17', 'FrontSide_19'
+      ];
+      bedroomModel.traverse((node) => {
+        if (node.isMesh) {
+          for (const h of hideMeshNames) {
+            if (node.name.includes(h) || (node.material && node.material.name.includes(h))) {
+              node.visible = false;
+              break;
+            }
+          }
+          if (node.visible) {
+            node.castShadow = true;
+            node.receiveShadow = true;
+            node.frustumCulled = false;
+            if (node.material) {
+              node.material.side = THREE.DoubleSide;
+              node.material.depthWrite = true;
+            }
+          }
+        }
+      });
+      vrmEnvironmentGroup.add(bedroomModel);
+    });
+  } else {
+    vrmEnvironmentGroup.add(bedroomModel);
+  }
+
+  // Bedroom lights
+  const bedLamp = new THREE.PointLight(0xffb048, 2.2, 7.5, 1.4);
+  bedLamp.position.set(2.4, vrmBaseY + 1.6, 0.8);
+  vrmEnvironmentGroup.add(bedLamp);
+  envLights.push(bedLamp);
+
+  const bedCeil = new THREE.PointLight(0xffecd0, 1.2, 12.0, 1.2);
+  bedCeil.position.set(0.0, vrmBaseY + 3.4, 0.0);
+  vrmEnvironmentGroup.add(bedCeil);
+  envLights.push(bedCeil);
+
+  updateYoshiEnvironmentRest();
+}
+
+function setVrmEnvironment(envName) {
+  currentEnvironmentName = envName || 'LOFT';
+  localStorage.setItem('vrmEnvironment', currentEnvironmentName);
+
+  if (currentEnvironmentName === 'GARAGE') {
+    buildGarageEnvironment();
+  } else if (currentEnvironmentName === 'GARDEN') {
+    buildGardenEnvironment();
+  } else if (currentEnvironmentName === 'BEDROOM') {
+    buildBedroomEnvironment();
+  } else {
+    buildLoftEnvironment();
+  }
+
+  updateWorldButtonLabel();
+}
+
+function cycleVrmEnvironment() {
+  const curIdx = VRM_ENVIRONMENTS.indexOf(currentEnvironmentName);
+  const nextIdx = (curIdx + 1) % VRM_ENVIRONMENTS.length;
+  setVrmEnvironment(VRM_ENVIRONMENTS[nextIdx]);
+}
+
+function updateWorldButtonLabel() {
+  const btn = document.getElementById('btnVrmWorldToggle');
+  const labels = {
+    'LOFT': '🏯 LOFT',
+    'GARAGE': '🏎️ GARAGE',
+    'GARDEN': '🌸 GARDEN',
+    'BEDROOM': '🛏️ BEDROOM'
+  };
+  if (btn) btn.innerText = labels[currentEnvironmentName] || '🏯 LOFT';
+}
+
+function getEnvironmentYoshiPos() {
+  if (currentEnvironmentName === 'GARAGE') {
+    return { pos: [0.65, vrmBaseY + 0.16, 0.15], rot: [0, -0.4, 0], scale: 1.35 };
+  } else if (currentEnvironmentName === 'GARDEN') {
+    return { pos: [0.62, vrmBaseY + 0.18, 0.18], rot: [0, -0.4, 0], scale: 1.35 };
+  } else if (currentEnvironmentName === 'BEDROOM') {
+    return { pos: [0.48, vrmBaseY + 0.16, 0.22], rot: [0, -0.4, 0], scale: 1.35 };
+  } else {
+    // LOFT
+    return { pos: [0.65, vrmBaseY + 0.30, 0.22], rot: [0, -0.55, 0], scale: 1.25 };
+  }
+}
+
+function updateYoshiEnvironmentRest() {
+  if (!yoshiModel || isHoldingYoshi) return;
+  const cfg = getEnvironmentYoshiPos();
+  yoshiModel.position.set(cfg.pos[0], cfg.pos[1], cfg.pos[2]);
+  yoshiModel.rotation.set(cfg.rot[0], cfg.rot[1], cfg.rot[2]);
+  yoshiModel.scale.set(cfg.scale, cfg.scale, cfg.scale);
+}
 
 function loadYoshiPlushProp() {
-
   if (typeof THREE === 'undefined' || !vrmScene) return;
-
   const loader = new THREE.GLTFLoader();
-
   const yoshiUrl = 'models/environment/props/yoshi/scene.gltf';
 
-
-
   loader.load(
-
     yoshiUrl,
-
     (gltf) => {
-
       yoshiModel = gltf.scene;
-
-      // Scale Yoshi up proportionally (1.35x) so he looks like a huggable plushie beside Rum
-
-      yoshiModel.scale.set(1.35, 1.35, 1.35);
-
-      // Place Yoshi resting cutely on the rug right next to Rum
-
-      yoshiModel.position.set(0.48, vrmBaseY + 0.16, 0.22);
-
-      yoshiModel.rotation.set(0, -0.4, 0);
-
-
+      updateYoshiEnvironmentRest();
 
       yoshiModel.traverse((node) => {
-
         if (node.isMesh) {
-
           node.castShadow = true;
-
           node.receiveShadow = true;
-
           node.frustumCulled = false;
-
         }
-
       });
 
-
-
       vrmScene.add(yoshiModel);
-
       console.log('[Yoshi] Yoshi plushie placed in room successfully!');
-
     },
-
     (progress) => {},
-
     (err) => {
-
       console.warn('[Yoshi] Yoshi model load note:', err);
-
     }
-
   );
+}
 
+
+// ============================================================================
+// --- AUTONOMOUS ROAMING ENGINE (Natural walking, gestures & interaction awareness) ---
+// ============================================================================
+
+function startRoamWalkAnimation() {
+  if (!vrmMixer) return;
+  const clip = vrmaClips['walk_loop'] || vrmaClips['action_walk'];
+  if (!clip) return;
+
+  if (!vrmRoamWalkAction) {
+    vrmRoamWalkAction = vrmMixer.clipAction(clip);
+    vrmRoamWalkAction.setLoop(THREE.LoopRepeat, Infinity);
+    vrmRoamWalkAction.timeScale = 0.85;
+  }
+
+  vrmRoamWalkAction.reset();
+  vrmRoamWalkAction.enabled = true;
+  vrmRoamWalkAction.setEffectiveWeight(1.0);
+  vrmRoamWalkAction.play();
+
+  vrmaActiveName = 'walk_loop';
+  vrmActionEndTime = Date.now() + 60000;
+
+  if (vrmaIdleAction) {
+    vrmaIdleAction.crossFadeTo(vrmRoamWalkAction, 0.35, false);
+  }
+}
+
+function stopRoamWalkAnimation() {
+  if (!vrmMixer || !vrmRoamWalkAction) return;
+  if (vrmaIdleAction) {
+    vrmaIdleAction.enabled = true;
+    vrmaIdleAction.setEffectiveWeight(1.0);
+    vrmaIdleAction.play();
+    vrmRoamWalkAction.crossFadeTo(vrmaIdleAction, 0.40, false);
+  } else {
+    vrmRoamWalkAction.stop();
+  }
+  if (vrmaActiveName === 'walk_loop') {
+    vrmaActiveName = null;
+    vrmActionEndTime = 0;
+  }
+}
+
+function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, dancing, isSpeedPanic) {
+  const isInteracting = isSpeaking || isReacting || isSpeedPanic || dancing || (isActionActive && vrmaActiveName !== 'walk_loop');
+
+  if (!vrmRoamEnabled || isInteracting) {
+    if (vrmRoamState === 'WALKING') {
+      stopRoamWalkAnimation();
+    }
+    vrmRoamState = 'IDLE';
+
+    // Smoothly turn to face driver/master (Math.PI)
+    let diff = THREE.MathUtils.euclideanModulo(Math.PI - vrmRoamCurrentRotY + Math.PI, Math.PI * 2) - Math.PI;
+    if (Math.abs(diff) > 0.02) {
+      vrmRoamCurrentRotY += Math.sign(diff) * Math.min(Math.abs(diff), delta * 3.8);
+    } else {
+      vrmRoamCurrentRotY = Math.PI;
+    }
+    vrmNextRoamTime = Date.now() + 8500;
+    return;
+  }
+
+  const now = Date.now();
+
+  if (vrmRoamState === 'IDLE') {
+    if (now >= vrmNextRoamTime) {
+      const candidates = VRM_ROAM_WAYPOINTS.filter(wp => {
+        const d = Math.hypot(wp.x - vrmRoamCurrentPos.x, wp.z - vrmRoamCurrentPos.z);
+        return d > 0.22;
+      });
+      const wp = candidates[Math.floor(Math.random() * candidates.length)] || VRM_ROAM_WAYPOINTS[0];
+      vrmRoamCurrentWaypoint = wp;
+      vrmRoamTargetPos = { x: wp.x, z: wp.z };
+
+      const dx = vrmRoamTargetPos.x - vrmRoamCurrentPos.x;
+      const dz = vrmRoamTargetPos.z - vrmRoamCurrentPos.z;
+      vrmRoamTargetRotY = Math.atan2(dx, dz);
+      vrmRoamState = 'TURNING';
+    }
+  } else if (vrmRoamState === 'TURNING') {
+    let diff = THREE.MathUtils.euclideanModulo(vrmRoamTargetRotY - vrmRoamCurrentRotY + Math.PI, Math.PI * 2) - Math.PI;
+    if (Math.abs(diff) > 0.08) {
+      vrmRoamCurrentRotY += Math.sign(diff) * Math.min(Math.abs(diff), delta * 3.5);
+    } else {
+      vrmRoamCurrentRotY = vrmRoamTargetRotY;
+      vrmRoamState = 'WALKING';
+      startRoamWalkAnimation();
+    }
+  } else if (vrmRoamState === 'WALKING') {
+    const dx = vrmRoamTargetPos.x - vrmRoamCurrentPos.x;
+    const dz = vrmRoamTargetPos.z - vrmRoamCurrentPos.z;
+    const dist = Math.hypot(dx, dz);
+
+    if (dist > 0.045) {
+      const targetAngle = Math.atan2(dx, dz);
+      let diff = THREE.MathUtils.euclideanModulo(targetAngle - vrmRoamCurrentRotY + Math.PI, Math.PI * 2) - Math.PI;
+      vrmRoamCurrentRotY += diff * Math.min(1.0, delta * 3.0);
+
+      const walkSpeed = 0.32;
+      const step = Math.min(dist, walkSpeed * delta);
+      vrmRoamCurrentPos.x += Math.sin(vrmRoamCurrentRotY) * step;
+      vrmRoamCurrentPos.z += Math.cos(vrmRoamCurrentRotY) * step;
+    } else {
+      vrmRoamCurrentPos.x = vrmRoamTargetPos.x;
+      vrmRoamCurrentPos.z = vrmRoamTargetPos.z;
+      stopRoamWalkAnimation();
+      vrmRoamState = 'ARRIVED';
+      vrmRoamTargetRotY = Math.PI;
+
+      const roll = Math.random();
+      if (roll < 0.22 && vrmaClips['pose_shy_wave']) {
+        playVrmAction('pose_shy_wave', 3500, true);
+      } else if (roll < 0.40 && vrmaClips['greeting_wave_right']) {
+        playVrmAction('greeting_wave_right', 3000, true);
+      } else if (roll < 0.55 && vrmaClips['model_pose']) {
+        playVrmAction('model_pose', 3200, true);
+      }
+
+      vrmNextRoamTime = Date.now() + 8000 + Math.random() * 7000;
+    }
+  } else if (vrmRoamState === 'ARRIVED') {
+    let diff = THREE.MathUtils.euclideanModulo(Math.PI - vrmRoamCurrentRotY + Math.PI, Math.PI * 2) - Math.PI;
+    if (Math.abs(diff) > 0.04) {
+      vrmRoamCurrentRotY += Math.sign(diff) * Math.min(Math.abs(diff), delta * 2.8);
+    } else {
+      vrmRoamCurrentRotY = Math.PI;
+      if (now >= vrmNextRoamTime) {
+        vrmRoamState = 'IDLE';
+      }
+    }
+  }
+}
+
+function toggleVrmRoaming() {
+  vrmRoamEnabled = !vrmRoamEnabled;
+  localStorage.setItem('vrmRoamEnabled', vrmRoamEnabled ? 'true' : 'false');
+  if (!vrmRoamEnabled) {
+    if (vrmRoamState === 'WALKING') {
+      stopRoamWalkAnimation();
+    }
+    vrmRoamState = 'IDLE';
+    vrmRoamTargetRotY = Math.PI;
+  } else {
+    vrmNextRoamTime = Date.now() + 2500;
+  }
+  updateRoamButtonLabel();
+}
+
+function updateRoamButtonLabel() {
+  const btn = document.getElementById('btnVrmRoamToggle');
+  if (btn) {
+    btn.innerText = vrmRoamEnabled ? '🚶 ROAM: ON' : '🧍 STAY';
+    btn.style.borderColor = vrmRoamEnabled ? '#22c55e' : '#64748b';
+    btn.style.color = vrmRoamEnabled ? '#4ade80' : '#94a3b8';
+  }
+}
+
+function toggleRemRumAvatar() {
+  const isRem = (currentVrmModelName.includes('Rem') || currentVrmModelName.toLowerCase().includes('rem'));
+  const newModel = isRem ? 'Rum.vrm' : 'Rem.vrm';
+  currentVrmModelName = newModel;
+  localStorage.setItem('vrmCurrentAvatar', newModel);
+  loadRumVrmModel(newModel);
+  updateModelButtonLabel();
+}
+
+function updateModelButtonLabel() {
+  const btn = document.getElementById('btnVrmModelToggle');
+  const hudTitle = document.getElementById('vrmHudTitle');
+  const emotionPill = document.getElementById('waifuEmotionPill');
+  const isRem = (currentVrmModelName.includes('Rem') || currentVrmModelName.toLowerCase().includes('rem'));
+
+  if (btn) {
+    btn.innerText = isRem ? '💙 REM' : '💜 RUM';
+    btn.style.borderColor = isRem ? '#38bdf8' : '#c084fc';
+    btn.style.color = isRem ? '#38bdf8' : '#c084fc';
+  }
+  if (hudTitle) {
+    hudTitle.innerHTML = isRem ? '<span>💙</span> REM • SHOTGUN' : '<span>💜</span> RUM • SHOTGUN';
+  }
+  if (emotionPill) {
+    emotionPill.innerText = isRem ? '💙 REM (3D VRM) • DEVOTED TO MASTER' : '💜 RUM (3D VRM) • PLAYFUL SISTER';
+  }
 }
 
 
@@ -13792,9 +14626,7 @@ function triggerYoshiPlushInteraction() {
 
     speakUtterance('Okay! Let us put Yoshi right here so he can watch the road with us!');
 
-    yoshiModel.position.set(0.42, vrmBaseY + 0.14, 0.20);
-
-    yoshiModel.rotation.set(0, -0.4, 0);
+    updateYoshiEnvironmentRest();
 
   }
 

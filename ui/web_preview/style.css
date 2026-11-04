@@ -2257,16 +2257,19 @@ body {
 }
 
 .vrm-ctrl-btn {
-  background: rgba(14, 18, 26, 0.82);
+  background: rgba(14, 18, 26, 0.88);
   border: 1px solid var(--panel-border);
-  border-radius: 5px;
+  border-radius: 6px;
   color: #fff;
   font-size: 9px;
   font-weight: 800;
-  padding: 3px 6px;
+  padding: 4px 7px;
   cursor: pointer;
-  transition: all 0.2s;
-  line-height: 1.15;
+  transition: all 0.2s ease;
+  line-height: 1.2;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(4px);
+  user-select: none;
 }
 
 .vrm-ctrl-btn:hover {
