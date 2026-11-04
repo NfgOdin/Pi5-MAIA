@@ -44,15 +44,16 @@ class AudioPlayer:
         self._last_spoken_text = ""
         self._last_spoken_time = 0.0
         
-        # Candidate paths for Piper neural model
+        # Candidate paths for Piper neural model (en_US-hfc_female-medium as primary default)
         self.model_candidates = [
-            "/home/nfgodin/odin-core/models/en_US-amy-medium.onnx",
-            "/home/nfgodin/CarPi5/models/en_US-amy-medium.onnx",
             "/home/nfgodin/odin-core/models/en_US-hfc_female-medium.onnx",
             "/home/nfgodin/CarPi5/models/en_US-hfc_female-medium.onnx",
+            str(Path(__file__).parent.parent.parent / "models" / "en_US-hfc_female-medium.onnx"),
+            "/home/nfgodin/odin-core/models/en_US-amy-medium.onnx",
+            "/home/nfgodin/CarPi5/models/en_US-amy-medium.onnx",
+            str(Path(__file__).parent.parent.parent / "models" / "en_US-amy-medium.onnx"),
             "/home/nfgodin/odin-core/models/en_US-lessac-low.onnx",
             "/home/nfgodin/CarPi5/models/en_US-lessac-low.onnx",
-            str(Path(__file__).parent.parent.parent / "models" / "en_US-amy-medium.onnx"),
             str(Path(__file__).parent.parent.parent / "models" / "en_US-lessac-low.onnx")
         ]
         
