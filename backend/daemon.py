@@ -1134,6 +1134,24 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
         elif parsed.path in ("/api/models/vrm", "/api/models/vrma"):
             params = parse_qs(parsed.query)
             name = os.path.basename(params.get("name", [""])[0])
+
+            # If requesting /api/models/vrma without ?name=, return list of all available VRMA animations
+            if parsed.path == "/api/models/vrma" and not name:
+                vrma_dir = BASE_DIR / "models" / "vrma"
+                found_vrma = []
+                if vrma_dir.exists():
+                    for vf in sorted(vrma_dir.glob("*.vrma")):
+                        found_vrma.append({
+                            "name": vf.name,
+                            "action": vf.stem.lower()
+                        })
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"files": found_vrma}).encode("utf-8"))
+                return
+
             if parsed.path == "/api/models/vrma" or name.lower().endswith(".vrma"):
                 vrm_path = BASE_DIR / "models" / "vrma" / name
             else:

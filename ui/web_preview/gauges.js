@@ -4100,100 +4100,245 @@ function handleSpokenTranscript(text, isFromMic = true) {
 
 
 
+// Master Animation Registry & Dynamic Drawer System (135+ BVH & VRMA Animations)
+let vrmCurrentAnimCategory = 'all';
+let vrmCurrentAnimSearch = '';
+
 function openAnimationsDrawer() {
-
   const m = document.getElementById('animationsDrawerModal');
-
-  if (m) m.style.display = 'flex';
-
+  if (m) {
+    m.style.display = 'flex';
+    renderAnimationsDrawer();
+  }
 }
-
-
 
 function toggleAnimationsDrawer() {
-
   const m = document.getElementById('animationsDrawerModal');
-
   if (!m) return;
-
-  m.style.display = (m.style.display === 'flex') ? 'none' : 'flex';
-
+  if (m.style.display === 'flex') {
+    closeAnimationsDrawer();
+  } else {
+    openAnimationsDrawer();
+  }
 }
-
-
 
 function closeAnimationsDrawer() {
-
   const m = document.getElementById('animationsDrawerModal');
-
   if (m) m.style.display = 'none';
-
 }
-
-
 
 function filterAnimationCategory(cat, btnEl) {
-
+  vrmCurrentAnimCategory = cat || 'all';
   document.querySelectorAll('.anim-tab-btn').forEach(b => {
-
     b.style.background = 'rgba(255,255,255,0.08)';
-
     b.style.color = 'var(--text-secondary)';
-
     b.style.border = '1px solid #445';
-
   });
-
   if (btnEl) {
-
     btnEl.style.background = 'var(--accent-purple, #a855f7)';
-
     btnEl.style.color = '#fff';
-
     btnEl.style.border = 'none';
+  }
+  renderAnimationsDrawer();
+}
 
+function handleAnimSearch(query) {
+  vrmCurrentAnimSearch = (query || '').toLowerCase().trim();
+  renderAnimationsDrawer();
+}
+
+function clearAnimSearch() {
+  const input = document.getElementById('animSearchInput');
+  if (input) input.value = '';
+  vrmCurrentAnimSearch = '';
+  renderAnimationsDrawer();
+}
+
+function getAnimCategoryAndMeta(key, isVrma) {
+  const k = key.toLowerCase();
+  let emoji = '🎭';
+  let cat = 'motion';
+  let label = key.replace(/_/g, ' ').replace(/-/g, ' ');
+  label = label.replace(/^(action|pose|dance|exercise|hitarea|reaction)\s+/i, '');
+  label = label.charAt(0).toUpperCase() + label.slice(1);
+
+  if (k.includes('dance') || k.includes('rumba') || k.includes('spin') || k.includes('twist') || k.includes('step') || k.includes('groove')) {
+    cat = 'dance';
+    emoji = '💃';
+  } else if (k.includes('hit') || k.includes('reaction_groin') || k.includes('reaction_head')) {
+    cat = 'combat';
+    emoji = '💥';
+  } else if (k.includes('exercise') || k.includes('crunch') || k.includes('jog') || k.includes('squat')) {
+    cat = 'exercise';
+    emoji = '🏃';
+  } else if (k.includes('idle') || k.includes('sit') || k.includes('kneel') || k.includes('laying') || k.includes('rest') || k.includes('sunbathing')) {
+    cat = 'idles';
+    emoji = '🛋️';
+  } else if (k.includes('walk') || k.includes('crouch') || k.includes('standup') || k.includes('crawling') || k.includes('picking') || k.includes('jump') || k.includes('pat') || k.includes('gaming') || k.includes('action')) {
+    cat = 'motion';
+    emoji = '🚶';
+  } else if (k.includes('pose') || k.includes('peace') || k.includes('shoot') || k.includes('model') || k.includes('greeting') || k.includes('show') || k.includes('wave')) {
+    cat = 'poses';
+    emoji = '✨';
+  } else {
+    const emotions = [
+      'admiration', 'amusement', 'anger', 'annoyance', 'approval', 'caring', 'confusion',
+      'curiosity', 'desire', 'disappointment', 'disapproval', 'disgust', 'embarrassment',
+      'excitement', 'fear', 'gratitude', 'grief', 'joy', 'love', 'nervousness', 'optimism',
+      'pride', 'realization', 'relief', 'remorse', 'sadness', 'surprise', 'neutral'
+    ];
+    for (let e of emotions) {
+      if (k.includes(e)) {
+        cat = 'reactions';
+        emoji = '😊';
+        break;
+      }
+    }
   }
 
-  const cards = document.querySelectorAll('.anim-card-btn');
+  // Specific custom emoji mappings
+  if (k.includes('gangnam')) emoji = '🕶️';
+  if (k.includes('hiphop')) emoji = '🎧';
+  if (k.includes('dab')) emoji = '🤙';
+  if (k.includes('peace')) emoji = '✌️';
+  if (k.includes('shoot')) emoji = '👉';
+  if (k.includes('love')) emoji = '💖';
+  if (k.includes('joy')) emoji = '😄';
+  if (k.includes('anger')) emoji = '😡';
+  if (k.includes('sadness')) emoji = '😢';
+  if (k.includes('fear')) emoji = '😱';
+  if (k.includes('laugh') || k.includes('amusement')) emoji = '😂';
+  if (k.includes('crunches') || k.includes('crunch')) emoji = '💪';
+  if (k.includes('jump')) emoji = '🦘';
+  if (k.includes('crawl')) emoji = '🐛';
+  if (k.includes('gaming')) emoji = '🎮';
+  if (k.includes('sunbathing')) emoji = '🏖️';
+  if (k.includes('groin')) emoji = '⚡';
+  if (k.includes('headshot') || k.includes('head')) emoji = '🤕';
 
-  cards.forEach(c => {
+  return { cat, emoji, label };
+}
 
-    const cardCat = c.getAttribute('data-cat');
+function getMasterAnimationsCatalog() {
+  const master = [];
+  const seen = new Set();
 
-    if (cat === 'all' || cardCat === cat) {
+  // 1. All VRMA files
+  if (typeof VRMA_MOTION_FILES !== 'undefined') {
+    Object.keys(VRMA_MOTION_FILES).forEach(key => {
+      const info = VRMA_MOTION_FILES[key];
+      const { cat, emoji, label } = getAnimCategoryAndMeta(key, true);
+      if (!seen.has(key)) {
+        seen.add(key);
+        master.push({
+          key,
+          file: info.file,
+          type: 'VRMA',
+          cat,
+          emoji,
+          label: info.label || label
+        });
+      }
+    });
+  }
 
-      c.style.display = 'flex';
+  // 2. All BVH files from vrmBvhCatalog
+  if (typeof vrmBvhCatalog !== 'undefined') {
+    Object.keys(vrmBvhCatalog).forEach(key => {
+      const fn = vrmBvhCatalog[key];
+      if (!seen.has(key)) {
+        seen.add(key);
+        const { cat, emoji, label } = getAnimCategoryAndMeta(key, false);
+        master.push({
+          key,
+          file: fn,
+          type: 'BVH',
+          cat,
+          emoji,
+          label
+        });
+      }
+    });
+  }
 
-    } else {
+  return master;
+}
 
-      c.style.display = 'none';
+function renderAnimationsDrawer() {
+  const container = document.getElementById('animGridContainer');
+  if (!container) return;
 
-    }
+  const master = getMasterAnimationsCatalog();
+  const search = vrmCurrentAnimSearch;
+  const currentCat = vrmCurrentAnimCategory;
 
+  // Update Category Counts in UI Tabs
+  const counts = { all: master.length, poses: 0, dance: 0, reactions: 0, motion: 0, exercise: 0, combat: 0, idles: 0 };
+  master.forEach(item => {
+    if (counts[item.cat] !== undefined) counts[item.cat]++;
   });
 
+  const countAllEl = document.getElementById('animCountAll');
+  if (countAllEl) countAllEl.textContent = counts.all;
+  const headerCountEl = document.getElementById('animHeaderCount');
+  if (headerCountEl) headerCountEl.textContent = `(${counts.all})`;
+  const countPosesEl = document.getElementById('animCountPoses');
+  if (countPosesEl) countPosesEl.textContent = counts.poses;
+  const countDanceEl = document.getElementById('animCountDance');
+  if (countDanceEl) countDanceEl.textContent = counts.dance;
+  const countReactionsEl = document.getElementById('animCountReactions');
+  if (countReactionsEl) countReactionsEl.textContent = counts.reactions;
+  const countMotionEl = document.getElementById('animCountMotion');
+  if (countMotionEl) countMotionEl.textContent = counts.motion;
+  const countExerciseEl = document.getElementById('animCountExercise');
+  if (countExerciseEl) countExerciseEl.textContent = counts.exercise;
+  const countCombatEl = document.getElementById('animCountCombat');
+  if (countCombatEl) countCombatEl.textContent = counts.combat;
+  const countIdlesEl = document.getElementById('animCountIdles');
+  if (countIdlesEl) countIdlesEl.textContent = counts.idles;
+
+  // Filter items
+  const filtered = master.filter(item => {
+    const matchesCat = (currentCat === 'all' || item.cat === currentCat);
+    if (!matchesCat) return false;
+    if (!search) return true;
+    return (
+      item.key.toLowerCase().includes(search) ||
+      item.label.toLowerCase().includes(search) ||
+      item.cat.toLowerCase().includes(search) ||
+      item.type.toLowerCase().includes(search)
+    );
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = `
+      <div style="grid-column: 1 / -1; text-align:center; padding:30px 10px; color:var(--text-secondary); font-size:13px;">
+        No animations match "<strong>${search}</strong>" in ${currentCat.toUpperCase()}.<br/>
+        <button onclick="clearAnimSearch()" style="margin-top:10px; padding:6px 14px; background:rgba(255,255,255,0.1); border:1px solid #556; border-radius:6px; color:#fff; cursor:pointer;">Clear Search</button>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = filtered.map(item => {
+    const badgeColor = (item.type === 'VRMA') ? 'rgba(168,85,247,0.35)' : 'rgba(56,189,248,0.25)';
+    const badgeTextColor = (item.type === 'VRMA') ? '#d8b4fe' : '#7dd3fc';
+    return `
+      <button class="anim-card-btn" data-cat="${item.cat}" onclick="triggerDrawerAnim('${item.key}')" title="${item.label} (${item.type})" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; padding:10px 6px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:10px; cursor:pointer; transition:all 0.15s ease; min-height:76px; text-align:center;">
+        <span class="anim-card-emoji" style="font-size:22px; line-height:1.2;">${item.emoji}</span>
+        <span class="anim-card-name" style="font-size:11px; font-weight:800; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:115px;">${item.label}</span>
+        <span class="anim-card-type" style="font-size:9px; font-weight:800; padding:1px 6px; border-radius:4px; background:${badgeColor}; color:${badgeTextColor}; border:1px solid ${badgeTextColor}40;">${item.type}</span>
+      </button>
+    `;
+  }).join('');
 }
-
-
 
 function triggerDrawerAnim(actionKey) {
-
   playVrmAction(actionKey, 4800, false);
-
   const m = document.getElementById('animationsDrawerModal');
-
   if (m) m.style.display = 'none';
-
   showAiSpeechToast(`Playing animation: ${actionKey}`);
-
 }
-
-
-
-// --- VOICE COMMANDS MODAL CONTROLS ---
-
-
-
 function openVoiceCommandsModal() {
 
   const m = document.getElementById('voiceCommandsModal');
@@ -10936,57 +11081,52 @@ function startClipWithSmoothCrossfade(resolvedKey, durationMs = 3800) {
 
 
 function playVrmAction(actionName, durationMs = 3800, silent = false) {
-
   const rawKey = (actionName || 'idle').toLowerCase().replace(/\.(vrma|bvh)$/i, '');
-
   const resolvedKey = VRM_ACTION_ALIASES[rawKey] || rawKey;
 
-
-
   if (vrmMixer && vrmaClips[resolvedKey]) {
-
     startClipWithSmoothCrossfade(resolvedKey, durationMs);
-
+  } else if (typeof VRMA_MOTION_FILES !== 'undefined' && VRMA_MOTION_FILES[resolvedKey]) {
+    // On-demand lazy load for any VRMA animation
+    const vrmaInfo = VRMA_MOTION_FILES[resolvedKey];
+    if (THREE.GLTFLoader && vrmModel) {
+      const loader = new THREE.GLTFLoader();
+      loader.load(
+        `/api/models/vrma?name=${encodeURIComponent(vrmaInfo.file)}`,
+        (vrmaGltf) => {
+          try {
+            const clip = buildRetargetedVrmaClip(resolvedKey, vrmaGltf);
+            if (clip) {
+              vrmaClips[resolvedKey] = clip;
+              startClipWithSmoothCrossfade(resolvedKey, durationMs);
+            }
+          } catch (e) {
+            console.error(`[VRMA] Error lazy loading ${vrmaInfo.file}:`, e);
+          }
+        },
+        undefined,
+        (err) => console.warn(`[VRMA] Failed to load ${vrmaInfo.file}:`, err)
+      );
+    }
   } else if (vrmBvhCatalog[resolvedKey]) {
-
     // On-demand lazy load from the 116-file BVH library
-
     const fileName = vrmBvhCatalog[resolvedKey];
-
     fetch(`/api/models/bvh?name=${encodeURIComponent(fileName)}`)
-
       .then(r => r.ok ? r.text() : '')
-
       .then(bvhText => {
-
         if (!bvhText || !bvhText.includes('HIERARCHY')) return;
-
         const clip = buildRetargetedBvhClip(resolvedKey, bvhText);
-
         if (clip) {
-
           vrmaClips[resolvedKey] = clip;
-
           startClipWithSmoothCrossfade(resolvedKey, durationMs);
-
         }
-
       })
-
       .catch(() => {});
-
   } else {
-
     vrmCurrentAction = resolvedKey;
-
     vrmActionStartTime = Date.now();
-
     vrmActionEndTime = Date.now() + durationMs;
-
   }
-
-
-
   if (silent) return;
 
 
@@ -11746,31 +11886,37 @@ function preloadVrmaMotionPack() {
 
 
 function preloadBvhMotionPack() {
+  // Fetch both BVH and VRMA manifests so all 135 animations are registered immediately
+  fetch('/api/models/vrma')
+    .then(r => r.ok ? r.json() : { files: [] })
+    .then(vrmaData => {
+      const vrmaFiles = (vrmaData && vrmaData.files) ? vrmaData.files : [];
+      vrmaFiles.forEach(vf => {
+        const key = (vf.action || vf.name.replace(/\.vrma$/i, '')).toLowerCase();
+        if (!VRMA_MOTION_FILES[key]) {
+          VRMA_MOTION_FILES[key] = {
+            file: vf.name,
+            label: key.replace(/_/g, ' '),
+            startOffset: 0.0,
+            timeScale: 1.0
+          };
+        }
+      });
+      if (typeof renderAnimationsDrawer === 'function') renderAnimationsDrawer();
+    })
+    .catch(() => {});
 
   fetch('/api/models/bvh')
-
     .then(r => r.ok ? r.json() : { files: [] })
-
     .then(data => {
-
       const files = (data && data.files) ? data.files : [];
-
       // Register all 116 BVH files in catalog for instant on-demand loading
-
       files.forEach((item) => {
-
         const fileName = item.name || item;
-
         const actionKey = (item.action || fileName.replace(/\.bvh$/i, '')).toLowerCase();
-
         vrmBvhCatalog[actionKey] = fileName;
-
       });
-
-
-
-      // Immediately preload core idle, jump, laugh, and dance BVH clips
-
+      if (typeof renderAnimationsDrawer === 'function') renderAnimationsDrawer();
       const priorityBvh = [
 
         'neutral_idle', 'neutral_idle2', 'action_jump', 'amusement',

@@ -1904,60 +1904,40 @@
 
   <!-- ANIMATIONS & POSES DRAWER MODAL -->
   <div class="config-modal-overlay" id="animationsDrawerModal" onclick="if(event.target === this) closeAnimationsDrawer()">
-    <div class="config-modal-content" style="max-width:680px; width:92%; max-height:85vh; display:flex; flex-direction:column; overflow:hidden;">
-      <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center; padding:14px 20px; border-bottom:1px solid var(--panel-border);">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:20px;">🎭</span>
+    <div class="config-modal-content" style="max-width:720px; width:94%; max-height:88vh; display:flex; flex-direction:column; overflow:hidden;">
+      <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center; padding:12px 18px; border-bottom:1px solid var(--panel-border);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:22px;">🎭</span>
           <div>
-            <div style="font-size:16px; font-weight:900; color:#fff; letter-spacing:0.5px;">RUM ANIMATIONS & POSES</div>
+            <div style="font-size:16px; font-weight:900; color:#fff; letter-spacing:0.5px;">RUM ANIMATIONS & POSES <span id="animHeaderCount" style="color:var(--accent-purple,#a855f7); font-size:13px; font-weight:800;">(135)</span></div>
             <div style="font-size:11px; color:var(--text-secondary);">Select any pose or action to play with smooth 3D crossfading</div>
           </div>
         </div>
         <button class="graph-close-btn" onclick="closeAnimationsDrawer()" style="padding:6px 14px; font-size:11px;">✕ CLOSE</button>
       </div>
 
-      <!-- Category Filter Tabs -->
-      <div style="display:flex; gap:6px; padding:10px 16px; background:rgba(0,0,0,0.25); border-bottom:1px solid var(--panel-border); overflow-x:auto;">
-        <button class="anim-tab-btn active" id="animTabAll" onclick="filterAnimationCategory('all', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:var(--accent-purple, #a855f7); color:#fff; border:none;">ALL (20+)</button>
-        <button class="anim-tab-btn" onclick="filterAnimationCategory('poses', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #445;">💃 POSES</button>
-        <button class="anim-tab-btn" onclick="filterAnimationCategory('dance', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #445;">🕺 DANCE & ACTION</button>
-        <button class="anim-tab-btn" onclick="filterAnimationCategory('reactions', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #445;">🤭 REACTIONS</button>
-        <button class="anim-tab-btn" onclick="filterAnimationCategory('motion', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #445;">🚶 MOTION</button>
+      <!-- Quick Search Bar -->
+      <div style="padding:8px 16px; background:rgba(0,0,0,0.35); border-bottom:1px solid var(--panel-border); display:flex; align-items:center; gap:8px;">
+        <span style="font-size:14px; color:var(--text-secondary);">🔍</span>
+        <input type="text" id="animSearchInput" placeholder="Search 130+ animations (dance, wave, jump, emotion, hit...)..." oninput="handleAnimSearch(this.value)" style="flex:1; background:rgba(255,255,255,0.06); border:1px solid #334; border-radius:8px; padding:6px 12px; color:#fff; font-size:12px; outline:none;" />
+        <button onclick="clearAnimSearch()" style="background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:13px; padding:0 4px;">✕</button>
       </div>
 
-      <!-- Animation Buttons Grid -->
-      <div class="anim-grid" id="animGridContainer" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(130px, 1fr)); gap:10px; padding:16px; overflow-y:auto; flex:1; min-height:0; max-height:calc(85vh - 120px); -webkit-overflow-scrolling:touch; touch-action:pan-y;">
-        <!-- Poses -->
-        <button class="anim-card-btn" data-cat="poses" onclick="triggerDrawerAnim('bend_over')"><span class="anim-card-emoji">🎀</span><span class="anim-card-name">Lean In</span><span class="anim-card-type">VRMA</span></button>
-        <button class="anim-card-btn" data-cat="poses" onclick="triggerDrawerAnim('peace')"><span class="anim-card-emoji">✌️</span><span class="anim-card-name">Peace Sign</span><span class="anim-card-type">VRMA</span></button>
-        <button class="anim-card-btn" data-cat="poses" onclick="triggerDrawerAnim('shoot')"><span class="anim-card-emoji">👉</span><span class="anim-card-name">Finger Gun</span><span class="anim-card-type">VRMA</span></button>
-        <button class="anim-card-btn" data-cat="poses" onclick="triggerDrawerAnim('model_pose')"><span class="anim-card-emoji">💃</span><span class="anim-card-name">Model Pose</span><span class="anim-card-type">VRMA</span></button>
-        <button class="anim-card-btn" data-cat="poses" onclick="triggerDrawerAnim('pose_hand_raised_high')"><span class="anim-card-emoji">🙋</span><span class="anim-card-name">High Wave</span><span class="anim-card-type">VRMA</span></button>
-        <button class="anim-card-btn" data-cat="poses" onclick="triggerDrawerAnim('pose_shy_wave')"><span class="anim-card-emoji">🙈</span><span class="anim-card-name">Shy Wave</span><span class="anim-card-type">VRMA</span></button>
-        <button class="anim-card-btn" data-cat="poses" onclick="triggerDrawerAnim('pose_angled_wave')"><span class="anim-card-emoji">📐</span><span class="anim-card-name">Angled Wave</span><span class="anim-card-type">VRMA</span></button>
-        <button class="anim-card-btn" data-cat="poses" onclick="triggerDrawerAnim('pose_side_glance')"><span class="anim-card-emoji">👀</span><span class="anim-card-name">Side Glance</span><span class="anim-card-type">VRMA</span></button>
-        <button class="anim-card-btn" data-cat="poses" onclick="triggerDrawerAnim('idol_pose_showcase')"><span class="anim-card-emoji">🌟</span><span class="anim-card-name">Idol Showcase</span><span class="anim-card-type">VRMA</span></button>
-        <button class="anim-card-btn" data-cat="poses" onclick="triggerDrawerAnim('show_body')"><span class="anim-card-emoji">✨</span><span class="anim-card-name">Show Body</span><span class="anim-card-type">VRMA</span></button>
+      <!-- Category Filter Tabs -->
+      <div style="display:flex; gap:6px; padding:8px 16px; background:rgba(0,0,0,0.22); border-bottom:1px solid var(--panel-border); overflow-x:auto; -webkit-overflow-scrolling:touch;">
+        <button class="anim-tab-btn active" id="animTabAll" onclick="filterAnimationCategory('all', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:var(--accent-purple, #a855f7); color:#fff; border:none; white-space:nowrap;">ALL (<span id="animCountAll">135</span>)</button>
+        <button class="anim-tab-btn" onclick="filterAnimationCategory('poses', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #445; white-space:nowrap;">✨ POSES (<span id="animCountPoses">13</span>)</button>
+        <button class="anim-tab-btn" onclick="filterAnimationCategory('dance', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #445; white-space:nowrap;">💃 DANCE (<span id="animCountDance">12</span>)</button>
+        <button class="anim-tab-btn" onclick="filterAnimationCategory('reactions', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #445; white-space:nowrap;">😊 EMOTIONS (<span id="animCountReactions">64</span>)</button>
+        <button class="anim-tab-btn" onclick="filterAnimationCategory('motion', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #445; white-space:nowrap;">🚶 MOTION (<span id="animCountMotion">14</span>)</button>
+        <button class="anim-tab-btn" onclick="filterAnimationCategory('exercise', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #445; white-space:nowrap;">🏃 EXERCISE (<span id="animCountExercise">7</span>)</button>
+        <button class="anim-tab-btn" onclick="filterAnimationCategory('combat', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #445; white-space:nowrap;">💥 HITS (<span id="animCountCombat">9</span>)</button>
+        <button class="anim-tab-btn" onclick="filterAnimationCategory('idles', this)" style="padding:4px 12px; border-radius:12px; font-size:11px; font-weight:800; cursor:pointer; background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid #445; white-space:nowrap;">🛋️ IDLES (<span id="animCountIdles">16</span>)</button>
+      </div>
 
-        <!-- Dance & Actions -->
-        <button class="anim-card-btn" data-cat="dance" onclick="triggerDrawerAnim('dance_hiphop_step')"><span class="anim-card-emoji">🕺</span><span class="anim-card-name">Hiphop Dance</span><span class="anim-card-type">BVH</span></button>
-        <button class="anim-card-btn" data-cat="dance" onclick="triggerDrawerAnim('dance_side_groove')"><span class="anim-card-emoji">🎶</span><span class="anim-card-name">Side Groove</span><span class="anim-card-type">BVH</span></button>
-        <button class="anim-card-btn" data-cat="dance" onclick="triggerDrawerAnim('action_jump')"><span class="anim-card-emoji">🐰</span><span class="anim-card-name">Jump</span><span class="anim-card-type">BVH</span></button>
-        <button class="anim-card-btn" data-cat="dance" onclick="triggerDrawerAnim('spin')"><span class="anim-card-emoji">💫</span><span class="anim-card-name">360° Spin</span><span class="anim-card-type">VRMA</span></button>
-        <button class="anim-card-btn" data-cat="dance" onclick="triggerDrawerAnim('squat')"><span class="anim-card-emoji">🏋️</span><span class="anim-card-name">Squat</span><span class="anim-card-type">VRMA</span></button>
-
-        <!-- Reactions & Greetings -->
-        <button class="anim-card-btn" data-cat="reactions" onclick="triggerDrawerAnim('amusement')"><span class="anim-card-emoji">🤭</span><span class="anim-card-name">Laugh</span><span class="anim-card-type">BVH</span></button>
-        <button class="anim-card-btn" data-cat="reactions" onclick="triggerDrawerAnim('greeting')"><span class="anim-card-emoji">👋</span><span class="anim-card-name">Greeting Wave</span><span class="anim-card-type">VRMA</span></button>
-        <button class="anim-card-btn" data-cat="reactions" onclick="triggerDrawerAnim('turn_and_wave_hello')"><span class="anim-card-emoji">🙋</span><span class="anim-card-name">Turn & Hello</span><span class="anim-card-type">VRMA</span></button>
-        <button class="anim-card-btn" data-cat="reactions" onclick="triggerDrawerAnim('disapproval')"><span class="anim-card-emoji">🙅</span><span class="anim-card-name">Disapproval</span><span class="anim-card-type">BVH</span></button>
-        <button class="anim-card-btn" data-cat="reactions" onclick="triggerDrawerAnim('nervousness')"><span class="anim-card-emoji">😰</span><span class="anim-card-name">Nervousness</span><span class="anim-card-type">BVH</span></button>
-
-        <!-- Motion & Locomotion -->
-        <button class="anim-card-btn" data-cat="motion" onclick="triggerDrawerAnim('walk_loop')"><span class="anim-card-emoji">🚶</span><span class="anim-card-name">Walk Loop</span><span class="anim-card-type">VRMA</span></button>
-        <button class="anim-card-btn" data-cat="motion" onclick="triggerDrawerAnim('jog_loop')"><span class="anim-card-emoji">🏃</span><span class="anim-card-name">Jog Loop</span><span class="anim-card-type">VRMA</span></button>
-        <button class="anim-card-btn" data-cat="motion" onclick="triggerDrawerAnim('sit_idle')"><span class="anim-card-emoji">🛋️</span><span class="anim-card-name">Sit Down</span><span class="anim-card-type">VRMA</span></button>
-        <button class="anim-card-btn" data-cat="motion" onclick="triggerDrawerAnim('neutral_idle')"><span class="anim-card-emoji">🧘</span><span class="anim-card-name">Reset Idle</span><span class="anim-card-type">BVH</span></button>
+      <!-- Animation Buttons Dynamic Grid -->
+      <div class="anim-grid" id="animGridContainer" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(130px, 1fr)); gap:10px; padding:16px; overflow-y:auto; flex:1; min-height:0; max-height:calc(88vh - 150px); -webkit-overflow-scrolling:touch; touch-action:pan-y;">
+        <!-- Populated dynamically via renderAnimationsDrawer() -->
       </div>
     </div>
   </div>
