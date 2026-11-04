@@ -1323,14 +1323,107 @@ body {
   border-bottom: 1px solid var(--panel-border);
 }
 
-.breadcrumb-path {
+.breadcrumb-container {
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding: 2px 4px;
+  scrollbar-width: thin;
+}
+
+.breadcrumb-segment {
   font-family: var(--font-mono);
   font-size: 11px;
+  font-weight: 700;
   color: var(--accent-blue);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  background: rgba(0, 229, 255, 0.08);
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.breadcrumb-segment:hover {
+  background: rgba(0, 229, 255, 0.25);
+  color: #fff;
+}
+
+.breadcrumb-separator {
+  color: var(--text-secondary);
+  font-size: 11px;
+  opacity: 0.5;
+}
+
+.explorer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 18px;
+  background: #0f131a;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.explorer-search-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #161c24;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  flex: 1;
+  max-width: 320px;
+}
+
+.explorer-search-box input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #fff;
+  font-size: 12px;
+  width: 100%;
+}
+
+.explorer-search-box input::placeholder {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.explorer-sort-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sort-chip {
+  background: #161c24;
+  border: 1px solid var(--panel-border);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.sort-chip:hover, .sort-chip.active {
+  background: rgba(0, 229, 255, 0.15);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+.explorer-footer {
+  padding: 10px 18px;
+  background: #141922;
+  border-top: 1px solid var(--panel-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .explorer-body {

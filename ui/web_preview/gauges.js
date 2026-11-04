@@ -6240,469 +6240,356 @@ function renderHomeDrivesShelf() {
 
 
 
+let explorerCurrentItems = [];
+let explorerSortBy = 'name'; // 'name', 'size', 'date'
+let explorerSortAsc = true;
+let explorerSearchQuery = '';
+
 function openFileExplorer(targetPath) {
-
   const modal = document.getElementById('fileExplorerModal');
-
   if (modal) modal.style.display = 'flex';
 
-
-
   renderExplorerDeviceTabs();
-
-
 
   if (targetPath) {
-
     currentExplorerPath = targetPath;
-
   } else if (!currentExplorerPath) {
-
-    currentExplorerPath = (detectedDevices[0] && detectedDevices[0].path) || "";
-
+    // Default to Home if detected, otherwise first device
+    const homeDev = detectedDevices.find(d => d.id === 'loc_home');
+    currentExplorerPath = homeDev ? homeDev.path : ((detectedDevices[0] && detectedDevices[0].path) || "");
   }
 
-
-
   loadExplorerDirectory(currentExplorerPath);
-
 }
-
-
 
 function closeFileExplorer() {
-
   const modal = document.getElementById('fileExplorerModal');
-
   if (modal) modal.style.display = 'none';
-
 }
-
-
 
 function renderExplorerDeviceTabs() {
-
   const tabsContainer = document.getElementById('explorerDeviceTabs');
-
   if (!tabsContainer) return;
 
-
+  if (detectedDevices.length === 0) {
+    tabsContainer.innerHTML = '<span style="color:var(--text-secondary); font-size:11px; padding:6px;">No storage roots found</span>';
+    return;
+  }
 
   tabsContainer.innerHTML = detectedDevices.map(dev => {
-
-    const isUsb = dev.is_removable;
-
-    const icon = isUsb ? '💾' : '💽';
-
+    const icon = dev.icon || (dev.is_removable ? '💾' : '📁');
     const cleanPath = dev.path.replace(/\\/g, '/');
-
-    const isActive = currentExplorerPath.replace(/\\/g, '/').startsWith(cleanPath);
+    const currNorm = (currentExplorerPath || '').replace(/\\/g, '/');
+    const isActive = currNorm === cleanPath || currNorm.startsWith(cleanPath + '/');
+    const freeText = (dev.free_gb !== undefined && dev.free_gb !== null) ? `${dev.free_gb.toFixed(0)}G` : '';
 
     return `
-
-      <button class="device-tab-btn ${isActive ? 'active' : ''}" onclick="openFileExplorer('${cleanPath}')">
-
-        <span>${icon}</span> ${dev.label || dev.name} (${dev.free_gb.toFixed(0)}G Free)
-
+      <button class="device-tab-btn ${isActive ? 'active' : ''}" onclick="openFileExplorer('${cleanPath}')" title="${dev.name} (${dev.path})">
+        <span>${icon}</span>
+        <span>${dev.label || dev.name}</span>
+        ${freeText ? `<span style="opacity:0.6; font-size:9px;">${freeText}</span>` : ''}
       </button>
-
     `;
-
   }).join('');
-
 }
 
+function renderExplorerBreadcrumbs(breadcrumbs, currentPath) {
+  const breadcrumbContainer = document.getElementById('explorerBreadcrumbs');
+  if (!breadcrumbContainer) return;
 
+  if (!breadcrumbs || breadcrumbs.length === 0) {
+    breadcrumbContainer.innerHTML = `<span class="breadcrumb-segment" onclick="loadExplorerDirectory('${currentPath.replace(/\\/g, '/')}')">${currentPath}</span>`;
+    return;
+  }
+
+  let html = '';
+  breadcrumbs.forEach((crumb, idx) => {
+    const cleanCrumbPath = crumb.path.replace(/\\/g, '/');
+    const isLast = idx === breadcrumbs.length - 1;
+    html += `
+      <span class="breadcrumb-segment ${isLast ? 'active' : ''}" onclick="loadExplorerDirectory('${cleanCrumbPath}')">${crumb.name}</span>
+    `;
+    if (!isLast) {
+      html += '<span class="breadcrumb-separator">/</span>';
+    }
+  });
+
+  breadcrumbContainer.innerHTML = html;
+  // Scroll to end of breadcrumbs
+  breadcrumbContainer.scrollLeft = breadcrumbContainer.scrollWidth;
+}
 
 function loadExplorerDirectory(dirPath) {
-
   currentExplorerPath = dirPath || "";
-
-  const pathDisplay = document.getElementById('explorerCurrentPath');
-
   const fileList = document.getElementById('explorerFileList');
-
   const footerStatus = document.getElementById('explorerFooterStatus');
 
-
-
-  if (pathDisplay) pathDisplay.innerText = currentExplorerPath || "Drive Root";
-
-  if (fileList) fileList.innerHTML = '<div style="color:var(--text-secondary); padding:24px; text-align:center;">Scanning storage...</div>';
-
-
+  if (fileList) fileList.innerHTML = '<div style="color:var(--text-secondary); padding:28px; text-align:center;"><div style="font-size:24px; margin-bottom:8px;">⏳</div>Loading directory contents...</div>';
 
   renderExplorerDeviceTabs();
 
-
-
   fetch(`/api/fs/list?path=${encodeURIComponent(currentExplorerPath)}`)
-
     .then(r => r.json())
-
     .then(data => {
-
-      if (data.error) {
-
-        if (fileList) fileList.innerHTML = `<div style="color:var(--accent-red); padding:20px;">Error reading folder: ${data.error}</div>`;
-
+      if (data.status === 'error' || data.error) {
+        if (fileList) fileList.innerHTML = `<div style="color:var(--accent-red); padding:24px; text-align:center;"><div style="font-size:24px; margin-bottom:8px;">⚠️</div>${data.error || 'Permission denied or folder not found'}</div>`;
         return;
-
       }
 
-
-
-      currentExplorerPath = data.path;
-
-      if (pathDisplay) pathDisplay.innerText = currentExplorerPath;
-
-
-
-      const items = data.items || [];
-
-      const folders = items.filter(i => i.is_dir);
-
-      const files = items.filter(i => !i.is_dir);
-
-
-
-      if (footerStatus) {
-
-        footerStatus.innerText = `${items.length} items (${folders.length} folders, ${files.length} files)`;
-
-      }
-
-
-
-      if (items.length === 0) {
-
-        if (fileList) fileList.innerHTML = '<div style="color:var(--text-secondary); padding:30px; text-align:center;">(Empty folder)</div>';
-
-        return;
-
-      }
-
-
-
-      let html = '';
-
-
-
-      // Render Folders First
-
-      folders.forEach(item => {
-
-        const cleanPath = item.path.replace(/\\/g, '/');
-
-        html += `
-
-          <div class="explorer-item-row" onclick="loadExplorerDirectory('${cleanPath}')">
-
-            <div class="item-left">
-
-              <span class="item-icon">📁</span>
-
-              <div>
-
-                <div class="item-name" style="color:var(--accent-yellow);">${item.name}</div>
-
-                <div class="item-meta">Directory • ${item.modified || ''}</div>
-
-              </div>
-
-            </div>
-
-            <div class="item-actions" onclick="event.stopPropagation()">
-
-              <button class="item-action-btn" onclick="copyExplorerItem('${cleanPath}', '${item.name}', true)" title="Copy folder">📋 COPY</button>
-
-              <button class="item-action-btn" style="color:var(--accent-red);" onclick="deleteExplorerItem('${cleanPath}', '${item.name}')" title="Delete folder">🗑️ DEL</button>
-
-            </div>
-
-          </div>
-
-        `;
-
-      });
-
-
-
-      // Render Files
-
-      files.forEach(item => {
-
-        const cleanPath = item.path.replace(/\\/g, '/');
-
-        const ext = item.ext ? item.ext.toLowerCase() : '';
-
-        let icon = '📄';
-
-        let isEditable = false;
-
-        let isAudio = false;
-
-        let isVideo = false;
-
-        let isRom = false;
-
-
-
-        if (['.cfg', '.json', '.txt', '.ini', '.py', '.sh', '.log', '.md', '.conf'].includes(ext)) {
-
-          icon = '📝';
-
-          isEditable = true;
-
-        } else if (['.mp3', '.wav', '.flac', '.ogg', '.aac', '.m4a'].includes(ext)) {
-
-          icon = '🎵';
-
-          isAudio = true;
-
-        } else if (['.mp4', '.mkv', '.avi', '.mov', '.webm'].includes(ext)) {
-
-          icon = '🎬';
-
-          isVideo = true;
-
-        } else if (['.sfc', '.smc', '.nes', '.gba', '.bin', '.iso', '.zip', '.7z'].includes(ext)) {
-
-          icon = '🕹️';
-
-          isRom = true;
-
-        }
-
-
-
-        const sizeFormatted = (item.size > 1048576) ? `${(item.size / 1048576).toFixed(1)} MB` : `${Math.ceil(item.size / 1024)} KB`;
-
-
-
-        html += `
-
-          <div class="explorer-item-row" ${isEditable ? `onclick="openFileEditor('${cleanPath}')"` : ''}>
-
-            <div class="item-left">
-
-              <span class="item-icon">${icon}</span>
-
-              <div>
-
-                <div class="item-name">${item.name}</div>
-
-                <div class="item-meta">${sizeFormatted} • ${item.modified || ''}</div>
-
-              </div>
-
-            </div>
-
-            <div class="item-actions" onclick="event.stopPropagation()">
-
-              ${isEditable ? `<button class="item-action-btn" style="color:var(--accent-blue); border-color:var(--accent-blue);" onclick="openFileEditor('${cleanPath}')">✏️ EDIT</button>` : ''}
-
-              ${isRom ? `<button class="item-action-btn" style="color:var(--accent-purple);" onclick="launchRetroArch()">▶ PLAY</button>` : ''}
-
-              ${isAudio ? `<button class="item-action-btn" style="color:var(--accent-green);" onclick="navigateTo('media')">▶ PLAY</button>` : ''}
-
-              ${isVideo ? `<button class="item-action-btn" style="color:#ff7700;" onclick="showPlaceholderModal('VLC Player', 'Playing ${item.name} via VLC GPU acceleration')">🎬 VLC</button>` : ''}
-
-              <button class="item-action-btn" onclick="copyExplorerItem('${cleanPath}', '${item.name}', false)" title="Copy file">📋 COPY</button>
-
-              <button class="item-action-btn" style="color:var(--accent-red);" onclick="deleteExplorerItem('${cleanPath}', '${item.name}')" title="Delete file">🗑️ DEL</button>
-
-            </div>
-
-          </div>
-
-        `;
-
-      });
-
-
-
-      if (fileList) fileList.innerHTML = html;
-
+      currentExplorerPath = data.path || data.current_path || currentExplorerPath;
+      renderExplorerBreadcrumbs(data.breadcrumbs, currentExplorerPath);
+      renderExplorerDeviceTabs();
+
+      explorerCurrentItems = data.items || [];
+      renderExplorerFilteredItems();
     })
-
     .catch(err => {
-
       console.error("[FS] Directory read error:", err);
-
       if (fileList) fileList.innerHTML = `<div style="color:var(--accent-red); padding:20px;">Network error loading directory: ${err}</div>`;
-
     });
-
 }
 
+function filterExplorerItems() {
+  const input = document.getElementById('explorerSearchInput');
+  const clearBtn = document.getElementById('explorerSearchClear');
+  explorerSearchQuery = (input ? input.value : '').trim().toLowerCase();
 
+  if (clearBtn) clearBtn.style.display = explorerSearchQuery ? 'inline-block' : 'none';
+  renderExplorerFilteredItems();
+}
+
+function clearExplorerSearch() {
+  const input = document.getElementById('explorerSearchInput');
+  const clearBtn = document.getElementById('explorerSearchClear');
+  if (input) input.value = '';
+  if (clearBtn) clearBtn.style.display = 'none';
+  explorerSearchQuery = '';
+  renderExplorerFilteredItems();
+}
+
+function setExplorerSort(field) {
+  if (explorerSortBy === field) {
+    explorerSortAsc = !explorerSortAsc;
+  } else {
+    explorerSortBy = field;
+    explorerSortAsc = (field === 'name');
+  }
+
+  ['Name', 'Size', 'Date'].forEach(f => {
+    const btn = document.getElementById('sortBtn' + f);
+    if (btn) {
+      const active = (f.toLowerCase() === explorerSortBy);
+      btn.className = 'sort-chip' + (active ? ' active' : '');
+      if (active) {
+        btn.innerText = `${f} ${explorerSortAsc ? '▲' : '▼'}`;
+      } else {
+        btn.innerText = f;
+      }
+    }
+  });
+
+  renderExplorerFilteredItems();
+}
+
+function renderExplorerFilteredItems() {
+  const fileList = document.getElementById('explorerFileList');
+  const footerStatus = document.getElementById('explorerFooterStatus');
+  if (!fileList) return;
+
+  let items = [...explorerCurrentItems];
+
+  if (explorerSearchQuery) {
+    items = items.filter(i => i.name.toLowerCase().includes(explorerSearchQuery));
+  }
+
+  // Sort
+  items.sort((a, b) => {
+    // Directories always first
+    if (a.is_dir !== b.is_dir) {
+      return a.is_dir ? -1 : 1;
+    }
+    let res = 0;
+    if (explorerSortBy === 'name') {
+      res = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+    } else if (explorerSortBy === 'size') {
+      res = (a.size_bytes || 0) - (b.size_bytes || 0);
+    } else if (explorerSortBy === 'date') {
+      res = (a.timestamp || 0) - (b.timestamp || 0);
+    }
+    return explorerSortAsc ? res : -res;
+  });
+
+  const folders = items.filter(i => i.is_dir);
+  const files = items.filter(i => !i.is_dir);
+
+  if (footerStatus) {
+    footerStatus.innerText = `${items.length} items (${folders.length} folders, ${files.length} files)`;
+  }
+
+  if (items.length === 0) {
+    const emptyMsg = explorerSearchQuery ? `No files matching "${explorerSearchQuery}"` : "(Folder is empty)";
+    fileList.innerHTML = `<div style="color:var(--text-secondary); padding:36px; text-align:center;"><div style="font-size:24px; margin-bottom:8px;">📂</div>${emptyMsg}</div>`;
+    return;
+  }
+
+  let html = '';
+
+  // Render items
+  items.forEach(item => {
+    const cleanPath = item.path.replace(/\\/g, '/');
+
+    if (item.is_dir) {
+      html += `
+        <div class="explorer-item-row" onclick="loadExplorerDirectory('${cleanPath}')">
+          <div class="item-left">
+            <span class="item-icon">📁</span>
+            <div>
+              <div class="item-name" style="color:var(--accent-yellow);">${item.name}</div>
+              <div class="item-meta">Directory • ${item.modified || ''}</div>
+            </div>
+          </div>
+          <div class="item-actions" onclick="event.stopPropagation()">
+            <button class="item-action-btn" onclick="copyExplorerItem('${cleanPath}', '${item.name}', true)" title="Copy folder">📋 COPY</button>
+            <button class="item-action-btn" style="color:var(--accent-red);" onclick="deleteExplorerItem('${cleanPath}', '${item.name}')" title="Delete folder">🗑️ DEL</button>
+          </div>
+        </div>
+      `;
+    } else {
+      const ext = item.ext ? item.ext.toLowerCase() : '';
+      let icon = '📄';
+      let isEditable = false;
+      let isAudio = false;
+      let isVideo = false;
+      let isRom = false;
+      let isModel = false;
+
+      if (['.cfg', '.json', '.txt', '.ini', '.py', '.sh', '.log', '.md', '.conf', '.yaml', '.yml'].includes(ext)) {
+        icon = '📝';
+        isEditable = true;
+      } else if (['.mp3', '.wav', '.flac', '.ogg', '.aac', '.m4a'].includes(ext)) {
+        icon = '🎵';
+        isAudio = true;
+      } else if (['.mp4', '.mkv', '.avi', '.mov', '.webm'].includes(ext)) {
+        icon = '🎬';
+        isVideo = true;
+      } else if (['.sfc', '.smc', '.nes', '.gba', '.bin', '.iso', '.zip', '.7z'].includes(ext)) {
+        icon = '🕹️';
+        isRom = true;
+      } else if (['.vrm', '.vrma', '.bvh'].includes(ext)) {
+        icon = '🎭';
+        isModel = true;
+      } else if (['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext)) {
+        icon = '🖼️';
+      }
+
+      const sizeFormatted = item.size_str || ((item.size_bytes > 1048576) ? `${(item.size_bytes / 1048576).toFixed(1)} MB` : `${Math.ceil((item.size_bytes || 0) / 1024)} KB`);
+
+      html += `
+        <div class="explorer-item-row" ${isEditable ? `onclick="openFileEditor('${cleanPath}')"` : ''}>
+          <div class="item-left">
+            <span class="item-icon">${icon}</span>
+            <div>
+              <div class="item-name">${item.name}</div>
+              <div class="item-meta">${sizeFormatted} • ${item.modified || ''}</div>
+            </div>
+          </div>
+          <div class="item-actions" onclick="event.stopPropagation()">
+            ${isEditable ? `<button class="item-action-btn" style="color:var(--accent-blue); border-color:var(--accent-blue);" onclick="openFileEditor('${cleanPath}')">✏️ EDIT</button>` : ''}
+            ${isRom ? `<button class="item-action-btn" style="color:var(--accent-purple);" onclick="launchRetroArch()">▶ PLAY</button>` : ''}
+            ${isAudio ? `<button class="item-action-btn" style="color:var(--accent-green);" onclick="navigateTo('media')">▶ PLAY</button>` : ''}
+            ${isVideo ? `<button class="item-action-btn" style="color:#ff7700;" onclick="showPlaceholderModal('VLC Player', 'Playing ${item.name} via VLC GPU acceleration')">🎬 VLC</button>` : ''}
+            <button class="item-action-btn" onclick="copyExplorerItem('${cleanPath}', '${item.name}', false)" title="Copy file">📋 COPY</button>
+            <button class="item-action-btn" style="color:var(--accent-red);" onclick="deleteExplorerItem('${cleanPath}', '${item.name}')" title="Delete file">🗑️ DEL</button>
+          </div>
+        </div>
+      `;
+    }
+  });
+
+  fileList.innerHTML = html;
+}
 
 function navigateExplorerUp() {
-
   if (!currentExplorerPath) return;
-
   const p = currentExplorerPath.replace(/\\/g, '/').replace(/\/+$/, '');
-
   const lastSlash = p.lastIndexOf('/');
-
   if (lastSlash > 0) {
-
     const parent = p.substring(0, lastSlash);
-
     loadExplorerDirectory(parent);
-
   } else if (lastSlash === 0) {
-
     loadExplorerDirectory('/');
-
   }
-
 }
-
-
 
 function promptNewFolder() {
-
   const name = window.prompt("Enter new folder name (e.g. snes_roms, logs, tuning):");
-
   if (!name || !name.trim()) return;
 
-
-
   fetch('/api/fs/mkdir', {
-
     method: 'POST',
-
     headers: { 'Content-Type': 'application/json' },
-
-    body: JSON.stringify({ parent_dir: currentExplorerPath, name: name.trim() })
-
+    body: JSON.stringify({ parent_path: currentExplorerPath, folder_name: name.trim() })
   })
-
     .then(r => r.json())
-
     .then(res => {
-
-      if (res.error) alert("Error creating folder: " + res.error);
-
+      if (res.status === 'error' || res.error) alert("Error creating folder: " + (res.message || res.error));
       else loadExplorerDirectory(currentExplorerPath);
-
     })
-
     .catch(err => alert("Failed to create folder: " + err));
-
 }
-
-
 
 function copyExplorerItem(itemPath, itemName, isDir) {
-
   fileClipboard = { path: itemPath, name: itemName, is_dir: isDir };
-
   const pasteBtn = document.getElementById('explorerPasteBtn');
-
   if (pasteBtn) {
-
     pasteBtn.style.display = 'inline-flex';
-
     pasteBtn.innerText = `📋 PASTE (${itemName.substring(0, 14)})`;
-
   }
-
   showAiSpeechToast(`Copied "${itemName}" to clipboard`);
-
 }
-
-
 
 function pasteFileClipboard() {
-
   if (!fileClipboard) return;
 
-
-
   fetch('/api/fs/copy', {
-
     method: 'POST',
-
     headers: { 'Content-Type': 'application/json' },
-
-    body: JSON.stringify({ src: fileClipboard.path, dest_dir: currentExplorerPath })
-
+    body: JSON.stringify({ src: fileClipboard.path, dst: currentExplorerPath })
   })
-
     .then(r => r.json())
-
     .then(res => {
-
-      if (res.error) {
-
-        alert("Error copying file: " + res.error);
-
+      if (res.status === 'error' || res.error) {
+        alert("Error copying: " + (res.message || res.error));
       } else {
-
         showAiSpeechToast(`Pasted "${fileClipboard.name}"`);
-
         loadExplorerDirectory(currentExplorerPath);
-
       }
-
     })
-
     .catch(err => alert("Copy failed: " + err));
-
 }
-
-
 
 function deleteExplorerItem(itemPath, itemName) {
-
   if (!confirm(`Delete "${itemName}" permanently?`)) return;
 
-
-
   fetch('/api/fs/delete', {
-
     method: 'POST',
-
     headers: { 'Content-Type': 'application/json' },
-
     body: JSON.stringify({ path: itemPath })
-
   })
-
     .then(r => r.json())
-
     .then(res => {
-
-      if (res.error) alert("Error deleting: " + res.error);
-
+      if (res.status === 'error' || res.error) alert("Error deleting: " + (res.message || res.error));
       else {
-
         showAiSpeechToast(`Deleted "${itemName}"`);
-
         loadExplorerDirectory(currentExplorerPath);
-
       }
-
     })
-
     .catch(err => alert("Delete failed: " + err));
-
 }
-
-
 
 function refreshExplorer() {
-
   loadExplorerDirectory(currentExplorerPath);
-
 }
-
-
-
-// In-Car Text / Config Editor
 
 function openFileEditor(filePath) {
 

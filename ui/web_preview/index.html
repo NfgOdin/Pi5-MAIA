@@ -1573,34 +1573,51 @@
     </div>
   </div>
 
-  <!-- IN-CAR FILE EXPLORER MODAL (USB Flash Drives, ROMs, Tuning Maps) -->
+  <!-- IN-CAR FILE EXPLORER MODAL (Full Filesystem Browser: Home, Storage, USB, ROMs) -->
   <div class="explorer-modal-overlay" id="fileExplorerModal">
     <div class="explorer-content">
       <!-- Header -->
       <div class="explorer-header">
         <div style="display:flex; align-items:center; gap:10px;">
-          <span style="font-size:22px;">📁</span>
+          <span style="font-size:24px;">📁</span>
           <div>
-            <div style="font-size:16px; font-weight:900; color:#fff;">CARPI5 FILE EXPLORER</div>
-            <div style="font-size:10px; color:var(--text-secondary); font-weight:700;">USB Flash Drives, Tuning Maps, ROMs & In-Dash Storage</div>
+            <div style="font-size:16px; font-weight:900; color:#fff; letter-spacing:0.5px;">SYSTEM FILE EXPLORER</div>
+            <div style="font-size:10px; color:var(--text-secondary); font-weight:700;">Home (~), CarPi5 Workspace, ROMs, Music & Removable Media</div>
           </div>
         </div>
         <button class="graph-close-btn" onclick="closeFileExplorer()">✕ CLOSE</button>
       </div>
 
-      <!-- Device Tabs (Windows 11 Connected Drives Bar) -->
+      <!-- Quick Access Location Chips Bar -->
       <div class="device-tabs-row" id="explorerDeviceTabs">
-        <!-- Injected dynamically by JS -->
+        <!-- Injected dynamically by JS (Home, CarPi5, ROMs, Music, USB Drives, Root) -->
       </div>
 
-      <!-- Breadcrumbs & Directory Controls -->
+      <!-- Breadcrumbs Path Bar -->
       <div class="breadcrumb-bar">
-        <button class="cluster-action-btn" style="padding:4px 10px; font-size:11px;" onclick="navigateExplorerUp()">⬆ UP</button>
-        <div class="breadcrumb-path" id="explorerCurrentPath">/storage/usb_drive</div>
+        <button class="cluster-action-btn" style="padding:6px 12px; font-size:11px; font-weight:800;" onclick="navigateExplorerUp()" title="Go to parent directory">⬆ UP</button>
+        <div class="breadcrumb-container" id="explorerBreadcrumbs">
+          <span class="breadcrumb-segment" onclick="loadExplorerDirectory('/')">/</span>
+        </div>
         <div style="display:flex; gap:6px;">
-          <button class="cluster-action-btn" style="padding:4px 10px; font-size:11px;" onclick="promptNewFolder()">➕ NEW FOLDER</button>
-          <button class="cluster-action-btn" id="explorerPasteBtn" style="padding:4px 10px; font-size:11px; background:var(--accent-green); color:#000; font-weight:900; display:none;" onclick="pasteFileClipboard()">📋 PASTE HERE</button>
-          <button class="cluster-action-btn" style="padding:4px 10px; font-size:11px;" onclick="refreshExplorer()">🔄 REFRESH</button>
+          <button class="cluster-action-btn" style="padding:6px 12px; font-size:11px; font-weight:800;" onclick="promptNewFolder()" title="Create folder">➕ NEW FOLDER</button>
+          <button class="cluster-action-btn" id="explorerPasteBtn" style="padding:6px 12px; font-size:11px; background:var(--accent-green); color:#000; font-weight:900; display:none;" onclick="pasteFileClipboard()">📋 PASTE HERE</button>
+          <button class="cluster-action-btn" style="padding:6px 12px; font-size:11px; font-weight:800;" onclick="refreshExplorer()" title="Reload folder">🔄 REFRESH</button>
+        </div>
+      </div>
+
+      <!-- Search & Sorting Toolbar -->
+      <div class="explorer-toolbar">
+        <div class="explorer-search-box">
+          <span style="opacity:0.6; font-size:13px;">🔍</span>
+          <input type="text" id="explorerSearchInput" placeholder="Filter files & folders..." oninput="filterExplorerItems()" autocomplete="off" spellcheck="false">
+          <button id="explorerSearchClear" style="display:none; background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:12px; padding:0 4px;" onclick="clearExplorerSearch()">✕</button>
+        </div>
+        <div class="explorer-sort-group">
+          <span style="font-size:10px; color:var(--text-secondary); font-weight:700; text-transform:uppercase;">Sort:</span>
+          <button class="sort-chip active" id="sortBtnName" onclick="setExplorerSort('name')">Name</button>
+          <button class="sort-chip" id="sortBtnSize" onclick="setExplorerSort('size')">Size</button>
+          <button class="sort-chip" id="sortBtnDate" onclick="setExplorerSort('date')">Date</button>
         </div>
       </div>
 
@@ -1610,10 +1627,11 @@
       </div>
 
       <!-- Footer Toolbar -->
-      <div style="padding:10px 18px; background:#141922; border-top:1px solid var(--panel-border); display:flex; justify-content:space-between; align-items:center;">
+      <div class="explorer-footer">
         <span style="font-size:11px; color:var(--text-secondary);" id="explorerFooterStatus">0 items</span>
-        <div style="font-size:10px; color:var(--text-secondary); font-family:var(--font-mono);">
-          Direct OverlayFS Safe I/O
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span id="explorerSelectionInfo" style="font-size:10px; color:var(--text-secondary); font-family:var(--font-mono);"></span>
+          <span style="font-size:10px; color:var(--text-secondary); font-family:var(--font-mono);">⚡ Linux Native Filesystem</span>
         </div>
       </div>
     </div>
