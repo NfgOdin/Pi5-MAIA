@@ -786,8 +786,8 @@
               </select>
             </div>
             <div>
-              <div style="font-size:10px; font-weight:800; color:var(--text-secondary); margin-bottom:4px;">VOICE PITCH (<span id="lblTtsPitch">1.18x</span> • ANIME TIMBRE):</div>
-              <input type="range" id="cfgTtsPitch" min="1.00" max="1.25" step="0.02" value="1.18" style="width:100%; accent-color:var(--accent-pink);" oninput="document.getElementById('lblTtsPitch').innerText=this.value+'x'" onchange="saveTtsVoiceSettings()">
+              <div style="font-size:10px; font-weight:800; color:var(--text-secondary); margin-bottom:4px;">VOICE PITCH (<span id="lblTtsPitch">1.18x</span> • RANGE 0.5x - 2.0x):</div>
+              <input type="range" id="cfgTtsPitch" min="0.50" max="2.00" step="0.05" value="1.18" style="width:100%; accent-color:var(--accent-pink);" oninput="onPitchSliderInput(this.value)" onchange="onPitchSliderChanged(this.value)">
             </div>
           </div>
           <div id="elevenLabsKeyRow" style="display:none; margin-top:10px; gap:8px; align-items:center;">

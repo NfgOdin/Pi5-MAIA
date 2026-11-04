@@ -1219,7 +1219,8 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                 env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}" if hasattr(os, "getuid") else "/run/user/1000"
                 env["MOZ_ENABLE_WAYLAND"] = "1"
                 try:
-                    subprocess.run(["firefox", "--new-tab", "https://google.com"], env=env)
+                    subprocess.run(["firefox", "--new-tab", "https://google.com"],
+                                   env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
                 except Exception as e:
                     print(f"[FIREFOX] Launch error: {e}", flush=True)
 

@@ -2085,13 +2085,7 @@ function stopFirefoxWatcher() {
   }
 }
 
-// Auto-close Firefox whenever the user refocuses on CarPi5 dashboard!
-window.addEventListener('focus', () => {
-  if (isFirefoxRunning) {
-    console.log("[FIREFOX] CarPi5 window refocused — closing background Firefox process to preserve RAM...");
-    closeFirefoxBrowser();
-  }
-});
+// Firefox remains open until user closes its window (or toggles BROWSER button)
 
 
 
@@ -2810,16 +2804,35 @@ function selectTtsEngine(engine, autoSave = true) {
   }
 }
 
+let pitchDebounceTimer = null;
+function onPitchSliderInput(val) {
+  const p = parseFloat(val) || 1.0;
+  const lbl = document.getElementById('lblTtsPitch');
+  if (lbl) lbl.innerText = p.toFixed(2) + 'x';
+}
+
+function onPitchSliderChanged(val) {
+  const p = parseFloat(val) || 1.0;
+  onPitchSliderInput(val);
+  saveTtsVoiceSettings();
+  if (pitchDebounceTimer) clearTimeout(pitchDebounceTimer);
+  pitchDebounceTimer = setTimeout(() => {
+    testTtsVoiceSample();
+  }, 250);
+}
+
 function saveTtsVoiceSettings() {
   const kVoiceEl = document.getElementById('cfgKokoroVoice');
   const pitchEl = document.getElementById('cfgTtsPitch');
   const elKey = document.getElementById('cfgElevenLabsKey');
   const elVid = document.getElementById('cfgElevenLabsVoiceId');
+  const pitchVal = pitchEl ? parseFloat(pitchEl.value) : 1.18;
 
   const payload = {
     tts_engine: currentAiSettings.tts_engine || 'KOKORO',
-    kokoro_voice: kVoiceEl ? kVoiceEl.value : 'af_bella',
-    tts_pitch: pitchEl ? parseFloat(pitchEl.value) : 1.125,
+    kokoro_voice: kVoiceEl ? kVoiceEl.value : 'af_nicole',
+    tts_pitch: pitchVal,
+    pitch_factor: pitchVal,
     elevenlabs_api_key: elKey ? elKey.value.trim() : (currentAiSettings.elevenlabs_api_key || ''),
     elevenlabs_voice_id: elVid ? elVid.value.trim() : (currentAiSettings.elevenlabs_voice_id || 'jBpfuIE2acCO8z3wKNLl')
   };
@@ -6028,6 +6041,7 @@ function initVrmEngine() {
 
   vrmInitialized = true;
   initFloatingHudDraggable();
+  initAvatarPokeRaycaster(canvas);
   loadRumVrmModel();
 
   function animateVrm() {

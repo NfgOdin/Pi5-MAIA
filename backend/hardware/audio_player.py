@@ -105,9 +105,10 @@ class AudioPlayer:
             self.tts_engine = str(settings["tts_engine"]).upper()
         if "kokoro_voice" in settings and settings["kokoro_voice"]:
             self.kokoro_voice = str(settings["kokoro_voice"])
-        if "tts_pitch" in settings and settings["tts_pitch"] is not None:
+        pitch_val = settings.get("tts_pitch") if settings.get("tts_pitch") is not None else settings.get("pitch_factor")
+        if pitch_val is not None:
             try:
-                self.pitch_factor = max(0.95, min(1.35, float(settings["tts_pitch"])))
+                self.pitch_factor = max(0.50, min(2.00, float(pitch_val)))
             except Exception:
                 pass
         if "elevenlabs_api_key" in settings:
