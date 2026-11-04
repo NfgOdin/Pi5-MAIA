@@ -95,31 +95,17 @@
 
     <!-- 1. HOME SCREEN (MAIN LAUNCHER HUB) -->
     <div class="screen-view active" id="screenHome">
-      <div class="home-banner">
-        <div class="home-banner-left">
-          <h1>DODGE DART 1.4L TURBO MULTIAIR</h1>
-          <p>Fiat C635 6-Speed Manual • CarPi5 In-Console OS</p>
+      <!-- Full-Width Dynamic AI Neural Copilot Banner -->
+      <div class="home-ai-quote-bar" onclick="navigateTo('ai')">
+        <div style="display:flex; align-items:center; gap:12px; flex:1; min-width:0;">
+          <img id="homeBannerAiAvatar" src="assets/pics/maia_avatar.jpg" style="width:30px; height:30px; border-radius:50%; object-fit:cover; border:1.5px solid var(--accent-pink); flex-shrink:0;" alt="MAIA">
+          <span style="font-size:12px; font-weight:800; color:var(--accent-pink); flex-shrink:0;" id="homeBannerAiName">M.A.I.A.:</span>
+          <span style="font-size:12px; font-weight:700; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" id="homeBannerAiQuote">Ready for a pull in the Dart, Master Creator?</span>
         </div>
-        <div class="home-banner-companion" onclick="navigateTo('ai')">
-          <img id="homeBannerAiAvatar" src="assets/pics/maia_avatar.jpg" style="width:24px; height:24px; border-radius:50%; object-fit:cover; border:1px solid var(--accent-pink); margin-right:6px;" alt="MAIA">
-          <span style="font-size:12px; font-weight:800; color:var(--accent-pink);" id="homeBannerAiQuote">M.A.I.A.: Ready for a pull?</span>
-        </div>
+        <div style="font-size:11px; font-weight:800; color:var(--accent-pink); letter-spacing:0.5px; flex-shrink:0; margin-left:14px;">OPEN COPILOT →</div>
       </div>
 
-      <!-- Windows 11 Style Connected Drives Shelf -->
-      <div class="home-drives-shelf" id="homeDrivesShelf">
-        <div class="drives-shelf-header">
-          <div style="display:flex; align-items:center; gap:6px;">
-            <span style="font-size:14px;">💻</span>
-            <span style="font-size:11px; font-weight:800; color:#fff; letter-spacing:0.5px;">DEVICES & DRIVES</span>
-          </div>
-          <span style="font-size:10px; color:var(--text-secondary);" id="drivesCountLabel">Scanning storage...</span>
-        </div>
-        <div class="drives-shelf-cards" id="drivesShelfList">
-          <!-- Dynamic drive cards injected by gauges.js -->
-        </div>
-      </div>
-
+      <!-- 6 Massive Touch Launcher Selectors -->
       <div class="home-cards-grid">
         <!-- 1. VEHICLE STATS & GAUGES -->
         <div class="launcher-card card-stats" onclick="navigateTo('gauges')">
@@ -219,27 +205,8 @@
 
     <!-- 3. M.A.I.A. (AI COMPANION TERMINAL) SCREEN -->
     <div class="screen-view" id="screenAI">
-      <!-- Left Column: Interactive Chat -->
+      <!-- Left Column: Interactive Chat (Full Height & Ultra Clean) -->
       <div class="ai-chat-column">
-        <div class="ai-chat-header">
-          <div style="display:flex; align-items:center; gap:8px;">
-            <!-- Avatar removed from chat column as requested -->
-            <div>
-              <div style="font-size:13px; font-weight:800; color:#fff;" id="chatAssistantTitle">M.A.I.A. Companion</div>
-              <div style="font-size:9px; color:var(--accent-pink);" id="chatAssistantSubtitle">MultiAir Intelligent Assistant • Dedicated Companion</div>
-            </div>
-          </div>
-
-          <div style="display:flex; align-items:center; gap:8px;">
-            <select id="personaSelector" class="slot-dropdown" onchange="changePersona(this.value)" style="border-color:var(--accent-pink); color:var(--accent-pink);">
-              <option value="MAIA" selected>M.A.I.A. (MultiAir Intelligent Assistant)</option>
-            </select>
-            <button class="cluster-action-btn" id="btnWakeWord" onclick="toggleWakeWordListening()" style="padding:4px 8px; font-size:10px; border-color:var(--accent-pink); color:var(--accent-pink);">🎤 WAKE WORD: ON</button>
-            <button class="cluster-action-btn" id="btnLiveConvo" onclick="toggleLiveConversationMode()" style="padding:4px 8px; font-size:10px;">💬 CONVO MODE</button>
-            <button class="cluster-action-btn" onclick="clearChatHistory()" style="padding:4px 8px; font-size:10px;">Clear</button>
-          </div>
-        </div>
-
         <!-- Chat Messages Stream -->
         <div class="ai-chat-messages" id="aiChatMessages">
           <!-- Populated dynamically -->
@@ -256,10 +223,12 @@
           <button class="quick-prompt-chip" onclick="sendQuickPrompt('What gear should I be in right now?')">🏎️ Gear Advice</button>
         </div>
 
-        <!-- Chat Input Bar -->
+        <!-- Unified Action Input Bar: Input + SEND + CONVO + CLEAR -->
         <form class="ai-chat-input-bar" onsubmit="handleChatSubmit(event)">
-          <input type="text" id="chatInput" class="ai-input-field" placeholder="Talk to M.A.I.A. (or say 'Maia' to speak)..." autocomplete="off">
+          <input type="text" id="chatInput" class="ai-input-field" placeholder="Talk to M.A.I.A. (or tap prompts)..." autocomplete="off">
           <button type="submit" class="ai-send-btn" id="sendBtn">SEND</button>
+          <button type="button" class="ai-convo-btn" id="btnLiveConvo" onclick="toggleLiveConversationMode()">🎙️ CONVO</button>
+          <button type="button" class="ai-clear-btn" onclick="clearChatHistory()">🗑️ CLEAR</button>
         </form>
       </div>
 
@@ -495,10 +464,26 @@
       </div>
     </div>
 
-    <!-- 6. SETTINGS SCREEN -->
-    <div class="screen-view" id="screenSettings" style="overflow-y:auto;">
-      <!-- Driver Profile (Title + Name) -->
-      <div class="settings-card" style="border-color:var(--accent-pink);">
+    <!-- 5. SETTINGS SCREEN (EXPANDABLE ACCORDIONS & SYSTEM PREFERENCES) -->
+    <div class="screen-view" id="screenSettings" style="overflow-y:auto; padding-bottom:30px;">
+
+      <!-- ACCORDION 1: M.A.I.A. & AI NEURAL ENGINE (Default Open) -->
+      <div class="settings-accordion-group active" id="accAiGroup">
+        <div class="accordion-header" onclick="toggleAccordion('accAiGroup')">
+          <div class="accordion-header-left">
+            <span class="accordion-icon">🤖</span>
+            <div>
+              <div class="accordion-title">M.A.I.A. & AI NEURAL ENGINE</div>
+              <div class="accordion-desc">Persona, voice mode, wake word, driver nickname, and neural brain hot-swap</div>
+            </div>
+          </div>
+          <div class="accordion-header-right">
+            <span class="accordion-badge" id="accAiBadge">ACTIVE: M.A.I.A.</span>
+            <span class="accordion-chevron">▼</span>
+          </div>
+        </div>
+        <div class="accordion-body">
+          <div class="settings-card" style="border-color:var(--accent-pink);">
         <div class="settings-title" style="color:var(--accent-pink);" id="settingsProfileCardTitle">
           <span>👤</span> DRIVER PROFILE & WHAT AI CALLS YOU
         </div>
@@ -534,112 +519,25 @@
 
       
       <!-- ABOUT CARPI5 & SYSTEM INFORMATION (CREATOR NFGODIN & OTA UPDATES) -->
-      <div class="settings-card" id="aboutCarPi5Card" style="border-color:var(--accent-pink); background:linear-gradient(180deg, rgba(255,45,120,0.06) 0%, rgba(12,18,25,0.92) 100%);">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <div class="settings-title" style="color:var(--accent-pink); margin-bottom:0;">
-            <span>ℹ️</span> ABOUT CARPI5 OS & SYSTEM INFORMATION
-          </div>
-          <div id="otaUpdateBadge" class="pill" style="background:rgba(255,45,120,0.15); color:var(--accent-pink); font-size:11px; font-weight:800;">
-            ● v1.0.0 • CREATED BY NFGODIN
-          </div>
-        </div>
-
-        <!-- Creator & Dedication Hero Box -->
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; background:#0c1219; border:1px solid #2e172a; padding:12px 16px; border-radius:10px; margin-bottom:14px;">
-          <div style="display:flex; align-items:center; gap:12px;">
-            <div style="width:46px; height:46px; border-radius:50%; background:linear-gradient(135deg, #ff2d78, #9c27b0); display:flex; align-items:center; justify-content:center; font-size:24px; box-shadow:0 0 14px rgba(255,45,120,0.6);">
-              👑
-            </div>
-            <div>
-              <div style="font-size:15px; font-weight:900; color:#fff;">CREATOR & ARCHITECT: <span style="color:var(--accent-pink); text-shadow:0 0 10px rgba(255,45,120,0.4);">NfgOdin</span></div>
-              <div style="font-size:11px; color:#c7d5e4; margin-top:2px;">Custom engineered exclusively for the 2013–2016 Dodge Dart 1.4L Turbo MultiAir</div>
-            </div>
-          </div>
-          <button class="cluster-action-btn" onclick="playCreatorTribute()" style="background:rgba(255,45,120,0.18); color:var(--accent-pink); border-color:var(--accent-pink); font-size:10px; padding:7px 14px; font-weight:900; white-space:nowrap;">
-            💖 HEAR M.A.I.A.'s DEDICATION
-          </button>
-        </div>
-
-        <!-- Hardware & Powertrain Specs Grid -->
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:10px; margin-bottom:14px;">
-          <div style="background:#0f1620; border:1px solid #1c2736; border-radius:8px; padding:10px 12px;">
-            <div style="font-size:9px; color:var(--text-secondary); font-weight:800; letter-spacing:0.5px;">TARGET VEHICLE</div>
-            <div style="font-size:12px; font-weight:800; color:#fff; margin-top:3px;">Dodge Dart Limited (1.4L Turbo)</div>
-            <div style="font-size:10px; color:var(--accent-blue); margin-top:1px;">Fiat FIRE MultiAir • C635 6-Speed Manual</div>
-          </div>
-          <div style="background:#0f1620; border:1px solid #1c2736; border-radius:8px; padding:10px 12px;">
-            <div style="font-size:9px; color:var(--text-secondary); font-weight:800; letter-spacing:0.5px;">COMPUTE HARDWARE</div>
-            <div style="font-size:12px; font-weight:800; color:#fff; margin-top:3px;">Raspberry Pi 5 Model B</div>
-            <div style="font-size:10px; color:var(--accent-green); margin-top:1px;">8 GB LPDDR4X • Debian 13 (Trixie) Linux</div>
-          </div>
-          <div style="background:#0f1620; border:1px solid #1c2736; border-radius:8px; padding:10px 12px;">
-            <div style="font-size:9px; color:var(--text-secondary); font-weight:800; letter-spacing:0.5px;">LOCAL AI NEURAL COPILOT</div>
-            <div style="font-size:12px; font-weight:800; color:var(--accent-pink); margin-top:3px;">M.A.I.A. v1.0.0 (MultiAir AI)</div>
-            <div style="font-size:10px; color:#c7d5e4; margin-top:1px;">Dual Brain: Qwen 2.5 1.5B / Qwen 3B</div>
-          </div>
-          <div style="background:#0f1620; border:1px solid #1c2736; border-radius:8px; padding:10px 12px;">
-            <div style="font-size:9px; color:var(--text-secondary); font-weight:800; letter-spacing:0.5px;">POWERTRAIN BUS & PROTOCOL</div>
-            <div style="font-size:12px; font-weight:800; color:var(--accent-yellow); margin-top:3px;">Magneti Marelli 8GM ECU</div>
-            <div style="font-size:10px; color:#c7d5e4; margin-top:1px;">ISO 15765-4 CAN • 500kbps 11-Bit</div>
-          </div>
-        </div>
-
-        <!-- Embedded GitHub In-Car OTA Update Bar -->
-        <div style="background:#0a0f16; border:1px solid #192330; border-radius:8px; padding:12px 14px;">
-          <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
-            <div>
-              <div style="display:flex; align-items:center; gap:8px;">
-                <span style="font-size:16px;">🐙</span>
-                <span style="font-size:12px; font-weight:800; color:#fff;">OFFICIAL GITHUB REPOSITORY:</span>
-                <a href="https://github.com/NfgOdin/Pi5-MAIA" target="_blank" style="font-size:12px; font-weight:700; color:var(--accent-blue); text-decoration:none;">github.com/NfgOdin/Pi5-MAIA</a>
-              </div>
-              <div style="font-size:11px; color:var(--text-secondary); margin-top:3px;">
-                Active Git Commit: <strong style="color:#fff;" id="otaCurrentCommit">origin/main</strong> • <span style="color:var(--accent-green); font-weight:700;" id="otaStatusText">Tracked on origin/main</span>
-              </div>
-            </div>
-            <div style="display:flex; gap:8px;">
-              <button class="cluster-action-btn" id="btnCheckUpdates" onclick="checkForOtaUpdates()" style="background:rgba(0,180,255,0.15); color:var(--accent-blue); border-color:var(--accent-blue); font-size:11px; padding:7px 16px; font-weight:800;">
-                🔄 CHECK FOR UPDATES
-              </button>
-              <button class="cluster-action-btn" id="btnApplyUpdate" onclick="applyOtaUpdate()" style="display:none; background:var(--accent-green); color:#000; font-weight:900; font-size:11px; padding:7px 16px;">
-                ⬇️ INSTALL UPDATE & RESTART
-              </button>
-            </div>
-          </div>
-
-          <div id="otaChangelogBox" style="display:none; background:#121822; border:1px solid #1c2736; border-radius:6px; padding:8px 12px; font-size:11px; color:#a1d7f5; margin-top:10px;">
-            <div style="font-weight:800; margin-bottom:4px; color:#fff;">New Commits on Remote:</div>
-            <ul id="otaChangelogList" style="margin:0; padding-left:16px;"></ul>
-          </div>
-        </div>
-      </div>
-
-      <!-- LOCAL GGUF NEURAL BRAIN SELECTOR (HOT-SWAP) -->
-      <div class="settings-card" id="neuralBrainCard" style="border-color:var(--accent-purple);">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <div class="settings-title" style="color:var(--accent-purple); margin-bottom:0;">
-            <span>🧠</span> NEURAL BRAIN SELECTOR (DYNAMIC HOT-SWAP)
-          </div>
-          <div id="neuralBrainBadge" class="pill" style="background:rgba(187,134,252,0.15); color:var(--accent-purple); font-size:11px;">
-            ● AI CORE ONLINE
-          </div>
-        </div>
-        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">
-          Hot-swap the active local LLM neural network powering M.A.I.A. directly in RAM. Choose between ultra-low-latency 1.5B (14-18 tokens/sec) or full 3B depth without restarting.
-        </p>
-        <div style="display:flex; align-items:center; gap:12px;">
-          <select id="neuralBrainSelector" class="slot-dropdown" style="flex:1; border-color:var(--accent-purple); color:#fff; font-size:12px; padding:8px;">
-            <option value="qwen3b.gguf" selected>Qwen 3B (Deep MultiAir Knowledge, High Nuance) • 2.0 GB</option>
-            <option value="qwen2.5-1.5b-instruct-q4_k_m.gguf">Qwen 2.5 1.5B (Ultra-Fast 16 tok/s Instant Speech) • 0.98 GB</option>
+      
+          <div class="settings-card" id="personaSettingsCard" style="border-color:var(--accent-pink);">
+        <!-- Active Persona & Wake Word Controls (Moved from AI screen to Settings) -->
+        <div style="background:rgba(255,64,129,0.06); border:1px solid rgba(255,64,129,0.3); border-radius:10px; padding:12px; margin-bottom:14px;">
+          <div style="font-size:12px; font-weight:800; color:var(--accent-pink); margin-bottom:6px;">ACTIVE COPILOT PERSONA</div>
+          <select id="personaSelector" class="slot-dropdown" onchange="changePersona(this.value)" style="border-color:var(--accent-pink); color:var(--accent-pink); width:100%; height:40px; font-size:13px; font-weight:700; background:#0e1218; border-radius:8px; padding:0 12px; margin-bottom:12px;">
+            <option value="MAIA" selected>M.A.I.A. (MultiAir Intelligent Assistant)</option>
+            <option value="JARVIS">J.A.R.V.I.S. (Race Systems Protocol)</option>
+            <option value="RACE_ENGINEER">RACE ENGINEER (Telemetry Pit Wall)</option>
           </select>
-          <button class="cluster-action-btn" id="btnSwapBrain" onclick="swapNeuralBrain()" style="background:var(--accent-purple); color:#000; font-weight:900; padding:8px 16px; font-size:11px;">
-            ⚡ HOT-SWAP BRAIN
-          </button>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="font-size:11px; font-weight:700; color:#fff;">HANDS-FREE WAKE WORD ENGINE</div>
+              <div style="font-size:10px; color:var(--text-secondary);">Say "Hey Maia" to speak without touching display</div>
+            </div>
+            <button class="cluster-action-btn" id="btnWakeWord" onclick="toggleWakeWordListening()" style="padding:8px 14px; font-size:11px; font-weight:800; border-color:var(--accent-pink); color:var(--accent-pink);">🎤 WAKE WORD: ON</button>
+          </div>
         </div>
-      </div>
 
-      <!-- PERSONA AVATAR & BOOT SPLASH CUSTOMIZATION -->
-      <div class="settings-card" id="personaSettingsCard" style="border-color:var(--accent-pink);">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
           <div class="settings-title" style="color:var(--accent-pink); margin-bottom:0;">
             <span>💖</span> AI PERSONA & BOOT SPLASH MEDIA
@@ -699,7 +597,53 @@
 
       <!-- TELEMETRY DATA SOURCE: TEST MODE VS REAL VEHICLE (OBD-II / CAN) -->
       <!-- VEHICLE TELEMETRY & BENCH TEST OPTION -->
-      <div class="settings-card" id="telemetryModeCard" style="border-color:var(--accent-green);">
+      
+          <div class="settings-card" id="neuralBrainCard" style="border-color:var(--accent-purple);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div class="settings-title" style="color:var(--accent-purple); margin-bottom:0;">
+            <span>🧠</span> NEURAL BRAIN SELECTOR (DYNAMIC HOT-SWAP)
+          </div>
+          <div id="neuralBrainBadge" class="pill" style="background:rgba(187,134,252,0.15); color:var(--accent-purple); font-size:11px;">
+            ● AI CORE ONLINE
+          </div>
+        </div>
+        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">
+          Hot-swap the active local LLM neural network powering M.A.I.A. directly in RAM. Choose between ultra-low-latency 1.5B (14-18 tokens/sec) or full 3B depth without restarting.
+        </p>
+        <div style="display:flex; align-items:center; gap:12px;">
+          <select id="neuralBrainSelector" class="slot-dropdown" style="flex:1; border-color:var(--accent-purple); color:#fff; font-size:12px; padding:8px;">
+            <option value="qwen3b.gguf" selected>Qwen 3B (Deep MultiAir Knowledge, High Nuance) • 2.0 GB</option>
+            <option value="qwen2.5-1.5b-instruct-q4_k_m.gguf">Qwen 2.5 1.5B (Ultra-Fast 16 tok/s Instant Speech) • 0.98 GB</option>
+          </select>
+          <button class="cluster-action-btn" id="btnSwapBrain" onclick="swapNeuralBrain()" style="background:var(--accent-purple); color:#000; font-weight:900; padding:8px 16px; font-size:11px;">
+            ⚡ HOT-SWAP BRAIN
+          </button>
+        </div>
+      </div>
+
+      <!-- PERSONA AVATAR & BOOT SPLASH CUSTOMIZATION -->
+      
+        </div>
+      </div>
+
+
+      <!-- ACCORDION 2: POWERTRAIN, OBD-II & TELEMETRY -->
+      <div class="settings-accordion-group" id="accPowertrainGroup">
+        <div class="accordion-header" onclick="toggleAccordion('accPowertrainGroup')">
+          <div class="accordion-header-left">
+            <span class="accordion-icon">🏎️</span>
+            <div>
+              <div class="accordion-title">POWERTRAIN, OBD-II & TELEMETRY</div>
+              <div class="accordion-desc">Marelli 8GM CAN bus, Real vs Sim mode, warning thresholds, GPIO relays & trip logs</div>
+            </div>
+          </div>
+          <div class="accordion-header-right">
+            <span class="accordion-badge" id="accPowertrainBadge">CAN BUS: 500 KBPS</span>
+            <span class="accordion-chevron">▼</span>
+          </div>
+        </div>
+        <div class="accordion-body">
+          <div class="settings-card" id="telemetryModeCard" style="border-color:var(--accent-green);">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
           <div class="settings-title" style="color:var(--accent-green); margin-bottom:0;">
             <span>🚗</span> VEHICLE OBD-II / CAN TELEMETRY
@@ -728,66 +672,8 @@
       </div>
 
       <!-- SCREENSAVER & AMBIENT VIDEO SETTINGS -->
-      <div class="settings-card" id="screensaverSettingsCard" style="border-color:var(--accent-purple);">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <div class="settings-title" style="color:var(--accent-purple); margin-bottom:0;">
-            <span>🖼️</span> SCREENSAVER & AMBIENT MEDIA DISPLAY
-          </div>
-          <div style="display:flex; gap:8px;">
-            <button class="cluster-action-btn" id="btnToggleScreensaverActive" onclick="toggleScreensaverActive()" style="font-size:10px; background:#161c24; color:var(--text-secondary); border-color:#283340;">
-              ○ SCREENSAVER: OFF (DISABLED)
-            </button>
-            <button class="cluster-action-btn" onclick="startScreensaver()" style="font-size:10px;">
-              ▶ TEST NOW
-            </button>
-          </div>
-        </div>
-        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:14px;">
-          Ambient parked display when idling. Supports high-resolution photo slideshows or looping MP4 video backgrounds with glowing digital clock.
-        </p>
-
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
-          <!-- Timeout Dropdown -->
-          <div>
-            <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px;">IDLE TIMEOUT (PARKED ONLY):</div>
-            <select id="cfgScreensaverTimeout" class="settings-input" style="width:100%;" onchange="saveScreensaverConfig()">
-              <option value="30">30 Seconds</option>
-              <option value="60">1 Minute</option>
-              <option value="120">2 Minutes</option>
-              <option value="300">5 Minutes</option>
-              <option value="600">10 Minutes</option>
-              <option value="0" selected>Disabled (Default)</option>
-            </select>
-          </div>
-
-          <!-- Media Type -->
-          <div>
-            <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px;">MEDIA TYPE:</div>
-            <select id="cfgScreensaverType" class="settings-input" style="width:100%;" onchange="saveScreensaverConfig()">
-              <option value="SLIDESHOW" selected>Photo Slideshow (Images)</option>
-              <option value="VIDEO">Video Loop (.MP4 / .WEBM)</option>
-              <option value="AUTO">Auto (Play Video if Present)</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Folder Path & Video File Input -->
-        <div style="margin-bottom:12px;">
-          <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px;">PICTURES / VIDEOS FOLDER PATH:</div>
-          <div style="display:flex; gap:8px;">
-            <input type="text" id="cfgScreensaverFolder" class="settings-input" style="flex:1;" placeholder="/home/pi/Pictures/Screensaver or USB path..." value="/home/pi/Pictures/Screensaver">
-            <button class="cluster-action-btn" onclick="openFileExplorerForScreensaver()">📁 BROWSE STORAGE</button>
-          </div>
-        </div>
-
-        <div>
-          <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px;">CUSTOM VIDEO FILE (OPTIONAL .MP4 LOOP):</div>
-          <input type="text" id="cfgScreensaverVideoFile" class="settings-input" style="width:100%;" placeholder="e.g. /home/pi/Videos/screensaver_loop.mp4" value="">
-        </div>
-      </div>
-
-      <!-- COPILOT SPEECH & VERBOSITY SETTINGS -->
-      <div class="settings-card" id="copilotSettingsCard" style="border-color:var(--accent-orange);">
+      
+          <div class="settings-card" id="copilotSettingsCard" style="border-color:var(--accent-orange);">
         <div class="settings-title" style="color:var(--accent-orange);">
           <span>🗣️</span> COPILOT SPEECH & SPOKEN CHATTER CONTROLS
         </div>
@@ -834,73 +720,8 @@
       </div>
 
       <!-- WI-FI & MOBILE HOTSPOTS MANAGER -->
-      <div class="settings-card" id="wifiSettingsCard" style="border-color:var(--accent-blue);">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <div class="settings-title" style="color:var(--accent-blue); margin-bottom:0;">
-            <span>📶</span> WI-FI & MOBILE HOTSPOTS MANAGER
-          </div>
-          <div style="display:flex; gap:8px;">
-            <button class="cluster-action-btn" id="btnToggleAlwaysOn" onclick="toggleWifiAlwaysOn()" style="font-size:10px; background:rgba(0,230,118,0.15); color:var(--accent-green); border-color:var(--accent-green);">
-              ⚡ ALWAYS-ON: ACTIVE
-            </button>
-            <button class="cluster-action-btn" onclick="scanWifiNetworks()" style="font-size:10px;">
-              🔄 SCAN NETWORKS
-            </button>
-          </div>
-        </div>
-
-        <!-- Live Status Banner -->
-        <div class="wifi-status-banner">
-          <div>
-            <div style="font-size:10px; color:var(--text-secondary); font-weight:800;">ACTIVE CONNECTION:</div>
-            <div style="font-size:15px; font-weight:900; color:#fff; display:flex; align-items:center; gap:8px; margin-top:2px;">
-              <span id="wifiCurrentSsid" style="color:var(--accent-blue);">Scanning...</span>
-              <span class="pill" id="wifiCurrentBadge" style="background:rgba(0,230,118,0.15); color:var(--accent-green); font-size:10px;">CONNECTED</span>
-            </div>
-          </div>
-          <div style="display:flex; gap:16px; font-family:var(--font-mono); font-size:11px;">
-            <div>
-              <div style="color:var(--text-secondary); font-size:9px;">IP ADDRESS</div>
-              <div style="color:#fff;" id="wifiCurrentIp">--</div>
-            </div>
-            <div>
-              <div style="color:var(--text-secondary); font-size:9px;">SIGNAL</div>
-              <div style="color:var(--accent-green);" id="wifiCurrentSignal">--%</div>
-            </div>
-            <div>
-              <div style="color:var(--text-secondary); font-size:9px;">BAND</div>
-              <div style="color:var(--text-secondary);" id="wifiCurrentBand">--</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Available Networks -->
-        <div style="margin-bottom:14px;">
-          <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px; display:flex; justify-content:space-between;">
-            <span>AVAILABLE NETWORKS & HOTSPOTS:</span>
-            <span style="font-size:10px; color:var(--text-secondary);" id="wifiScanCount">Tap network to connect</span>
-          </div>
-          <div class="wifi-network-list" id="wifiNetworkList">
-            <div style="color:var(--text-secondary); padding:16px; text-align:center;">Scanning nearby Wi-Fi APs and phone hotspots...</div>
-          </div>
-        </div>
-
-        <!-- Remembered Networks & Hotspots -->
-        <div>
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-            <div style="font-size:11px; font-weight:800; color:#fff;">SAVED / REMEMBERED NETWORKS:</div>
-            <button class="cluster-action-btn" style="color:var(--accent-red); font-size:10px; padding:3px 8px;" onclick="clearAllSavedWifi()">
-              🗑️ CLEAR ALL SAVED
-            </button>
-          </div>
-          <div class="wifi-saved-list" id="wifiSavedList">
-            <!-- Injected dynamically -->
-          </div>
-        </div>
-      </div>
-
-      <!-- AI Engine Configuration (Offline Default) -->
-      <div class="settings-card">
+      
+          <div class="settings-card">
         <div class="settings-title">
           <span>🧠</span> AI ENGINE SELECTION (OFFLINE DEFAULT)
         </div>
@@ -988,7 +809,162 @@
       </div>
 
       <!-- Vehicle & Hardware Info Card -->
-      <div class="settings-card">
+      
+          <div class="settings-card" id="gpioRelaysCard" style="border-color:var(--accent-green);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div class="settings-title" style="color:var(--accent-green); margin-bottom:0;">
+            <span>⚡</span> 12V AUTOMOTIVE RELAYS & GPIO CONTROLS (O.D.I.N. CORE)
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="cluster-action-btn" onclick="triggerMorseBeacon()" style="font-size:10px; color:var(--accent-red); border-color:var(--accent-red);">
+              🚨 MORSE SOS (BCM 18)
+            </button>
+            <button class="cluster-action-btn" onclick="openGpioModal()" style="font-size:10px;">
+              🔌 40-PIN HEADER MAP
+            </button>
+          </div>
+        </div>
+        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:14px;">
+          1-tap cockpit controls for physical 12V relays. Switch exterior pods, ambient interior underglow, dashcam power, and intercooler spray.
+        </p>
+        <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:12px;" id="relayCardsGrid">
+          <!-- Populated dynamically via /api/gpio/relays -->
+        </div>
+      </div>
+
+      <!-- PERSISTENT VEHICLE TRIP LOGS (SQLITE) -->
+      
+          <div class="settings-card" id="tripLogsCard" style="border-color:var(--accent-blue);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div class="settings-title" style="color:var(--accent-blue); margin-bottom:0;">
+            <span>📜</span> PERSISTENT VEHICLE TRIP LOGS (SQLITE)
+          </div>
+          <button class="cluster-action-btn" onclick="fetchTripLogs()" style="font-size:10px;">
+            🔄 REFRESH LOGS
+          </button>
+        </div>
+        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">
+          Permanent driving history stored in <code>vehicle_data.db</code>. Records peak boost, top speed, and fuel economy.
+        </p>
+        <div id="tripLifetimeStats" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:14px;">
+          <!-- Lifetime stats cards -->
+        </div>
+        <div id="recentTripsTableContainer" style="max-height:160px; overflow-y:auto;">
+          <!-- Recent trips rows -->
+        </div>
+      </div>
+
+      <!-- FACTORY RESET & RECOVERY CARD -->
+      
+        </div>
+      </div>
+
+
+      <!-- ACCORDION 3: CONSOLE, DISPLAY & CONNECTIVITY -->
+      <div class="settings-accordion-group" id="accSystemGroup">
+        <div class="accordion-header" onclick="toggleAccordion('accSystemGroup')">
+          <div class="accordion-header-left">
+            <span class="accordion-icon">🖥️</span>
+            <div>
+              <div class="accordion-title">CONSOLE, DISPLAY & CONNECTIVITY</div>
+              <div class="accordion-desc">Wi-Fi hotspot, display brightness, 12h/24h clock, screensaver, and reset</div>
+            </div>
+          </div>
+          <div class="accordion-header-right">
+            <span class="accordion-badge" id="accSystemBadge">📶 NfgHotspot</span>
+            <span class="accordion-chevron">▼</span>
+          </div>
+        </div>
+        <div class="accordion-body">
+          <div class="settings-card" id="wifiSettingsCard" style="border-color:var(--accent-blue);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div class="settings-title" style="color:var(--accent-blue); margin-bottom:0;">
+            <span>📶</span> WI-FI & MOBILE HOTSPOTS MANAGER
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="cluster-action-btn" id="btnToggleAlwaysOn" onclick="toggleWifiAlwaysOn()" style="font-size:10px; background:rgba(0,230,118,0.15); color:var(--accent-green); border-color:var(--accent-green);">
+              ⚡ ALWAYS-ON: ACTIVE
+            </button>
+            <button class="cluster-action-btn" onclick="scanWifiNetworks()" style="font-size:10px;">
+              🔄 SCAN NETWORKS
+            </button>
+          </div>
+        </div>
+
+        <!-- Live Status Banner -->
+        <div class="wifi-status-banner">
+          <div>
+            <div style="font-size:10px; color:var(--text-secondary); font-weight:800;">ACTIVE CONNECTION:</div>
+            <div style="font-size:15px; font-weight:900; color:#fff; display:flex; align-items:center; gap:8px; margin-top:2px;">
+              <span id="wifiCurrentSsid" style="color:var(--accent-blue);">Scanning...</span>
+              <span class="pill" id="wifiCurrentBadge" style="background:rgba(0,230,118,0.15); color:var(--accent-green); font-size:10px;">CONNECTED</span>
+            </div>
+          </div>
+          <div style="display:flex; gap:16px; font-family:var(--font-mono); font-size:11px;">
+            <div>
+              <div style="color:var(--text-secondary); font-size:9px;">IP ADDRESS</div>
+              <div style="color:#fff;" id="wifiCurrentIp">--</div>
+            </div>
+            <div>
+              <div style="color:var(--text-secondary); font-size:9px;">SIGNAL</div>
+              <div style="color:var(--accent-green);" id="wifiCurrentSignal">--%</div>
+            </div>
+            <div>
+              <div style="color:var(--text-secondary); font-size:9px;">BAND</div>
+              <div style="color:var(--text-secondary);" id="wifiCurrentBand">--</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Available Networks -->
+        <div style="margin-bottom:14px;">
+          <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px; display:flex; justify-content:space-between;">
+            <span>AVAILABLE NETWORKS & HOTSPOTS:</span>
+            <span style="font-size:10px; color:var(--text-secondary);" id="wifiScanCount">Tap network to connect</span>
+          </div>
+          <div class="wifi-network-list" id="wifiNetworkList">
+            <div style="color:var(--text-secondary); padding:16px; text-align:center;">Scanning nearby Wi-Fi APs and phone hotspots...</div>
+          </div>
+        </div>
+
+        <!-- Remembered Networks & Hotspots -->
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <div style="font-size:11px; font-weight:800; color:#fff;">SAVED / REMEMBERED NETWORKS:</div>
+            <button class="cluster-action-btn" style="color:var(--accent-red); font-size:10px; padding:3px 8px;" onclick="clearAllSavedWifi()">
+              🗑️ CLEAR ALL SAVED
+            </button>
+          </div>
+          <div class="wifi-saved-list" id="wifiSavedList">
+            <!-- Injected dynamically -->
+          </div>
+        </div>
+      </div>
+
+      <!-- AI Engine Configuration (Offline Default) -->
+      
+          <div class="settings-card" id="displaySettingsCard" style="border-color:var(--accent-yellow);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div class="settings-title" style="color:var(--accent-yellow); margin-bottom:0;">
+            <span>☀️</span> SCREEN BACKLIGHT & HARDWARE BRIGHTNESS
+          </div>
+          <span class="pill" id="brightnessPillVal" style="background:rgba(255,204,0,0.15); color:var(--accent-yellow); font-size:11px;">100%</span>
+        </div>
+        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">
+          Hardware screen backlight brightness control (/sys/class/backlight/). Dims automatically for night driving.
+        </p>
+        <div style="display:flex; align-items:center; gap:16px;">
+          <span style="font-size:16px;">🌙</span>
+          <input type="range" id="sliderBrightness" min="10" max="100" value="100" style="flex:1; accent-color:var(--accent-yellow);" oninput="updateBrightnessFromSlider(this.value)">
+          <span style="font-size:16px;">☀️</span>
+          <button class="cluster-action-btn" onclick="setPresetBrightness(30)" style="font-size:10px; padding:4px 10px;">🌙 NIGHT (30%)</button>
+          <button class="cluster-action-btn" onclick="setPresetBrightness(100)" style="font-size:10px; padding:4px 10px;">☀️ DAY (100%)</button>
+        </div>
+      </div>
+
+      <!-- 12V AUTOMOTIVE RELAYS & GPIO HARDWARE (O.D.I.N. CORE) -->
+      
+          <div class="settings-card">
         <div class="settings-title">
           <span>🚗</span> VEHICLE HARDWARE CONFIGURATION
         </div>
@@ -1015,71 +991,68 @@
       </div>
 
       <!-- HARDWARE BACKLIGHT & SCREEN BRIGHTNESS -->
-      <div class="settings-card" id="displaySettingsCard" style="border-color:var(--accent-yellow);">
+      
+          <div class="settings-card" id="screensaverSettingsCard" style="border-color:var(--accent-purple);">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <div class="settings-title" style="color:var(--accent-yellow); margin-bottom:0;">
-            <span>☀️</span> SCREEN BACKLIGHT & HARDWARE BRIGHTNESS
-          </div>
-          <span class="pill" id="brightnessPillVal" style="background:rgba(255,204,0,0.15); color:var(--accent-yellow); font-size:11px;">100%</span>
-        </div>
-        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">
-          Hardware screen backlight brightness control (/sys/class/backlight/). Dims automatically for night driving.
-        </p>
-        <div style="display:flex; align-items:center; gap:16px;">
-          <span style="font-size:16px;">🌙</span>
-          <input type="range" id="sliderBrightness" min="10" max="100" value="100" style="flex:1; accent-color:var(--accent-yellow);" oninput="updateBrightnessFromSlider(this.value)">
-          <span style="font-size:16px;">☀️</span>
-          <button class="cluster-action-btn" onclick="setPresetBrightness(30)" style="font-size:10px; padding:4px 10px;">🌙 NIGHT (30%)</button>
-          <button class="cluster-action-btn" onclick="setPresetBrightness(100)" style="font-size:10px; padding:4px 10px;">☀️ DAY (100%)</button>
-        </div>
-      </div>
-
-      <!-- 12V AUTOMOTIVE RELAYS & GPIO HARDWARE (O.D.I.N. CORE) -->
-      <div class="settings-card" id="gpioRelaysCard" style="border-color:var(--accent-green);">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <div class="settings-title" style="color:var(--accent-green); margin-bottom:0;">
-            <span>⚡</span> 12V AUTOMOTIVE RELAYS & GPIO CONTROLS (O.D.I.N. CORE)
+          <div class="settings-title" style="color:var(--accent-purple); margin-bottom:0;">
+            <span>🖼️</span> SCREENSAVER & AMBIENT MEDIA DISPLAY
           </div>
           <div style="display:flex; gap:8px;">
-            <button class="cluster-action-btn" onclick="triggerMorseBeacon()" style="font-size:10px; color:var(--accent-red); border-color:var(--accent-red);">
-              🚨 MORSE SOS (BCM 18)
+            <button class="cluster-action-btn" id="btnToggleScreensaverActive" onclick="toggleScreensaverActive()" style="font-size:10px; background:#161c24; color:var(--text-secondary); border-color:#283340;">
+              ○ SCREENSAVER: OFF (DISABLED)
             </button>
-            <button class="cluster-action-btn" onclick="openGpioModal()" style="font-size:10px;">
-              🔌 40-PIN HEADER MAP
+            <button class="cluster-action-btn" onclick="startScreensaver()" style="font-size:10px;">
+              ▶ TEST NOW
             </button>
           </div>
         </div>
         <p style="font-size:12px; color:var(--text-secondary); margin-bottom:14px;">
-          1-tap cockpit controls for physical 12V relays. Switch exterior pods, ambient interior underglow, dashcam power, and intercooler spray.
+          Ambient parked display when idling. Supports high-resolution photo slideshows or looping MP4 video backgrounds with glowing digital clock.
         </p>
-        <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:12px;" id="relayCardsGrid">
-          <!-- Populated dynamically via /api/gpio/relays -->
-        </div>
-      </div>
 
-      <!-- PERSISTENT VEHICLE TRIP LOGS (SQLITE) -->
-      <div class="settings-card" id="tripLogsCard" style="border-color:var(--accent-blue);">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <div class="settings-title" style="color:var(--accent-blue); margin-bottom:0;">
-            <span>📜</span> PERSISTENT VEHICLE TRIP LOGS (SQLITE)
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+          <!-- Timeout Dropdown -->
+          <div>
+            <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px;">IDLE TIMEOUT (PARKED ONLY):</div>
+            <select id="cfgScreensaverTimeout" class="settings-input" style="width:100%;" onchange="saveScreensaverConfig()">
+              <option value="30">30 Seconds</option>
+              <option value="60">1 Minute</option>
+              <option value="120">2 Minutes</option>
+              <option value="300">5 Minutes</option>
+              <option value="600">10 Minutes</option>
+              <option value="0" selected>Disabled (Default)</option>
+            </select>
           </div>
-          <button class="cluster-action-btn" onclick="fetchTripLogs()" style="font-size:10px;">
-            🔄 REFRESH LOGS
-          </button>
+
+          <!-- Media Type -->
+          <div>
+            <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px;">MEDIA TYPE:</div>
+            <select id="cfgScreensaverType" class="settings-input" style="width:100%;" onchange="saveScreensaverConfig()">
+              <option value="SLIDESHOW" selected>Photo Slideshow (Images)</option>
+              <option value="VIDEO">Video Loop (.MP4 / .WEBM)</option>
+              <option value="AUTO">Auto (Play Video if Present)</option>
+            </select>
+          </div>
         </div>
-        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">
-          Permanent driving history stored in <code>vehicle_data.db</code>. Records peak boost, top speed, and fuel economy.
-        </p>
-        <div id="tripLifetimeStats" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:14px;">
-          <!-- Lifetime stats cards -->
+
+        <!-- Folder Path & Video File Input -->
+        <div style="margin-bottom:12px;">
+          <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px;">PICTURES / VIDEOS FOLDER PATH:</div>
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="cfgScreensaverFolder" class="settings-input" style="flex:1;" placeholder="/home/pi/Pictures/Screensaver or USB path..." value="/home/pi/Pictures/Screensaver">
+            <button class="cluster-action-btn" onclick="openFileExplorerForScreensaver()">📁 BROWSE STORAGE</button>
+          </div>
         </div>
-        <div id="recentTripsTableContainer" style="max-height:160px; overflow-y:auto;">
-          <!-- Recent trips rows -->
+
+        <div>
+          <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px;">CUSTOM VIDEO FILE (OPTIONAL .MP4 LOOP):</div>
+          <input type="text" id="cfgScreensaverVideoFile" class="settings-input" style="width:100%;" placeholder="e.g. /home/pi/Videos/screensaver_loop.mp4" value="">
         </div>
       </div>
 
-      <!-- FACTORY RESET & RECOVERY CARD -->
-      <div class="settings-card" style="border-color:rgba(255,23,68,0.4); background:rgba(255,23,68,0.03); margin-top:10px;">
+      <!-- COPILOT SPEECH & VERBOSITY SETTINGS -->
+      
+          <div class="settings-card" style="border-color:rgba(255,23,68,0.4); background:rgba(255,23,68,0.03); margin-top:10px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
           <div class="settings-title" style="color:var(--accent-red); margin-bottom:0;">
             <span>⚠️</span> SYSTEM RESTORE & FACTORY DEFAULTS
@@ -1097,6 +1070,113 @@
   </div>
 
   <!-- BOTTOM PERSISTENT DOCK / NAVIGATION BAR (6 BUTTONS) -->
+
+        </div>
+      </div>
+
+
+      <!-- ACCORDION 4: ABOUT CARPI5 & SYSTEM INFORMATION (PLACED AT THE BOTTOM!) -->
+      <div class="settings-accordion-group" id="accAboutGroup">
+        <div class="accordion-header" onclick="toggleAccordion('accAboutGroup')">
+          <div class="accordion-header-left">
+            <span class="accordion-icon">👑</span>
+            <div>
+              <div class="accordion-title">ABOUT CARPI5 & SYSTEM INFORMATION</div>
+              <div class="accordion-desc">Custom engineered exclusively for the 2013–2016 Dodge Dart Limited 1.4L Turbo MultiAir</div>
+            </div>
+          </div>
+          <div class="accordion-header-right">
+            <span class="accordion-badge" id="accAboutBadge">● v1.0.0 • CREATED BY NFGODIN</span>
+            <span class="accordion-chevron">▼</span>
+          </div>
+        </div>
+        <div class="accordion-body">
+          <div class="settings-card" id="aboutCarPi5Card" style="border-color:var(--accent-pink); background:linear-gradient(180deg, rgba(255,45,120,0.06) 0%, rgba(12,18,25,0.92) 100%);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div class="settings-title" style="color:var(--accent-pink); margin-bottom:0;">
+            <span>ℹ️</span> ABOUT CARPI5 OS & SYSTEM INFORMATION
+          </div>
+          <div id="otaUpdateBadge" class="pill" style="background:rgba(255,45,120,0.15); color:var(--accent-pink); font-size:11px; font-weight:800;">
+            ● v1.0.0 • CREATED BY NFGODIN
+          </div>
+        </div>
+
+        <!-- Creator & Dedication Hero Box -->
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; background:#0c1219; border:1px solid #2e172a; padding:12px 16px; border-radius:10px; margin-bottom:14px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:46px; height:46px; border-radius:50%; background:linear-gradient(135deg, #ff2d78, #9c27b0); display:flex; align-items:center; justify-content:center; font-size:24px; box-shadow:0 0 14px rgba(255,45,120,0.6);">
+              👑
+            </div>
+            <div>
+              <div style="font-size:15px; font-weight:900; color:#fff;">CREATOR & ARCHITECT: <span style="color:var(--accent-pink); text-shadow:0 0 10px rgba(255,45,120,0.4);">NfgOdin</span></div>
+              <div style="font-size:11px; color:#c7d5e4; margin-top:2px;">Custom engineered exclusively for the 2013–2016 Dodge Dart 1.4L Turbo MultiAir</div>
+            </div>
+          </div>
+          <button class="cluster-action-btn" onclick="playCreatorTribute()" style="background:rgba(255,45,120,0.18); color:var(--accent-pink); border-color:var(--accent-pink); font-size:10px; padding:7px 14px; font-weight:900; white-space:nowrap;">
+            💖 HEAR M.A.I.A.'s DEDICATION
+          </button>
+        </div>
+
+        <!-- Hardware & Powertrain Specs Grid -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:10px; margin-bottom:14px;">
+          <div style="background:#0f1620; border:1px solid #1c2736; border-radius:8px; padding:10px 12px;">
+            <div style="font-size:9px; color:var(--text-secondary); font-weight:800; letter-spacing:0.5px;">TARGET VEHICLE</div>
+            <div style="font-size:12px; font-weight:800; color:#fff; margin-top:3px;">Dodge Dart Limited (1.4L Turbo)</div>
+            <div style="font-size:10px; color:var(--accent-blue); margin-top:1px;">Fiat FIRE MultiAir • C635 6-Speed Manual</div>
+          </div>
+          <div style="background:#0f1620; border:1px solid #1c2736; border-radius:8px; padding:10px 12px;">
+            <div style="font-size:9px; color:var(--text-secondary); font-weight:800; letter-spacing:0.5px;">COMPUTE HARDWARE</div>
+            <div style="font-size:12px; font-weight:800; color:#fff; margin-top:3px;">Raspberry Pi 5 Model B</div>
+            <div style="font-size:10px; color:var(--accent-green); margin-top:1px;">8 GB LPDDR4X • Debian 13 (Trixie) Linux</div>
+          </div>
+          <div style="background:#0f1620; border:1px solid #1c2736; border-radius:8px; padding:10px 12px;">
+            <div style="font-size:9px; color:var(--text-secondary); font-weight:800; letter-spacing:0.5px;">LOCAL AI NEURAL COPILOT</div>
+            <div style="font-size:12px; font-weight:800; color:var(--accent-pink); margin-top:3px;">M.A.I.A. v1.0.0 (MultiAir AI)</div>
+            <div style="font-size:10px; color:#c7d5e4; margin-top:1px;">Dual Brain: Qwen 2.5 1.5B / Qwen 3B</div>
+          </div>
+          <div style="background:#0f1620; border:1px solid #1c2736; border-radius:8px; padding:10px 12px;">
+            <div style="font-size:9px; color:var(--text-secondary); font-weight:800; letter-spacing:0.5px;">POWERTRAIN BUS & PROTOCOL</div>
+            <div style="font-size:12px; font-weight:800; color:var(--accent-yellow); margin-top:3px;">Magneti Marelli 8GM ECU</div>
+            <div style="font-size:10px; color:#c7d5e4; margin-top:1px;">ISO 15765-4 CAN • 500kbps 11-Bit</div>
+          </div>
+        </div>
+
+        <!-- Embedded GitHub In-Car OTA Update Bar -->
+        <div style="background:#0a0f16; border:1px solid #192330; border-radius:8px; padding:12px 14px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+            <div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:16px;">🐙</span>
+                <span style="font-size:12px; font-weight:800; color:#fff;">OFFICIAL GITHUB REPOSITORY:</span>
+                <a href="https://github.com/NfgOdin/Pi5-MAIA" target="_blank" style="font-size:12px; font-weight:700; color:var(--accent-blue); text-decoration:none;">github.com/NfgOdin/Pi5-MAIA</a>
+              </div>
+              <div style="font-size:11px; color:var(--text-secondary); margin-top:3px;">
+                Active Git Commit: <strong style="color:#fff;" id="otaCurrentCommit">origin/main</strong> • <span style="color:var(--accent-green); font-weight:700;" id="otaStatusText">Tracked on origin/main</span>
+              </div>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button class="cluster-action-btn" id="btnCheckUpdates" onclick="checkForOtaUpdates()" style="background:rgba(0,180,255,0.15); color:var(--accent-blue); border-color:var(--accent-blue); font-size:11px; padding:7px 16px; font-weight:800;">
+                🔄 CHECK FOR UPDATES
+              </button>
+              <button class="cluster-action-btn" id="btnApplyUpdate" onclick="applyOtaUpdate()" style="display:none; background:var(--accent-green); color:#000; font-weight:900; font-size:11px; padding:7px 16px;">
+                ⬇️ INSTALL UPDATE & RESTART
+              </button>
+            </div>
+          </div>
+
+          <div id="otaChangelogBox" style="display:none; background:#121822; border:1px solid #1c2736; border-radius:6px; padding:8px 12px; font-size:11px; color:#a1d7f5; margin-top:10px;">
+            <div style="font-weight:800; margin-bottom:4px; color:#fff;">New Commits on Remote:</div>
+            <ul id="otaChangelogList" style="margin:0; padding-left:16px;"></ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- LOCAL GGUF NEURAL BRAIN SELECTOR (HOT-SWAP) -->
+      
+        </div>
+      </div>
+
+
   <footer class="bottom-bar">
     <div class="dock-tabs">
       <button class="dock-btn active" id="dockBtnHome" onclick="navigateTo('home')">🏠 HOME</button>

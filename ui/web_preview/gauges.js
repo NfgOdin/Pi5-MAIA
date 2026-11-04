@@ -4704,3 +4704,11 @@ function playCreatorTribute() {
   showAiSpeechToast(speech);
   speakUtterance(speech, "DEVOTED");
 }
+
+
+// --- SETTINGS ACCORDION INTERACTION ---
+function toggleAccordion(accId) {
+  const group = document.getElementById(accId);
+  if (!group) return;
+  group.classList.toggle('active');
+}

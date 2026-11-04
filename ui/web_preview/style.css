@@ -1950,3 +1950,237 @@ body {
   background: #252830;
   color: var(--text-secondary);
 }
+
+
+/* --- MODERN CARPI5 COCKPIT & ACCORDION ENHANCEMENTS --- */
+
+/* 1. Sleek Full-Width AI Quote Banner on Home Screen */
+.home-ai-quote-bar {
+  height: 52px;
+  background: linear-gradient(90deg, rgba(255, 64, 129, 0.16) 0%, rgba(16, 20, 26, 0.95) 100%);
+  border: 1px solid rgba(255, 64, 129, 0.45);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  margin-bottom: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+.home-ai-quote-bar:hover {
+  border-color: var(--accent-pink);
+  box-shadow: 0 0 20px rgba(255, 64, 129, 0.35);
+  transform: translateY(-1px);
+}
+
+/* 2. Expanded 2x3 Home Launcher Cards */
+.home-cards-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 14px;
+  min-height: 0;
+}
+
+.launcher-card {
+  background: radial-gradient(circle at top left, #1c2532 0%, #10141a 100%);
+  border: 1.5px solid var(--panel-border);
+  border-radius: 16px;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+}
+
+.launcher-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--panel-border-hover);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.6);
+}
+
+.launcher-card:active {
+  transform: translateY(-1px) scale(0.99);
+}
+
+.card-icon {
+  font-size: 34px;
+  margin-bottom: 8px;
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+  color: #fff;
+}
+
+.card-subtitle {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+/* 3. Enlarged Bottom Dock Navigation Bar */
+.bottom-bar {
+  height: 58px;
+  padding: 0 16px;
+}
+
+.dock-tabs {
+  gap: 10px;
+}
+
+.dock-btn {
+  font-size: 12px;
+  font-weight: 800;
+  padding: 10px 16px;
+  border-radius: 10px;
+  gap: 6px;
+}
+
+/* 4. Streamlined AI Input Row Buttons */
+.ai-convo-btn {
+  background: rgba(0, 229, 255, 0.15);
+  border: 1px solid var(--accent-cyan);
+  color: var(--accent-cyan);
+  font-size: 11px;
+  font-weight: 800;
+  padding: 0 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.ai-convo-btn:hover {
+  background: rgba(0, 229, 255, 0.3);
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.4);
+}
+.ai-convo-btn.active {
+  background: var(--accent-cyan);
+  color: #000;
+}
+
+.ai-clear-btn {
+  background: #19202a;
+  border: 1px solid #2e3a4d;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 800;
+  padding: 0 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+.ai-clear-btn:hover {
+  background: #232c3a;
+  color: #fff;
+  border-color: #4a5c78;
+}
+
+/* 5. Settings Accordions (Collapsible Categories) */
+.settings-accordion-group {
+  margin-bottom: 14px;
+  border-radius: 14px;
+  border: 1.5px solid var(--panel-border);
+  background: rgba(16, 20, 26, 0.7);
+  backdrop-filter: blur(10px);
+  overflow: hidden;
+  transition: all 0.25s ease;
+}
+
+.settings-accordion-group.active {
+  border-color: rgba(255, 64, 129, 0.7);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.accordion-header {
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  background: linear-gradient(90deg, #18202b 0%, #12161f 100%);
+  transition: background 0.2s ease;
+}
+
+.accordion-header:hover {
+  background: linear-gradient(90deg, #202b3a 0%, #161c27 100%);
+}
+
+.accordion-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.accordion-icon {
+  font-size: 24px;
+}
+
+.accordion-title {
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+  color: #fff;
+  text-transform: uppercase;
+}
+
+.accordion-desc {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.accordion-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.accordion-badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: rgba(255, 64, 129, 0.15);
+  color: var(--accent-pink);
+  border: 1px solid var(--accent-pink);
+  letter-spacing: 0.5px;
+}
+
+.accordion-chevron {
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: transform 0.25s ease;
+}
+
+.settings-accordion-group.active .accordion-chevron {
+  transform: rotate(180deg);
+  color: var(--accent-pink);
+}
+
+.accordion-body {
+  display: none;
+  padding: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  flex-direction: column;
+  gap: 14px;
+}
+
+.settings-accordion-group.active .accordion-body {
+  display: flex;
+}
