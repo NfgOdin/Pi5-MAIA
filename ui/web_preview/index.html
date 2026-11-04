@@ -7,6 +7,22 @@
   <link rel="stylesheet" href="style.css?v=12">
   <script src="assets/vendor/three.min.js"></script>
   <script src="assets/vendor/GLTFLoader.js"></script>
+  <script src="assets/vendor/qrcode.min.js"></script>
+  <style>
+    @keyframes authSpin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .device-code-display {
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 24px;
+      font-weight: 900;
+      color: #34a853;
+      background: #0b1912;
+      border: 2px dashed #34a853;
+      border-radius: 8px;
+      padding: 8px 14px;
+      text-align: center;
+      letter-spacing: 4px;
+    }
+  </style>
 </head>
 <body>
 
@@ -669,6 +685,105 @@
           <button class="cluster-action-btn" id="btnSwapBrain" onclick="swapNeuralBrain()" style="background:var(--accent-purple); color:#000; font-weight:900; padding:8px 16px; font-size:11px;">
             ⚡ HOT-SWAP BRAIN
           </button>
+        </div>
+      </div>
+
+      <!-- GOOGLE ACCOUNT & GEMINI CLOUD AI (DEVICE CODE OAUTH) -->
+      <div class="settings-card" id="googleAuthCard" style="border-color:#4285f4;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div class="settings-title" style="color:#4285f4; margin-bottom:0; display:flex; align-items:center; gap:8px;">
+            <svg width="20" height="20" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+            </svg>
+            <span>GOOGLE ACCOUNT & GEMINI CLOUD AI</span>
+          </div>
+          <div id="googleAuthBadge" class="pill" style="background:rgba(66,133,244,0.15); color:#4285f4; font-size:11px;">
+            ● NOT LINKED (OFFLINE GGUF)
+          </div>
+        </div>
+        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:14px;">
+          Link your Google Account via your phone (RFC 8628 Smart Device flow) to enable Google Gemini 1.5/2.0 Flash AI voice copilot with 1,500 free queries/day — zero manual API keys required!
+        </p>
+
+        <!-- Unlinked View -->
+        <div id="googleAuthUnlinkedView">
+          <div style="display:flex; align-items:center; justify-content:space-between; background:#0c1219; border:1px solid #212b38; padding:12px 16px; border-radius:8px; margin-bottom:12px;">
+            <div>
+              <div style="font-size:12px; font-weight:800; color:#fff;">SMART DEVICE / PHONE QR SIGN-IN</div>
+              <div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">Scan the QR code with your phone camera, tap "Allow", and Gemini activates instantly in your car.</div>
+            </div>
+            <button class="cluster-action-btn" id="btnStartGoogleAuth" onclick="openGoogleAuthModal()" style="background:#fff; color:#1a1a1a; font-weight:900; font-size:12px; padding:10px 18px; display:flex; align-items:center; gap:8px; border:none; box-shadow:0 2px 10px rgba(0,0,0,0.5); cursor:pointer;">
+              <svg width="18" height="18" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+              </svg>
+              <span>Sign in with Google</span>
+            </button>
+          </div>
+
+          <details style="font-size:11px; color:var(--text-secondary); margin-top:8px;">
+            <summary style="cursor:pointer; font-weight:700; color:#4285f4; user-select:none;">⚙️ Advanced: Custom Google Cloud OAuth Client ID (Optional)</summary>
+            <div style="background:#0a0f16; border:1px solid #1c2634; border-radius:8px; padding:12px; margin-top:8px;">
+              <div style="font-size:10px; color:#8899a6; margin-bottom:8px;">
+                Enter your Google Cloud Project OAuth Client ID (Type: TVs and limited input devices). Required to issue device authorization codes.
+              </div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+                <div>
+                  <label style="font-size:10px; color:#aaa; display:block; margin-bottom:2px;">CLIENT ID:</label>
+                  <input type="text" id="cfgGoogleClientId" class="settings-input" style="width:100%; font-size:11px;" placeholder="xxxx.apps.googleusercontent.com">
+                </div>
+                <div>
+                  <label style="font-size:10px; color:#aaa; display:block; margin-bottom:2px;">CLIENT SECRET (OPTIONAL):</label>
+                  <input type="password" id="cfgGoogleClientSecret" class="settings-input" style="width:100%; font-size:11px;" placeholder="GOCSPX-xxxx">
+                </div>
+              </div>
+              <div style="display:flex; justify-content:flex-end;">
+                <button class="cluster-action-btn" onclick="saveGoogleCloudConfig()" style="font-size:10px; padding:6px 14px; border-color:#4285f4; color:#4285f4;">Save OAuth Client Config</button>
+              </div>
+            </div>
+          </details>
+        </div>
+
+        <!-- Linked View -->
+        <div id="googleAuthLinkedView" style="display:none;">
+          <div style="display:flex; align-items:center; justify-content:space-between; background:#0c1724; border:1px solid #1e3a5f; padding:12px 16px; border-radius:8px; margin-bottom:12px;">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <img id="googleUserAvatar" src="assets/pics/maia_avatar.jpg" style="width:48px; height:48px; border-radius:50%; border:2px solid #4285f4; object-fit:cover;" alt="Google Profile">
+              <div>
+                <div id="googleUserName" style="font-size:14px; font-weight:800; color:#fff;">Google User</div>
+                <div id="googleUserEmail" style="font-size:11px; color:#8ab4f8; font-weight:600;">user@gmail.com</div>
+                <div style="font-size:10px; color:var(--accent-green); margin-top:2px;">● Connected via Google OAuth Device Code Flow</div>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <button class="cluster-action-btn" onclick="disconnectGoogleAccount()" style="border-color:#ea4335; color:#ea4335; font-size:11px; padding:8px 14px;">
+                ✕ Disconnect / Sign Out
+              </button>
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
+            <div style="background:#0c1219; border:1px solid #212b38; padding:10px 14px; border-radius:8px;">
+              <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:4px;">COPILOT AI ENGINE MODE:</div>
+              <select id="cfgAiEngineMode" class="settings-input" style="width:100%; font-size:12px;" onchange="updateAiEngineMode(this.value)">
+                <option value="LOCAL_GGUF">Local Qwen GGUF (100% Offline / Fast)</option>
+                <option value="GEMINI" selected>Google Gemini Cloud AI (Smart / Connected)</option>
+              </select>
+            </div>
+            <div style="background:#0c1219; border:1px solid #212b38; padding:10px 14px; border-radius:8px;">
+              <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:4px;">GEMINI MODEL TIER:</div>
+              <select id="cfgGeminiModel" class="settings-input" style="width:100%; font-size:12px;" onchange="updateGeminiModel(this.value)">
+                <option value="gemini-1.5-flash" selected>Gemini 1.5 Flash (Super Fast • 1500 RPD Free)</option>
+                <option value="gemini-2.0-flash">Gemini 2.0 Flash (Next-Gen Multimodal)</option>
+                <option value="gemini-1.5-pro">Gemini 1.5 Pro (Deep Reasoning)</option>
+              </select>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1672,6 +1787,99 @@
 
   <!-- HARDWARE / SCREEN BRIGHTNESS OVERLAY -->
   <div id="screenBrightnessOverlay" class="screen-brightness-overlay"></div>
+
+  <!-- GOOGLE OAUTH DEVICE FLOW MODAL -->
+  <div class="config-modal-overlay" id="googleAuthModal" style="display:none;" onclick="if(event.target === this) closeGoogleAuthModal()">
+    <div class="config-modal-content" style="max-width:580px; width:92%; border-color:#4285f4; box-shadow:0 0 35px rgba(66,133,244,0.35);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1px solid #212b38; padding-bottom:10px;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <svg width="24" height="24" viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+          </svg>
+          <div>
+            <h3 style="font-size:16px; font-weight:900; color:#fff; margin:0;">LINK GOOGLE ACCOUNT</h3>
+            <span style="font-size:10px; color:#8ab4f8;">Google OAuth 2.0 Device Code Flow (RFC 8628)</span>
+          </div>
+        </div>
+        <button class="graph-close-btn" onclick="closeGoogleAuthModal()">✕</button>
+      </div>
+
+      <!-- Need Client ID Setup Screen (shown if no Client ID saved) -->
+      <div id="googleAuthSetupClientIdBox" style="display:none; padding:10px 0;">
+        <div style="background:#0e1724; border:1px solid #1e3a5f; border-radius:8px; padding:14px; margin-bottom:14px;">
+          <div style="font-size:13px; font-weight:800; color:#fff; margin-bottom:6px;">Google Cloud OAuth Client ID Required</div>
+          <div style="font-size:11px; color:var(--text-secondary); line-height:1.5; margin-bottom:12px;">
+            To link your Google Account via Device Code, enter your Google Cloud Project OAuth Client ID:<br>
+            1. Visit <strong style="color:#fff;">console.cloud.google.com</strong> &rarr; Credentials &rarr; Create Credentials.<br>
+            2. Choose Application type: <strong style="color:#4285f4;">TVs and limited input devices</strong>.<br>
+            3. Paste your Client ID below. CarPi5 will save it permanently.
+          </div>
+          <label style="font-size:11px; font-weight:800; color:#fff; display:block; margin-bottom:4px;">YOUR CLIENT ID:</label>
+          <input type="text" id="modalGoogleClientId" class="settings-input" style="width:100%; font-size:12px; margin-bottom:10px;" placeholder="xxxx-xxxx.apps.googleusercontent.com">
+          <label style="font-size:11px; font-weight:800; color:#fff; display:block; margin-bottom:4px;">CLIENT SECRET (OPTIONAL):</label>
+          <input type="password" id="modalGoogleClientSecret" class="settings-input" style="width:100%; font-size:12px; margin-bottom:14px;" placeholder="GOCSPX-xxxx">
+          <div style="display:flex; justify-content:flex-end;">
+            <button class="cluster-action-btn" onclick="submitModalClientIdAndStart()" style="background:#4285f4; color:#fff; font-weight:900; padding:8px 18px;">
+              SAVE & START QR CODE &rarr;
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Content Grid: Left QR code, Right instructions & Code -->
+      <div id="googleAuthModalBody" style="display:grid; grid-template-columns:190px 1fr; gap:18px; align-items:center; margin-bottom:16px;">
+        <!-- Left: QR Code -->
+        <div style="display:flex; flex-direction:column; align-items:center;">
+          <div id="googleAuthQrWrapper" style="background:#fff; padding:10px; border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,0.6); display:flex; justify-content:center; align-items:center; width:170px; height:170px;">
+            <div id="googleAuthQr"></div>
+          </div>
+          <div style="font-size:10px; color:var(--text-secondary); margin-top:6px; font-weight:700;">SCAN WITH PHONE CAMERA</div>
+        </div>
+
+        <!-- Right: Instructions & User Code -->
+        <div>
+          <div style="font-size:12px; color:#fff; font-weight:800; margin-bottom:6px;">
+            1. Scan the QR code or on any device open:
+          </div>
+          <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:6px; font-family:monospace; font-size:13px; color:#4285f4; font-weight:700; margin-bottom:10px; word-break:break-all;">
+            google.com/device
+          </div>
+
+          <div style="font-size:12px; color:#fff; font-weight:800; margin-bottom:4px;">
+            2. Enter this one-time code if prompted:
+          </div>
+          <div id="googleAuthUserCode" class="device-code-display" style="margin-bottom:12px;">
+            ---- ----
+          </div>
+
+          <!-- Polling radar animation -->
+          <div id="googleAuthPollingStatus" style="display:flex; align-items:center; gap:8px; font-size:11px; color:#8ab4f8; background:rgba(66,133,244,0.08); border:1px solid rgba(66,133,244,0.25); border-radius:6px; padding:6px 10px;">
+            <span class="auth-spin-radar" style="display:inline-block; width:12px; height:12px; border:2px solid #4285f4; border-top-color:transparent; border-radius:50%; animation:authSpin 1s linear infinite;"></span>
+            <span id="googleAuthStatusText">Waiting for phone approval...</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Success Banner (shown upon authentication) -->
+      <div id="googleAuthSuccessBox" style="display:none; text-align:center; padding:24px 16px;">
+        <div style="font-size:44px; margin-bottom:8px;">✅</div>
+        <h3 style="font-size:18px; font-weight:900; color:#34a853; margin-bottom:4px;">GOOGLE ACCOUNT LINKED!</h3>
+        <p id="googleAuthSuccessUser" style="font-size:13px; color:#fff; font-weight:700; margin-bottom:8px;">Signed in as Creator</p>
+        <p style="font-size:11px; color:var(--text-secondary);">Google Gemini AI voice copilot is now active in your Dodge Dart!</p>
+      </div>
+
+      <!-- Footer Actions -->
+      <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid #212b38; padding-top:12px;">
+        <button class="cluster-action-btn" onclick="openGoogleDeviceUrlInBrowser()" style="font-size:11px; padding:6px 12px; border-color:#4285f4; color:#8ab4f8;">
+          🌐 Open in Pi Browser
+        </button>
+        <button class="graph-close-btn" onclick="closeGoogleAuthModal()" style="padding:6px 16px; font-size:11px;">CANCEL / CLOSE</button>
+      </div>
+    </div>
+  </div>
 
   <!-- CLEAR TRIP LOGS CONFIRMATION MODAL -->
   <div class="config-modal-overlay" id="confirmClearTripsModal" style="display:none;" onclick="if(event.target === this) closeClearTripsModal()">

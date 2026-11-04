@@ -97,6 +97,16 @@ class LLMClient:
         self._llama_loading = False
         self.ai_core_status = "warming" if self.settings.get("mode") == "LOCAL_GGUF" else "online"
 
+        # Google OAuth & Gemini Client
+        try:
+            from backend.ai.google_auth import GoogleAuthManager
+        except ImportError:
+            try:
+                from ai.google_auth import GoogleAuthManager
+            except ImportError:
+                from google_auth import GoogleAuthManager
+        self.google_auth = GoogleAuthManager()
+
         # Automatically warm up the local GGUF model in the background on Pi 5
         if self.settings.get("mode") == "LOCAL_GGUF":
             threading.Thread(target=self._preload_local_gguf, daemon=True).start()
@@ -231,6 +241,7 @@ class LLMClient:
             "ollama_model": "llama3.2:3b",
             "api_provider": "gemini",
             "api_key": "",
+            "gemini_model": "gemini-1.5-flash",
             "tts_engine": "KOKORO",
             "kokoro_voice": "af_bella",
             "tts_pitch": 1.125,
@@ -537,6 +548,11 @@ class LLMClient:
             except Exception as e:
                 print(f"[LLM] Ollama query failed ({e}). Seamlessly using offline dynamic engine.")
 
+        elif mode in ("GEMINI", "CLOUD_API", "GOOGLE"):
+            gemini_reply = self._call_gemini_api(user_message, system_prompt)
+            if gemini_reply:
+                return gemini_reply
+
         # 2. Dynamic Procedural Offline Engine (Default)
         reply = self._generate_builtin_reply(user_message, persona, live_telemetry)
         self._record_chat(user_message, reply)
@@ -580,6 +596,67 @@ class LLMClient:
             return {"type": "launch", "target": "kodi"}
         elif "vlc" in t:
             return {"type": "launch", "target": "vlc"}
+        return None
+
+    def _call_gemini_api(self, user_message: str, system_prompt: str) -> Optional[str]:
+        """Executes Google Gemini generation using OAuth Bearer token or direct API key."""
+        token = self.google_auth.get_valid_access_token() if hasattr(self, "google_auth") else None
+        api_key = self.settings.get("api_key", "").strip()
+
+        if not token and not api_key:
+            return None
+
+        model_name = self.settings.get("gemini_model", "gemini-1.5-flash")
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        elif api_key:
+            url += f"?key={api_key}"
+
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": user_message}]
+                }
+            ],
+            "systemInstruction": {
+                "parts": [{"text": system_prompt}]
+            },
+            "generationConfig": {
+                "temperature": 0.75,
+                "maxOutputTokens": 120
+            }
+        }
+
+        try:
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers=headers
+            )
+            with urllib.request.urlopen(req, timeout=7.0) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    candidates = data.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        if parts:
+                            reply = parts[0].get("text", "").strip()
+                            if reply:
+                                self._record_chat(user_message, reply)
+                                return reply
+        except urllib.error.HTTPError as e:
+            try:
+                err_body = e.read().decode("utf-8")
+                print(f"[GEMINI] HTTP Error {e.code}: {err_body}")
+            except Exception:
+                print(f"[GEMINI] HTTP Error {e.code}")
+        except Exception as ex:
+            print(f"[GEMINI] API call note: {ex}")
+
         return None
 
     def _record_chat(self, user_msg: str, ai_reply: str):

@@ -5263,6 +5263,7 @@ function renderMiniDtcWaifu() {
 
 // Fetch available neural brains on startup
 fetchAvailableNeuralBrains();
+checkGoogleAuthStatus();
 setTimeout(dismissBootSplash, 800);
 
 
@@ -6956,4 +6957,325 @@ function browserGoForward() {
     if (input) input.value = nextUrl;
     if (iframe) iframe.src = nextUrl;
   }
+}
+
+
+// --- 19. GOOGLE OAUTH 2.0 DEVICE FLOW & GEMINI AI INTEGRATION ---
+let googleAuthPollTimer = null;
+let googleDeviceDirectUrl = "https://www.google.com/device";
+let googleQrCodeInstance = null;
+
+function checkGoogleAuthStatus() {
+  fetch('/api/auth/google/status')
+    .then(r => r.json())
+    .then(data => {
+      const card = document.getElementById('googleAuthCard');
+      const badge = document.getElementById('googleAuthBadge');
+      const unlinkedView = document.getElementById('googleAuthUnlinkedView');
+      const linkedView = document.getElementById('googleAuthLinkedView');
+      const inputCid = document.getElementById('cfgGoogleClientId');
+      const inputCsec = document.getElementById('cfgGoogleClientSecret');
+
+      if (inputCid && data.client_id && !inputCid.value) {
+        inputCid.value = data.client_id;
+      }
+
+      if (data.authenticated) {
+        if (badge) {
+          badge.innerText = '● GEMINI ONLINE (OAUTH LINKED)';
+          badge.style.background = 'rgba(52, 168, 83, 0.15)';
+          badge.style.color = '#34a853';
+        }
+        if (unlinkedView) unlinkedView.style.display = 'none';
+        if (linkedView) linkedView.style.display = 'block';
+
+        const uName = document.getElementById('googleUserName');
+        const uEmail = document.getElementById('googleUserEmail');
+        const uAvatar = document.getElementById('googleUserAvatar');
+
+        if (uName) uName.innerText = data.name || 'Google User';
+        if (uEmail) uEmail.innerText = data.email || 'user@gmail.com';
+        if (uAvatar) {
+          uAvatar.src = data.picture || 'assets/pics/maia_avatar.jpg';
+          uAvatar.onerror = function() { this.src = 'assets/pics/maia_avatar.jpg'; };
+        }
+
+        const selModel = document.getElementById('cfgGeminiModel');
+        if (selModel && currentAiSettings && currentAiSettings.gemini_model) {
+          selModel.value = currentAiSettings.gemini_model;
+        }
+
+        const selEngine = document.getElementById('cfgAiEngineMode');
+        if (selEngine && currentAiSettings && currentAiSettings.mode) {
+          selEngine.value = currentAiSettings.mode;
+        }
+      } else {
+        if (badge) {
+          badge.innerText = '● NOT LINKED (OFFLINE GGUF)';
+          badge.style.background = 'rgba(66, 133, 244, 0.15)';
+          badge.style.color = '#4285f4';
+        }
+        if (unlinkedView) unlinkedView.style.display = 'block';
+        if (linkedView) linkedView.style.display = 'none';
+      }
+    })
+    .catch(err => console.warn('[GOOGLE_AUTH] Status check failed:', err));
+}
+
+function openGoogleAuthModal() {
+  const modal = document.getElementById('googleAuthModal');
+  const setupBox = document.getElementById('googleAuthSetupClientIdBox');
+  const bodyGrid = document.getElementById('googleAuthModalBody');
+  const successBox = document.getElementById('googleAuthSuccessBox');
+  const statusText = document.getElementById('googleAuthStatusText');
+  const codeBox = document.getElementById('googleAuthUserCode');
+  const qrElem = document.getElementById('googleAuthQr');
+
+  if (!modal) return;
+  modal.style.display = 'flex';
+  if (successBox) successBox.style.display = 'none';
+
+  fetch('/api/auth/google/status')
+    .then(r => r.json())
+    .then(data => {
+      const configuredCid = (document.getElementById('cfgGoogleClientId')?.value || data.client_id || '').trim();
+      if (!configuredCid) {
+        if (setupBox) setupBox.style.display = 'block';
+        if (bodyGrid) bodyGrid.style.display = 'none';
+        const modalCid = document.getElementById('modalGoogleClientId');
+        if (modalCid) modalCid.focus();
+      } else {
+        if (setupBox) setupBox.style.display = 'none';
+        if (bodyGrid) bodyGrid.style.display = 'grid';
+        if (statusText) statusText.innerText = 'Requesting device authorization code from Google...';
+        if (codeBox) codeBox.innerText = '---- ----';
+        if (qrElem) qrElem.innerHTML = '';
+
+        startGoogleDeviceFlowRequest(configuredCid);
+      }
+    })
+    .catch(() => {
+      if (setupBox) setupBox.style.display = 'block';
+      if (bodyGrid) bodyGrid.style.display = 'none';
+    });
+}
+
+function submitModalClientIdAndStart() {
+  const cidInput = document.getElementById('modalGoogleClientId');
+  const csecInput = document.getElementById('modalGoogleClientSecret');
+  const cid = cidInput ? cidInput.value.trim() : '';
+  const csec = csecInput ? csecInput.value.trim() : '';
+
+  if (!cid) {
+    alert('Please enter your Google Cloud OAuth Client ID.');
+    return;
+  }
+
+  const mainCid = document.getElementById('cfgGoogleClientId');
+  const mainCsec = document.getElementById('cfgGoogleClientSecret');
+  if (mainCid) mainCid.value = cid;
+  if (mainCsec) mainCsec.value = csec;
+
+  fetch('/api/auth/google/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_id: cid, client_secret: csec })
+  })
+    .then(r => r.json())
+    .then(() => {
+      const setupBox = document.getElementById('googleAuthSetupClientIdBox');
+      const bodyGrid = document.getElementById('googleAuthModalBody');
+      if (setupBox) setupBox.style.display = 'none';
+      if (bodyGrid) bodyGrid.style.display = 'grid';
+      startGoogleDeviceFlowRequest(cid, csec);
+    })
+    .catch(err => alert('Failed to save OAuth credentials: ' + err));
+}
+
+function startGoogleDeviceFlowRequest(cid, csec) {
+  const statusText = document.getElementById('googleAuthStatusText');
+  const codeBox = document.getElementById('googleAuthUserCode');
+  const qrElem = document.getElementById('googleAuthQr');
+
+  fetch('/api/auth/google/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_id: cid, client_secret: csec })
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === 'pending') {
+        const userCode = data.user_code;
+        const directUrl = data.direct_url || (data.verification_url + '?user_code=' + userCode);
+        googleDeviceDirectUrl = directUrl;
+
+        if (codeBox) codeBox.innerText = userCode;
+        if (statusText) statusText.innerText = `Waiting for phone approval (Polls every ${data.interval || 5}s)...`;
+
+        if (qrElem) {
+          qrElem.innerHTML = '';
+          try {
+            if (typeof QRCode !== 'undefined') {
+              new QRCode(qrElem, {
+                text: directUrl,
+                width: 150,
+                height: 150,
+                colorDark: '#000000',
+                colorLight: '#ffffff',
+                correctLevel: QRCode.CorrectLevel.M
+              });
+            } else {
+              qrElem.innerHTML = `<a href="${directUrl}" target="_blank" style="color:#4285f4; font-size:11px; word-break:break-all;">${directUrl}</a>`;
+            }
+          } catch (e) {
+            console.error('[QRCODE] Render error:', e);
+            qrElem.innerHTML = `<a href="${directUrl}" target="_blank" style="color:#4285f4; font-size:11px; word-break:break-all;">${directUrl}</a>`;
+          }
+        }
+
+        startGoogleAuthPolling();
+      } else {
+        if (statusText) statusText.innerText = 'Error: ' + (data.message || 'Failed to start auth flow.');
+        const setupBox = document.getElementById('googleAuthSetupClientIdBox');
+        const bodyGrid = document.getElementById('googleAuthModalBody');
+        if (setupBox && data.message && data.message.includes('Client ID')) {
+          setupBox.style.display = 'block';
+          bodyGrid.style.display = 'none';
+        }
+      }
+    })
+    .catch(err => {
+      if (statusText) statusText.innerText = 'Network connection failed: ' + err;
+    });
+}
+
+function startGoogleAuthPolling() {
+  stopGoogleAuthPolling();
+  googleAuthPollTimer = setInterval(() => {
+    fetch('/api/auth/google/status')
+      .then(r => r.json())
+      .then(data => {
+        if (data.authenticated) {
+          stopGoogleAuthPolling();
+          onGoogleAuthSuccess(data);
+        } else if (data.status === 'error') {
+          const statusText = document.getElementById('googleAuthStatusText');
+          if (statusText) statusText.innerText = 'Auth Notice: ' + (data.last_error || 'Expired or Denied');
+        }
+      })
+      .catch(err => console.warn('[GOOGLE_AUTH] Poll error:', err));
+  }, 2500);
+}
+
+function stopGoogleAuthPolling() {
+  if (googleAuthPollTimer) {
+    clearInterval(googleAuthPollTimer);
+    googleAuthPollTimer = null;
+  }
+}
+
+function onGoogleAuthSuccess(authData) {
+  const bodyGrid = document.getElementById('googleAuthModalBody');
+  const successBox = document.getElementById('googleAuthSuccessBox');
+  const successUser = document.getElementById('googleAuthSuccessUser');
+
+  if (bodyGrid) bodyGrid.style.display = 'none';
+  if (successBox) successBox.style.display = 'block';
+  if (successUser) {
+    const disp = authData.name ? `${authData.name} (${authData.email})` : (authData.email || 'Master Creator');
+    successUser.innerText = 'Signed in as ' + disp;
+  }
+
+  updateAiEngineMode('GEMINI');
+
+  const userName = authData.name || 'Master Creator';
+  const joyfulSpeech = `Yay! Google Account connected, ${userName}! Gemini cloud intelligence is now online and riding shotgun with us!`;
+  if (typeof speakUtterance === 'function') {
+    speakUtterance(joyfulSpeech, 'HAPPY');
+  }
+  if (typeof showAiSpeechToast === 'function') {
+    showAiSpeechToast('Google Connected! Gemini AI Online!');
+  }
+
+  checkGoogleAuthStatus();
+
+  setTimeout(() => {
+    closeGoogleAuthModal();
+  }, 2800);
+}
+
+function closeGoogleAuthModal() {
+  const modal = document.getElementById('googleAuthModal');
+  if (modal) modal.style.display = 'none';
+  stopGoogleAuthPolling();
+}
+
+function openGoogleDeviceUrlInBrowser() {
+  if (googleDeviceDirectUrl) {
+    window.open(googleDeviceDirectUrl, '_blank');
+  }
+}
+
+function disconnectGoogleAccount() {
+  if (!confirm('Are you sure you want to disconnect your Google Account and return to the local offline Qwen model?')) {
+    return;
+  }
+
+  fetch('/api/auth/google/logout', { method: 'POST' })
+    .then(r => r.json())
+    .then(() => {
+      updateAiEngineMode('LOCAL_GGUF');
+      checkGoogleAuthStatus();
+      if (typeof speakUtterance === 'function') {
+        speakUtterance('Google Account disconnected. Offline local brain is active.', 'DEFAULT');
+      }
+    })
+    .catch(err => alert('Failed to disconnect Google account: ' + err));
+}
+
+function saveGoogleCloudConfig() {
+  const cid = document.getElementById('cfgGoogleClientId')?.value.trim() || '';
+  const csec = document.getElementById('cfgGoogleClientSecret')?.value.trim() || '';
+
+  fetch('/api/auth/google/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_id: cid, client_secret: csec })
+  })
+    .then(r => r.json())
+    .then(() => {
+      alert('Google OAuth Client credentials saved!');
+      checkGoogleAuthStatus();
+    })
+    .catch(err => alert('Failed to save config: ' + err));
+}
+
+function updateAiEngineMode(mode) {
+  fetch('/api/ai/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: mode })
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.settings) currentAiSettings = Object.assign(currentAiSettings, data.settings);
+      const selEngine = document.getElementById('cfgAiEngineMode');
+      if (selEngine) selEngine.value = mode;
+      console.log('[AI] Copilot engine mode updated to:', mode);
+    })
+    .catch(err => console.warn('[AI] Mode update error:', err));
+}
+
+function updateGeminiModel(model) {
+  fetch('/api/ai/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gemini_model: model })
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.settings) currentAiSettings = Object.assign(currentAiSettings, data.settings);
+      console.log('[AI] Gemini model updated to:', model);
+    })
+    .catch(err => console.warn('[AI] Model update error:', err));
 }

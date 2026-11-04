@@ -791,6 +791,15 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(state.llm.settings).encode("utf-8"))
             return
 
+        elif parsed.path == "/api/auth/google/status":
+            auth_status = state.llm.google_auth.get_status() if hasattr(state.llm, "google_auth") else {"authenticated": False}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(auth_status).encode("utf-8"))
+            return
+
         elif parsed.path == "/api/fs/devices":
             drives = detect_usb_drives()
             self.send_response(200)
@@ -1447,6 +1456,38 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps({"status": "ok", "settings": reply_settings}).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/auth/google/start":
+            cid = req_data.get("client_id")
+            csec = req_data.get("client_secret")
+            res = state.llm.google_auth.start_device_flow(cid, csec) if hasattr(state.llm, "google_auth") else {"status": "error", "message": "Google auth module unavailable"}
+            self.send_response(200 if res.get("status") != "error" else 400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/auth/google/logout":
+            if hasattr(state.llm, "google_auth"):
+                state.llm.google_auth.logout()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok"}).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/auth/google/config":
+            cid = req_data.get("client_id", "")
+            csec = req_data.get("client_secret", "")
+            res = state.llm.google_auth.save_client_credentials(cid, csec) if hasattr(state.llm, "google_auth") else {"status": "error"}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
         elif parsed.path == "/api/fs/write":
