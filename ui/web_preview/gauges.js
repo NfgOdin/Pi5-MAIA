@@ -1230,7 +1230,7 @@ function initBootSplash() {
 
   const pKey = currentAiSettings.personality || 'MAIA';
   const pName = getPersonaDisplayName(pKey);
-  if (titleEl) titleEl.innerText = `${pName} 2.0`;
+  if (titleEl) titleEl.innerText = `${pName} v1.0.0`;
   if (subEl) subEl.innerText = `${pName} • MultiAir In-Dash System Initializing`;
 
   const pData = (window.allPersonas && window.allPersonas[pKey]) ? window.allPersonas[pKey] : null;

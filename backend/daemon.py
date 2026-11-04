@@ -445,6 +445,7 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({
                     "status": "ok",
+                    "version": "1.0.0",
                     "update_available": (commits_behind > 0 or (local_rev != remote_rev and bool(remote_rev))),
                     "commits_behind": commits_behind,
                     "current_commit": local_rev[:7] if local_rev else "unknown",

@@ -42,7 +42,7 @@ def ensure_sample_usb_environment():
             "rev_limiter_rpm=6600\n"
         ).encode("utf-8"),
         SAMPLE_USB_DIR / "tuning_configs" / "carpi5_custom_dashboard.json": (
-            "{\n  \"version\": \"2.4.0\",\n  \"gauge_theme\": \"neon_cyberpunk\",\n  \"driver_title\": \"Master\",\n  \"driver_name\": \"Jonny\"\n}\n"
+            "{\n  \"version\": \"1.0.0\",\n  \"gauge_theme\": \"neon_cyberpunk\",\n  \"driver_title\": \"Master\",\n  \"driver_name\": \"Jonny\"\n}\n"
         ).encode("utf-8")
     }
 
