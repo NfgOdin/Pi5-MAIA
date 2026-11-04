@@ -414,8 +414,8 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
         
         elif parsed.path == "/api/ai/models":
-            models = state.ai_client.get_available_gguf_models()
-            current_path = state.ai_client.settings.get("gguf_model_path", "")
+            models = state.llm.get_available_gguf_models()
+            current_path = state.llm.settings.get("gguf_model_path", "")
             active_model = os.path.basename(current_path) if current_path else "qwen3b.gguf"
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -424,7 +424,7 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({
                 "models": models,
                 "active_model": active_model,
-                "status": state.ai_client.ai_core_status
+                "status": state.llm.ai_core_status
             }).encode("utf-8"))
             return
 
@@ -799,13 +799,13 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"status": "error", "message": "No model specified"}).encode("utf-8"))
                 return
 
-            persona = state.ai_client.personas.get(state.ai_client.settings.get("personality", "MAIA"), {})
+            persona = state.llm.personas.get(state.llm.settings.get("personality", "MAIA"), {})
             p_name = persona.get("name", "M.A.I.A.")
             swap_announcement = f"Swapping out my neural brain to {model_target.replace('.gguf', '')}... give me just a moment!"
             state.audio.speak(swap_announcement)
 
             def do_swap():
-                res = state.ai_client.swap_gguf_model(model_target)
+                res = state.llm.swap_gguf_model(model_target)
                 if res.get("success"):
                     ready_speech = f"My new neural brain is warm and ready! Cockpit systems fully aligned, Master!"
                     state.audio.speak(ready_speech)
