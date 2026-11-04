@@ -93,17 +93,7 @@
 
     <!-- 1. HOME SCREEN (MAIN LAUNCHER HUB) -->
     <div class="screen-view active" id="screenHome">
-      <!-- Full-Width Dynamic AI Neural Copilot Banner -->
-      <div class="home-ai-quote-bar" onclick="navigateTo('ai')">
-        <div style="display:flex; align-items:center; gap:12px; flex:1; min-width:0;">
-          <img id="homeBannerAiAvatar" src="assets/pics/maia_avatar.jpg" style="width:30px; height:30px; border-radius:50%; object-fit:cover; border:1.5px solid var(--accent-pink); flex-shrink:0;" alt="RUM">
-          <span style="font-size:12px; font-weight:800; color:var(--accent-pink); flex-shrink:0;" id="homeBannerAiName">R.U.M.:</span>
-          <span style="font-size:12px; font-weight:700; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" id="homeBannerAiQuote">Ready for a pull in the Dart, Master Creator?</span>
-        </div>
-        <div style="font-size:11px; font-weight:800; color:var(--accent-pink); letter-spacing:0.5px; flex-shrink:0; margin-left:14px;">OPEN COPILOT →</div>
-      </div>
-
-      <!-- 6 Massive Touch Launcher Selectors -->
+<!-- 6 Massive Touch Launcher Selectors -->
       <div class="home-cards-grid">
         <!-- 1. VEHICLE STATS & GAUGES -->
         <div class="launcher-card card-stats" onclick="navigateTo('gauges')">
@@ -186,7 +176,7 @@
         </div>
 
         <!-- 7. FIREFOX WEB BROWSER -->
-        <div class="launcher-card card-browser" onclick="launchFirefoxBrowser()" style="border-color:rgba(255,107,0,0.4); background:linear-gradient(145deg, rgba(20,20,30,0.85), rgba(40,25,20,0.85));">
+        <div class="launcher-card card-browser" onclick="navigateTo('browser')" style="border-color:rgba(255,107,0,0.4); background:linear-gradient(145deg, rgba(20,20,30,0.85), rgba(40,25,20,0.85));">
           <div class="card-badge" style="background:rgba(255,107,0,0.2); color:#ff7a00; border:1px solid #ff7a00;">
             🦊 FIREFOX ESR: READY
           </div>
@@ -195,7 +185,7 @@
             <div class="card-title">WEB BROWSER (FIREFOX)</div>
             <div class="card-subtitle">Official Firefox with full extensions, logins, YouTube & cloud sync. Fullscreen on top with auto-close protection.</div>
           </div>
-          <div style="font-size:10px; font-weight:800; color:#ff7a00; letter-spacing:0.5px;">LAUNCH FIREFOX →</div>
+          <div style="font-size:10px; font-weight:800; color:#ff7a00; letter-spacing:0.5px;">OPEN BROWSER →</div>
         </div>
       </div>
     </div>
@@ -473,6 +463,63 @@
           </div>
           <div id="romsListContainer" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:10px; max-height:240px; overflow-y:auto; padding-right:4px;">
             <!-- Populated dynamically via /api/games/roms -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- 6. IN-DASH WEB BROWSER SCREEN -->
+    <div class="screen-view" id="screenBrowser" style="flex-direction:column; gap:10px; height:100%; overflow:hidden;">
+      <!-- Browser Navigation & Control Bar -->
+      <div class="browser-toolbar">
+        <div style="display:flex; align-items:center; gap:6px;">
+          <button class="browser-nav-btn" onclick="browserGoBack()" title="Back">◀</button>
+          <button class="browser-nav-btn" onclick="browserGoForward()" title="Forward">▶</button>
+          <button class="browser-nav-btn" onclick="browserReload()" title="Reload">↻</button>
+          <button class="browser-nav-btn" onclick="browserGoHome()" title="Home">🏠</button>
+        </div>
+
+        <!-- URL Address Input Bar -->
+        <div class="browser-address-container">
+          <span style="font-size:12px; margin-right:6px; opacity:0.7;">🔒</span>
+          <input type="text" id="browserUrlInput" class="browser-url-bar" placeholder="Enter URL or search Google (e.g. google.com)..." onkeydown="if(event.key==='Enter') browserLoadUrl()">
+          <button class="browser-go-btn" onclick="browserLoadUrl()">GO ➔</button>
+        </div>
+
+        <!-- External Fullscreen Firefox Launcher -->
+        <button class="browser-ff-btn" onclick="launchFirefoxBrowser()" title="Launch Dedicated Fullscreen Firefox App">
+          🦊 FULLSCREEN FIREFOX
+        </button>
+      </div>
+
+      <!-- Quick Bookmarks Bar -->
+      <div class="browser-bookmarks-bar">
+        <span class="bookmark-label">QUICK LINKS:</span>
+        <button class="bookmark-chip" onclick="browserNavigateTo('https://www.google.com')">🔍 Google</button>
+        <button class="bookmark-chip" onclick="browserNavigateTo('https://www.youtube.com')">▶ YouTube</button>
+        <button class="bookmark-chip" onclick="browserNavigateTo('https://www.dodge-dart.org')">🏎️ Dart Forum</button>
+        <button class="bookmark-chip" onclick="browserNavigateTo('https://weather.com')">⛅ Weather</button>
+        <button class="bookmark-chip" onclick="browserNavigateTo('https://fast.com')">⚡ Fast.com Speed</button>
+        <button class="bookmark-chip" onclick="browserNavigateTo('https://en.m.wikipedia.org')">📖 Wikipedia</button>
+      </div>
+
+      <!-- Browser Frame / Content Container -->
+      <div class="browser-frame-container">
+        <iframe id="carpiBrowserIframe" src="about:blank" class="browser-iframe" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" sandbox="allow-same-origin allow-scripts allow-forms allow-popups"></iframe>
+        
+        <!-- Welcome Overlay (shown on initial blank state or when user returns home) -->
+        <div id="browserWelcomeOverlay" class="browser-welcome-overlay">
+          <div style="font-size:44px; filter:drop-shadow(0 0 12px rgba(255,107,0,0.5));">🌐</div>
+          <div style="font-size:18px; font-weight:900; color:#fff; letter-spacing:0.5px;">CARPI5 IN-DASH WEB BROWSER</div>
+          <div style="font-size:12px; color:var(--text-secondary); max-width:560px; line-height:1.6;">
+            Navigate web pages and in-car web resources directly on your dashboard, or launch fullscreen Firefox ESR for full extension logins, streaming DRM, and tabs.
+          </div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:8px;">
+            <button class="cluster-action-btn" onclick="browserNavigateTo('https://en.m.wikipedia.org')" style="font-size:11px; padding:9px 18px;">📖 WIKIPEDIA</button>
+            <button class="cluster-action-btn" onclick="browserNavigateTo('https://fast.com')" style="font-size:11px; padding:9px 18px;">⚡ INTERNET SPEED</button>
+            <button class="cluster-action-btn" onclick="browserNavigateTo('https://www.dodge-dart.org')" style="font-size:11px; padding:9px 18px;">🏎️ DART FORUMS</button>
+            <button class="cluster-action-btn" onclick="launchFirefoxBrowser()" style="background:linear-gradient(135deg, rgba(255,107,0,0.3), rgba(255,60,0,0.3)); border-color:#ff7a00; color:#ff7a00; font-size:11px; padding:9px 18px;">🦊 LAUNCH FULLSCREEN FIREFOX</button>
           </div>
         </div>
       </div>
@@ -1258,7 +1305,7 @@
       <button class="dock-btn" id="dockBtnAI" onclick="navigateTo('ai')">💜 RUM</button>
       <button class="dock-btn" id="dockBtnMedia" onclick="navigateTo('media')">🎵 MEDIA</button>
       <button class="dock-btn" id="dockBtnGames" onclick="navigateTo('games')">🎮 GAMES</button>
-      <button class="dock-btn" id="dockBtnBrowser" onclick="launchFirefoxBrowser()" title="Launch Firefox Web Browser">🦊 BROWSER</button>
+      <button class="dock-btn" id="dockBtnBrowser" onclick="navigateTo('browser')" title="In-Dash Web Browser">🦊 BROWSER</button>
       <button class="dock-btn" id="dockBtnSettings" onclick="navigateTo('settings')">⚙️ SETTINGS</button>
     </div>
 

@@ -197,6 +197,7 @@ function navigateTo(screenId) {
     ai: document.getElementById('screenAI'),
     media: document.getElementById('screenMedia'),
     games: document.getElementById('screenGames'),
+    browser: document.getElementById('screenBrowser'),
     settings: document.getElementById('screenSettings')
   };
 
@@ -217,6 +218,7 @@ function navigateTo(screenId) {
     ai: document.getElementById('dockBtnAI'),
     media: document.getElementById('dockBtnMedia'),
     games: document.getElementById('dockBtnGames'),
+    browser: document.getElementById('dockBtnBrowser'),
     settings: document.getElementById('dockBtnSettings')
   };
 
@@ -6677,5 +6679,82 @@ function triggerYoshiPlushInteraction() {
     speakUtterance('Okay! Let us put Yoshi right here so he can watch the road with us!');
     yoshiModel.position.set(0.42, vrmBaseY + 0.14, 0.20);
     yoshiModel.rotation.set(0, -0.4, 0);
+  }
+}
+
+
+// --- 9. IN-DASH WEB BROWSER CONTROLLER ---
+let browserHistory = [];
+let browserHistoryIndex = -1;
+
+function browserNavigateTo(url) {
+  if (!url) return;
+  const input = document.getElementById('browserUrlInput');
+  const iframe = document.getElementById('carpiBrowserIframe');
+  const overlay = document.getElementById('browserWelcomeOverlay');
+  
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    if (url.includes('.') && !url.includes(' ')) {
+      url = 'https://' + url;
+    } else {
+      url = 'https://www.google.com/search?q=' + encodeURIComponent(url);
+    }
+  }
+
+  if (input) input.value = url;
+  if (overlay) overlay.style.display = 'none';
+  if (iframe) iframe.src = url;
+
+  if (browserHistory[browserHistoryIndex] !== url) {
+    browserHistory = browserHistory.slice(0, browserHistoryIndex + 1);
+    browserHistory.push(url);
+    browserHistoryIndex = browserHistory.length - 1;
+  }
+}
+
+function browserLoadUrl() {
+  const input = document.getElementById('browserUrlInput');
+  if (input && input.value.trim()) {
+    browserNavigateTo(input.value.trim());
+  }
+}
+
+function browserReload() {
+  const iframe = document.getElementById('carpiBrowserIframe');
+  if (iframe && iframe.src && iframe.src !== 'about:blank') {
+    iframe.src = iframe.src;
+  }
+}
+
+function browserGoHome() {
+  const input = document.getElementById('browserUrlInput');
+  const iframe = document.getElementById('carpiBrowserIframe');
+  const overlay = document.getElementById('browserWelcomeOverlay');
+  if (input) input.value = '';
+  if (iframe) iframe.src = 'about:blank';
+  if (overlay) overlay.style.display = 'flex';
+}
+
+function browserGoBack() {
+  if (browserHistoryIndex > 0) {
+    browserHistoryIndex--;
+    const prevUrl = browserHistory[browserHistoryIndex];
+    const input = document.getElementById('browserUrlInput');
+    const iframe = document.getElementById('carpiBrowserIframe');
+    if (input) input.value = prevUrl;
+    if (iframe) iframe.src = prevUrl;
+  } else {
+    browserGoHome();
+  }
+}
+
+function browserGoForward() {
+  if (browserHistoryIndex < browserHistory.length - 1) {
+    browserHistoryIndex++;
+    const nextUrl = browserHistory[browserHistoryIndex];
+    const input = document.getElementById('browserUrlInput');
+    const iframe = document.getElementById('carpiBrowserIframe');
+    if (input) input.value = nextUrl;
+    if (iframe) iframe.src = nextUrl;
   }
 }
