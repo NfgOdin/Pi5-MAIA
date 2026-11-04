@@ -1412,20 +1412,15 @@ class LLMClient:
 
         is_rum = (persona.get("id") == "RUM" or "rum" in persona.get("name", "").lower() or "r.u.m" in persona.get("name", "").lower() or not is_maia)
 
-        speed = int(telem.get('speed_mph', 0)) if telem else 0
-
+        speed = int(telem.get('speed_mph') or 0) if telem else 0
         raw_b = telem.get('boost_psi') if telem else None
         boost = round(float(raw_b), 1) if raw_b is not None else 0.0
-
-        vacuum = round(telem.get('vacuum_inhg', 0.0), 0) if telem else 0.0
-
-        is_in_boost = telem.get('is_in_boost', False) if telem else False
-
-        gear = telem.get('gear', 'N') if telem else 'N'
-
-        coolant = int(telem.get('coolant_temp_f', 180)) if telem else 180
-
-        multiair_ready = telem.get('multiair_ready', True) if telem else True
+        raw_v = telem.get('vacuum_inhg') if telem else None
+        vacuum = round(float(raw_v), 0) if raw_v is not None else 0.0
+        is_in_boost = bool(telem.get('is_in_boost', False)) if telem else False
+        gear = str(telem.get('gear') or 'N') if telem else 'N'
+        coolant = int(telem.get('coolant_temp_f') or 180) if telem else 180
+        multiair_ready = bool(telem.get('multiair_ready', True)) if telem else True
 
 
 
