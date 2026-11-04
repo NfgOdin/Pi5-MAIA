@@ -10628,12 +10628,35 @@ let vrmNextRoamTime = Date.now() + 4500;
 let vrmRoamCurrentWaypoint = null;
 let vrmRoamWalkAction = null;
 
+// Dynamic Celestial Ephemeris & Ocean Simulation State
+let vrmSolarEphemeris = null;
+let vrmCelestialPhase = 'DAY'; // 'NIGHT', 'CIVIL_DAWN', 'SUNRISE', 'DAY', 'GOLDEN_HOUR', 'SUNSET', 'CIVIL_DUSK'
+let vrmCelestialDayProgress = 0.5; // 0.0 at sunrise, 0.5 noon, 1.0 at sunset
+let vrmCelestialNightProgress = 0.5; // 0.0 at sunset, 1.0 at sunrise
+let vrmOceanMesh = null;
+let vrmOceanGeo = null;
+let vrmOceanMat = null;
+let vrmOceanBasePos = null;
+let vrmSkyMesh = null;
+let vrmSkyTexture = null;
+let vrmSkyCanvas = null;
+let vrmSunMesh = null;
+let vrmSunGlow = null;
+let vrmMoonMesh = null;
+let vrmMoonGlow = null;
+let vrmStarParticles = null;
+let vrmCelestialLight = null;
+let vrmGardenLanterns = [];
+
+// Extended 3D Roaming Waypoints (including Ocean Railing gazing spots)
 const VRM_ROAM_WAYPOINTS = [
-  { id: 'center',    x:  0.00, z:  0.02, name: 'Center Stage', desc: 'Standing proudly in center stage' },
-  { id: 'yoshi_mat', x:  0.42, z:  0.16, name: 'Tatami Mat',   desc: 'Stepping onto the raised mat beside Yoshi' },
-  { id: 'veranda',   x: -0.34, z: -0.10, name: 'Veranda Rail', desc: 'Looking out at the twilight scenery' },
-  { id: 'cozy_front',x: -0.18, z:  0.22, name: 'Cozy Front',   desc: 'Stepping forward close to dashboard' },
-  { id: 'lantern',   x:  0.20, z: -0.16, name: 'Lantern Spot', desc: 'Relaxing near the warm lantern' }
+  { id: 'center',         x:  0.00, z:  0.02, name: 'Center Stage',   desc: 'Standing proudly in center stage', faceOcean: false },
+  { id: 'yoshi_mat',      x:  0.42, z:  0.16, name: 'Tatami Mat',     desc: 'Stepping onto the raised mat beside Yoshi', faceOcean: false },
+  { id: 'ocean_rail_mid', x:  0.00, z: -1.75, name: 'Ocean Railing',  desc: 'Standing at the balcony looking out at the endless ocean', faceOcean: true },
+  { id: 'ocean_rail_w',   x: -0.65, z: -1.70, name: 'Sunset Horizon', desc: 'Looking at the ocean horizon and moving waves', faceOcean: true },
+  { id: 'ocean_rail_e',   x:  0.55, z: -1.65, name: 'East Horizon',   desc: 'Admiring the sea breeze and celestial sky', faceOcean: true },
+  { id: 'lantern_left',   x: -0.80, z: -0.40, name: 'Lantern Left',   desc: 'Relaxing near the warm garden lantern', faceOcean: false },
+  { id: 'cozy_front',     x: -0.18, z:  0.22, name: 'Cozy Front',     desc: 'Stepping forward close to dashboard', faceOcean: false }
 ];
 
 
@@ -12474,6 +12497,8 @@ function initVrmEngine() {
 
   loadYoshiPlushProp();
 
+  initSolarEphemerisEngine();
+
 
 
   function animateVrm() {
@@ -12835,6 +12860,11 @@ function initVrmEngine() {
           p.position.z = (Math.random() - 0.5) * 2.5;
         }
       }
+    }
+
+    // 5c. Real Moving Ocean Waves & Celestial Day/Night Arc Simulation
+    if (currentEnvironmentName === 'GARDEN') {
+      updateGardenOceanAndSky(time, delta);
     }
 
     // 6. Render
@@ -13851,6 +13881,19 @@ function clearVrmEnvironment() {
   }
   envLights = [];
   sakuraPetals = [];
+  vrmOceanMesh = null;
+  vrmOceanGeo = null;
+  vrmOceanMat = null;
+  vrmOceanBasePos = null;
+  vrmSkyMesh = null;
+  vrmSkyTexture = null;
+  vrmSunMesh = null;
+  vrmSunGlow = null;
+  vrmMoonMesh = null;
+  vrmMoonGlow = null;
+  vrmStarParticles = null;
+  vrmCelestialLight = null;
+  vrmGardenLanterns = [];
 }
 
 function buildLoftEnvironment() {
@@ -14029,11 +14072,281 @@ function buildGarageEnvironment() {
   updateYoshiEnvironmentRest();
 }
 
+function createCelestialSkyCanvas() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  return canvas;
+}
+
+function updateSkyCanvas(canvas, phase) {
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width;
+  const h = canvas.height;
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+
+  if (phase === 'DAY') {
+    grad.addColorStop(0.00, '#0d47a1'); // Deep anime zenith blue
+    grad.addColorStop(0.35, '#1e88e5');
+    grad.addColorStop(0.70, '#64b5f6');
+    grad.addColorStop(0.92, '#bbdefb');
+    grad.addColorStop(1.00, '#e3f2fd'); // Soft horizon haze
+  } else if (phase === 'GOLDEN_HOUR') {
+    grad.addColorStop(0.00, '#1a237e');
+    grad.addColorStop(0.30, '#4a148c');
+    grad.addColorStop(0.60, '#f57c00');
+    grad.addColorStop(0.85, '#ffb300');
+    grad.addColorStop(1.00, '#ffe082');
+  } else if (phase === 'SUNSET') {
+    grad.addColorStop(0.00, '#260633'); // Royal purple twilight zenith
+    grad.addColorStop(0.25, '#4a0e4e');
+    grad.addColorStop(0.55, '#c2185b'); // Rich crimson
+    grad.addColorStop(0.78, '#e65100'); // Blazing orange
+    grad.addColorStop(0.92, '#ff6d00');
+    grad.addColorStop(1.00, '#ffd54f'); // Molten gold at the ocean waterline
+  } else if (phase === 'CIVIL_DUSK' || phase === 'CIVIL_DAWN') {
+    grad.addColorStop(0.00, '#0a0e1a');
+    grad.addColorStop(0.40, '#1f1a3a');
+    grad.addColorStop(0.75, '#4a1c40');
+    grad.addColorStop(0.92, '#7b2d42');
+    grad.addColorStop(1.00, '#9e4758');
+  } else {
+    // NIGHT
+    grad.addColorStop(0.00, '#02040a'); // Starlit deep space
+    grad.addColorStop(0.45, '#060a14');
+    grad.addColorStop(0.80, '#0a1224');
+    grad.addColorStop(1.00, '#101c36'); // Faint nocturnal ocean mist
+  }
+
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Painterly soft cumulus clouds near horizon
+  if (phase === 'DAY' || phase === 'GOLDEN_HOUR' || phase === 'SUNSET') {
+    ctx.save();
+    ctx.fillStyle = (phase === 'SUNSET') ? 'rgba(255, 120, 80, 0.22)' :
+                    (phase === 'GOLDEN_HOUR') ? 'rgba(255, 200, 120, 0.22)' :
+                    'rgba(255, 255, 255, 0.24)';
+    const cloudYs = [h * 0.68, h * 0.74, h * 0.70];
+    const cloudXs = [w * 0.20, w * 0.55, w * 0.85];
+    const cloudRs = [45, 60, 50];
+    for (let c = 0; c < 3; c++) {
+      ctx.beginPath();
+      ctx.arc(cloudXs[c], cloudYs[c], cloudRs[c], 0, Math.PI * 2);
+      ctx.arc(cloudXs[c] + cloudRs[c] * 0.6, cloudYs[c] + 6, cloudRs[c] * 0.7, 0, Math.PI * 2);
+      ctx.arc(cloudXs[c] - cloudRs[c] * 0.6, cloudYs[c] + 4, cloudRs[c] * 0.65, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+function createStarfieldParticles() {
+  const count = 120;
+  const starGeo = new THREE.BufferGeometry();
+  const positions = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    positions[i * 3 + 0] = (Math.random() - 0.5) * 38.0;
+    positions[i * 3 + 1] = vrmBaseY + 2.0 + Math.random() * 14.0;
+    positions[i * 3 + 2] = -25.2 + (Math.random() - 0.5) * 0.8;
+  }
+  starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const starMat = new THREE.PointsMaterial({
+    color: 0xffffff,
+    size: 0.16,
+    transparent: true,
+    opacity: 0.85
+  });
+  return new THREE.Points(starGeo, starMat);
+}
+
+function updateCelestialVisuals() {
+  if (vrmSkyCanvas && vrmSkyTexture) {
+    updateSkyCanvas(vrmSkyCanvas, vrmCelestialPhase);
+    vrmSkyTexture.needsUpdate = true;
+  }
+
+  const isNight = (vrmCelestialPhase === 'NIGHT' || vrmCelestialPhase === 'CIVIL_DUSK' || vrmCelestialPhase === 'CIVIL_DAWN');
+  const isSunset = (vrmCelestialPhase === 'SUNSET');
+  const isGolden = (vrmCelestialPhase === 'GOLDEN_HOUR');
+
+  if (vrmSunMesh) {
+    vrmSunMesh.visible = !isNight;
+  }
+  if (vrmMoonMesh) {
+    vrmMoonMesh.visible = isNight;
+  }
+  if (vrmStarParticles) {
+    vrmStarParticles.visible = isNight;
+  }
+
+  // Ocean Water Base Color
+  if (vrmOceanMat) {
+    if (isSunset) {
+      vrmOceanMat.color.setHex(0xb83824); // fiery crimson reflection
+      vrmOceanMat.roughness = 0.14;
+    } else if (isGolden) {
+      vrmOceanMat.color.setHex(0xa86c18); // golden hour amber
+      vrmOceanMat.roughness = 0.16;
+    } else if (isNight) {
+      vrmOceanMat.color.setHex(0x061124); // midnight deep indigo
+      vrmOceanMat.roughness = 0.22;
+    } else {
+      vrmOceanMat.color.setHex(0x0a406c); // clear deep azure
+      vrmOceanMat.roughness = 0.18;
+    }
+  }
+
+  // Directional Celestial Light
+  if (vrmCelestialLight) {
+    if (isSunset) {
+      vrmCelestialLight.color.setHex(0xff5722);
+      vrmCelestialLight.intensity = 1.60;
+    } else if (isGolden) {
+      vrmCelestialLight.color.setHex(0xffa726);
+      vrmCelestialLight.intensity = 1.40;
+    } else if (isNight) {
+      vrmCelestialLight.color.setHex(0x7fa8d6);
+      vrmCelestialLight.intensity = 0.42;
+    } else {
+      vrmCelestialLight.color.setHex(0xfff5e6);
+      vrmCelestialLight.intensity = 1.25;
+    }
+  }
+
+  // Veranda Paper Lanterns auto-ignition (warm amber glow at dusk/night, dimmed by day)
+  if (vrmGardenLanterns && vrmGardenLanterns.length > 0) {
+    const ignite = (isNight || isSunset);
+    vrmGardenLanterns.forEach(lant => {
+      if (lant.mesh && lant.mesh.material) {
+        lant.mesh.material.emissiveIntensity = ignite ? 0.85 : 0.08;
+      }
+      if (lant.light) {
+        lant.light.intensity = ignite ? 1.85 : 0.10;
+      }
+    });
+  }
+}
+
+function initSolarEphemerisEngine() {
+  fetchSolarEphemeris();
+  // Poll ephemeris every 30 minutes
+  setInterval(fetchSolarEphemeris, 30 * 60 * 1000);
+}
+
+async function fetchSolarEphemeris() {
+  try {
+    const res = await fetch('/api/solar/ephemeris', { cache: 'no-cache' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (data && data.status === 'success') {
+      vrmSolarEphemeris = data;
+      vrmCelestialPhase = data.day_phase || 'DAY';
+      vrmCelestialDayProgress = (data.day_progress !== undefined) ? data.day_progress : 0.5;
+      updateCelestialVisuals();
+      return;
+    }
+  } catch (err) {
+    // Offline or daemon initializing - fall back mathematically
+  }
+  calculateOfflineSolarEphemeris();
+}
+
+function calculateOfflineSolarEphemeris() {
+  const now = new Date();
+  const hours = now.getHours() + (now.getMinutes() / 60);
+  const sunrise = 6.5;
+  const sunset = 17.0;
+  if (hours >= sunrise && hours <= sunset) {
+    vrmCelestialDayProgress = (hours - sunrise) / (sunset - sunrise);
+    if (vrmCelestialDayProgress < 0.08) vrmCelestialPhase = 'CIVIL_DAWN';
+    else if (vrmCelestialDayProgress > 0.88) vrmCelestialPhase = 'SUNSET';
+    else if (vrmCelestialDayProgress > 0.75) vrmCelestialPhase = 'GOLDEN_HOUR';
+    else vrmCelestialPhase = 'DAY';
+  } else {
+    vrmCelestialDayProgress = 1.0;
+    if (hours > sunset && hours < sunset + 0.6) vrmCelestialPhase = 'CIVIL_DUSK';
+    else if (hours > sunrise - 0.6 && hours < sunrise) vrmCelestialPhase = 'CIVIL_DAWN';
+    else vrmCelestialPhase = 'NIGHT';
+    const nightDuration = 24 - (sunset - sunrise);
+    let timeSinceSunset = (hours >= sunset) ? (hours - sunset) : (hours + 24 - sunset);
+    vrmCelestialNightProgress = Math.max(0.0, Math.min(1.0, timeSinceSunset / nightDuration));
+  }
+  updateCelestialVisuals();
+}
+
+window.setVrmCelestialPhase = function(phase, progress) {
+  if (phase) vrmCelestialPhase = phase.toUpperCase();
+  if (progress !== undefined) {
+    vrmCelestialDayProgress = progress;
+    vrmCelestialNightProgress = progress;
+  }
+  updateCelestialVisuals();
+  console.log('[CELESTIAL] Manually set phase: ' + vrmCelestialPhase + ', progress: ' + progress);
+};
+
+function updateGardenOceanAndSky(time, delta) {
+  // 1. Undulating Ocean Waves
+  if (vrmOceanGeo && vrmOceanBasePos) {
+    const pos = vrmOceanGeo.attributes.position;
+    const base = vrmOceanBasePos;
+    const count = pos.count;
+    for (let i = 0; i < count; i++) {
+      const bx = base.getX(i);
+      const bz = base.getZ(i);
+      const waveY = (
+        Math.sin(bx * 0.75 + time * 1.8) * 0.048 +
+        Math.cos(bz * 0.60 + time * 1.4) * 0.038 +
+        Math.sin((bx + bz) * 1.15 + time * 2.2) * 0.024
+      );
+      pos.setY(i, waveY);
+    }
+    pos.needsUpdate = true;
+  }
+
+  // 2. Position Sun Orb along Day Arc
+  if (vrmSunMesh && vrmSunMesh.visible) {
+    const sunX = -13.0 + 26.0 * vrmCelestialDayProgress;
+    const sunY = (vrmBaseY + 0.3) + Math.sin(vrmCelestialDayProgress * Math.PI) * 9.2;
+    vrmSunMesh.position.set(sunX, sunY, -24.8);
+    if (vrmCelestialLight) {
+      vrmCelestialLight.position.set(sunX, sunY, -24.8);
+    }
+  }
+
+  // 3. Position Moon Orb along Night Arc
+  if (vrmMoonMesh && vrmMoonMesh.visible) {
+    const moonX = -12.5 + 25.0 * vrmCelestialNightProgress;
+    const moonY = (vrmBaseY + 0.6) + Math.sin(vrmCelestialNightProgress * Math.PI) * 8.6;
+    vrmMoonMesh.position.set(moonX, moonY, -24.8);
+    if (vrmCelestialLight) {
+      vrmCelestialLight.position.set(moonX, moonY, -24.8);
+    }
+  }
+
+  // 4. Starfield Twinkle
+  if (vrmStarParticles && vrmStarParticles.visible) {
+    vrmStarParticles.material.opacity = 0.65 + Math.sin(time * 3.0) * 0.25;
+  }
+
+  // 5. Veranda Lantern Candle Flicker
+  if (vrmGardenLanterns && vrmGardenLanterns.length > 0) {
+    const isNightLike = (vrmCelestialPhase === 'NIGHT' || vrmCelestialPhase === 'SUNSET' || vrmCelestialPhase === 'CIVIL_DUSK');
+    if (isNightLike) {
+      const flicker = 1.0 + Math.sin(time * 7.5) * 0.05 + Math.cos(time * 11.2) * 0.03;
+      vrmGardenLanterns.forEach(lant => {
+        if (lant.light) lant.light.intensity = 1.85 * flicker;
+      });
+    }
+  }
+}
+
 function buildGardenEnvironment() {
   clearVrmEnvironment();
 
-  // 1. Traditional Hinoki Wood Deck (10x10m)
-  const deckGeo = new THREE.PlaneGeometry(10, 10);
+  // 1. Traditional Hinoki Wood Deck (10x8m, spanning z: +2.5 to -2.2)
+  const deckGeo = new THREE.PlaneGeometry(10, 8);
   const deckTex = createTatamiDeckTexture();
   const deckMat = new THREE.MeshStandardMaterial({
     map: deckTex,
@@ -14042,49 +14355,136 @@ function buildGardenEnvironment() {
   });
   const deck = new THREE.Mesh(deckGeo, deckMat);
   deck.rotation.x = -Math.PI / 2;
-  deck.position.set(0, vrmBaseY, 0);
+  deck.position.set(0, vrmBaseY, 0.4);
   deck.receiveShadow = true;
   vrmEnvironmentGroup.add(deck);
 
-  // 2. Starry Twilight Sky with Glowing Moon
-  const skyGeo = new THREE.PlaneGeometry(7.0, 4.0);
-  const skyTex = createSakuraNightSkyTexture();
-  const skyMat = new THREE.MeshBasicMaterial({ map: skyTex });
-  const sky = new THREE.Mesh(skyGeo, skyMat);
-  sky.position.set(0, vrmBaseY + 2.0, -2.9);
-  vrmEnvironmentGroup.add(sky);
+  // 2. Real Moving Dynamic Ocean with Undulating Waves
+  // Starts right under the veranda deck edge at z = -2.25 and extends back to z = -26.25
+  const oceanWidth = 36.0;
+  const oceanDepth = 24.0;
+  vrmOceanGeo = new THREE.PlaneGeometry(oceanWidth, oceanDepth, 48, 36);
+  vrmOceanGeo.rotateX(-Math.PI / 2);
+  vrmOceanBasePos = vrmOceanGeo.attributes.position.clone();
 
-  // 3. Wooden Veranda Railing (Lacquered vermilion wood)
-  const woodMat = new THREE.MeshStandardMaterial({ color: 0x992222, roughness: 0.6 });
-  const beamTop = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.08, 0.08), woodMat);
-  beamTop.position.set(0, vrmBaseY + 0.95, -2.6);
+  vrmOceanMat = new THREE.MeshStandardMaterial({
+    color: 0x0a406c,
+    roughness: 0.18,
+    metalness: 0.82,
+    flatShading: true
+  });
+  vrmOceanMesh = new THREE.Mesh(vrmOceanGeo, vrmOceanMat);
+  vrmOceanMesh.position.set(0, vrmBaseY - 0.28, -14.25);
+  vrmOceanMesh.receiveShadow = true;
+  vrmEnvironmentGroup.add(vrmOceanMesh);
+
+  // 3. Dynamic Celestial Sky Dome Plane at Horizon (z = -26.2)
+  const skyGeo = new THREE.PlaneGeometry(42.0, 18.0);
+  vrmSkyCanvas = createCelestialSkyCanvas();
+  vrmSkyTexture = new THREE.CanvasTexture(vrmSkyCanvas);
+  const skyMat = new THREE.MeshBasicMaterial({ map: vrmSkyTexture });
+  vrmSkyMesh = new THREE.Mesh(skyGeo, skyMat);
+  vrmSkyMesh.position.set(0, vrmBaseY + 7.8, -26.2);
+  vrmEnvironmentGroup.add(vrmSkyMesh);
+
+  // 4. 3D Sun Orb + Corona Halo
+  const sunGeo = new THREE.SphereGeometry(0.55, 20, 20);
+  const sunMat = new THREE.MeshBasicMaterial({ color: 0xfff6cf });
+  vrmSunMesh = new THREE.Mesh(sunGeo, sunMat);
+  const coronaGeo = new THREE.PlaneGeometry(2.6, 2.6);
+  const coronaMat = new THREE.MeshBasicMaterial({
+    color: 0xffa022,
+    transparent: true,
+    opacity: 0.45,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide
+  });
+  vrmSunGlow = new THREE.Mesh(coronaGeo, coronaMat);
+  vrmSunMesh.add(vrmSunGlow);
+  vrmSunMesh.position.set(0, vrmBaseY + 6.0, -24.8);
+  vrmEnvironmentGroup.add(vrmSunMesh);
+
+  // 5. 3D Moon Orb + Soft Lunar Glow
+  const moonGeo = new THREE.SphereGeometry(0.48, 20, 20);
+  const moonMat = new THREE.MeshStandardMaterial({
+    color: 0xe8eef5,
+    emissive: 0x82a9db,
+    emissiveIntensity: 0.50,
+    roughness: 0.85
+  });
+  vrmMoonMesh = new THREE.Mesh(moonGeo, moonMat);
+  const moonHaloGeo = new THREE.PlaneGeometry(2.0, 2.0);
+  const moonHaloMat = new THREE.MeshBasicMaterial({
+    color: 0x5b92e5,
+    transparent: true,
+    opacity: 0.32,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide
+  });
+  vrmMoonGlow = new THREE.Mesh(moonHaloGeo, moonHaloMat);
+  vrmMoonMesh.add(vrmMoonGlow);
+  vrmMoonMesh.position.set(0, vrmBaseY + 6.0, -24.8);
+  vrmMoonMesh.visible = false;
+  vrmEnvironmentGroup.add(vrmMoonMesh);
+
+  // 6. 120 Twinkling Starfield Particles
+  vrmStarParticles = createStarfieldParticles();
+  vrmEnvironmentGroup.add(vrmStarParticles);
+
+  // 7. Dynamic Directional Celestial Light
+  vrmCelestialLight = new THREE.DirectionalLight(0xfff5e6, 1.25);
+  vrmCelestialLight.position.set(0, vrmBaseY + 6.0, -24.8);
+  vrmCelestialLight.castShadow = true;
+  vrmEnvironmentGroup.add(vrmCelestialLight);
+  envLights.push(vrmCelestialLight);
+
+  // 8. Authentic Vermilion Japanese Veranda Railing (at z = -2.2)
+  const woodMat = new THREE.MeshStandardMaterial({ color: 0x9c2222, roughness: 0.55 });
+  // Top railing beam
+  const beamTop = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.08, 0.09), woodMat);
+  beamTop.position.set(0, vrmBaseY + 0.95, -2.2);
   vrmEnvironmentGroup.add(beamTop);
-
-  [-2.2, 0, 2.2].forEach(x => {
-    const post = new THREE.Mesh(new THREE.BoxGeometry(0.10, 1.0, 0.10), woodMat);
-    post.position.set(x, vrmBaseY + 0.50, -2.6);
+  // Mid railing beam
+  const beamMid = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.04, 0.06), woodMat);
+  beamMid.position.set(0, vrmBaseY + 0.45, -2.2);
+  vrmEnvironmentGroup.add(beamMid);
+  // 5 Support Posts
+  [-2.4, -1.2, 0.0, 1.2, 2.4].forEach(x => {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.10, 1.05, 0.10), woodMat);
+    post.position.set(x, vrmBaseY + 0.50, -2.2);
     vrmEnvironmentGroup.add(post);
   });
+  // 16 Slender Vertical Baluster Slats
+  for (let i = 0; i < 16; i++) {
+    const bx = -2.25 + (i * 0.30);
+    if (Math.abs(bx) < 0.1 || Math.abs(bx - 1.2) < 0.1 || Math.abs(bx + 1.2) < 0.1) continue;
+    const slat = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.45, 0.025), woodMat);
+    slat.position.set(bx, vrmBaseY + 0.70, -2.2);
+    vrmEnvironmentGroup.add(slat);
+  }
 
-  // 4. Paper Lanterns with Warm Soft Glow
+  // 9. Traditional Veranda Paper Lanterns with Warm Soft Glow
+  vrmGardenLanterns = [];
   [-1.6, 1.6].forEach(x => {
     const lanternGeo = new THREE.CylinderGeometry(0.12, 0.14, 0.32, 16);
     const lanternMat = new THREE.MeshStandardMaterial({
       color: 0xffecd0,
       emissive: 0xff8844,
-      emissiveIntensity: 0.45
+      emissiveIntensity: 0.55
     });
     const lantern = new THREE.Mesh(lanternGeo, lanternMat);
-    lantern.position.set(x, vrmBaseY + 1.25, -2.4);
+    lantern.position.set(x, vrmBaseY + 1.25, -2.1);
     vrmEnvironmentGroup.add(lantern);
 
     const lantLight = new THREE.PointLight(0xff9955, 1.6, 4.5);
-    lantLight.position.set(x, vrmBaseY + 1.25, -2.4);
+    lantLight.position.set(x, vrmBaseY + 1.25, -2.1);
     vrmEnvironmentGroup.add(lantLight);
     envLights.push(lantLight);
+
+    vrmGardenLanterns.push({ mesh: lantern, light: lantLight });
   });
 
-  // 5. 60 Animated Sakura Blossom Petals
+  // 10. 60 Animated Sakura Blossom Petals
   sakuraPetals = [];
   const petalGeo = new THREE.PlaneGeometry(0.045, 0.045);
   const petalMat = new THREE.MeshBasicMaterial({
@@ -14110,13 +14510,13 @@ function buildGardenEnvironment() {
     sakuraPetals.push(petal);
   }
 
-  // Walkable Raised Sakura Tatami Mat Platform
+  // 11. Walkable Raised Sakura Tatami Mat Platform
   const matW = 0.84;
   const matH = 0.04;
   const matD = 0.70;
   const matGeo = new THREE.BoxGeometry(matW, matH, matD);
   const matMat = new THREE.MeshStandardMaterial({
-    color: 0xcc3b68, // rich sakura velvet felt
+    color: 0xcc3b68,
     roughness: 0.75,
     metalness: 0.05
   });
@@ -14136,6 +14536,7 @@ function buildGardenEnvironment() {
   vrmEnvironmentGroup.add(matTrim);
 
   updateYoshiEnvironmentRest();
+  updateCelestialVisuals();
 }
 
 function buildBedroomEnvironment() {
@@ -14416,7 +14817,14 @@ function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, 
       vrmRoamCurrentPos.z = vrmRoamTargetPos.z;
       stopRoamWalkAnimation();
       vrmRoamState = 'ARRIVED';
-      vrmRoamTargetRotY = Math.PI;
+
+      if (vrmRoamCurrentWaypoint && vrmRoamCurrentWaypoint.faceOcean) {
+        // Rem turns to gaze out at the ocean horizon (rotation.y = 0.05 faces -Z)
+        vrmRoamTargetRotY = 0.05;
+      } else {
+        // Face forward toward master / driver
+        vrmRoamTargetRotY = Math.PI;
+      }
 
       const roll = Math.random();
       if (roll < 0.22 && vrmaClips['pose_shy_wave']) {
@@ -14430,11 +14838,11 @@ function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, 
       vrmNextRoamTime = Date.now() + 8000 + Math.random() * 7000;
     }
   } else if (vrmRoamState === 'ARRIVED') {
-    let diff = THREE.MathUtils.euclideanModulo(Math.PI - vrmRoamCurrentRotY + Math.PI, Math.PI * 2) - Math.PI;
+    let diff = THREE.MathUtils.euclideanModulo(vrmRoamTargetRotY - vrmRoamCurrentRotY + Math.PI, Math.PI * 2) - Math.PI;
     if (Math.abs(diff) > 0.04) {
       vrmRoamCurrentRotY += Math.sign(diff) * Math.min(Math.abs(diff), delta * 2.8);
     } else {
-      vrmRoamCurrentRotY = Math.PI;
+      vrmRoamCurrentRotY = vrmRoamTargetRotY;
       if (now >= vrmNextRoamTime) {
         vrmRoamState = 'IDLE';
       }
