@@ -12205,28 +12205,49 @@ function buildRetargetedBvhClip(actionKey, bvhText) {
     const restPos = (hipsBone.userData && hipsBone.userData.restPos) ? hipsBone.userData.restPos : new THREE.Vector3();
     const hipsVals = new Float32Array(numFrames * 3);
 
-    // Baseline calculation: find standing reference Y.
-    // In kneeling BVH clips, frame 0 is standing (~11.68) or neutral standing is around 0.
-    let baselineY = rawHipsPos[0].y;
-    for (let f = 0; f < rawHipsPos.length; f++) {
-      if (rawHipsPos[f].y > baselineY) baselineY = rawHipsPos[f].y;
-    }
+    // Identify action type: Is this an intentional ground action (kneel, sit, lay, crawl, crouch)?
+    const isGroundAction = /kneel|sit|lay|crawling|crouch/i.test(actionKey);
 
-    // Calibrated scale conversion: BVH units to VRM meters.
-    // Rem's leg length is 0.65m. In kneeling BVH clips, hips displacement is ~17.19 units.
-    // To drop hips by ~0.38m (placing knees & lower legs flat on the floor surface), the factor is ~0.022.
-    // For meter-scale BVH, factor is ~0.38.
-    const isLargeBvhScale = Math.abs(baselineY) > 4.0;
-    const bvhScale = isLargeBvhScale ? 0.0225 : 0.38;
+    // Compute median of motion frames to discard single-frame T-pose spikes (like Frame 0 Y=11.68)
+    const sortedY = rawHipsPos.map(p => p.y).sort((a, b) => a - b);
+    const medianY = sortedY[Math.floor(sortedY.length / 2)];
 
-    for (let f = 0; f < rawHipsPos.length; f++) {
-      // In BVH clips, frame 0 might be a transition; calculate displacement relative to baseline standing
-      const dy = Math.min(0.08, (rawHipsPos[f].y - baselineY) * bvhScale);
-      const baseIdx = f * 3;
-      hipsVals[baseIdx]     = restPos.x;
-      // Precisely lower hips so knees and feet rest naturally on the ground plane
-      hipsVals[baseIdx + 1] = restPos.y + dy;
-      hipsVals[baseIdx + 2] = restPos.z;
+    if (isGroundAction) {
+      // For kneeling/sitting/laying/crouching actions:
+      // In BVH clips with T-pose header (f0 ~ 11.68, motion ~ -5.5), baseline standing is f0.
+      // In zero-centered clips (motion ~ -6.0 to -8.0), baseline standing is 0.0.
+      const f0_y = rawHipsPos[0].y;
+      const baselineY = (f0_y > 4.0) ? f0_y : 0.0;
+      const bvhScale = 0.0225; // Calibrated: places knees and shins resting perfectly flush on ground
+
+      for (let f = 0; f < rawHipsPos.length; f++) {
+        // Clamp frame 0 if it's an un-transitioned T-pose spike
+        const curY = (f === 0 && f0_y > 4.0 && rawHipsPos.length > 1) ? rawHipsPos[1].y : rawHipsPos[f].y;
+        const dy = (curY - baselineY) * bvhScale;
+        const baseIdx = f * 3;
+        hipsVals[baseIdx]     = restPos.x;
+        // Lower hips down to ground level
+        hipsVals[baseIdx + 1] = restPos.y + dy;
+        hipsVals[baseIdx + 2] = restPos.z;
+      }
+    } else {
+      // For standing, dancing, jumping, and walking actions:
+      // The character is standing on her feet on the floor.
+      // Dynamic baseline is the motion's median standing height.
+      // Small bounce/groove (±0.03m) and jumps (upward) are preserved, but feet NEVER clip into floor.
+      const baselineY = medianY;
+      const bvhScale = 0.020;
+
+      for (let f = 0; f < rawHipsPos.length; f++) {
+        const curY = (f === 0 && rawHipsPos[0].y > 4.0 && rawHipsPos.length > 1) ? rawHipsPos[1].y : rawHipsPos[f].y;
+        const rawDy = (curY - baselineY) * bvhScale;
+        // Never allow hips to sink more than -0.015m below resting standing height while dancing/walking
+        const dy = Math.max(-0.015, Math.min(0.35, rawDy));
+        const baseIdx = f * 3;
+        hipsVals[baseIdx]     = restPos.x;
+        hipsVals[baseIdx + 1] = restPos.y + dy;
+        hipsVals[baseIdx + 2] = restPos.z;
+      }
     }
 
     retargetedTracks.push(new THREE.VectorKeyframeTrack(
