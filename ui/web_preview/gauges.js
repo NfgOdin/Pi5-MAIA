@@ -12116,141 +12116,123 @@ function buildRetargetedBvhClip(actionKey, bvhText) {
 
 
 
-  const times = new Float32Array(numFrames);
-
+    const times = new Float32Array(numFrames);
   for (let f = 0; f < numFrames; f++) times[f] = f * frameTime;
 
-
-
   const trackQuats = {};
-
   joints.forEach((j) => {
-
     if (j.hName && vrmHumanoidMap[j.hName]) {
-
       trackQuats[j.hName] = new Float32Array(numFrames * 4);
-
     }
-
   });
 
-
+  // Check if root hips has position channels for gravity & vertical displacement
+  const rootJoint = joints.length > 0 ? joints[0] : null;
+  const hasHipsPos = rootJoint && rootJoint.hName === 'hips' && rootJoint.channels.some(c => c.toLowerCase().includes('position'));
+  const rawHipsPos = [];
 
   const deg2rad = Math.PI / 180.0;
-
   const qStep = new THREE.Quaternion();
-
   const qFrame = new THREE.Quaternion();
-
   const qVrm0 = new THREE.Quaternion();
-
   const qTarget = new THREE.Quaternion();
-
   const axX = new THREE.Vector3(1, 0, 0);
-
   const axY = new THREE.Vector3(0, 1, 0);
-
   const axZ = new THREE.Vector3(0, 0, 1);
 
-
-
   let fCount = 0;
-
   while (idx < lines.length && fCount < numFrames) {
-
     const vals = lines[idx++].split(/\s+/).map(Number);
-
     let cPtr = 0;
-
     for (let jIdx = 0; jIdx < joints.length; jIdx++) {
-
       const j = joints[jIdx];
-
       qFrame.identity();
+      let posX = 0, posY = 0, posZ = 0;
 
       for (let c = 0; c < j.channels.length; c++) {
-
         const ch = j.channels[c].toLowerCase();
-
         const v = vals[cPtr++] || 0;
-
-        if (ch === 'xrotation') {
-
+        if (ch === 'xposition') posX = v;
+        else if (ch === 'yposition') posY = v;
+        else if (ch === 'zposition') posZ = v;
+        else if (ch === 'xrotation') {
           qStep.setFromAxisAngle(axX, v * deg2rad);
-
           qFrame.multiply(qStep);
-
         } else if (ch === 'yrotation') {
-
           qStep.setFromAxisAngle(axY, v * deg2rad);
-
           qFrame.multiply(qStep);
-
         } else if (ch === 'zrotation') {
-
           qStep.setFromAxisAngle(axZ, v * deg2rad);
-
           qFrame.multiply(qStep);
-
         }
+      }
 
+      if (jIdx === 0 && hasHipsPos) {
+        rawHipsPos.push({ x: posX, y: posY, z: posZ });
       }
 
       if (j.hName && trackQuats[j.hName]) {
-
         const dstBone = vrmHumanoidMap[j.hName];
-
         const dstRestQuat = (dstBone.userData && dstBone.userData.restQuat) ? dstBone.userData.restQuat : new THREE.Quaternion();
-
         qVrm0.set(-qFrame.x, qFrame.y, -qFrame.z, qFrame.w);
-
         qTarget.copy(dstRestQuat).multiply(qVrm0);
-
         const out = trackQuats[j.hName];
-
         const base = fCount * 4;
-
         out[base]     = qTarget.x;
-
         out[base + 1] = qTarget.y;
-
         out[base + 2] = qTarget.z;
-
         out[base + 3] = qTarget.w;
-
       }
-
     }
-
     fCount++;
-
   }
 
-
-
   const retargetedTracks = [];
-
   Object.keys(trackQuats).forEach((hName) => {
-
     const dstBone = vrmHumanoidMap[hName];
-
     if (dstBone) {
-
       retargetedTracks.push(new THREE.QuaternionKeyframeTrack(
-
         `${dstBone.uuid}.quaternion`,
-
         times,
-
         trackQuats[hName]
-
       ));
-
     }
-
   });
 
+  // Calculate hips position track with gravity & ground anchoring
+  if (hasHipsPos && rawHipsPos.length > 0 && vrmHumanoidMap['hips']) {
+    const hipsBone = vrmHumanoidMap['hips'];
+    const restPos = (hipsBone.userData && hipsBone.userData.restPos) ? hipsBone.userData.restPos : new THREE.Vector3();
+    const hipsVals = new Float32Array(numFrames * 3);
 
+    // Baseline calculation: find standing reference Y.
+    // In kneeling BVH clips, frame 0 is standing (~11.68) or neutral standing is around 0.
+    let baselineY = rawHipsPos[0].y;
+    for (let f = 0; f < rawHipsPos.length; f++) {
+      if (rawHipsPos[f].y > baselineY) baselineY = rawHipsPos[f].y;
+    }
+
+    // Scale conversion: BVH units to VRM meters.
+    // For 100-scale BVH (standing baseline ~10-12), factor is ~0.058 (dropping ~17 units = ~0.98m).
+    // For meter-scale BVH (standing baseline ~0-1), factor is 1.0.
+    const isLargeBvhScale = Math.abs(baselineY) > 4.0;
+    const bvhScale = isLargeBvhScale ? 0.058 : 1.0;
+
+    for (let f = 0; f < rawHipsPos.length; f++) {
+      const dy = (rawHipsPos[f].y - baselineY) * bvhScale;
+      const baseIdx = f * 3;
+      hipsVals[baseIdx]     = restPos.x;
+      // Allow character to lower hips all the way to ground when kneeling/sitting/laying/crouching
+      hipsVals[baseIdx + 1] = restPos.y + dy;
+      hipsVals[baseIdx + 2] = restPos.z;
+    }
+
+    retargetedTracks.push(new THREE.VectorKeyframeTrack(
+      `${hipsBone.uuid}.position`,
+      times,
+      hipsVals
+    ));
+  }
 
   return new THREE.AnimationClip(actionKey, numFrames * frameTime, retargetedTracks);
 
