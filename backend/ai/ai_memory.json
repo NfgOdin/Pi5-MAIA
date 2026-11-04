@@ -1,0 +1,25 @@
+{
+  "total_drives": 6,
+  "first_boot_date": "2026-11-03T12:41:37.343592",
+  "last_boot_date": "2026-11-03T15:21:58.192072",
+  "last_shutdown_date": null,
+  "all_time_stats": {
+    "peak_boost_ever": 18.2,
+    "best_0_60": 7.4,
+    "top_speed": 110
+  },
+  "last_session_stats": {
+    "peak_boost": 16.5,
+    "last_0_60": null,
+    "trip_duration_min": 24
+  },
+  "recent_greeting_hashes": [
+    "Afternoon, Master Creator! Sun is high, asphalt is warm, and the turbo is craving open throttle.",
+    "Welcome back, Master Creator! Ready to blow off some steam with a couple third-gear pulls?",
+    "Good afternoon, Master Creator! MultiAir engine is warm and ready to stretch her legs."
+  ],
+  "known_notes": [
+    "Loves 3rd gear turbo pulls",
+    "Strict about MultiAir 5W-40 oil changes"
+  ]
+}

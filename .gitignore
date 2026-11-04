@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+scratch/
+_ref_sbc_core/
+*.tmp
+*.png
+*.bak
+models/*.gguf
+models/*.bin
+node_modules/

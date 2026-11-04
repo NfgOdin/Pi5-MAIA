@@ -1,0 +1,38 @@
+{
+  "vehicle": {
+    "make": "Dodge",
+    "model": "Dart",
+    "year": "2013-2016",
+    "engine": "1.4L Turbo MultiAir (FIRE)",
+    "displacement_liters": 1.368,
+    "transmission": "Fiat Powertrain C635 6-Speed Manual",
+    "specs": {
+      "idle_rpm": 800,
+      "redline_rpm": 6500,
+      "shift_indicator_rpm": 5800,
+      "stock_peak_boost_psi": 18.0,
+      "overboost_warning_psi": 22.0,
+      "multiair_warmup_temp_f": 180.0,
+      "tire_size": "225/45R17",
+      "tire_circumference_meters": 1.993,
+      "final_drive_ratio": 4.12,
+      "gear_ratios": {
+        "1": 3.90,
+        "2": 2.11,
+        "3": 1.36,
+        "4": 0.97,
+        "5": 0.76,
+        "6": 0.62,
+        "R": 4.00
+      }
+    }
+  },
+  "system": {
+    "units": "imperial",
+    "telemetry_refresh_hz": 60,
+    "audio_voice": "en_US-lessac-medium",
+    "storage_mode": "microsd_overlayfs",
+    "screen_width": 1024,
+    "screen_height": 600
+  }
+}

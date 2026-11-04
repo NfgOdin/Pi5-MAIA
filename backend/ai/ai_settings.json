@@ -1,0 +1,12 @@
+{
+  "mode": "BUILTIN",
+  "personality": "MAIA",
+  "driver_title": "Master",
+  "driver_name": "Creator",
+  "tailscale_ip": "100.85.120.44",
+  "tailscale_port": 11434,
+  "ollama_model": "llama3.2:3b",
+  "api_provider": "gemini",
+  "api_key": "",
+  "driver_moniker": "Creator"
+}
