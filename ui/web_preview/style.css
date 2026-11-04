@@ -2837,3 +2837,24 @@ body {
 .media-app-icon-btn:active {
   transform: translateY(0) scale(0.98);
 }
+
+
+/* Enhanced Touch-Action & Smooth Momentum for Settings & Modals */
+#screenSettings,
+#screenSettings * {
+  touch-action: pan-y;
+}
+
+#screenSettings input[type="range"] {
+  touch-action: pan-x !important;
+}
+
+#screenSettings .accordion-header {
+  touch-action: pan-y !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#screenSettings .settings-card {
+  touch-action: pan-y !important;
+}

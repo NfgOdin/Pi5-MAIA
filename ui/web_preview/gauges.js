@@ -67,52 +67,53 @@ function setDisplayBrightness(val) {
   updateBrightnessFromSlider(val);
 }
 
-// --- KINETIC TOUCH SCROLLING ---
+// --- GLOBAL TOUCH DRAG VS TAP DISCRIMINATOR & CLICK SUPPRESSION ---
+let isTouchScrolling = false;
+let touchScrollDistance = 0;
+let touchStartY = 0;
+let touchStartX = 0;
+
+window.addEventListener('touchstart', (e) => {
+  if (e.touches && e.touches[0]) {
+    touchStartY = e.touches[0].clientY;
+    touchStartX = e.touches[0].clientX;
+    touchScrollDistance = 0;
+    isTouchScrolling = false;
+  }
+}, { passive: true });
+
+window.addEventListener('touchmove', (e) => {
+  if (e.touches && e.touches[0]) {
+    const dy = Math.abs(e.touches[0].clientY - touchStartY);
+    const dx = Math.abs(e.touches[0].clientX - touchStartX);
+    touchScrollDistance = Math.max(touchScrollDistance, Math.hypot(dx, dy));
+    if (touchScrollDistance > 8) {
+      isTouchScrolling = true;
+    }
+  }
+}, { passive: true });
+
+window.addEventListener('touchend', () => {
+  setTimeout(() => {
+    isTouchScrolling = false;
+    touchScrollDistance = 0;
+  }, 160);
+}, { passive: true });
+
+// Prevent accidental clicks on accordion headers/buttons if user was dragging to scroll!
+window.addEventListener('click', (e) => {
+  if (isTouchScrolling || touchScrollDistance > 8) {
+    e.stopPropagation();
+    e.preventDefault();
+  }
+}, true); // Capture phase listener!
+
 function enableKineticTouchScroll(element) {
-  if (!element) return;
-  let startY = 0;
-  let lastY = 0;
-  let lastTime = 0;
-  let velocityY = 0;
-  let isDragging = false;
-  let momentumFrame = null;
-
-  element.addEventListener('touchstart', (e) => {
-    if (momentumFrame) cancelAnimationFrame(momentumFrame);
-    if (!e.touches || !e.touches[0]) return;
-    isDragging = true;
-    startY = e.touches[0].pageY;
-    lastY = startY;
-    lastTime = Date.now();
-    velocityY = 0;
-  }, { passive: true });
-
-  element.addEventListener('touchmove', (e) => {
-    if (!isDragging || !e.touches || !e.touches[0]) return;
-    const curY = e.touches[0].pageY;
-    const now = Date.now();
-    const dt = Math.max(1, now - lastTime);
-    const dy = curY - lastY;
-    element.scrollTop -= dy;
-    velocityY = dy / dt;
-    lastY = curY;
-    lastTime = now;
-  }, { passive: true });
-
-  element.addEventListener('touchend', () => {
-    isDragging = false;
-    let v = velocityY * 16;
-    function glide() {
-      if (Math.abs(v) > 0.5) {
-        element.scrollTop -= v;
-        v *= 0.92;
-        momentumFrame = requestAnimationFrame(glide);
-      }
-    }
-    if (Math.abs(v) > 1.0) {
-      momentumFrame = requestAnimationFrame(glide);
-    }
-  }, { passive: true });
+  // Native Chromium hardware-accelerated scrolling handles touch scrolling.
+  if (element) {
+    element.style.touchAction = 'pan-y';
+    element.style.webkitOverflowScrolling = 'touch';
+  }
 }
 
 /**
@@ -4072,6 +4073,9 @@ function initTouchScrollEngine() {
     let hasMoved = false;
 
     el.addEventListener('pointerdown', (e) => {
+      // On touchscreens (pointerType === 'touch'), let Chromium handle 60fps native scroll!
+      if (e.pointerType === 'touch') return;
+
       // Don't intercept inputs, buttons or accordion headers directly
       if (['BUTTON', 'INPUT', 'SELECT', 'A', 'TEXTAREA'].includes(e.target.tagName) ||
           e.target.closest('button, input, select, textarea, .slot-dropdown, .cluster-action-btn, .accordion-header, .track-list-item, .quick-prompt-chip')) {
@@ -5117,6 +5121,7 @@ function playCreatorTribute() {
 
 // --- SETTINGS ACCORDION INTERACTION ---
 function toggleAccordion(accId) {
+  if (isTouchScrolling || touchScrollDistance > 8) return;
   const group = document.getElementById(accId);
   if (!group) return;
   group.classList.toggle('active');
