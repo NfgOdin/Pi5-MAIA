@@ -109,7 +109,7 @@ def get_default_app_settings() -> Dict[str, Any]:
         "brightness": 100,
         "driver_title": "Master",
         "driver_name": "Creator",
-        "personality": "MAIA",
+        "personality": "RUM",
         "voice_mode": "COPILOT",
         "speed_units": "MPH"
     }
@@ -173,6 +173,26 @@ class CarPi5ServerState:
         self.sse_clients = []
         self.lock = threading.Lock()
         self.running = True
+        self.wake_word_enabled = True
+        self.live_convo_mode = False
+        self.listen_once_requested = False
+        self.is_mic_listening = False
+        self.pending_voice_transcripts = []
+        self._active_rec_proc = None
+
+    def pop_voice_transcript(self):
+        with self.lock:
+            if self.pending_voice_transcripts:
+                return self.pending_voice_transcripts.pop(0)
+            return None
+
+    def stop_current_listen(self):
+        proc = self._active_rec_proc
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
 
     def _load_settings(self) -> Dict[str, Any]:
         defaults = get_default_app_settings()
@@ -218,6 +238,7 @@ class CarPi5ServerState:
         return self.settings
 
 state = CarPi5ServerState()
+state.audio.configure_tts(state.llm.settings)
 
 def telemetry_loop():
     """Background thread stepping telemetry at 25Hz and evaluating AI rules."""
@@ -255,9 +276,232 @@ def telemetry_loop():
         sleep_time = max(0.001, dt - elapsed)
         time.sleep(sleep_time)
 
+
+def usb_mic_listener_loop():
+    """Continuous zero-gap hardware USB microphone listener (pw-record --raw + Auto-Gain + SpeechRecognition) for 'Hey Rum' & Live Convo."""
+    if not sys.platform.startswith("linux"):
+        return
+    import struct
+    import math
+    from collections import deque
+
+    print("[VOICE MIC] Starting Continuous Hardware USB Microphone Listener (DGM20 / PipeWire --raw)...", flush=True)
+    env = os.environ.copy()
+    env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}" if hasattr(os, "getuid") else "/run/user/1000"
+
+    # Unmute and boost PipeWire USB microphone source gain (140%) so distant driver voice is clear
+    try:
+        subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "0"], env=env, timeout=2)
+        subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SOURCE@", "1.4"], env=env, timeout=2)
+    except Exception:
+        pass
+
+    # Strict wake-word prefixes for "Hey Rum" (addressed to Rum)
+    PHONETIC_RUM_PREFIXES = [
+        "hey rum", "hi rum", "hello rum", "okay rum", "ok rum", "yo rum",
+        "hey ram", "hi ram", "hello ram", "okay ram", "ok ram",
+        "hey rem", "hi rem", "hello rem", "okay rem", "ok rem",
+        "hey ron", "hi ron", "hello ron", "hey rob", "hi rob",
+        "hey rome", "hi rome", "hey room", "hi room",
+        "hey run", "hey rung", "hey drum", "r.u.m.", "r.u.m"
+    ]
+    # Standalone single-word wake triggers (strictly her name, never generic conversational words)
+    STANDALONE_RUM_WORDS = {
+        "rum", "r.u.m.", "r.u.m", "rem", "ram"
+    }
+
+    def normalize_and_recognize(raw_pcm: bytes, is_convo: bool):
+        try:
+            ns = len(raw_pcm) // 2
+            if ns < 1600:
+                return
+            samples = struct.unpack(f"<{ns}h", raw_pcm[:ns * 2])
+            mean_val = int(sum(samples) / ns)
+            centered = [s - mean_val for s in samples]
+            peak = max(abs(s) for s in centered) if centered else 1
+            rms = math.sqrt(sum(s * s for s in centered) / ns) if centered else 0.0
+
+            # Auto-gain normalization to peak=24500 (-2.5 dBFS), up to 45x gain boost!
+            gain = min(45.0, 24500.0 / max(1, peak))
+            norm_samples = [max(-32767, min(32767, int(s * gain))) for s in centered]
+            norm_bytes = struct.pack(f"<{ns}h", *norm_samples)
+
+            import speech_recognition as sr
+            recognizer = sr.Recognizer()
+            audio_data = sr.AudioData(norm_bytes, 16000, 2)
+            heard = recognizer.recognize_google(audio_data).strip()
+            if not heard:
+                return
+
+            print(f"[VOICE MIC] Heard ({'CONVO' if is_convo else 'WAKE'}): '{heard}' (raw RMS={rms:.0f}, Peak={peak}, Gain={gain:.1f}x)", flush=True)
+            h_low = heard.lower().strip(" .,!?")
+
+            # Normalize phonetic "Hey Rum" variations so UI shows "Hey Rum" cleanly
+            normalized_text = heard
+            is_wake_match = False
+
+            for pref in PHONETIC_RUM_PREFIXES:
+                if h_low == pref:
+                    normalized_text = "Hey Rum"
+                    is_wake_match = True
+                    break
+                elif h_low.startswith(pref + " ") or h_low.startswith(pref + ","):
+                    rest = heard[len(pref):].lstrip(" ,.!?")
+                    normalized_text = f"Hey Rum, {rest}" if rest else "Hey Rum"
+                    is_wake_match = True
+                    break
+
+            if not is_wake_match and h_low in STANDALONE_RUM_WORDS:
+                normalized_text = "Hey Rum"
+                is_wake_match = True
+
+            # In standby mode, strictly ignore speech that did not address Rum!
+            if not is_convo and not is_wake_match:
+                print(f"[VOICE MIC] Discarded non-wake speech in standby: '{heard}'", flush=True)
+                return
+
+            if is_convo or is_wake_match:
+                with state.lock:
+                    state.pending_voice_transcripts.append({
+                        "text": normalized_text,
+                        "mode": "convo" if is_convo else "wake",
+                        "timestamp": time.time()
+                    })
+                if not is_convo and normalized_text.lower().strip(" !?.") == "hey rum":
+                    state.listen_once_requested = True
+                elif state.listen_once_requested and not state.live_convo_mode:
+                    state.listen_once_requested = False
+        except Exception as stt_err:
+            if type(stt_err).__name__ != "UnknownValueError":
+                print(f"[VOICE MIC] STT note: {type(stt_err).__name__}: {stt_err}", flush=True)
+
+    last_spoke_end = 0.0
+    while state.running:
+        proc = None
+        try:
+            proc = subprocess.Popen(
+                ["pw-record", "--raw", "--rate", "16000", "--channels", "1", "--format", "s16", "-"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                env=env
+            )
+            state._active_rec_proc = proc
+
+            pre_roll = deque(maxlen=6)  # 0.6s pre-roll buffer (6 x 100ms chunks)
+            speech_chunks = []
+            in_speech = False
+            silence_frames = 0
+            noise_rms = 95.0
+
+            while state.running and proc.poll() is None:
+                chunk = proc.stdout.read(3200)  # 100ms = 1600 int16 samples = 3200 bytes
+                if not chunk or len(chunk) < 3200:
+                    break
+
+                # Pause listening while Rum's Piper TTS is actively playing out of speakers
+                if getattr(state.audio, "is_speaking", False):
+                    last_spoke_end = time.time()
+                    in_speech = False
+                    speech_chunks.clear()
+                    pre_roll.clear()
+                    state.is_mic_listening = False
+                    continue
+
+                if (time.time() - last_spoke_end) < 0.40:
+                    in_speech = False
+                    speech_chunks.clear()
+                    pre_roll.clear()
+                    continue
+
+                is_convo = state.live_convo_mode or state.listen_once_requested
+                is_wake = state.wake_word_enabled
+                if not is_convo and not is_wake:
+                    state.is_mic_listening = False
+                    continue
+
+                samples = struct.unpack("<1600h", chunk)
+                rms = math.sqrt(sum(s * s for s in samples) / 1600)
+                peak = max(abs(s) for s in samples)
+
+                # Update adaptive ambient noise floor on quiet frames
+                if not in_speech and rms < 350.0:
+                    noise_rms = (noise_rms * 0.92) + (rms * 0.08)
+
+                trig_rms = max(72.0, noise_rms * (1.35 if is_convo else 1.45))
+                trig_peak = max(320, int(noise_rms * 3.2))
+
+                if not in_speech:
+                    pre_roll.append(chunk)
+                    if rms >= trig_rms or peak >= trig_peak:
+                        in_speech = True
+                        silence_frames = 0
+                        speech_chunks = list(pre_roll)
+                        state.is_mic_listening = True
+                    else:
+                        state.is_mic_listening = is_convo
+                else:
+                    speech_chunks.append(chunk)
+                    if rms < max(65.0, noise_rms * 1.25) and peak < trig_peak:
+                        silence_frames += 1
+                    else:
+                        silence_frames = 0
+
+                    # Finalize utterance after 0.5s of trailing silence or 4.8s max speech length
+                    if silence_frames >= 5 or len(speech_chunks) >= 48:
+                        full_pcm = b"".join(speech_chunks)
+                        in_speech = False
+                        speech_chunks = []
+                        pre_roll.clear()
+                        state.is_mic_listening = is_convo
+                        # Only run STT if utterance had at least 300ms of audio
+                        if len(full_pcm) >= 9600:
+                            threading.Thread(
+                                target=normalize_and_recognize,
+                                args=(full_pcm, is_convo),
+                                daemon=True
+                            ).start()
+        except Exception as loop_err:
+            print(f"[VOICE MIC] Stream restart note: {loop_err}", flush=True)
+            time.sleep(0.5)
+        finally:
+            if proc is not None and proc.poll() is None:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+
 class CarPi5Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(UI_DIR), **kwargs)
+
+    def do_HEAD(self):
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/media/stream":
+            params = parse_qs(parsed.query)
+            file_path = params.get("file", [""])[0]
+            if not file_path or not os.path.exists(file_path):
+                self.send_response(404)
+                self.end_headers()
+                return
+            ext = os.path.splitext(file_path)[1].lower()
+            content_type = "audio/mpeg"
+            if ext in [".m4a", ".mp4", ".aac"]:
+                content_type = "audio/mp4"
+            elif ext == ".wav":
+                content_type = "audio/wav"
+            elif ext == ".ogg":
+                content_type = "audio/ogg"
+            elif ext == ".flac":
+                content_type = "audio/flac"
+            file_size = os.path.getsize(file_path)
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(file_size))
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            return
+        super().do_HEAD()
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -281,12 +525,17 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                         if action_to_send:
                             state.latest_ui_action = None
                     
+                    voice_item = state.pop_voice_transcript()
                     # Package payload
                     payload = {
                         "telemetry": frame_dict,
                         "ai_event": ai_dict if ai_dict != last_ai_id else None,
                         "action": action_to_send,
-                        "is_speaking": getattr(state.audio, "is_speaking", False)
+                        "is_speaking": getattr(state.audio, "is_speaking", False),
+                        "voice_transcript": voice_item,
+                        "is_mic_listening": state.is_mic_listening,
+                        "live_convo_mode": state.live_convo_mode,
+                        "wake_word_enabled": state.wake_word_enabled
                     }
                     if ai_dict:
                         last_ai_id = ai_dict
@@ -361,10 +610,15 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             status_data = {
                 "ai_core": state.llm.get_ai_core_status(),
-                "personality": state.llm.settings.get("personality", "MAIA"),
+                "personality": state.llm.settings.get("personality", "RUM"),
                 "driver_address": state.llm.get_driver_address(),
                 "mode": state.llm.settings.get("mode", "BUILTIN"),
-                "model_loaded": state.llm._llama_model is not None
+                "model_loaded": state.llm._llama_model is not None,
+                "is_speaking": getattr(state.audio, "is_speaking", False),
+                "is_mic_listening": state.is_mic_listening,
+                "live_convo_mode": state.live_convo_mode,
+                "wake_word_enabled": state.wake_word_enabled,
+                "voice_transcript": state.pop_voice_transcript()
             }
             self.wfile.write(json.dumps(status_data).encode("utf-8"))
             return
@@ -596,7 +850,6 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             return
 
         elif parsed.path == "/api/ui/navigate":
-            from urllib.parse import parse_qs
             query = parse_qs(parsed.query)
             target = query.get("screen", ["home"])[0]
             with state.lock:
@@ -639,6 +892,52 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps(health).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/system/browser/status":
+            is_running = False
+            try:
+                res = subprocess.run(["pgrep", "-f", "firefox"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                is_running = (res.returncode == 0)
+            except Exception:
+                pass
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"running": is_running}).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/system/browser/launch":
+            def run_firefox():
+                env = os.environ.copy()
+                env["WAYLAND_DISPLAY"] = "wayland-0"
+                env["DISPLAY"] = ":0"
+                env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}" if hasattr(os, "getuid") else "/run/user/1000"
+                env["MOZ_ENABLE_WAYLAND"] = "1"
+                try:
+                    subprocess.run(["firefox"], env=env)
+                except Exception as e:
+                    print(f"[FIREFOX] Launch error: {e}", flush=True)
+
+            threading.Thread(target=run_firefox, daemon=True).start()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "launched"}).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/system/browser/close":
+            try:
+                subprocess.run(["pkill", "-TERM", "-f", "firefox"], timeout=2)
+            except Exception:
+                pass
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "closed"}).encode("utf-8"))
             return
 
         elif parsed.path == "/api/system/brightness":
@@ -725,6 +1024,37 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             try:
                 file_size = os.path.getsize(file_path)
+                range_header = self.headers.get("Range")
+                if range_header:
+                    range_match = re.match(r"bytes=(\d+)-(\d*)", range_header)
+                    if range_match:
+                        start = int(range_match.group(1))
+                        end = int(range_match.group(2)) if range_match.group(2) else file_size - 1
+                        if start >= file_size:
+                            self.send_response(416)
+                            self.send_header("Content-Range", f"bytes */{file_size}")
+                            self.end_headers()
+                            return
+                        length = end - start + 1
+                        self.send_response(206)
+                        self.send_header("Content-Type", content_type)
+                        self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+                        self.send_header("Content-Length", str(length))
+                        self.send_header("Accept-Ranges", "bytes")
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.end_headers()
+                        with open(file_path, "rb") as f_audio:
+                            f_audio.seek(start)
+                            bytes_remaining = length
+                            while bytes_remaining > 0:
+                                chunk_size = min(64 * 1024, bytes_remaining)
+                                chunk = f_audio.read(chunk_size)
+                                if not chunk:
+                                    break
+                                self.wfile.write(chunk)
+                                bytes_remaining -= len(chunk)
+                        return
+
                 self.send_response(200)
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(file_size))
@@ -741,18 +1071,211 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             except Exception:
                 return
 
+        elif parsed.path == "/api/models/avatars":
+            avatar_dir = BASE_DIR / "models" / "avatars"
+            vrm_files = []
+            if avatar_dir.exists():
+                for f in avatar_dir.glob("*.vrm"):
+                    vrm_files.append({
+                        "name": f.name,
+                        "size_mb": round(f.stat().st_size / (1024 * 1024), 2),
+                        "url": f"/api/models/vrm?name={urllib.parse.quote(f.name)}"
+                    })
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(vrm_files).encode("utf-8"))
+            return
+
+        elif parsed.path in ("/api/models/vrm", "/api/models/vrma"):
+            params = parse_qs(parsed.query)
+            name = os.path.basename(params.get("name", [""])[0])
+            if parsed.path == "/api/models/vrma" or name.lower().endswith(".vrma"):
+                vrm_path = BASE_DIR / "models" / "vrma" / name
+            else:
+                vrm_path = BASE_DIR / "models" / "avatars" / name
+            if not vrm_path.exists():
+                self.send_response(404)
+                self.end_headers()
+                return
+            try:
+                size = vrm_path.stat().st_size
+                self.send_response(200)
+                self.send_header("Content-Type", "model/gltf-binary")
+                self.send_header("Content-Length", str(size))
+                self.send_header("Accept-Ranges", "bytes")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                with open(vrm_path, "rb") as f_vrm:
+                    while True:
+                        c = f_vrm.read(64 * 1024)
+                        if not c:
+                            break
+                        self.wfile.write(c)
+                return
+            except Exception:
+                return
+
+        elif parsed.path == "/api/models/bvh":
+            params = parse_qs(parsed.query)
+            name = os.path.basename(params.get("name", [""])[0])
+            bvh_dirs = [BASE_DIR / "models" / "bvh", BASE_DIR / "models" / "vrma"]
+            if not name:
+                found = []
+                seen = set()
+                for bdir in bvh_dirs:
+                    if bdir.exists():
+                        for bf in sorted(bdir.glob("*.bvh")):
+                            if bf.name not in seen:
+                                seen.add(bf.name)
+                                found.append({
+                                    "name": bf.name,
+                                    "action": bf.stem.lower()
+                                })
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"files": found}).encode("utf-8"))
+                return
+
+            bvh_path = None
+            for bdir in bvh_dirs:
+                cand = bdir / name
+                if cand.exists():
+                    bvh_path = cand
+                    break
+            if not bvh_path:
+                self.send_response(404)
+                self.end_headers()
+                return
+            try:
+                content = bvh_path.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Length", str(len(content)))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(content)
+                return
+            except Exception:
+                return
+
         # Default static file serving (index.html, js, css)
         super().do_GET()
 
     def do_POST(self):
         parsed = urlparse(self.path)
         content_length = int(self.headers.get('Content-Length', 0))
+
+        # Audio transcription endpoint (Speech-To-Text from USB Microphone)
+        if parsed.path == "/api/ai/transcribe":
+            raw_audio = self.rfile.read(content_length) if content_length > 0 else b""
+            transcribed_text = ""
+            if raw_audio:
+                in_path = None
+                out_wav = None
+                try:
+                    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp_in:
+                        tmp_in.write(raw_audio)
+                        in_path = tmp_in.name
+                    out_wav = in_path + ".wav"
+                    subprocess.run(["ffmpeg", "-y", "-i", in_path, "-ar", "16000", "-ac", "1", out_wav],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+                    if os.path.exists(out_wav) and os.path.getsize(out_wav) > 800:
+                        import speech_recognition as sr
+                        r = sr.Recognizer()
+                        with sr.AudioFile(out_wav) as source:
+                            audio_data = r.record(source)
+                        transcribed_text = r.recognize_google(audio_data)
+                        print(f"[STT API] Transcribed from USB mic: '{transcribed_text}'")
+                except Exception as ex:
+                    print(f"[STT API] Transcribe note: {ex}")
+                finally:
+                    for p in [in_path, out_wav]:
+                        if p and os.path.exists(p):
+                            try: os.remove(p)
+                            except Exception: pass
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "text": transcribed_text}).encode("utf-8"))
+            return
+
         body = self.rfile.read(content_length).decode('utf-8') if content_length > 0 else "{}"
-        
         try:
             req_data = json.loads(body)
         except Exception:
             req_data = {}
+
+        if parsed.path == "/api/system/browser/launch":
+            def run_firefox():
+                env = os.environ.copy()
+                env["WAYLAND_DISPLAY"] = "wayland-0"
+                env["DISPLAY"] = ":0"
+                env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}" if hasattr(os, "getuid") else "/run/user/1000"
+                env["MOZ_ENABLE_WAYLAND"] = "1"
+                try:
+                    subprocess.run(["firefox", "--new-tab", "https://google.com"], env=env)
+                except Exception as e:
+                    print(f"[FIREFOX] Launch error: {e}", flush=True)
+
+            threading.Thread(target=run_firefox, daemon=True).start()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "launched"}).encode("utf-8"))
+            return
+
+        if parsed.path == "/api/system/browser/close":
+            try:
+                subprocess.run(["pkill", "-TERM", "-f", "firefox"], timeout=2)
+            except Exception:
+                pass
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "closed"}).encode("utf-8"))
+            return
+
+        if parsed.path == "/api/ai/listen":
+            action = req_data.get("action", "toggle_convo")
+            if action == "toggle_convo":
+                state.live_convo_mode = not state.live_convo_mode
+                if state.live_convo_mode:
+                    state.listen_once_requested = True
+                    state.is_mic_listening = True
+                else:
+                    state.listen_once_requested = False
+                    state.stop_current_listen()
+            elif action == "start_once":
+                state.listen_once_requested = True
+                state.is_mic_listening = True
+            elif action == "stop":
+                state.live_convo_mode = False
+                state.listen_once_requested = False
+                state.stop_current_listen()
+            elif action == "set_wake":
+                state.wake_word_enabled = bool(req_data.get("enabled", True))
+                if not state.wake_word_enabled:
+                    state.stop_current_listen()
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "status": "ok",
+                "live_convo_mode": state.live_convo_mode,
+                "wake_word_enabled": state.wake_word_enabled,
+                "is_mic_listening": state.is_mic_listening
+            }).encode("utf-8"))
+            return
 
         if parsed.path == "/api/ai/speak":
             text = req_data.get("text", "").strip()
@@ -797,7 +1320,7 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                 "reply": clean_reply,
                 "emotion": emotion,
                 "action": res.get("action"),
-                "persona": res.get("persona", state.llm.settings.get("personality", "MAIA"))
+                "persona": res.get("persona", state.llm.settings.get("personality", "RUM"))
             }).encode("utf-8"))
             return
 
@@ -812,15 +1335,15 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"status": "error", "message": "No model specified"}).encode("utf-8"))
                 return
 
-            persona = state.llm.personas.get(state.llm.settings.get("personality", "MAIA"), {})
-            p_name = persona.get("name", "M.A.I.A.")
+            persona = state.llm.personas.get(state.llm.settings.get("personality", "RUM"), {})
+            p_name = persona.get("name", "R.U.M.")
             swap_announcement = f"Swapping out my neural brain to {model_target.replace('.gguf', '')}... give me just a moment!"
             state.audio.speak(swap_announcement)
 
             def do_swap():
                 res = state.llm.swap_gguf_model(model_target)
                 if res.get("success"):
-                    ready_speech = f"My new neural brain is warm and ready! Cockpit systems fully aligned, Master!"
+                    ready_speech = f"Yay, Master! My new neural thoughts are warm and ready! Let's go zoomies in the Dart!"
                     state.audio.speak(ready_speech)
                 else:
                     err_speech = f"Could not complete the neural swap: {res.get('message')}"
@@ -904,6 +1427,7 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
         elif parsed.path == "/api/ai/settings":
             with state.lock:
                 state.llm.save_settings(req_data)
+                state.audio.configure_tts(state.llm.settings)
                 address = state.llm.get_driver_address()
                 state.copilot.driver_name = address
                 reply_settings = state.llm.settings
@@ -1149,6 +1673,10 @@ def run_server():
     # Start background physics thread
     t = threading.Thread(target=telemetry_loop, daemon=True)
     t.start()
+
+    # Start background USB microphone Wake Word & Live Convo listener thread
+    t_mic = threading.Thread(target=usb_mic_listener_loop, daemon=True)
+    t_mic.start()
 
     server = ThreadingHTTPServer(("0.0.0.0", PORT), CarPi5Handler)
     server.daemon_threads = True

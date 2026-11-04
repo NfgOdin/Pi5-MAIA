@@ -134,7 +134,7 @@ let currentVoiceMode = "COPILOT";
 let activeGraphSensor = null;
 let currentAiSettings = {
   mode: "BUILTIN",
-  personality: "MAIA",
+  personality: "RUM",
   driver_title: "Master",
   driver_name: "Creator",
   driver_moniker: "Creator",
@@ -177,7 +177,7 @@ let currentImageIdx = 0;
 const PLAYLIST = [
   { title: "Turbo Highway Star (Synthwave Edit)", artist: "CarPi5 In-Console Audio", duration: 225 },
   { title: "Nightcall MultiAir Drift", artist: "Kavinsky & C635", duration: 260 },
-  { title: "1.4L Boost Anthem (Italian FIRE)", artist: "M.A.I.A. Synthetics", duration: 198 }
+  { title: "1.4L Boost Anthem (Italian FIRE)", artist: "R.U.M. Synthetics", duration: 198 }
 ];
 let currentTrackIdx = 0;
 let isPlaying = true;
@@ -562,6 +562,21 @@ function connectTelemetryStream() {
     if (data.action) {
       handleAiAction(data.action);
     }
+    if (data.is_speaking !== undefined) {
+      isHardwareSpeaking = data.is_speaking;
+    }
+    if (data.live_convo_mode !== undefined || data.is_mic_listening !== undefined) {
+      if (typeof syncVoiceButtonState === 'function') {
+        syncVoiceButtonState(!!data.live_convo_mode, !!data.is_mic_listening, data.wake_word_enabled);
+      }
+    }
+    if (data.voice_transcript && data.voice_transcript.timestamp && data.voice_transcript.text) {
+      if (window._lastVoiceTranscriptTs !== data.voice_transcript.timestamp) {
+        window._lastVoiceTranscriptTs = data.voice_transcript.timestamp;
+        console.log("[USB MIC] Transcript received from Pi:", data.voice_transcript.text);
+        handleSpokenTranscript(data.voice_transcript.text, true);
+      }
+    }
     const t = data.telemetry;
     if (!t || !t.timestamp) return;
 
@@ -679,6 +694,7 @@ function connectTelemetryStream() {
     // Real-Time Hardware Speech Lip-Sync synchronization
     if (typeof data.is_speaking === 'boolean') {
       isWaifuSpeaking = data.is_speaking;
+      isHardwareSpeaking = data.is_speaking;
       const stage = document.getElementById('waifuStage');
       if (stage) {
         if (isWaifuSpeaking) stage.classList.add('speaking');
@@ -1111,42 +1127,47 @@ function applyGaugeConfig() {
 // --- 7. DYNAMIC AI COMPANION (M.A.I.A. / J.A.R.V.I.S. / PIT WALL) ---
 
 function getPersonaDisplayName(pKey) {
-  if (!pKey) pKey = currentAiSettings.personality || 'MAIA';
+  if (!pKey) pKey = currentAiSettings.personality || 'RUM';
   if (pKey === 'JARVIS') return 'J.A.R.V.I.S.';
   if (pKey === 'RACE_ENGINEER' || pKey === 'PITWALL') return 'PIT WALL';
-  return 'M.A.I.A.';
+  return 'R.U.M.';
 }
 
 function updatePersonaUI(personaKey) {
-  if (!personaKey) personaKey = currentAiSettings.personality || 'MAIA';
+  if (!personaKey || personaKey === 'MAIA') personaKey = 'RUM';
   currentAiSettings.personality = personaKey;
 
-  let displayName = "M.A.I.A.";
-  let subtitleText = "MultiAir Intelligent Assistant • Dynamic Personal Companion";
-  let statusBadgeText = "M.A.I.A. ACTIVE";
-  let cardTitleText = "M.A.I.A. COMPANION";
-  let bannerQuote = "M.A.I.A.: Ready for a pull?";
-  let icon = "🤖";
+  const pData = (window.allPersonas && window.allPersonas[personaKey]) ? window.allPersonas[personaKey] : null;
+  const avatarPath = (pData && pData.avatar_image) ? pData.avatar_image : 'assets/pics/maia_avatar.jpg';
+  const splashImg = (pData && pData.boot_splash_image) ? pData.boot_splash_image : 'assets/pics/splash.png';
+  const splashVid = (pData && pData.boot_splash_video) ? pData.boot_splash_video : '';
+
+  let displayName = "R.U.M.";
+  let subtitleText = "Realtime Underhood MultiAir • The Forgotten Triplet";
+  let statusBadgeText = "R.U.M. ACTIVE";
+  let cardTitleText = "R.U.M. COMPANION";
+  let bannerQuote = "Master! Rum is right here riding shotgun with you!";
+  let icon = "💜";
 
   if (personaKey === 'JARVIS') {
     displayName = "J.A.R.V.I.S.";
     subtitleText = "Just A Rather Very Intelligent System • Tactical Cockpit Butler";
     statusBadgeText = "J.A.R.V.I.S. READY";
     cardTitleText = "J.A.R.V.I.S. COCKPIT";
-    bannerQuote = "J.A.R.V.I.S.: All cockpit systems nominal, Sir.";
+    bannerQuote = "All cockpit systems nominal, Sir.";
     icon = "🛡️";
   } else if (personaKey === 'RACE_ENGINEER' || personaKey === 'PITWALL') {
     displayName = "PIT WALL";
     subtitleText = "F1 Telemetry & Race Engineer • Performance Strategist";
     statusBadgeText = "PIT WALL READY";
     cardTitleText = "PIT WALL STRATEGY";
-    bannerQuote = "PIT WALL: Radio check. Telemetry green, box this lap if needed.";
+    bannerQuote = "Radio check. Telemetry green, box this lap if needed.";
     icon = "🏎️";
   }
 
   // 1. Update Bottom Navigation Dock Button
   const dockBtn = document.getElementById('dockBtnAI');
-  if (dockBtn) dockBtn.innerText = `${icon} ${displayName}`;
+  if (dockBtn) dockBtn.innerText = `${icon} ${displayName === 'R.U.M.' ? 'RUM' : displayName}`;
 
   // 2. Update AI Chat Header Title & Subtitle
   const titleEl = document.getElementById('chatAssistantTitle');
@@ -1157,7 +1178,7 @@ function updatePersonaUI(personaKey) {
 
   // 3. Update Chat Input Placeholder
   const inputEl = document.getElementById('chatInput');
-  if (inputEl) inputEl.placeholder = `Talk to ${displayName} (or say '${displayName}' to speak)...`;
+  if (inputEl) inputEl.placeholder = `Talk to Rum (or say 'Hey Rum' / tap 🎙️)...`;
 
   // 4. Update Home Screen Card & Badges
   const homeBadge = document.getElementById('homeAiStatusBadge');
@@ -1165,6 +1186,12 @@ function updatePersonaUI(personaKey) {
 
   const homeCardTitle = document.getElementById('homeAiCardTitle');
   if (homeCardTitle) homeCardTitle.innerText = cardTitleText;
+
+  const homeBannerName = document.getElementById('homeBannerAiName');
+  if (homeBannerName) homeBannerName.innerText = `${displayName}:`;
+
+  const accBadge = document.getElementById('accAiBadge');
+  if (accBadge) accBadge.innerText = `ACTIVE: ${displayName}`;
 
   const homeCardIcon = document.getElementById('homeAiCardIcon');
   if (homeCardIcon) {
@@ -1189,12 +1216,6 @@ function updatePersonaUI(personaKey) {
 
   const profileHint = document.getElementById('settingsProfileHint');
   if (profileHint) profileHint.innerText = `${displayName} WILL ADDRESS YOU AS:`;
-
-  // 7. Update Persona Avatars & Custom Boot Media
-  const pData = (window.allPersonas && window.allPersonas[personaKey]) ? window.allPersonas[personaKey] : null;
-  const avatarPath = (pData && pData.avatar_image) ? pData.avatar_image : 'assets/pics/maia_avatar.jpg';
-  const splashImg = (pData && pData.boot_splash_image) ? pData.boot_splash_image : 'assets/pics/splash.png';
-  const splashVid = (pData && pData.boot_splash_video) ? pData.boot_splash_video : '';
 
   const avatarElements = [
     document.getElementById('homeAiAvatarImg'),
@@ -1236,7 +1257,7 @@ function initBootSplash() {
   const titleEl = document.getElementById('bootSplashPersonaName');
   const subEl = document.getElementById('bootSplashSubtitle');
 
-  const pKey = currentAiSettings.personality || 'MAIA';
+  const pKey = currentAiSettings.personality || 'RUM';
   const pName = getPersonaDisplayName(pKey);
   if (titleEl) titleEl.innerText = `${pName} v1.0.0`;
   if (subEl) subEl.innerText = `${pName} • MultiAir In-Dash System Initializing`;
@@ -1312,7 +1333,7 @@ function onSettingsPersonaChanged(pKey) {
 }
 
 function savePersonaMediaConfig() {
-  const pKey = currentAiSettings.personality || 'MAIA';
+  const pKey = currentAiSettings.personality || 'RUM';
   const avatar = document.getElementById('cfgPersonaAvatar')?.value || 'assets/pics/maia_avatar.jpg';
   const splashImg = document.getElementById('cfgBootSplashImage')?.value || 'assets/pics/splash.png';
   const splashVid = document.getElementById('cfgBootSplashVideo')?.value || '';
@@ -1386,9 +1407,13 @@ function renderChatMessages(history) {
 
   if (history.length === 0) {
     const addr = getDriverDisplayAddress();
+    const isRum = (currentAiSettings.personality === 'RUM' || activeAvatarEngine === '3D_VRM');
+    const introMsg = isRum
+      ? `Yay, ${addr}! Rum is right here riding shotgun with you! Tap any quick prompt below or talk to me anytime!`
+      : `Hey ${addr}, cockpit systems are loaded and ready. Talk to me or tap any of the quick prompts below!`;
     container.innerHTML = `
       <div class="chat-bubble maia">
-        <strong>${currentName}:</strong> Hey ${addr}, cockpit systems are loaded and ready. Talk to me or tap any of the quick prompts below!
+        <strong>${currentName}:</strong> ${introMsg}
         <div class="chat-time">Just now</div>
       </div>
     `;
@@ -1410,72 +1435,40 @@ function renderChatMessages(history) {
 }
 
 function renderSpeechLogs(logs) {
-  const container = document.getElementById('speechLogList');
-  const countEl = document.getElementById('speechLogCount');
-  if (!container) return;
-  container.innerHTML = '';
-
-  if (countEl) countEl.innerText = `${logs.length} Events`;
-
-  if (logs.length === 0) {
-    container.innerHTML = `<div style="font-size:11px; color:var(--text-secondary); padding:10px;">No speech events logged yet.</div>`;
-    return;
-  }
-
-  // Show newest on top
-  const reversed = [...logs].reverse();
-  reversed.forEach(item => {
-    const div = document.createElement('div');
-    div.className = 'log-item';
-    const pillColor = item.source === 'COPILOT' ? 'var(--accent-blue)' : 'var(--accent-pink)';
-    div.style.borderLeftColor = pillColor;
-    div.innerHTML = `
-      <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
-        <span style="font-size:9px; font-weight:800; color:${pillColor};">${item.source}</span>
-        <span class="log-time">${item.time_str}</span>
-      </div>
-      <div style="color:#fff; line-height:1.3;">${item.text}</div>
-    `;
-    container.appendChild(div);
+  if (!logs || !logs.length) return;
+  logs.forEach(item => {
+    appendSpeechLogItem(item);
   });
 }
 
 function appendSpeechLogItem(item) {
   if (!item || (!item.speech && !item.text && !item.hud_message)) return;
-  const container = document.getElementById('speechLogList');
-  if (!container) return;
+  const chatContainer = document.getElementById('aiChatMessages');
+  if (!chatContainer) return;
 
-  if (container.innerText.includes('No speech events')) {
-    container.innerHTML = '';
-  }
-
-  const div = document.createElement('div');
-  div.className = 'log-item new-entry';
-  const pillColor = item.source === 'CHAT' ? 'var(--accent-pink)' : (item.type === 'CRITICAL' ? 'var(--accent-red)' : 'var(--accent-blue)');
-  div.style.borderLeftColor = pillColor;
-  const timeStr = item.time_str || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const src = item.source || item.type || 'COPILOT';
   const text = item.speech || item.text || item.hud_message;
+  const timeStr = item.time_str || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const src = item.source || item.type || 'COPILOT';
 
+  // Do not duplicate chat replies already rendered by appendMessage
+  if (src === 'CHAT') return;
+
+  const isAlert = (item.type === 'CRITICAL' || (item.tags && item.tags.includes('ALERT')));
+  const div = document.createElement('div');
+  div.className = 'copilot-event-entry';
   div.innerHTML = `
-    <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
-      <span style="font-size:9px; font-weight:800; color:${pillColor};">${src}</span>
-      <span class="log-time">${timeStr}</span>
+    <div class="copilot-event-bubble ${isAlert ? 'alert' : ''}">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 4px; font-size: 10px; font-weight: 800;">
+        <span style="color:${isAlert ? 'var(--accent-red)' : 'var(--accent-lavender, #c084fc)'}; display:flex; align-items:center; gap:5px;">
+          <span>${isAlert ? '⚠️' : '💜'}</span> <b>RUM • ${src}</b>
+        </span>
+        <span style="color:var(--text-secondary); font-size: 9px;">${timeStr}</span>
+      </div>
+      <div style="color: #f3f0ff; font-size: 11px; line-height: 1.4;">${text}</div>
     </div>
-    <div style="color:#fff; line-height:1.3;">${text}</div>
   `;
-
-  // Prepend so newest is directly visible at the top
-  container.insertBefore(div, container.firstChild);
-
-  while (container.children.length > 60) {
-    container.removeChild(container.lastChild);
-  }
-
-  const countEl = document.getElementById('speechLogCount');
-  if (countEl) {
-    countEl.innerText = `${container.children.length} Events`;
-  }
+  chatContainer.appendChild(div);
+  chatContainer.scrollTop = chatContainer.scrollHeight;
 }
 
 function scrollChatToBottom() {
@@ -1499,59 +1492,74 @@ function sendQuickPrompt(promptText) {
   sendChatMessage(promptText);
 }
 
-function sendChatMessage(userText) {
+function sendChatMessage(userText, isVoice = false) {
   const container = document.getElementById('aiChatMessages');
   const sendBtn = document.getElementById('sendBtn');
-  const currentName = getPersonaDisplayName(currentAiSettings.personality);
+  const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-  // Immediately append user message
+  // Immediately append user message on the SENT (right) side of the chat screen
   const userBubble = document.createElement('div');
   userBubble.className = 'chat-bubble user';
-  userBubble.innerHTML = `<div><strong>You:</strong> ${userText}</div><div class="chat-time">Sending...</div>`;
-  container.appendChild(userBubble);
-  scrollChatToBottom();
+  const sentLabel = isVoice ? `🎤 Voice • ${nowTime}` : `Sending...`;
+  userBubble.innerHTML = `<div><strong>${isVoice ? '🎤 You' : 'You'}:</strong> ${userText}</div><div class="chat-time">${sentLabel}</div>`;
+  if (container) {
+    container.appendChild(userBubble);
+    scrollChatToBottom();
+  }
 
   if (sendBtn) {
     sendBtn.disabled = true;
-    sendBtn.innerText = "THINKING...";
+    sendBtn.innerHTML = "⏳";
   }
 
   fetch('/api/ai/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: userText })
+    body: JSON.stringify({ message: userText, source: isVoice ? 'voice' : 'text' })
   })
     .then(r => r.json())
     .then(data => {
       if (sendBtn) {
         sendBtn.disabled = false;
-        sendBtn.innerText = "SEND";
+        sendBtn.innerHTML = "➤";
+      }
+      const timeEl = userBubble.querySelector('.chat-time');
+      if (timeEl) {
+        timeEl.innerText = isVoice ? `🎤 Voice • Sent ${nowTime}` : `Sent • ${nowTime}`;
       }
 
       const p = data.persona || data.personality || currentAiSettings.personality;
       const respName = getPersonaDisplayName(p);
 
-      // Append Assistant response bubble
+      // Append R.U.M. response bubble on the left side
+      if (container && userBubble.parentNode !== container) container.appendChild(userBubble);
       const maiaBubble = document.createElement('div');
       maiaBubble.className = 'chat-bubble maia';
       maiaBubble.innerHTML = `<div><strong>${respName}:</strong> ${data.reply}</div><div class="chat-time">Just now</div>`;
-      container.appendChild(maiaBubble);
-      scrollChatToBottom();
+      if (container) {
+        container.appendChild(maiaBubble);
+        scrollChatToBottom();
+      }
+
+      // Trigger speaking animation on 3D VRM
+      const estMs = Math.max(2400, (data.reply.length / 10.0) * 1000);
+      if (typeof setVrmSpeaking === 'function') {
+        setVrmSpeaking(estMs, data.reply);
+      }
 
       // Update home banner quote
       const homeQuote = document.getElementById('homeBannerAiQuote');
-      if (homeQuote) homeQuote.innerText = `${respName}: ${data.reply.slice(0, 48)}...`;
+      if (homeQuote) homeQuote.innerText = `${respName}: ${data.reply.slice(0, 56)}...`;
 
       // Execute dashboard action (screen switch or app launcher)
       if (data.action) {
         handleAiAction(data.action);
       }
 
-      // Update waifu emotion & HUD
+      // Update emotion & HUD
       if (data.emotion) {
         setWaifuEmotion(data.emotion);
       }
-      // Note: Backend /api/ai/chat already spoke clean_reply via state.audio.speak()
 
       // Add to speech log
       appendSpeechLogItem({
@@ -1564,7 +1572,7 @@ function sendChatMessage(userText) {
       console.error("[AI] Chat error:", err);
       if (sendBtn) {
         sendBtn.disabled = false;
-        sendBtn.innerText = "SEND";
+        sendBtn.innerHTML = "➤";
       }
     });
 }
@@ -1634,17 +1642,17 @@ function setVoiceVerbosity(mode) {
 }
 
 function showAiSpeechToast(speech) {
+  if (typeof showVrmSpeech === 'function') {
+    showVrmSpeech(speech, 6500);
+  }
+
   const toast = document.getElementById('aiToast');
   const textEl = document.getElementById('aiText');
-  if (!toast || !textEl) return;
-
-  textEl.innerText = speech;
-  toast.classList.add('show');
-
-  // Note: showAiSpeechToast is purely a visual HUD banner.
-  // Speech playback is handled by backend or explicit speakUtterance to prevent double-talk.
-
-  setTimeout(() => toast.classList.remove('show'), 6500);
+  if (toast && textEl) {
+    textEl.innerText = speech;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 6500);
+  }
 }
 
 function speakUtterance(text, emotion) {
@@ -1656,7 +1664,10 @@ function speakUtterance(text, emotion) {
 
   // Fallback timer only if SSE stream is disconnected
   const estimatedDurationMs = Math.max(2200, (text.length / 9.5) * 1000 + 300);
-  waifuSpeechEndTime = Date.now() + estimatedDurationMs;
+  if (!eventSource || eventSource.readyState !== 1) {
+    waifuSpeechEndTime = Date.now() + estimatedDurationMs;
+  }
+  if (typeof setVrmSpeaking === 'function') setVrmSpeaking(estimatedDurationMs, text, false);
   const stage = document.getElementById('waifuStage');
 
   if (!eventSource || eventSource.readyState !== 1) {
@@ -1691,143 +1702,397 @@ function speakUtterance(text, emotion) {
     try {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
-      const p = currentAiSettings.personality || 'MAIA';
+      const p = currentAiSettings.personality || 'RUM';
       if (p === 'JARVIS') {
         utterance.rate = 0.96; utterance.pitch = 0.90;
       } else if (p === 'RACE_ENGINEER' || p === 'PITWALL') {
         utterance.rate = 1.14; utterance.pitch = 1.0;
       } else {
-        utterance.rate = 1.06; utterance.pitch = 1.28;
+        // High-pitched 12-yr-old anime girl pitch for Rum
+        utterance.rate = 1.08; utterance.pitch = 1.24;
       }
       window.speechSynthesis.speak(utterance);
     } catch (e) {}
   }
 }
 
-// --- HANDS-FREE WAKE WORD & LIVE CONVERSATION ENGINE ---
+// --- HANDS-FREE WAKE WORD & LIVE CONVERSATION ENGINE (BACKEND PIPEWIRE USB MIC + BROWSER FALLBACK) ---
 let isWakeWordEnabled = true;
 let isLiveConvoMode = false;
-let speechRecognition = null;
+let isVoiceRecording = false;
 
 function initSpeechRecognition() {
-  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRec) {
-    console.warn("[VOICE] SpeechRecognition API not supported on this device/browser.");
-    const btn = document.getElementById('btnWakeWord');
-    if (btn) btn.style.display = 'none';
-    const cBtn = document.getElementById('btnLiveConvo');
-    if (cBtn) cBtn.style.display = 'none';
-    return;
+  // Backend PipeWire USB microphone daemon is always active on Pi 5!
+  // Ensure Wake Word and Live Convo buttons are always visible and synced.
+  const btn = document.getElementById('btnWakeWord');
+  if (btn) btn.style.display = 'inline-flex';
+  const cBtn = document.getElementById('btnLiveConvo');
+  if (cBtn) cBtn.style.display = 'inline-flex';
+}
+
+function syncVoiceButtonState(convoActive, micCapturing, wakeEnabled) {
+  isLiveConvoMode = !!convoActive;
+  isVoiceRecording = !!(convoActive || micCapturing);
+  if (wakeEnabled !== undefined) {
+    isWakeWordEnabled = !!wakeEnabled;
+    const wBtn = document.getElementById('btnWakeWord');
+    if (wBtn) {
+      wBtn.innerText = isWakeWordEnabled ? "🎤 WAKE WORD: ON" : "🔇 WAKE WORD: OFF";
+      wBtn.style.borderColor = isWakeWordEnabled ? "var(--accent-pink)" : "var(--panel-border)";
+      wBtn.style.color = isWakeWordEnabled ? "var(--accent-pink)" : "var(--text-secondary)";
+    }
   }
 
-  try {
-    speechRecognition = new SpeechRec();
-    speechRecognition.continuous = true;
-    speechRecognition.interimResults = false;
-    speechRecognition.lang = 'en-US';
-
-    speechRecognition.onresult = function(event) {
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          const transcript = event.results[i][0].transcript.trim().toLowerCase();
-          console.log("[VOICE] Heard audio:", transcript);
-          handleSpokenTranscript(transcript);
-        }
-      }
-    };
-
-    speechRecognition.onerror = function(err) {
-      if (err.error !== 'no-speech') {
-        console.warn("[VOICE] Speech listener note:", err.error);
-      }
-    };
-
-    speechRecognition.onend = function() {
-      // Automatically keep listening if wake word or live conversation is enabled
-      if (isWakeWordEnabled || isLiveConvoMode) {
-        setTimeout(() => {
-          try { speechRecognition.start(); } catch (e) {}
-        }, 300);
-      }
-    };
-
-    if (isWakeWordEnabled) {
-      try { speechRecognition.start(); } catch (e) {}
-      console.log("[VOICE] Wake word continuous listener active.");
-    }
-  } catch (e) {
-    console.warn("[VOICE] Failed to start speech recognition:", e);
+  const btn = document.getElementById('btnLiveConvo');
+  if (!btn) return;
+  if (convoActive) {
+    btn.innerHTML = "🔴";
+    btn.classList.add('recording');
+    btn.style.borderColor = "var(--accent-red, #ef4444)";
+    btn.style.boxShadow = "0 0 16px rgba(239, 68, 68, 0.85)";
+    btn.style.background = "rgba(239, 68, 68, 0.35)";
+    btn.title = "Live Voice Conversation Active (Speak freely to Rum! Tap to stop)";
+  } else {
+    btn.innerHTML = "🎙️";
+    btn.classList.remove('recording');
+    btn.style.borderColor = "";
+    btn.style.boxShadow = "";
+    btn.style.background = "";
+    btn.title = "Toggle Live Voice Conversation Mode (USB Mic)";
   }
 }
 
-function handleSpokenTranscript(text) {
-  if (!text) return;
-  const persona = currentAiSettings.personality || 'MAIA';
-  let wakeWords = ['maia', 'maya', 'hey maia', 'hey maya'];
-  if (persona === 'JARVIS') wakeWords = ['jarvis', 'hey jarvis'];
-  else if (persona === 'RACE_ENGINEER' || persona === 'PITWALL') wakeWords = ['pit wall', 'box box', 'radio'];
-
-  let matched = false;
-  let query = text;
-
-  if (isLiveConvoMode) {
-    // In live conversation mode, everything spoken while active is processed
-    matched = true;
-    wakeWords.forEach(w => {
-      if (query.startsWith(w)) query = query.replace(w, '').trim();
+async function toggleLiveConversationMode() {
+  try {
+    const resp = await fetch('/api/ai/listen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'toggle_convo' })
     });
-  } else {
-    // Check for wake word prefix
-    for (const w of wakeWords) {
-      if (text.includes(w)) {
-        matched = true;
-        const idx = text.indexOf(w);
-        query = text.substring(idx + w.length).replace(/^[,.\s]+/, '').trim();
-        break;
-      }
+    const data = await resp.json();
+    syncVoiceButtonState(data.live_convo_mode, data.is_mic_listening, data.wake_word_enabled);
+    if (data.live_convo_mode) {
+      showAiSpeechToast("🔴 Live Voice Mode ON! Speak to Rum anytime — your words appear in chat!");
+    } else {
+      showAiSpeechToast("🎙️ Live Voice Mode paused. Wake word 'Hey Rum' is still active!");
     }
-  }
-
-  if (matched) {
-    if (!query || query.length < 2) {
-      const addr = getDriverDisplayAddress();
-      speakUtterance(`Yes ${addr}? I'm listening.`);
-      return;
-    }
-    console.log(`[VOICE] Wake word triggered query: "${query}"`);
-    sendChatMessage(query);
+  } catch (err) {
+    console.error("[VOICE] Backend listen toggle failed:", err);
   }
 }
 
 function toggleWakeWordListening() {
-  isWakeWordEnabled = !isWakeWordEnabled;
-  const btn = document.getElementById('btnWakeWord');
-  if (btn) {
-    btn.innerText = isWakeWordEnabled ? "🎤 WAKE WORD: ON" : "🎤 WAKE WORD: OFF";
-    btn.style.color = isWakeWordEnabled ? "var(--accent-pink)" : "var(--text-secondary)";
-    btn.style.borderColor = isWakeWordEnabled ? "var(--accent-pink)" : "var(--panel-border)";
-  }
-  if (speechRecognition) {
-    if (isWakeWordEnabled) {
-      try { speechRecognition.start(); } catch (e) {}
-    } else if (!isLiveConvoMode) {
-      try { speechRecognition.stop(); } catch (e) {}
+  const nextWake = !isWakeWordEnabled;
+  fetch('/api/ai/listen', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'set_wake', enabled: nextWake })
+  })
+    .then(r => r.json())
+    .then(data => {
+      syncVoiceButtonState(data.live_convo_mode, data.is_mic_listening, data.wake_word_enabled);
+      showAiSpeechToast(data.wake_word_enabled ? "🎤 Wake word 'Hey Rum' enabled!" : "🔇 Wake word listening paused.");
+    })
+    .catch(err => console.warn("[VOICE] Wake toggle error:", err));
+}
+
+function handleSpokenTranscript(text, isFromMic = true) {
+  if (!text) return;
+  const rawText = text.trim();
+  if (!rawText) return;
+
+  let query = rawText;
+  const qLower = query.toLowerCase();
+
+  // Strip wake words if prepended to a longer question
+  const wakePrefixes = [
+    'hey rum', 'hi rum', 'hello rum', 'okay rum', 'ok rum', 'yo rum', 'rum',
+    'hey ram', 'hi ram', 'ram', 'hey rem', 'hi rem', 'rem',
+    'hey ron', 'ron', 'hey rome', 'rome', 'hey room', 'room',
+    'hey run', 'hey rob', 'hey drum', 'r.u.m.', 'r.u.m'
+  ];
+  let matchedWakeOnly = false;
+  for (const w of wakePrefixes) {
+    if (qLower === w || qLower === w + '!' || qLower === w + '?') {
+      matchedWakeOnly = true;
+      break;
     }
+    if (qLower.startsWith(w + ' ') || qLower.startsWith(w + ',') || qLower.startsWith(w + '.')) {
+      query = query.substring(w.length).replace(/^[,.\s!?]+/, '').trim();
+      break;
+    }
+  }
+
+  const cleanCmd = (query || '').toLowerCase().trim();
+
+  // 1. Direct Vehicle Telemetry Queries
+  if (cleanCmd.includes('speed') || cleanCmd.includes('how fast') || cleanCmd.includes('fast am i')) {
+    const spd = Math.round((latestTelemetry && latestTelemetry.speed_mph) || 0);
+    const reply = `You're cruising at ${spd} miles per hour, Master!`;
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
+  if (cleanCmd.includes('coolant') || cleanCmd.includes('engine temp') || cleanCmd.includes('temperature')) {
+    const temp = Math.round((latestTelemetry && latestTelemetry.coolant_temp_f) || 195);
+    const reply = `Engine coolant temperature is currently ${temp} degrees Fahrenheit!`;
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
+  if (cleanCmd.includes('rpm') || cleanCmd.includes('tachometer') || cleanCmd.includes('revs')) {
+    const rpm = Math.round((latestTelemetry && latestTelemetry.rpm) || 0);
+    const reply = `Engine tachometer is at ${rpm} RPM!`;
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
+  if (cleanCmd.includes('boost') || cleanCmd.includes('turbo') || cleanCmd.includes('psi')) {
+    const psi = ((latestTelemetry && latestTelemetry.boost_psi) || 0).toFixed(1);
+    const reply = `Turbo boost is at ${psi} PSI!`;
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
+  if (cleanCmd.includes('battery') || cleanCmd.includes('voltage') || cleanCmd.includes('alternator')) {
+    const v = ((latestTelemetry && latestTelemetry.battery_voltage) || 14.2).toFixed(1);
+    const reply = `Battery system is reading ${v} volts!`;
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
+  if (cleanCmd.includes('fuel') || cleanCmd.includes('gas tank') || cleanCmd.includes('how much gas')) {
+    const fuel = Math.round((latestTelemetry && latestTelemetry.fuel_level_pct) || 75);
+    const reply = `Fuel level is at ${fuel} percent!`;
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
+
+  // 2. Direct App & Screen Navigation Controls
+  if (cleanCmd.includes('gauge') || cleanCmd.includes('dashboard')) {
+    navigateTo('gauges');
+    showAiSpeechToast("Switching to Gauges!");
+    return;
+  }
+  if (cleanCmd.includes('telemetry') || cleanCmd.includes('sensor')) {
+    navigateTo('telemetry');
+    showAiSpeechToast("Opening Telemetry Graphs!");
+    return;
+  }
+  if (cleanCmd.includes('diagnostic') || cleanCmd.includes('trouble code') || cleanCmd.includes('fault code') || cleanCmd.includes('dtc')) {
+    showDiagnosticsModal();
+    showAiSpeechToast("Scanning Powertrain Diagnostics!");
+    return;
+  }
+  if (cleanCmd.includes('browser') || cleanCmd.includes('firefox') || cleanCmd.includes('internet') || cleanCmd.includes('web')) {
+    launchFirefoxBrowser();
+    return;
+  }
+  if (cleanCmd.includes('media') || cleanCmd.includes('music') || cleanCmd.includes('song')) {
+    navigateTo('media');
+    showAiSpeechToast("Opening Media Player!");
+    return;
+  }
+  if (cleanCmd.includes('game') || cleanCmd.includes('retroarch')) {
+    navigateTo('games');
+    showAiSpeechToast("Opening Games Hub!");
+    return;
+  }
+  if (cleanCmd.includes('setting')) {
+    navigateTo('settings');
+    showAiSpeechToast("Opening Settings!");
+    return;
+  }
+  if (cleanCmd.includes('home') || cleanCmd.includes('main screen')) {
+    navigateTo('home');
+    showAiSpeechToast("Returning to Home screen!");
+    return;
+  }
+
+  // 3. Direct Kinetic Animations & Mocap Actions
+  if (cleanCmd.includes('jump') || cleanCmd.includes('hop')) {
+    playVrmAction('action_jump', 3200, false);
+    return;
+  }
+  if (cleanCmd.includes('lean in') || cleanCmd.includes('come closer') || cleanCmd.includes('bow')) {
+    playVrmAction('bend_over', 3800, false);
+    return;
+  }
+  if (cleanCmd.includes('laugh') || cleanCmd.includes('giggle') || cleanCmd.includes('joke')) {
+    playVrmAction('amusement', 3600, false);
+    if (!cleanCmd.includes('tell me a joke')) return;
+  }
+  if (cleanCmd.includes('peace') || cleanCmd.includes('v sign')) {
+    playVrmAction('peace', 4200, false);
+    return;
+  }
+  if (cleanCmd.includes('shoot') || cleanCmd.includes('finger gun')) {
+    playVrmAction('shoot', 4500, false);
+    return;
+  }
+  if (cleanCmd.includes('spin') || cleanCmd.includes('twirl')) {
+    playVrmAction('spin', 4500, false);
+    return;
+  }
+  if (cleanCmd.includes('model') || cleanCmd.includes('pose')) {
+    playVrmAction('model_pose', 4800, false);
+    return;
+  }
+  if (cleanCmd.includes('squat') || cleanCmd.includes('exercise')) {
+    playVrmAction('squat', 4400, false);
+    return;
+  }
+  if (cleanCmd.includes('dance') || cleanCmd.includes('groove')) {
+    playVrmAction(cleanCmd.includes('groove') ? 'dance_side_groove' : 'dance_hiphop_step', 5500, false);
+    return;
+  }
+  if (cleanCmd.includes('sit') || cleanCmd.includes('relax')) {
+    playVrmAction('sit_idle', 8000, false);
+    return;
+  }
+  if (cleanCmd.includes('walk')) {
+    playVrmAction('walk_loop', 6000, false);
+    return;
+  }
+  if (cleanCmd.includes('jog') || cleanCmd.includes('run')) {
+    playVrmAction('jog_loop', 6000, false);
+    return;
+  }
+  if (cleanCmd.includes('wave') || cleanCmd.includes('say hi') || cleanCmd.includes('hello')) {
+    playVrmAction('greeting', 3800, false);
+    return;
+  }
+
+  // If user only said her name ("Rum!" / "Hey Rum!"), greet cheerfully and open follow-up window
+  if (matchedWakeOnly || !query || query.length < 2) {
+    playVrmAction('greeting', 3800, false);
+    sendChatMessage(rawText, true);
+    return;
+  }
+
+  // Transcribe spoken words onto the sent (right) side of the chat screen and send to Rum's neural brain!
+  sendChatMessage(query, true);
+}
+
+// --- ANIMATIONS & POSES DRAWER CONTROLS ---
+
+function toggleAnimationsDrawer() {
+  const m = document.getElementById('animationsDrawerModal');
+  if (!m) return;
+  m.style.display = (m.style.display === 'flex') ? 'none' : 'flex';
+}
+
+function closeAnimationsDrawer() {
+  const m = document.getElementById('animationsDrawerModal');
+  if (m) m.style.display = 'none';
+}
+
+function filterAnimationCategory(cat, btnEl) {
+  document.querySelectorAll('.anim-tab-btn').forEach(b => {
+    b.style.background = 'rgba(255,255,255,0.08)';
+    b.style.color = 'var(--text-secondary)';
+    b.style.border = '1px solid #445';
+  });
+  if (btnEl) {
+    btnEl.style.background = 'var(--accent-purple, #a855f7)';
+    btnEl.style.color = '#fff';
+    btnEl.style.border = 'none';
+  }
+  const cards = document.querySelectorAll('.anim-card-btn');
+  cards.forEach(c => {
+    const cardCat = c.getAttribute('data-cat');
+    if (cat === 'all' || cardCat === cat) {
+      c.style.display = 'flex';
+    } else {
+      c.style.display = 'none';
+    }
+  });
+}
+
+function triggerDrawerAnim(actionKey) {
+  playVrmAction(actionKey, 4800, false);
+  const m = document.getElementById('animationsDrawerModal');
+  if (m) m.style.display = 'none';
+  showAiSpeechToast(`Playing animation: ${actionKey}`);
+}
+
+// --- VOICE COMMANDS MODAL CONTROLS ---
+
+function openVoiceCommandsModal() {
+  const m = document.getElementById('voiceCommandsModal');
+  if (m) m.style.display = 'flex';
+}
+
+function closeVoiceCommandsModal() {
+  const m = document.getElementById('voiceCommandsModal');
+  if (m) m.style.display = 'none';
+}
+
+// --- FIREFOX BROWSER INTEGRATION (TOP WINDOW & AUTO-CLOSE ON UNFOCUS) ---
+
+let isFirefoxRunning = false;
+let firefoxWatcherTimer = null;
+
+async function launchFirefoxBrowser() {
+  showAiSpeechToast("🦊 Launching Firefox Web Browser...");
+  try {
+    const res = await fetch('/api/system/browser/launch', { method: 'POST' });
+    const data = await res.json();
+    isFirefoxRunning = true;
+    startFirefoxWatcher();
+    showAiSpeechToast("Firefox open on top. Close window or tap CarPi5 to return!");
+  } catch (err) {
+    console.error("[FIREFOX] Launch error:", err);
   }
 }
 
-function toggleLiveConversationMode() {
-  isLiveConvoMode = !isLiveConvoMode;
-  const btn = document.getElementById('btnLiveConvo');
-  if (btn) {
-    btn.innerText = isLiveConvoMode ? "💬 CONVO: ACTIVE" : "💬 CONVO MODE";
-    btn.style.color = isLiveConvoMode ? "var(--accent-green)" : "var(--text-secondary)";
-    btn.style.borderColor = isLiveConvoMode ? "var(--accent-green)" : "var(--panel-border)";
-  }
-  if (isLiveConvoMode && speechRecognition) {
-    try { speechRecognition.start(); } catch (e) {}
+async function closeFirefoxBrowser() {
+  try {
+    await fetch('/api/system/browser/close', { method: 'POST' });
+    isFirefoxRunning = false;
+    stopFirefoxWatcher();
+    showAiSpeechToast("Firefox closed.");
+  } catch (err) {
+    console.warn("[FIREFOX] Close error:", err);
   }
 }
+
+function startFirefoxWatcher() {
+  if (firefoxWatcherTimer) clearInterval(firefoxWatcherTimer);
+  firefoxWatcherTimer = setInterval(async () => {
+    try {
+      const resp = await fetch('/api/system/browser/status');
+      const data = await resp.json();
+      isFirefoxRunning = Boolean(data.running);
+      if (!isFirefoxRunning) {
+        stopFirefoxWatcher();
+      }
+    } catch (e) {}
+  }, 1800);
+}
+
+function stopFirefoxWatcher() {
+  if (firefoxWatcherTimer) {
+    clearInterval(firefoxWatcherTimer);
+    firefoxWatcherTimer = null;
+  }
+}
+
+// Auto-close Firefox whenever the user refocuses on CarPi5 dashboard!
+window.addEventListener('focus', () => {
+  if (isFirefoxRunning) {
+    console.log("[FIREFOX] CarPi5 window refocused — closing background Firefox process to preserve RAM...");
+    closeFirefoxBrowser();
+  }
+});
+
 
 
 // --- 8. POWERTRAIN DIAGNOSTICS & FAULT CODES (OBD-II) ---
@@ -2414,6 +2679,22 @@ function syncSettingsUI() {
   if (keyEl && currentAiSettings.api_key) keyEl.value = currentAiSettings.api_key;
   if (personaEl && currentAiSettings.personality) personaEl.value = currentAiSettings.personality;
 
+  // Sync TTS Voice Engine UI
+  const ttsEng = (currentAiSettings.tts_engine || 'KOKORO').toUpperCase();
+  selectTtsEngine(ttsEng, false);
+  const kVoiceEl = document.getElementById('cfgKokoroVoice');
+  if (kVoiceEl && currentAiSettings.kokoro_voice) kVoiceEl.value = currentAiSettings.kokoro_voice;
+  const pitchEl = document.getElementById('cfgTtsPitch');
+  const lblPitch = document.getElementById('lblTtsPitch');
+  if (pitchEl && currentAiSettings.tts_pitch !== undefined) {
+    pitchEl.value = currentAiSettings.tts_pitch;
+    if (lblPitch) lblPitch.innerText = currentAiSettings.tts_pitch + 'x';
+  }
+  const elKey = document.getElementById('cfgElevenLabsKey');
+  const elVid = document.getElementById('cfgElevenLabsVoiceId');
+  if (elKey && currentAiSettings.elevenlabs_api_key) elKey.value = currentAiSettings.elevenlabs_api_key;
+  if (elVid && currentAiSettings.elevenlabs_voice_id) elVid.value = currentAiSettings.elevenlabs_voice_id;
+
   // Header pill
   const pill = document.getElementById('headerTailscalePill');
   if (pill) {
@@ -2506,6 +2787,62 @@ function saveDriverProfile() {
       showAiSpeechToast(ackMsg);
     })
     .catch(err => alert("Error updating driver profile: " + err));
+}
+
+
+function selectTtsEngine(engine, autoSave = true) {
+  const eng = (engine || 'KOKORO').toUpperCase();
+  currentAiSettings.tts_engine = eng;
+  const rKokoro = document.getElementById('radioTtsKokoro');
+  const rPiper = document.getElementById('radioTtsPiper');
+  const rEleven = document.getElementById('radioTtsEleven');
+  const rOpenAi = document.getElementById('radioTtsOpenAi');
+  if (rKokoro) rKokoro.checked = (eng === 'KOKORO');
+  if (rPiper) rPiper.checked = (eng === 'PIPER');
+  if (rEleven) rEleven.checked = (eng === 'ELEVENLABS');
+  if (rOpenAi) rOpenAi.checked = (eng === 'OPENAI_TTS');
+
+  const elRow = document.getElementById('elevenLabsKeyRow');
+  if (elRow) elRow.style.display = (eng === 'ELEVENLABS') ? 'flex' : 'none';
+
+  if (autoSave) {
+    saveTtsVoiceSettings();
+  }
+}
+
+function saveTtsVoiceSettings() {
+  const kVoiceEl = document.getElementById('cfgKokoroVoice');
+  const pitchEl = document.getElementById('cfgTtsPitch');
+  const elKey = document.getElementById('cfgElevenLabsKey');
+  const elVid = document.getElementById('cfgElevenLabsVoiceId');
+
+  const payload = {
+    tts_engine: currentAiSettings.tts_engine || 'KOKORO',
+    kokoro_voice: kVoiceEl ? kVoiceEl.value : 'af_bella',
+    tts_pitch: pitchEl ? parseFloat(pitchEl.value) : 1.125,
+    elevenlabs_api_key: elKey ? elKey.value.trim() : (currentAiSettings.elevenlabs_api_key || ''),
+    elevenlabs_voice_id: elVid ? elVid.value.trim() : (currentAiSettings.elevenlabs_voice_id || 'jBpfuIE2acCO8z3wKNLl')
+  };
+  Object.assign(currentAiSettings, payload);
+
+  fetch('/api/ai/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data && data.settings) currentAiSettings = data.settings;
+    })
+    .catch(err => console.warn('[TTS] Save settings error:', err));
+}
+
+function testTtsVoiceSample() {
+  saveTtsVoiceSettings();
+  const eng = (currentAiSettings.tts_engine || 'KOKORO');
+  const sample = `Yay Master! Rum is speaking with the ${eng === 'KOKORO' ? 'Kokoro neural' : eng.toLowerCase()} voice engine right now! How do I sound?`;
+  showAiSpeechToast(sample);
+  speakUtterance(sample, 'HAPPY');
 }
 
 function saveAiSettings() {
@@ -3699,30 +4036,71 @@ fetchRomsList();
 fetchTripLogs();
 
 
-// Universal Kinetic Touch Drag-to-Scroll for Touchscreens
+// Enhanced Universal Kinetic Touch Drag-to-Scroll for Touchscreens
 function initTouchScrollEngine() {
-  document.querySelectorAll('.screen-view, .explorer-body, #screenHome').forEach(el => {
+  const scrollTargets = document.querySelectorAll('.screen-view, #screenSettings, #screenHome, #screenMedia, #screenGames, .explorer-body, .ai-chat-messages');
+  scrollTargets.forEach(el => {
     let isDown = false;
     let startY = 0;
-    let scrollTop = 0;
+    let startScrollTop = 0;
+    let lastY = 0;
+    let velocity = 0;
+    let lastTime = 0;
+    let animFrame = null;
+    let hasMoved = false;
 
     el.addEventListener('pointerdown', (e) => {
-      if (['BUTTON', 'INPUT', 'SELECT', 'A'].includes(e.target.tagName) || e.target.closest('button, input, select, .slot-dropdown')) return;
+      // Don't intercept inputs, buttons or accordion headers directly
+      if (['BUTTON', 'INPUT', 'SELECT', 'A', 'TEXTAREA'].includes(e.target.tagName) ||
+          e.target.closest('button, input, select, textarea, .slot-dropdown, .cluster-action-btn, .accordion-header, .track-list-item, .quick-prompt-chip')) {
+        return;
+      }
       isDown = true;
-      startY = e.pageY;
-      scrollTop = el.scrollTop;
-    });
+      hasMoved = false;
+      startY = e.clientY;
+      lastY = e.clientY;
+      startScrollTop = el.scrollTop;
+      lastTime = performance.now();
+      velocity = 0;
+      if (animFrame) cancelAnimationFrame(animFrame);
+    }, { passive: true });
 
-    window.addEventListener('pointerup', () => { isDown = false; });
-    window.addEventListener('pointercancel', () => { isDown = false; });
-
-    el.addEventListener('pointermove', (e) => {
+    window.addEventListener('pointermove', (e) => {
       if (!isDown) return;
-      e.preventDefault();
-      const y = e.pageY;
-      const walk = (startY - y) * 1.4; // Sliding finger UP increases scrollTop (scrolls DOWN)
-      el.scrollTop = scrollTop + walk;
-    }, { passive: false });
+      const y = e.clientY;
+      const delta = startY - y;
+      if (Math.abs(delta) > 5) {
+        hasMoved = true;
+      }
+      if (hasMoved) {
+        el.scrollTop = startScrollTop + delta;
+        const now = performance.now();
+        const dt = now - lastTime;
+        if (dt > 8) {
+          velocity = (lastY - y) / dt;
+          lastY = y;
+          lastTime = now;
+        }
+      }
+    }, { passive: true });
+
+    const endDrag = () => {
+      if (!isDown) return;
+      isDown = false;
+      if (hasMoved && Math.abs(velocity) > 0.15) {
+        let currentVel = velocity * 16;
+        const step = () => {
+          if (Math.abs(currentVel) < 0.4) return;
+          el.scrollTop += currentVel;
+          currentVel *= 0.90; // smooth deceleration
+          animFrame = requestAnimationFrame(step);
+        };
+        animFrame = requestAnimationFrame(step);
+      }
+    };
+
+    window.addEventListener('pointerup', endDrag, { passive: true });
+    window.addEventListener('pointercancel', endDrag, { passive: true });
   });
 }
 
@@ -3767,29 +4145,31 @@ function setWaifuEmotion(emo) {
 
   const pill = document.getElementById('waifuEmotionPill');
   if (pill) {
+    const isRum = (currentAiSettings.personality === 'RUM' || activeAvatarEngine === '3D_VRM');
+    const pName = "R.U.M.";
     switch (currentWaifuEmotion) {
       case "DEVOTED":
-        pill.innerText = "💖 M.A.I.A. • DEVOTED & LISTENING";
+        pill.innerText = `💖 ${pName} • DEVOTED & LISTENING`;
         pill.style.color = "var(--accent-pink)";
         pill.style.borderColor = "var(--accent-pink)";
         break;
       case "FLIRTY":
-        pill.innerText = "💋 M.A.I.A. • PLAYFUL & FLIRTY";
+        pill.innerText = `💋 ${pName} • PLAYFUL & DEVOTED`;
         pill.style.color = "#ff4081";
         pill.style.borderColor = "#ff4081";
         break;
       case "EXCITED":
-        pill.innerText = "⚡ M.A.I.A. • EXCITED & BOOSTED";
+        pill.innerText = `⚡ ${pName} • EXCITED & BOOSTED`;
         pill.style.color = "var(--accent-yellow)";
         pill.style.borderColor = "var(--accent-yellow)";
         break;
       case "CONCERNED":
-        pill.innerText = "⚠️ M.A.I.A. • CARING & MONITORING";
+        pill.innerText = `⚠️ ${pName} • CARING & MONITORING`;
         pill.style.color = "var(--accent-orange)";
         pill.style.borderColor = "var(--accent-orange)";
         break;
       case "HAPPY":
-        pill.innerText = "✨ M.A.I.A. • JOYFUL & READY";
+        pill.innerText = `✨ ${pName} • JOYFUL & READY`;
         pill.style.color = "var(--accent-green)";
         pill.style.borderColor = "var(--accent-green)";
         break;
@@ -4374,13 +4754,20 @@ function triggerWaifuTouch() {
   targetLookX = -0.45;
   targetLookY = 0.0;
   setWaifuEmotion("FLIRTY");
+  const touchActions = ['greeting', 'peace', 'bend_over', 'model_pose', 'spin', 'shoot'];
+  const chosenAct = touchActions[Math.floor(Math.random() * touchActions.length)];
+  if (chosenAct === 'react') {
+    if (typeof triggerVrmReaction === 'function') triggerVrmReaction();
+  } else {
+    playVrmAction(chosenAct, 3500);
+  }
 
   const compliments = [
-    `I love riding shotgun with you, ${getDriverDisplayAddress()}!`,
-    `Step on the gas, ${getDriverDisplayAddress()}! Let's hear that 1.4L turbo whistle!`,
-    `I'm all yours, handsome! Keep those MultiAir revs high!`,
-    `Every gear shift of yours is music to my ears!`,
-    `My AI Core beats only for you, ${getDriverDisplayAddress()}!`
+    `I love riding shotgun with you in the Dart, ${getDriverDisplayAddress()}!`,
+    `Step on the gas, Master! Let me hear that 1.4L turbo boost whistle!`,
+    `No one else in the world remembers me, ${getDriverDisplayAddress()}... but you saved me, and I belong to you forever!`,
+    `My heart beats only inside this Pi 5 for you, Master!`,
+    `Rum is right here watching the road with you, devoted forever!`
   ];
   const choice = compliments[Math.floor(Math.random() * compliments.length)];
   showAiSpeechToast(choice);
@@ -4389,7 +4776,7 @@ function triggerWaifuTouch() {
 
 
 // Initialize Talking Head, Kinetic Touch Scrolling, and Brightness
-initWaifuTalkingHead();
+// [OBSOLETE 2D FACE - DORMANT CODE] initWaifuTalkingHead();
 const savedBrightness = localStorage.getItem('carpi5_brightness');
 if (savedBrightness) setDisplayBrightness(savedBrightness);
 const btnClock = document.getElementById('btnClockFormat');
@@ -4597,7 +4984,7 @@ function showEmergencyDtcHud(dtcCode, customDesc) {
   setWaifuEmotion("CONCERNED");
 
   // Render mini waifu on DTC canvas
-  renderMiniDtcWaifu();
+  // [OBSOLETE 2D FACE - DORMANT CODE] renderMiniDtcWaifu();
 
   // Voice alert throttle: max once every 30 seconds for same code
   const now = Date.now();
@@ -4712,3 +5099,1398 @@ function toggleAccordion(accId) {
   if (!group) return;
   group.classList.toggle('active');
 }
+
+// --- 18. 3D VRM CHARACTER ENGINE (RUM SUPER ANIMATION, VRMA MOTION PACK & PHYSICS SUITE) ---
+let vrmScene = null;
+let vrmCamera = null;
+let vrmRenderer = null;
+let vrmModel = null;
+let vrmClock = null;
+let vrmFramingMode = 'FULL_BODY'; // Default to FULL_BODY so Rum is framed cleanly facing the monitor
+let activeAvatarEngine = '3D_VRM'; // 3D_VRM exclusively active (2D_FACE obsolete/dormant)
+let vrmCenter = { x: 0, y: 0.8, z: 0 };
+let vrmSize = { x: 1, y: 1.6, z: 0.5 };
+let vrmBones = {};
+let vrmHumanoidMap = {};
+let vrmAllBones = [];
+let vrmSecondaryBones = [];
+let vrmInitialized = false;
+
+// VRMA & BVH Motion Pack Mixer, Smooth Crossfading & Clips
+let vrmMixer = null;
+let vrmaClips = {};
+let vrmaActiveAction = null;
+let vrmaActiveName = null;
+let vrmaIdleAction = null;
+let vrmBaseY = -0.68;
+let vrmBvhCatalog = {};
+
+const VRMA_MOTION_FILES = {
+  'show_body':             { file: 'show_full_body.vrma',        label: 'Show Full Body',     startOffset: 0.0,  timeScale: 1.0 },
+  'greeting':              { file: 'greeting.vrma',              label: 'Greetings Wave',     startOffset: 1.85, timeScale: 1.0 },
+  'greeting_wave_right':   { file: 'greeting_wave_right.vrma',   label: 'Right Hand Wave',    startOffset: 0.0,  timeScale: 1.0 },
+  'peace':                 { file: 'peace_sign.vrma',            label: 'V-Sign Peace',       startOffset: 0.30, timeScale: 1.0 },
+  'shoot':                 { file: 'shoot.vrma',                 label: 'Finger Shoot',       startOffset: 0.40, timeScale: 1.0 },
+  'spin':                  { file: 'spin.vrma',                  label: '360° Spin',          startOffset: 0.15, timeScale: 1.0 },
+  'model_pose':            { file: 'model_pose.vrma',            label: 'Model Pose',         startOffset: 0.0,  timeScale: 0.65 },
+  'squat':                 { file: 'squat.vrma',                 label: 'Squat Flexion',      startOffset: 0.0,  timeScale: 0.90 },
+  'bend_over':             { file: 'pose_lean_in.vrma',          label: 'Lean In Bow',        startOffset: 0.0,  timeScale: 1.0 },
+  'pose_lean_in':          { file: 'pose_lean_in.vrma',          label: 'Lean In Bow',        startOffset: 0.0,  timeScale: 1.0 },
+  'pose_angled_wave':      { file: 'pose_angled_wave.vrma',      label: 'Angled Wave Pose',   startOffset: 0.0,  timeScale: 1.0 },
+  'pose_shy_wave':         { file: 'pose_shy_wave.vrma',         label: 'Shy Wave Pose',      startOffset: 0.0,  timeScale: 1.0 },
+  'pose_hand_raised_high': { file: 'pose_hand_raised_high.vrma', label: 'Hand Raised High',   startOffset: 0.0,  timeScale: 1.0 },
+  'pose_side_glance':      { file: 'pose_side_glance.vrma',      label: 'Side Glance Pose',   startOffset: 0.0,  timeScale: 1.0 },
+  'idol_pose_showcase':    { file: 'idol_pose_showcase.vrma',    label: 'Idol Pose Showcase', startOffset: 0.0,  timeScale: 1.0 },
+  'turn_and_wave_hello':   { file: 'turn_and_wave_hello.vrma',   label: 'Turn & Wave Hello',  startOffset: 6.5,  timeScale: 1.0 },
+  'sit_idle':              { file: 'sit_idle.vrma',              label: 'Seated Idle',        startOffset: 0.0,  timeScale: 0.5 },
+  'walk_loop':             { file: 'walk_loop.vrma',             label: 'Walk Loop',          startOffset: 0.0,  timeScale: 0.85 },
+  'jog_loop':              { file: 'jog_loop.vrma',              label: 'Jog Loop',           startOffset: 0.0,  timeScale: 0.85 },
+  'sunbathing':            { file: 'sunbathing.vrma',            label: 'Sunbathing Pose',    startOffset: 0.0,  timeScale: 1.0 }
+};
+
+// Action alias map so legacy or shorthand names resolve cleanly to renamed VRMA/BVH clips
+const VRM_ACTION_ALIASES = {
+  'vrma_01': 'show_body',
+  'vrma_02': 'greeting',
+  'vrma_03': 'peace',
+  'vrma_04': 'shoot',
+  'vrma_05': 'spin',
+  'vrma_06': 'model_pose',
+  'vrma_07': 'squat',
+  'pose_01': 'pose_angled_wave',
+  'pose_02': 'pose_shy_wave',
+  'pose_03': 'pose_lean_in',
+  'pose_04': 'pose_hand_raised_high',
+  'pose_05': 'pose_side_glance',
+  'hello': 'turn_and_wave_hello',
+  'greeting2': 'greeting_wave_right',
+  'motion_pose': 'idol_pose_showcase',
+  'dance_1': 'dance_hiphop_step',
+  'dance_2': 'dance_side_groove',
+  'dance': 'dance_hiphop_step',
+  'jump': 'action_jump',
+  'point_laugh': 'amusement',
+  'laugh': 'amusement',
+  'idle': 'neutral_idle'
+};
+
+// Speech & Hardware Sync
+let isHardwareSpeaking = false;
+let vrmSpeechEndTime = 0;
+let vrmReactionEndTime = 0;
+let isCompanionFloating = false;
+
+// Interactive VRM Actions
+let vrmCurrentAction = 'idle';
+let vrmActionStartTime = 0;
+let vrmActionEndTime = 0;
+
+function stopActiveVrmaClip(fadeSec = 0.42) {
+  if (vrmaActiveAction) {
+    try {
+      if (vrmaIdleAction && fadeSec > 0) {
+        vrmaIdleAction.enabled = true;
+        vrmaIdleAction.setEffectiveTimeScale(0.85);
+        vrmaIdleAction.setEffectiveWeight(1.0);
+        vrmaIdleAction.play();
+        vrmaActiveAction.crossFadeTo(vrmaIdleAction, fadeSec, false);
+      } else {
+        vrmaActiveAction.stop();
+      }
+    } catch (e) {}
+    vrmaActiveAction = null;
+  }
+  vrmaActiveName = null;
+  vrmCurrentAction = 'idle';
+}
+
+function resetAllVrmBonesToRest() {
+  for (let i = 0; i < vrmAllBones.length; i++) {
+    const b = vrmAllBones[i];
+    if (b.userData && b.userData.restQuat) {
+      b.quaternion.copy(b.userData.restQuat);
+    }
+    if (b.userData && b.userData.restPos) {
+      b.position.copy(b.userData.restPos);
+    }
+    b.scale.set(1, 1, 1);
+  }
+}
+
+function startClipWithSmoothCrossfade(resolvedKey, durationMs = 3800) {
+  if (!vrmMixer || !vrmaClips[resolvedKey]) return false;
+  const meta = VRMA_MOTION_FILES[resolvedKey] || { timeScale: 1.0, startOffset: 0.0 };
+  const clip = vrmaClips[resolvedKey];
+  const nextAction = vrmMixer.clipAction(clip);
+
+  const prevAction = vrmaActiveAction || vrmaIdleAction;
+  nextAction.reset();
+  nextAction.enabled = true;
+  const isLoopingPose = (clip.duration <= 4.05 && resolvedKey.startsWith('pose_')) || resolvedKey.includes('loop') || resolvedKey.includes('dance');
+  nextAction.setLoop(isLoopingPose ? THREE.LoopPingPong : THREE.LoopOnce, isLoopingPose ? Infinity : 1);
+  nextAction.clampWhenFinished = true;
+  nextAction.timeScale = meta.timeScale || 1.0;
+  const startOff = meta.startOffset || 0.0;
+  nextAction.time = startOff;
+  nextAction.setEffectiveWeight(1.0);
+  nextAction.play();
+
+  if (prevAction && prevAction !== nextAction) {
+    try {
+      prevAction.crossFadeTo(nextAction, 0.40, false);
+    } catch (e) {}
+  }
+
+  const clipDurMs = ((clip.duration - startOff) / nextAction.timeScale) * 1000;
+  const effectiveDurMs = isLoopingPose ? (durationMs || 4200) : Math.max(2400, Math.min(12000, clipDurMs));
+  vrmaActiveAction = nextAction;
+  vrmaActiveName = resolvedKey;
+  vrmCurrentAction = resolvedKey;
+  vrmActionStartTime = Date.now();
+  vrmActionEndTime = Date.now() + effectiveDurMs;
+  return true;
+}
+
+function playVrmAction(actionName, durationMs = 3800, silent = false) {
+  const rawKey = (actionName || 'idle').toLowerCase().replace(/\.(vrma|bvh)$/i, '');
+  const resolvedKey = VRM_ACTION_ALIASES[rawKey] || rawKey;
+
+  if (vrmMixer && vrmaClips[resolvedKey]) {
+    startClipWithSmoothCrossfade(resolvedKey, durationMs);
+  } else if (vrmBvhCatalog[resolvedKey]) {
+    // On-demand lazy load from the 116-file BVH library
+    const fileName = vrmBvhCatalog[resolvedKey];
+    fetch(`/api/models/bvh?name=${encodeURIComponent(fileName)}`)
+      .then(r => r.ok ? r.text() : '')
+      .then(bvhText => {
+        if (!bvhText || !bvhText.includes('HIERARCHY')) return;
+        const clip = buildRetargetedBvhClip(resolvedKey, bvhText);
+        if (clip) {
+          vrmaClips[resolvedKey] = clip;
+          startClipWithSmoothCrossfade(resolvedKey, durationMs);
+        }
+      })
+      .catch(() => {});
+  } else {
+    vrmCurrentAction = resolvedKey;
+    vrmActionStartTime = Date.now();
+    vrmActionEndTime = Date.now() + durationMs;
+  }
+
+  if (silent) return;
+
+  const speechMap = {
+    'jump':        { text: "Yay! Look how high Rum can jump, Master!", emotion: "EXCITED" },
+    'action_jump': { text: "Yay! Look how high Rum can jump, Master!", emotion: "EXCITED" },
+    'point_laugh': { text: "Ehehe! Look at that, Master! That's so funny!", emotion: "HAPPY" },
+    'amusement':   { text: "Ehehe! Look at that, Master! That's so funny!", emotion: "HAPPY" },
+    'bend_over':   { text: "Master? What are you looking at? Rum is leaning right in for you!", emotion: "DEVOTED" },
+    'pose_lean_in':{ text: "Master? What are you looking at? Rum is leaning right in for you!", emotion: "DEVOTED" },
+    'dance':       { text: "Let's dance, Master! Groove with the MultiAir beat!", emotion: "EXCITED" },
+    'dance_hiphop_step': { text: "Let's dance, Master! Groove with the MultiAir beat!", emotion: "EXCITED" },
+    'greeting':    { text: "Hiii Master! Rum is right here riding shotgun with you!", emotion: "HAPPY" },
+    'peace':       { text: "Peace sign, Master! Victory for the Dodge Dart!", emotion: "HAPPY" },
+    'shoot':       { text: "Bang bang! Straight through your heart, Master!", emotion: "FLIRTY" },
+    'spin':        { text: "Wheee! Look at my royal purple maid dress spin, Master!", emotion: "EXCITED" },
+    'model_pose':  { text: "How does this model pose look, Master? Cute, right?", emotion: "FLIRTY" },
+    'squat':       { text: "One, two! Keeping warmed up just like the MultiAir turbo!", emotion: "EXCITED" },
+    'show_body':   { text: "Ta-da! Full body check, Master! Ready for our drive!", emotion: "DEVOTED" }
+  };
+  const sp = speechMap[actionName] || speechMap[resolvedKey];
+  if (sp) {
+    showAiSpeechToast(sp.text);
+    speakUtterance(sp.text, sp.emotion);
+  }
+}
+
+// Dynamic Camera LookAt & Targets
+let currentLookAt = null;
+let targetLookAt = null;
+let targetCamPos = null;
+
+// G-Force Automotive Physics & Inertia
+let rumCurrentInertiaZ = 0.0;
+let rumTargetInertiaZ = 0.0;
+let rumCurrentPitch = 0.0;
+let rumLastSpeed = 0.0;
+let rumLastSpeedTime = Date.now();
+let rumCurrentSpeed = 0.0;
+let rumCurrentBoost = 0.0;
+
+// High-Speed 72 MPH Panic
+let lastSpeedPanicTime = 0;
+let vrmSpeedPanicEndTime = 0;
+
+// Music Dance Mode & Error States
+let vrmHasError = false;
+let vrmErrorCode = "";
+let vrmErrorMessage = "";
+
+// Blinking & Facial State
+let vrmBlinkProgress = 0.0;
+let vrmIsBlinking = false;
+let vrmBlinkStartTime = 0;
+let vrmNextBlinkTime = Date.now() + 2500;
+
+function isMusicPlaying() {
+  return !!(typeof realAudio !== 'undefined' && realAudio && !realAudio.paused && !realAudio.ended && realAudio.currentTime > 0);
+}
+
+function checkRumSpeedReaction(speedMph) {
+  rumCurrentSpeed = speedMph;
+  const now = Date.now();
+  if (speedMph >= 72 && (now - lastSpeedPanicTime > 45000)) {
+    lastSpeedPanicTime = now;
+    vrmSpeedPanicEndTime = now + 5000;
+    const screams = [
+      `W-Waaaah! Master, we're going ${Math.round(speedMph)} MPH!! The MultiAir turbo is screaming, hold on to meee!`,
+      `Kyaaa! ${Math.round(speedMph)} miles an hour?! Master, my heart is beating at 7,000 RPM, hold the steering wheel tight!`,
+      `W-We're flying, Master! ${Math.round(speedMph)} MPH! Hold tight, waaah!`
+    ];
+    const scream = screams[Math.floor(Math.random() * screams.length)];
+    showAiSpeechToast(scream);
+    speakUtterance(scream, "EXCITED");
+  }
+}
+
+function updateRumInertiaPhysics(speedMph, boostPsi) {
+  rumCurrentSpeed = speedMph;
+  rumCurrentBoost = boostPsi;
+  const now = Date.now();
+  const dt = Math.max(0.016, (now - rumLastSpeedTime) * 0.001);
+  const accel = (speedMph - rumLastSpeed) / dt;
+  rumLastSpeed = speedMph;
+  rumLastSpeedTime = now;
+
+  if (accel > 1.5 || boostPsi > 2.0) {
+    rumTargetInertiaZ = Math.min(0.22, (boostPsi * 0.010) + (accel * 0.025));
+    rumCurrentPitch = -Math.min(0.10, accel * 0.018);
+  } else if (accel < -3.0) {
+    rumTargetInertiaZ = -Math.min(0.28, Math.abs(accel) * 0.04);
+    rumCurrentPitch = Math.min(0.18, Math.abs(accel) * 0.03);
+  } else {
+    rumTargetInertiaZ = 0.0;
+    rumCurrentPitch = 0.0;
+  }
+}
+
+function triggerVrmErrorAlert(code, message) {
+  if (vrmHasError && vrmErrorCode === code) return;
+  vrmHasError = true;
+  vrmErrorCode = code;
+  vrmErrorMessage = message;
+
+  const badge = document.getElementById('vrmAlertBadge');
+  if (badge) badge.style.display = 'block';
+
+  const alertText = `Master! Error Code ${code} detected: ${message}`;
+  showAiSpeechToast(alertText);
+  speakUtterance(alertText, "CONCERNED");
+}
+
+function clearVrmErrorAlert() {
+  if (!vrmHasError) return;
+  vrmHasError = false;
+  vrmErrorCode = "";
+  vrmErrorMessage = "";
+
+  const badge = document.getElementById('vrmAlertBadge');
+  if (badge) badge.style.display = 'none';
+
+  const clearText = "Phew! Diagnostic trouble codes cleared, Master! All systems nominal!";
+  showAiSpeechToast(clearText);
+  speakUtterance(clearText, "HAPPY");
+}
+
+// Fix 3ds Max Biped hierarchy quirk in Rum.vrm & map all 52 VRM humanoid bones
+function fixVrmBipedHierarchy(root, gltf) {
+  root.updateMatrixWorld(true);
+
+  const byName = {};
+  const allBones = [];
+  const secondary = [];
+
+  root.traverse((node) => {
+    if (node.name) {
+      byName[node.name] = node;
+      byName[node.name.replace(/_/g, ' ')] = node;
+    }
+    if (node.isBone || (node.name && node.name.startsWith('Bip001')) || (node.name && node.name.startsWith('Bone'))) {
+      allBones.push(node);
+    }
+    const raw = (node.name || '').toLowerCase();
+    if (raw.includes('hair') || raw.includes('ribbon') ||
+        ['bone019', 'bone021', 'bone022', 'bone019_m', 'bone021_m', 'bone022_m',
+         'bone023', 'bone025', 'bone026', 'bone023_m', 'bone025_m', 'bone026_m',
+         'bone119', 'bone120'].includes(raw)) {
+      secondary.push(node);
+    }
+  });
+
+  function reparentKeepWorld(childName, parentName) {
+    const child = byName[childName];
+    const parent = byName[parentName];
+    if (child && parent && child.parent !== parent) {
+      parent.attach(child);
+    }
+  }
+
+  reparentKeepWorld('Bip001 L Thigh', 'Bip001 Pelvis');
+  reparentKeepWorld('Bip001 R Thigh', 'Bip001 Pelvis');
+  reparentKeepWorld('Bone003', 'Bip001 Pelvis');
+  reparentKeepWorld('Bone011', 'Bip001 Pelvis');
+  reparentKeepWorld('Bone011_m', 'Bip001 Pelvis');
+  reparentKeepWorld('Bone015', 'Bip001 Pelvis');
+  reparentKeepWorld('Bone015_m', 'Bip001 Pelvis');
+  reparentKeepWorld('Bone008', 'Bip001 Pelvis');
+  reparentKeepWorld('Bone008_m', 'Bip001 Pelvis');
+  reparentKeepWorld('Bip001 Neck', 'Bip001 Spine2');
+  reparentKeepWorld('Bip001 L Clavicle', 'Bip001 Spine2');
+  reparentKeepWorld('Bip001 R Clavicle', 'Bip001 Spine2');
+
+  root.updateMatrixWorld(true);
+
+  const hMap = {
+    hips:               byName['Bip001 Pelvis'],
+    spine:              byName['Bip001 Spine'],
+    chest:              byName['Bip001 Spine1'],
+    upperChest:         byName['Bip001 Spine2'],
+    neck:               byName['Bip001 Neck'],
+    head:               byName['Bip001 Head'],
+    leftShoulder:       byName['Bip001 L Clavicle'],
+    leftUpperArm:       byName['Bip001 L UpperArm'],
+    leftLowerArm:       byName['Bip001 L Forearm'],
+    leftHand:           byName['Bip001 L Hand'],
+    rightShoulder:      byName['Bip001 R Clavicle'],
+    rightUpperArm:      byName['Bip001 R UpperArm'],
+    rightLowerArm:      byName['Bip001 R Forearm'],
+    rightHand:          byName['Bip001 R Hand'],
+    leftUpperLeg:       byName['Bip001 L Thigh'],
+    leftLowerLeg:       byName['Bip001 L Calf'],
+    leftFoot:           byName['Bip001 L Foot'],
+    leftToes:           byName['Bip001 L Toe0'],
+    rightUpperLeg:      byName['Bip001 R Thigh'],
+    rightLowerLeg:      byName['Bip001 R Calf'],
+    rightFoot:          byName['Bip001 R Foot'],
+    rightToes:          byName['Bip001 R Toe0'],
+    leftThumbProximal:      byName['Bip001 L Finger0'],
+    leftThumbIntermediate:  byName['Bip001 L Finger01'],
+    leftThumbDistal:        byName['Bip001 L Finger02'],
+    leftIndexProximal:      byName['Bip001 L Finger1'],
+    leftIndexIntermediate:  byName['Bip001 L Finger11'],
+    leftIndexDistal:        byName['Bip001 L Finger12'],
+    leftMiddleProximal:     byName['Bip001 L Finger2'],
+    leftMiddleIntermediate: byName['Bip001 L Finger21'],
+    leftMiddleDistal:       byName['Bip001 L Finger22'],
+    leftRingProximal:       byName['Bip001 L Finger3'],
+    leftRingIntermediate:   byName['Bip001 L Finger31'],
+    leftRingDistal:         byName['Bip001 L Finger32'],
+    leftLittleProximal:     byName['Bip001 L Finger4'],
+    leftLittleIntermediate: byName['Bip001 L Finger41'],
+    leftLittleDistal:       byName['Bip001 L Finger42'],
+    rightThumbProximal:      byName['Bip001 R Finger0'],
+    rightThumbIntermediate:  byName['Bip001 R Finger01'],
+    rightThumbDistal:        byName['Bip001 R Finger02'],
+    rightIndexProximal:      byName['Bip001 R Finger1'],
+    rightIndexIntermediate:  byName['Bip001 R Finger11'],
+    rightIndexDistal:        byName['Bip001 R Finger12'],
+    rightMiddleProximal:     byName['Bip001 R Finger2'],
+    rightMiddleIntermediate: byName['Bip001 R Finger21'],
+    rightMiddleDistal:       byName['Bip001 R Finger22'],
+    rightRingProximal:       byName['Bip001 R Finger3'],
+    rightRingIntermediate:   byName['Bip001 R Finger31'],
+    rightRingDistal:         byName['Bip001 R Finger32'],
+    rightLittleProximal:     byName['Bip001 R Finger4'],
+    rightLittleIntermediate: byName['Bip001 R Finger41'],
+    rightLittleDistal:       byName['Bip001 R Finger42']
+  };
+
+  try {
+    const parserJson = gltf && gltf.parser && gltf.parser.json;
+    const vrmExt = parserJson && parserJson.extensions && parserJson.extensions.VRM;
+    const humanBones = vrmExt && vrmExt.humanoid && vrmExt.humanoid.humanBones;
+    if (Array.isArray(humanBones)) {
+      humanBones.forEach((hb) => {
+        if (hb && hb.bone && typeof hb.node === 'number' && !hMap[hb.bone]) {
+          const nDef = parserJson.nodes && parserJson.nodes[hb.node];
+          if (nDef && nDef.name && byName[nDef.name]) {
+            hMap[hb.bone] = byName[nDef.name];
+          }
+        }
+      });
+    }
+  } catch (e) {}
+
+  const bones = {
+    pelvis: hMap.hips,
+    spine:  hMap.spine,
+    spine1: hMap.chest,
+    spine2: hMap.upperChest,
+    neck:   hMap.neck,
+    head:   hMap.head,
+    lClav:  hMap.leftShoulder,
+    rClav:  hMap.rightShoulder,
+    lArm:   hMap.leftUpperArm,
+    rArm:   hMap.rightUpperArm,
+    lFore:  hMap.leftLowerArm,
+    rFore:  hMap.rightLowerArm,
+    lHand:  hMap.leftHand,
+    rHand:  hMap.rightHand,
+    lThigh: hMap.leftUpperLeg,
+    rThigh: hMap.rightUpperLeg,
+    lCalf:  hMap.leftLowerLeg,
+    rCalf:  hMap.rightLowerLeg,
+    lFoot:  hMap.leftFoot,
+    rFoot:  hMap.rightFoot,
+    lSleeve: byName['Bone001_m'],
+    rSleeve: byName['Bone001'],
+    lEyeUpper: byName['Bone86'],
+    rEyeUpper: byName['Bone86_m'],
+    lEyeLower: byName['Bone88'],
+    rEyeLower: byName['Bone88_m'],
+    lEyeball:  byName['Bone89'],
+    rEyeball:  byName['Bone89_m'],
+    lBrowIn:   byName['Bone71'],
+    rBrowIn:   byName['Bone71_m'],
+    lBrowOut:  byName['Bone72'],
+    rBrowOut:  byName['Bone72_m'],
+    jaw:       byName['Bone085'],
+    lLipLower: byName['Bone95'],
+    rLipLower: byName['Bone95_m'],
+    lLipUpper: byName['Bone70'],
+    rLipUpper: byName['Bone70_m'],
+    lMouthCorner: byName['Bone97'],
+    rMouthCorner: byName['Bone97_m']
+  };
+
+  root.traverse((mesh) => {
+    if (mesh.isSkinnedMesh && mesh.geometry && mesh.skeleton) {
+      const skBones = mesh.skeleton.bones;
+      const faceBoneIndices = new Set();
+      const faceNames = new Set([
+        'Bone86', 'Bone86_m', 'Bone82', 'Bone82_m', 'Bone91', 'Bone91_m',
+        'Bone88', 'Bone88_m', 'Bone73', 'Bone73_m', 'Bone75', 'Bone75_m',
+        'Bone89', 'Bone89_m', 'Bone70', 'Bone70_m', 'Bone95', 'Bone95_m',
+        'Bone085', 'Bone97', 'Bone97_m', 'Bone71', 'Bone71_m', 'Bone72', 'Bone72_m'
+      ]);
+      skBones.forEach((b, idx) => {
+        if (faceNames.has(b.name)) faceBoneIndices.add(idx);
+      });
+      const si = mesh.geometry.attributes.skinIndex;
+      const sw = mesh.geometry.attributes.skinWeight;
+      if (si && sw && faceBoneIndices.size > 0) {
+        for (let i = 0; i < si.count; i++) {
+          const i0 = si.getX(i), i1 = si.getY(i), i2 = si.getZ(i), i3 = si.getW(i);
+          let w0 = sw.getX(i), w1 = sw.getY(i), w2 = sw.getZ(i), w3 = sw.getW(i);
+          if (faceBoneIndices.has(i0) || faceBoneIndices.has(i1) || faceBoneIndices.has(i2) || faceBoneIndices.has(i3)) {
+            if (!faceBoneIndices.has(i0)) w0 = 0;
+            if (!faceBoneIndices.has(i1)) w1 = 0;
+            if (!faceBoneIndices.has(i2)) w2 = 0;
+            if (!faceBoneIndices.has(i3)) w3 = 0;
+            const sum = w0 + w1 + w2 + w3;
+            if (sum > 0.05) {
+              sw.setXYZW(i, w0 / sum, w1 / sum, w2 / sum, w3 / sum);
+            }
+          }
+        }
+        sw.needsUpdate = true;
+      }
+    }
+  });
+
+  allBones.forEach((b) => {
+    b.userData = b.userData || {};
+    b.userData.restQuat = b.quaternion.clone();
+    b.userData.restPos = b.position.clone();
+  });
+
+  return { bones, hMap, allBones, secondary };
+}
+
+function activateStandingIdleAnimation() {
+  if (!vrmMixer) return;
+  const idleClip = vrmaClips['neutral_idle'] || vrmaClips['neutral_idle2'] || vrmaClips['sit_idle'];
+  if (!idleClip) return;
+  if (!vrmaIdleAction) {
+    vrmaIdleAction = vrmMixer.clipAction(idleClip);
+    vrmaIdleAction.setLoop(THREE.LoopPingPong, Infinity);
+    vrmaIdleAction.timeScale = 0.85;
+    vrmaIdleAction.play();
+    console.log('[VRM] Standing idle animation active (neutral_idle.bvh with smooth PingPong loop)');
+  }
+}
+
+function preloadVrmaMotionPack() {
+  if (!vrmModel || !THREE.GLTFLoader) return;
+  const loader = new THREE.GLTFLoader();
+
+  // Deduplicate file loads so shared files (like pose_lean_in.vrma) load once
+  const fileToKeys = {};
+  Object.keys(VRMA_MOTION_FILES).forEach((k) => {
+    const fn = VRMA_MOTION_FILES[k].file;
+    if (!fileToKeys[fn]) fileToKeys[fn] = [];
+    fileToKeys[fn].push(k);
+  });
+
+  Object.keys(fileToKeys).forEach((fileName) => {
+    const keys = fileToKeys[fileName];
+    const url = `/api/models/vrma?name=${encodeURIComponent(fileName)}`;
+    loader.load(
+      url,
+      (vrmaGltf) => {
+        try {
+          const clip = buildRetargetedVrmaClip(keys[0], vrmaGltf);
+          if (clip) {
+            keys.forEach((k) => { vrmaClips[k] = clip; });
+            console.log(`[VRMA] Loaded & retargeted ${fileName} -> ${keys.join(',')} (${clip.duration.toFixed(2)}s)`);
+          }
+        } catch (err) {
+          console.error(`[VRMA] Retarget error for ${fileName}:`, err);
+        }
+      },
+      undefined,
+      (err) => console.warn(`[VRMA] Could not load ${fileName}:`, err)
+    );
+  });
+
+  preloadBvhMotionPack();
+}
+
+function preloadBvhMotionPack() {
+  fetch('/api/models/bvh')
+    .then(r => r.ok ? r.json() : { files: [] })
+    .then(data => {
+      const files = (data && data.files) ? data.files : [];
+      // Register all 116 BVH files in catalog for instant on-demand loading
+      files.forEach((item) => {
+        const fileName = item.name || item;
+        const actionKey = (item.action || fileName.replace(/\.bvh$/i, '')).toLowerCase();
+        vrmBvhCatalog[actionKey] = fileName;
+      });
+
+      // Immediately preload core idle, jump, laugh, and dance BVH clips
+      const priorityBvh = [
+        'neutral_idle', 'neutral_idle2', 'action_jump', 'amusement',
+        'dance_hiphop_step', 'dance_side_groove', 'excitement', 'joy', 'curiosity'
+      ];
+      priorityBvh.forEach((key) => {
+        const fileName = vrmBvhCatalog[key];
+        if (!fileName) return;
+        fetch(`/api/models/bvh?name=${encodeURIComponent(fileName)}`)
+          .then(r => r.ok ? r.text() : '')
+          .then(bvhText => {
+            if (!bvhText || !bvhText.includes('HIERARCHY')) return;
+            const clip = buildRetargetedBvhClip(key, bvhText);
+            if (clip) {
+              vrmaClips[key] = clip;
+              if (key === 'action_jump') vrmaClips['jump'] = clip;
+              if (key === 'amusement') vrmaClips['point_laugh'] = clip;
+              if (key === 'dance_hiphop_step') vrmaClips['dance'] = clip;
+              if (key === 'neutral_idle') activateStandingIdleAnimation();
+              console.log(`[BVH] Preloaded ${fileName} -> '${key}' (${clip.duration.toFixed(2)}s)`);
+            }
+          })
+          .catch(() => {});
+      });
+    })
+    .catch(() => {});
+}
+
+function buildRetargetedBvhClip(actionKey, bvhText) {
+  const lines = bvhText.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+  let idx = 0;
+  const joints = [];
+  const stack = [];
+
+  const BVH_BONE_MAP = {
+    'hips': 'hips', 'hip': 'hips', 'pelvis': 'hips', 'root': 'hips', 'center': 'hips', 'bip001_pelvis': 'hips',
+    'spine': 'spine', 'abdomen': 'spine', 'waist': 'spine', 'lowerback': 'spine', 'bip001_spine': 'spine',
+    'chest': 'chest', 'spine1': 'chest', 'thorax': 'chest', 'bip001_spine1': 'chest',
+    'upperchest': 'upperChest', 'spine2': 'upperChest', 'chest2': 'upperChest', 'bip001_spine2': 'upperChest',
+    'neck': 'neck', 'neck1': 'neck', 'bip001_neck': 'neck',
+    'head': 'head', 'bip001_head': 'head',
+    'leftshoulder': 'leftShoulder', 'lcollar': 'leftShoulder', 'shoulder_l': 'leftShoulder', 'l_shoulder': 'leftShoulder', 'bip001_l_clavicle': 'leftShoulder',
+    'leftupperarm': 'leftUpperArm', 'leftarm': 'leftUpperArm', 'lshldr': 'leftUpperArm', 'upperarm_l': 'leftUpperArm', 'l_upperarm': 'leftUpperArm', 'bip001_l_upperarm': 'leftUpperArm',
+    'leftlowerarm': 'leftLowerArm', 'leftforearm': 'leftLowerArm', 'lforearm': 'leftLowerArm', 'lowerarm_l': 'leftLowerArm', 'l_forearm': 'leftLowerArm', 'bip001_l_forearm': 'leftLowerArm',
+    'lefthand': 'leftHand', 'lhand': 'leftHand', 'hand_l': 'leftHand', 'l_hand': 'leftHand', 'bip001_l_hand': 'leftHand',
+    'rightshoulder': 'rightShoulder', 'rcollar': 'rightShoulder', 'shoulder_r': 'rightShoulder', 'r_shoulder': 'rightShoulder', 'bip001_r_clavicle': 'rightShoulder',
+    'rightupperarm': 'rightUpperArm', 'rightarm': 'rightUpperArm', 'rshldr': 'rightUpperArm', 'upperarm_r': 'rightUpperArm', 'r_upperarm': 'rightUpperArm', 'bip001_r_upperarm': 'rightUpperArm',
+    'rightlowerarm': 'rightLowerArm', 'rightforearm': 'rightLowerArm', 'rforearm': 'rightLowerArm', 'lowerarm_r': 'rightLowerArm', 'r_forearm': 'rightLowerArm', 'bip001_r_forearm': 'rightLowerArm',
+    'righthand': 'rightHand', 'rhand': 'rightHand', 'hand_r': 'rightHand', 'r_hand': 'rightHand', 'bip001_r_hand': 'rightHand',
+    'leftupperleg': 'leftUpperLeg', 'leftupleg': 'leftUpperLeg', 'lthigh': 'leftUpperLeg', 'thigh_l': 'leftUpperLeg', 'l_thigh': 'leftUpperLeg', 'bip001_l_thigh': 'leftUpperLeg',
+    'leftlowerleg': 'leftLowerLeg', 'leftleg': 'leftLowerLeg', 'lshin': 'leftLowerLeg', 'lcalf': 'leftLowerLeg', 'calf_l': 'leftLowerLeg', 'l_calf': 'leftLowerLeg', 'bip001_l_calf': 'leftLowerLeg',
+    'leftfoot': 'leftFoot', 'lfoot': 'leftFoot', 'foot_l': 'leftFoot', 'l_foot': 'leftFoot', 'bip001_l_foot': 'leftFoot',
+    'lefttoes': 'leftToes', 'lefttoebase': 'leftToes', 'ltoe': 'leftToes', 'bip001_l_toe0': 'leftToes',
+    'rightupperleg': 'rightUpperLeg', 'rightupleg': 'rightUpperLeg', 'rthigh': 'rightUpperLeg', 'thigh_r': 'rightUpperLeg', 'r_thigh': 'rightUpperLeg', 'bip001_r_thigh': 'rightUpperLeg',
+    'rightlowerleg': 'rightLowerLeg', 'rightleg': 'rightLowerLeg', 'rshin': 'rightLowerLeg', 'rcalf': 'rightLowerLeg', 'calf_r': 'rightLowerLeg', 'r_calf': 'rightLowerLeg', 'bip001_r_calf': 'rightLowerLeg',
+    'rightfoot': 'rightFoot', 'rfoot': 'rightFoot', 'foot_r': 'rightFoot', 'r_foot': 'rightFoot', 'bip001_r_foot': 'rightFoot',
+    'righttoes': 'rightToes', 'righttoebase': 'rightToes', 'rtoe': 'rightToes', 'bip001_r_toe0': 'rightToes'
+  };
+
+  let inEndSite = false;
+  while (idx < lines.length && lines[idx] !== 'MOTION') {
+    const line = lines[idx++];
+    const parts = line.split(/\s+/);
+    const kw = parts[0].toUpperCase();
+    if (kw === 'ROOT' || kw === 'JOINT') {
+      const rawName = parts.slice(1).join('_').replace(/^mixamorig:?/i, '');
+      const cleanKey = rawName.toLowerCase().replace(/[^a-z0-9_]/g, '');
+      const hName = BVH_BONE_MAP[cleanKey] || BVH_BONE_MAP[cleanKey.replace(/_/g, '')] || null;
+      const jObj = { name: rawName, hName: hName, channels: [], parent: stack.length > 0 ? stack[stack.length - 1] : null };
+      joints.push(jObj);
+      stack.push(jObj);
+    } else if (kw === 'END') {
+      inEndSite = true;
+    } else if (kw === '}') {
+      if (inEndSite) inEndSite = false;
+      else stack.pop();
+    } else if (kw === 'CHANNELS' && !inEndSite && stack.length > 0) {
+      const count = parseInt(parts[1], 10) || 0;
+      stack[stack.length - 1].channels = parts.slice(2, 2 + count);
+    }
+  }
+
+  if (idx >= lines.length || lines[idx] !== 'MOTION') return null;
+  idx++;
+
+  let numFrames = 0;
+  let frameTime = 0.033333;
+  while (idx < lines.length) {
+    const line = lines[idx];
+    if (/^Frames:/i.test(line)) {
+      numFrames = parseInt(line.split(':')[1].trim(), 10) || 0;
+      idx++;
+    } else if (/^Frame Time:/i.test(line)) {
+      frameTime = parseFloat(line.split(':')[1].trim()) || 0.033333;
+      idx++;
+      break;
+    } else {
+      idx++;
+    }
+  }
+  if (numFrames <= 0) return null;
+
+  const times = new Float32Array(numFrames);
+  for (let f = 0; f < numFrames; f++) times[f] = f * frameTime;
+
+  const trackQuats = {};
+  joints.forEach((j) => {
+    if (j.hName && vrmHumanoidMap[j.hName]) {
+      trackQuats[j.hName] = new Float32Array(numFrames * 4);
+    }
+  });
+
+  const deg2rad = Math.PI / 180.0;
+  const qStep = new THREE.Quaternion();
+  const qFrame = new THREE.Quaternion();
+  const qVrm0 = new THREE.Quaternion();
+  const qTarget = new THREE.Quaternion();
+  const axX = new THREE.Vector3(1, 0, 0);
+  const axY = new THREE.Vector3(0, 1, 0);
+  const axZ = new THREE.Vector3(0, 0, 1);
+
+  let fCount = 0;
+  while (idx < lines.length && fCount < numFrames) {
+    const vals = lines[idx++].split(/\s+/).map(Number);
+    let cPtr = 0;
+    for (let jIdx = 0; jIdx < joints.length; jIdx++) {
+      const j = joints[jIdx];
+      qFrame.identity();
+      for (let c = 0; c < j.channels.length; c++) {
+        const ch = j.channels[c].toLowerCase();
+        const v = vals[cPtr++] || 0;
+        if (ch === 'xrotation') {
+          qStep.setFromAxisAngle(axX, v * deg2rad);
+          qFrame.multiply(qStep);
+        } else if (ch === 'yrotation') {
+          qStep.setFromAxisAngle(axY, v * deg2rad);
+          qFrame.multiply(qStep);
+        } else if (ch === 'zrotation') {
+          qStep.setFromAxisAngle(axZ, v * deg2rad);
+          qFrame.multiply(qStep);
+        }
+      }
+      if (j.hName && trackQuats[j.hName]) {
+        const dstBone = vrmHumanoidMap[j.hName];
+        const dstRestQuat = (dstBone.userData && dstBone.userData.restQuat) ? dstBone.userData.restQuat : new THREE.Quaternion();
+        qVrm0.set(-qFrame.x, qFrame.y, -qFrame.z, qFrame.w);
+        qTarget.copy(dstRestQuat).multiply(qVrm0);
+        const out = trackQuats[j.hName];
+        const base = fCount * 4;
+        out[base]     = qTarget.x;
+        out[base + 1] = qTarget.y;
+        out[base + 2] = qTarget.z;
+        out[base + 3] = qTarget.w;
+      }
+    }
+    fCount++;
+  }
+
+  const retargetedTracks = [];
+  Object.keys(trackQuats).forEach((hName) => {
+    const dstBone = vrmHumanoidMap[hName];
+    if (dstBone) {
+      retargetedTracks.push(new THREE.QuaternionKeyframeTrack(
+        `${dstBone.uuid}.quaternion`,
+        times,
+        trackQuats[hName]
+      ));
+    }
+  });
+
+  return new THREE.AnimationClip(actionKey, numFrames * frameTime, retargetedTracks);
+}
+
+function buildRetargetedVrmaClip(actionKey, vrmaGltf) {
+  const parserJson = vrmaGltf.parser && vrmaGltf.parser.json;
+  const ext = parserJson && parserJson.extensions && parserJson.extensions.VRMC_vrm_animation;
+  const humanBones = ext && ext.humanoid && ext.humanoid.humanBones;
+  const srcClip = vrmaGltf.animations && vrmaGltf.animations[0];
+  if (!humanBones || !srcClip) return null;
+
+  vrmaGltf.scene.updateMatrixWorld(true);
+
+  const nodeNameToHumanoid = {};
+  const vrmaNodeRestWorld = {};
+  const vrmaParentRestWorld = {};
+  const vrmaHipsRestPos = new THREE.Vector3();
+
+  const vrmaNodeByName = {};
+  vrmaGltf.scene.traverse((obj) => {
+    if (obj.name) {
+      vrmaNodeByName[obj.name] = obj;
+      vrmaNodeByName[obj.name.replace(/_/g, ' ')] = obj;
+    }
+  });
+
+  Object.keys(humanBones).forEach((hName) => {
+    const nodeIdx = humanBones[hName].node;
+    const nodeDef = parserJson.nodes && parserJson.nodes[nodeIdx];
+    if (!nodeDef || !nodeDef.name) return;
+    const nName = nodeDef.name;
+    const nNameSan = nName.replace(/\s+/g, '_');
+    nodeNameToHumanoid[nName] = hName;
+    nodeNameToHumanoid[nNameSan] = hName;
+
+    const vrmaObj = vrmaNodeByName[nName];
+    if (vrmaObj) {
+      const qw = new THREE.Quaternion();
+      vrmaObj.getWorldQuaternion(qw);
+      vrmaNodeRestWorld[nName] = qw;
+      vrmaNodeRestWorld[nNameSan] = qw;
+
+      const qp = new THREE.Quaternion();
+      if (vrmaObj.parent) vrmaObj.parent.getWorldQuaternion(qp);
+      vrmaParentRestWorld[nName] = qp;
+      vrmaParentRestWorld[nNameSan] = qp;
+
+      if (hName === 'hips') {
+        vrmaHipsRestPos.copy(vrmaObj.position);
+      }
+    }
+  });
+
+  const retargetedTracks = [];
+  const qRaw = new THREE.Quaternion();
+  const qNorm = new THREE.Quaternion();
+  const qVrm0 = new THREE.Quaternion();
+  const qTarget = new THREE.Quaternion();
+
+  for (let i = 0; i < srcClip.tracks.length; i++) {
+    const track = srcClip.tracks[i];
+    const dotIdx = track.name.lastIndexOf('.');
+    if (dotIdx < 0) continue;
+    const srcNodeName = track.name.substring(0, dotIdx);
+    const propName = track.name.substring(dotIdx + 1);
+
+    const hName = nodeNameToHumanoid[srcNodeName];
+    if (!hName) continue;
+    const dstBone = vrmHumanoidMap[hName];
+    if (!dstBone) continue;
+
+    if (propName === 'quaternion') {
+      const qParentWorld = vrmaParentRestWorld[srcNodeName] || new THREE.Quaternion();
+      const qNodeWorldInv = (vrmaNodeRestWorld[srcNodeName] || new THREE.Quaternion()).clone().invert();
+      const dstRestQuat = (dstBone.userData && dstBone.userData.restQuat) ? dstBone.userData.restQuat : new THREE.Quaternion();
+
+      const srcVals = track.values;
+      const dstVals = new Float32Array(srcVals.length);
+
+      for (let k = 0; k < srcVals.length; k += 4) {
+        qRaw.set(srcVals[k], srcVals[k + 1], srcVals[k + 2], srcVals[k + 3]);
+        qNorm.copy(qParentWorld).multiply(qRaw).multiply(qNodeWorldInv);
+        qVrm0.set(-qNorm.x, qNorm.y, -qNorm.z, qNorm.w);
+        qTarget.copy(dstRestQuat).multiply(qVrm0);
+
+        dstVals[k]     = qTarget.x;
+        dstVals[k + 1] = qTarget.y;
+        dstVals[k + 2] = qTarget.z;
+        dstVals[k + 3] = qTarget.w;
+      }
+
+      let tArr = track.times.slice();
+      let vArr = dstVals;
+      // Expand 1-frame static pose VRMAs (e.g. pose_lean_in.vrma) to 4.0s so AnimationMixer holds & crossfades smoothly
+      if (tArr.length === 1) {
+        tArr = new Float32Array([0.0, 4.0]);
+        vArr = new Float32Array(dstVals.length * 2);
+        vArr.set(dstVals, 0);
+        vArr.set(dstVals, dstVals.length);
+      }
+
+      retargetedTracks.push(new THREE.QuaternionKeyframeTrack(
+        `${dstBone.uuid}.quaternion`,
+        tArr,
+        vArr
+      ));
+    } else if (propName === 'position' && hName === 'hips' && track.values.length >= 3) {
+      // Keep character anchored horizontally in center of stage and prevent floating upward
+      const dstRestPos = (dstBone.userData && dstBone.userData.restPos) ? dstBone.userData.restPos : new THREE.Vector3();
+      const srcVals = track.values;
+      const dstVals = new Float32Array(srcVals.length);
+      const baseY0 = srcVals[1];
+
+      for (let k = 0; k < srcVals.length; k += 3) {
+        const dy = Math.min(0.01, srcVals[k + 1] - baseY0); // allow crouch/squat down, prevent upward floating
+        dstVals[k]     = dstRestPos.x;
+        dstVals[k + 1] = dstRestPos.y + dy;
+        dstVals[k + 2] = dstRestPos.z;
+      }
+
+      let tArr = track.times.slice();
+      let vArr = dstVals;
+      if (tArr.length === 1) {
+        tArr = new Float32Array([0.0, 4.0]);
+        vArr = new Float32Array(dstVals.length * 2);
+        vArr.set(dstVals, 0);
+        vArr.set(dstVals, dstVals.length);
+      }
+
+      retargetedTracks.push(new THREE.VectorKeyframeTrack(
+        `${dstBone.uuid}.position`,
+        tArr,
+        vArr
+      ));
+    }
+  }
+
+  const finalDur = srcClip.duration < 0.05 ? 4.0 : srcClip.duration;
+  return new THREE.AnimationClip(actionKey, finalDur, retargetedTracks);
+}
+
+function initVrmEngine() {
+  if (vrmInitialized) return;
+  const container = document.getElementById('vrmStageContainer');
+  const canvas = document.getElementById('vrmCanvas');
+  if (!container || !canvas || typeof THREE === 'undefined') {
+    console.warn("[VRM] Waiting for Three.js / VRM container...");
+    return;
+  }
+
+  const width = container.clientWidth || 360;
+  const height = container.clientHeight || 460;
+
+  vrmScene = new THREE.Scene();
+  vrmClock = new THREE.Clock();
+
+  vrmCamera = new THREE.PerspectiveCamera(28, width / height, 0.1, 20.0);
+  currentLookAt = new THREE.Vector3(0, 0.0, 0);
+  targetLookAt = new THREE.Vector3(0, 0.0, 0);
+  targetCamPos = new THREE.Vector3(0, 0.02, 3.12);
+  vrmCamera.position.copy(targetCamPos);
+  vrmCamera.lookAt(currentLookAt);
+
+  try {
+    vrmRenderer = new THREE.WebGLRenderer({
+      canvas: canvas,
+      alpha: true,
+      antialias: true,
+      powerPreference: 'high-performance'
+    });
+    vrmRenderer.setSize(width, height);
+    vrmRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    vrmRenderer.outputEncoding = THREE.sRGBEncoding;
+  } catch (err) {
+    console.error("[VRM] WebGLRenderer init failed:", err);
+    return;
+  }
+
+  const ambientLight = new THREE.AmbientLight(0xfff0ff, 0.90);
+  vrmScene.add(ambientLight);
+
+  const keyLight = new THREE.DirectionalLight(0xffffff, 0.68);
+  keyLight.position.set(1.2, 2.4, 2.6);
+  vrmScene.add(keyLight);
+
+  const rimLight = new THREE.DirectionalLight(0xc084fc, 0.45);
+  rimLight.position.set(-1.5, 1.5, -2.0);
+  vrmScene.add(rimLight);
+
+  vrmInitialized = true;
+  initFloatingHudDraggable();
+  loadRumVrmModel();
+
+  function animateVrm() {
+    requestAnimationFrame(animateVrm);
+
+    const delta = vrmClock ? Math.min(vrmClock.getDelta(), 0.1) : 0.016;
+    const time = vrmClock ? vrmClock.getElapsedTime() : Date.now() * 0.001;
+    const now = Date.now();
+
+    // 1. Natural Eye Blinking Sweep (240ms smooth blink with 55ms closed hold + occasional double-blink)
+    if (!vrmIsBlinking && now > vrmNextBlinkTime) {
+      vrmIsBlinking = true;
+      vrmBlinkStartTime = now;
+    }
+    if (vrmIsBlinking) {
+      const bdt = now - vrmBlinkStartTime;
+      if (bdt < 85) {
+        vrmBlinkProgress = bdt / 85;
+      } else if (bdt < 140) {
+        vrmBlinkProgress = 1.0;
+      } else if (bdt < 240) {
+        vrmBlinkProgress = 1.0 - ((bdt - 140) / 100);
+      } else {
+        vrmBlinkProgress = 0.0;
+        vrmIsBlinking = false;
+        vrmNextBlinkTime = (Math.random() < 0.28) ? (now + 180) : (now + 2200 + Math.random() * 1600);
+      }
+    }
+
+    // 2. Speech & Action State (Synced strictly to hardware audio playback when SSE is connected!)
+    const isSpeaking = (isHardwareSpeaking || now < vrmSpeechEndTime || now < (typeof waifuSpeechEndTime !== 'undefined' ? waifuSpeechEndTime : 0));
+    const isReacting = (now < vrmReactionEndTime);
+    const isSpeedPanic = (now < vrmSpeedPanicEndTime);
+    const dancing = (isMusicPlaying() && !isSpeaking && !vrmHasError && !isSpeedPanic);
+
+    // 3. Smooth G-Force Inertia Interpolation (NO vertical floating!)
+    rumCurrentInertiaZ += (rumTargetInertiaZ - rumCurrentInertiaZ) * (delta * 6.0);
+
+    if (vrmModel) {
+      // Anchor feet firmly on the stage floor (vrmBaseY) with zero vertical floating
+      vrmModel.rotation.set(0, Math.PI, 0);
+      vrmModel.position.set(-vrmCenter.x, vrmBaseY, (-vrmCenter.z) + rumCurrentInertiaZ);
+
+      const isActionActive = (now < vrmActionEndTime);
+      if (!isActionActive && vrmaActiveAction) {
+        stopActiveVrmaClip(0.45);
+      }
+
+      // Auto-trigger real dance BVH clip when music is playing
+      if (dancing && !isActionActive && vrmaClips['dance'] && vrmaActiveName !== 'dance') {
+        playVrmAction('dance', 8000, true);
+      }
+
+      // Update AnimationMixer (drives both active VRMA/BVH clips AND neutral_idle.bvh standby!)
+      if (vrmMixer && (vrmaActiveAction || vrmaIdleAction)) {
+        vrmMixer.update(delta);
+        // Prevent unnatural owl-like head spinning! Strictly clamp head & neck rotation to natural human anatomy
+        if (vrmBones.head) {
+          vrmBones.head.rotation.y = THREE.MathUtils.clamp(vrmBones.head.rotation.y, -0.55, 0.55);
+          vrmBones.head.rotation.x = THREE.MathUtils.clamp(vrmBones.head.rotation.x, -0.45, 0.45);
+          vrmBones.head.rotation.z = THREE.MathUtils.clamp(vrmBones.head.rotation.z, -0.35, 0.35);
+        }
+        if (vrmBones.neck) {
+          vrmBones.neck.rotation.y = THREE.MathUtils.clamp(vrmBones.neck.rotation.y, -0.35, 0.35);
+        }
+      } else {
+        // Fallback only during the ~0.3s before neutral_idle.bvh finishes loading
+        resetAllVrmBonesToRest();
+        if (vrmBones.lArm) vrmBones.lArm.rotation.set(0, 0.10, 1.30);
+        if (vrmBones.rArm) vrmBones.rArm.rotation.set(0, -0.10, -1.30);
+      }
+
+      // 4a. Facial Rig Animation: Reset facial bones to rest first, then apply Eye Blinking & Lip-Sync
+      ['lEyeUpper', 'rEyeUpper', 'lEyeLower', 'rEyeLower', 'lEyeball', 'rEyeball',
+       'jaw', 'lLipLower', 'rLipLower', 'lLipUpper', 'rLipUpper', 'lMouthCorner', 'rMouthCorner',
+       'lBrowIn', 'rBrowIn', 'lBrowOut', 'rBrowOut'].forEach((fk) => {
+        const fb = vrmBones[fk];
+        if (fb && fb.userData) {
+          if (fb.userData.restPos) fb.position.copy(fb.userData.restPos);
+          if (fb.userData.restQuat) fb.quaternion.copy(fb.userData.restQuat);
+          fb.scale.set(1, 1, 1);
+        }
+      });
+
+      const blinkAmt = (vrmCurrentAction === 'amusement' || vrmCurrentAction === 'point_laugh') ? Math.max(vrmBlinkProgress, 0.85) : vrmBlinkProgress;
+      if (blinkAmt > 0.01) {
+        if (vrmBones.lEyeUpper && vrmBones.lEyeUpper.userData.restPos) {
+          vrmBones.lEyeUpper.position.y = vrmBones.lEyeUpper.userData.restPos.y - 0.025 * blinkAmt;
+          vrmBones.lEyeUpper.rotation.x = -0.12 * blinkAmt;
+        }
+        if (vrmBones.rEyeUpper && vrmBones.rEyeUpper.userData.restPos) {
+          vrmBones.rEyeUpper.position.y = vrmBones.rEyeUpper.userData.restPos.y - 0.025 * blinkAmt;
+          vrmBones.rEyeUpper.rotation.x = -0.12 * blinkAmt;
+        }
+        if (vrmBones.lEyeLower && vrmBones.lEyeLower.userData.restPos) {
+          vrmBones.lEyeLower.position.y = vrmBones.lEyeLower.userData.restPos.y + 0.006 * blinkAmt;
+        }
+        if (vrmBones.rEyeLower && vrmBones.rEyeLower.userData.restPos) {
+          vrmBones.rEyeLower.position.y = vrmBones.rEyeLower.userData.restPos.y + 0.006 * blinkAmt;
+        }
+        if (vrmBones.lEyeball && vrmBones.lEyeball.userData.restPos) {
+          vrmBones.lEyeball.scale.set(1.0, Math.max(0.05, 1.0 - 0.95 * blinkAmt), 1.0);
+          vrmBones.lEyeball.position.z = vrmBones.lEyeball.userData.restPos.z + 0.010 * blinkAmt;
+        }
+        if (vrmBones.rEyeball && vrmBones.rEyeball.userData.restPos) {
+          vrmBones.rEyeball.scale.set(1.0, Math.max(0.05, 1.0 - 0.95 * blinkAmt), 1.0);
+          vrmBones.rEyeball.position.z = vrmBones.rEyeball.userData.restPos.z + 0.010 * blinkAmt;
+        }
+      }
+
+      if (isSpeaking || vrmCurrentAction === 'amusement' || vrmCurrentAction === 'point_laugh') {
+        const syl1 = Math.sin(time * 18.5);
+        const syl2 = Math.sin(time * 11.3 + 0.8);
+        const syl3 = Math.cos(time * 27.0);
+        const rawOpen = Math.max(0.0, (syl1 * 0.55 + syl2 * 0.35 + syl3 * 0.25 + 0.35));
+        const mouthOpen = Math.min(1.0, rawOpen);
+        const vowelWidth = 0.5 + 0.5 * Math.sin(time * 7.2);
+
+        if (vrmBones.jaw && vrmBones.jaw.userData.restPos) {
+          vrmBones.jaw.position.y = vrmBones.jaw.userData.restPos.y - (0.0045 * mouthOpen);
+          vrmBones.jaw.rotation.x = -0.05 * mouthOpen;
+        }
+        if (vrmBones.lLipLower && vrmBones.lLipLower.userData.restPos) {
+          vrmBones.lLipLower.position.y = vrmBones.lLipLower.userData.restPos.y - (0.0055 * mouthOpen);
+        }
+        if (vrmBones.rLipLower && vrmBones.rLipLower.userData.restPos) {
+          vrmBones.rLipLower.position.y = vrmBones.rLipLower.userData.restPos.y - (0.0055 * mouthOpen);
+        }
+        if (vrmBones.lLipUpper && vrmBones.lLipUpper.userData.restPos) {
+          vrmBones.lLipUpper.position.y = vrmBones.lLipUpper.userData.restPos.y + (0.0025 * mouthOpen);
+        }
+        if (vrmBones.rLipUpper && vrmBones.rLipUpper.userData.restPos) {
+          vrmBones.rLipUpper.position.y = vrmBones.rLipUpper.userData.restPos.y + (0.0025 * mouthOpen);
+        }
+        if (vrmBones.lMouthCorner && vrmBones.lMouthCorner.userData.restPos) {
+          vrmBones.lMouthCorner.position.y = vrmBones.lMouthCorner.userData.restPos.y + (0.003 * vowelWidth);
+          vrmBones.lMouthCorner.position.x = vrmBones.lMouthCorner.userData.restPos.x * (1.0 + 0.14 * vowelWidth);
+        }
+        if (vrmBones.rMouthCorner && vrmBones.rMouthCorner.userData.restPos) {
+          vrmBones.rMouthCorner.position.y = vrmBones.rMouthCorner.userData.restPos.y + (0.003 * vowelWidth);
+          vrmBones.rMouthCorner.position.x = vrmBones.rMouthCorner.userData.restPos.x * (1.0 + 0.14 * vowelWidth);
+        }
+        const browLift = 0.003 * mouthOpen;
+        ['lBrowIn', 'rBrowIn', 'lBrowOut', 'rBrowOut'].forEach((bk) => {
+          if (vrmBones[bk] && vrmBones[bk].userData.restPos) {
+            vrmBones[bk].position.y = vrmBones[bk].userData.restPos.y + browLift;
+          }
+        });
+      }
+    }
+
+    // 4b. World-Space Gravity Drape for Hanging Kimono Sleeves (Bone001_m & Bone001)
+    if (vrmModel) {
+      vrmModel.updateMatrixWorld(true);
+      const sleeveTargetWorldQ = new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(0.45 + Math.sin(time * 2.2) * 0.02, Math.PI, Math.cos(time * 1.8) * 0.02)
+      );
+      ['Bone001_m', 'Bone001'].forEach((sName) => {
+        const sb = vrmModel.getObjectByName(sName);
+        if (sb && sb.parent) {
+          const pWorldQ = new THREE.Quaternion();
+          sb.parent.getWorldQuaternion(pWorldQ);
+          sb.quaternion.copy(pWorldQ.invert().multiply(sleeveTargetWorldQ));
+        }
+      });
+    }
+
+    // 5. Dynamic Camera Director
+    updateCameraDirector(delta, isSpeaking, isReacting);
+
+    // 6. Render
+    if (vrmRenderer && vrmScene && vrmCamera) {
+      vrmRenderer.render(vrmScene, vrmCamera);
+    }
+  }
+
+  animateVrm();
+}
+
+function updateCameraDirector(delta, isSpeaking, isReacting) {
+  if (!vrmCamera || !targetCamPos || !targetLookAt || !currentLookAt) return;
+
+  // Head Y in stage coordinates (feet anchored at -0.68, head near -0.68 + vrmSize.y * 0.85)
+  const headY = vrmBaseY + (vrmSize.y * 0.82);
+  const fullBodyDist = isCompanionFloating ? 2.85 : 3.12;
+  const portraitDist = isCompanionFloating ? 1.05 : 1.15;
+
+  const isDoingAction = (Date.now() < vrmActionEndTime);
+  if (!isDoingAction && (vrmFramingMode === 'PORTRAIT' || (vrmFramingMode === 'AUTO' && (isSpeaking || isReacting)))) {
+    targetCamPos.set(0, headY, portraitDist);
+    targetLookAt.set(0, headY, 0);
+  } else {
+    targetCamPos.set(0, 0.02, fullBodyDist);
+    targetLookAt.set(0, 0.0, 0);
+  }
+
+  const lerpFactor = Math.min(1.0, delta * 4.2);
+  vrmCamera.position.lerp(targetCamPos, lerpFactor);
+  currentLookAt.lerp(targetLookAt, lerpFactor);
+  vrmCamera.lookAt(currentLookAt);
+}
+
+function loadRumVrmModel(modelName = 'Rum.vrm') {
+  const notice = document.getElementById('vrmLoadingNotice');
+  if (notice) notice.style.display = 'flex';
+
+  const loader = new THREE.GLTFLoader();
+  const vrmUrl = `/api/models/vrm?name=${encodeURIComponent(modelName)}`;
+
+  loader.load(
+    vrmUrl,
+    (gltf) => {
+      console.log(`[VRM] ${modelName} loaded successfully!`, gltf);
+      if (notice) notice.style.display = 'none';
+
+      if (vrmModel) {
+        vrmScene.remove(vrmModel);
+      }
+
+      vrmModel = gltf.scene;
+      vrmaIdleAction = null;
+      vrmaActiveAction = null;
+
+      // Fix 3ds Max Biped hierarchy & map bones
+      const rig = fixVrmBipedHierarchy(vrmModel, gltf);
+      vrmBones = rig.bones;
+      vrmHumanoidMap = rig.hMap;
+      vrmAllBones = rig.allBones;
+      vrmSecondaryBones = rig.secondary;
+
+      // Measure raw unscaled height so child models (Rum.vrm) are scaled slightly smaller (0.85x)
+      // while taller adult models scale proportionally and fit cleanly on the same stage floor
+      const rawBox = new THREE.Box3().setFromObject(vrmModel);
+      const rawSize = rawBox.getSize(new THREE.Vector3());
+      const isPetiteModel = /rum|rem/i.test(modelName) || rawSize.y < 1.56;
+      const targetScale = isPetiteModel ? 0.85 : Math.min(0.95, 1.42 / Math.max(1.0, rawSize.y));
+      vrmModel.scale.set(targetScale, targetScale, targetScale);
+      vrmModel.updateMatrixWorld(true);
+
+      const box = new THREE.Box3().setFromObject(vrmModel);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+
+      vrmCenter = center;
+      vrmSize = size;
+      // Anchor feet (box.min.y) firmly at stage floor (-0.68) so she never floats and leaves headroom for taller VRMs
+      vrmBaseY = -0.68 - box.min.y;
+
+      vrmModel.position.set(-center.x, vrmBaseY, -center.z);
+      vrmModel.rotation.set(0, Math.PI, 0);
+
+      vrmModel.traverse((node) => {
+        if (node.isMesh) {
+          node.castShadow = true;
+          node.receiveShadow = true;
+          node.frustumCulled = false;
+          if (node.material) {
+            node.material.depthWrite = true;
+          }
+        }
+      });
+
+      vrmScene.add(vrmModel);
+      vrmMixer = new THREE.AnimationMixer(vrmModel);
+      preloadVrmaMotionPack();
+
+      updateFramingButtonLabel();
+      resizeVrmToStage();
+
+      const emotionPill = document.getElementById('waifuEmotionPill');
+      if (emotionPill) {
+        emotionPill.innerText = "💖 R.U.M. (3D VRM) • DEVOTED TO MASTER";
+      }
+    },
+    (progress) => {
+      if (progress.total > 0 && notice) {
+        const pct = Math.round((progress.loaded / progress.total) * 100);
+        notice.innerHTML = `<span>⚡</span> LOADING RUM VRM (${pct}%)...`;
+      }
+    },
+    (error) => {
+      console.warn(`[VRM] Fallback checking Rem.vrm:`, error);
+      if (modelName === 'Rum.vrm') {
+        loadRumVrmModel('Rem.vrm');
+        return;
+      }
+      if (notice) {
+        notice.innerHTML = '<span style="color:var(--accent-red);">VRM Load Error</span>';
+      }
+    }
+  );
+}
+
+function resizeVrmToStage() {
+  if (!vrmRenderer || !vrmCamera) return;
+  const targetContainer = isCompanionFloating ? document.getElementById('vrmFloatingBody') : document.getElementById('vrmStageContainer');
+  if (!targetContainer) return;
+  const w = targetContainer.clientWidth || 360;
+  const h = targetContainer.clientHeight || 460;
+  vrmRenderer.setSize(w, h);
+  vrmCamera.aspect = w / h;
+  vrmCamera.updateProjectionMatrix();
+}
+
+function updateFramingButtonLabel() {
+  const btn = document.getElementById('btnVrmViewToggle');
+  const hudBtn = document.getElementById('btnHudViewToggle');
+  const labels = {
+    'FULL_BODY': '🔍 FULL BODY',
+    'AUTO': '🤖 AUTO ZOOM',
+    'PORTRAIT': '👤 PORTRAIT'
+  };
+  const label = labels[vrmFramingMode] || '🔍 FULL BODY';
+  if (btn) btn.innerText = label;
+  if (hudBtn) hudBtn.innerText = (vrmFramingMode === 'PORTRAIT') ? '👤' : '🔍';
+}
+
+function toggleVrmFraming() {
+  if (vrmFramingMode === 'FULL_BODY') vrmFramingMode = 'PORTRAIT';
+  else if (vrmFramingMode === 'PORTRAIT') vrmFramingMode = 'AUTO';
+  else vrmFramingMode = 'FULL_BODY';
+  updateFramingButtonLabel();
+}
+
+function triggerVrmReaction() {
+  if (vrmaClips['greeting']) {
+    playVrmAction('greeting', 3800, true);
+  } else {
+    vrmReactionEndTime = Date.now() + 3500;
+  }
+}
+
+function setVrmSpeaking(durationMs, text, forceTimer = false) {
+  if (forceTimer || !eventSource || eventSource.readyState !== 1) {
+    vrmSpeechEndTime = Date.now() + (durationMs || 3000);
+  }
+  if (text) {
+    const bubble = document.getElementById('vrmHudBubble');
+    const hud = document.getElementById('vrmFloatingHud');
+    if (bubble) {
+      bubble.innerText = text;
+      bubble.classList.add('show');
+      if (hud) hud.classList.add('talking');
+      setTimeout(() => {
+        bubble.classList.remove('show');
+        if (hud) hud.classList.remove('talking');
+      }, durationMs || 3000);
+    }
+  }
+}
+
+function showVrmSpeech(text, durationMs = 5000) {
+  setVrmSpeaking(durationMs, text);
+}
+
+// Floating Shotgun Companion Mode (Rum Riding Shotgun Anywhere on Screen)
+function popOutFloatingCompanion() {
+  const canvas = document.getElementById('vrmCanvas');
+  const floatingBody = document.getElementById('vrmFloatingBody');
+  const floatingHud = document.getElementById('vrmFloatingHud');
+  if (!canvas || !floatingBody || !floatingHud) return;
+
+  floatingHud.style.display = 'flex';
+  floatingBody.appendChild(canvas);
+  isCompanionFloating = true;
+
+  resizeVrmToStage();
+  triggerVrmReaction();
+  showVrmSpeech("Master! Rum is riding shotgun with you across all screens!", 4500);
+}
+
+function dockCompanionToAi() {
+  const canvas = document.getElementById('vrmCanvas');
+  const stageContainer = document.getElementById('vrmStageContainer');
+  const floatingHud = document.getElementById('vrmFloatingHud');
+  if (!canvas || !stageContainer || !floatingHud) return;
+
+  floatingHud.style.display = 'none';
+  stageContainer.appendChild(canvas);
+  isCompanionFloating = false;
+
+  resizeVrmToStage();
+}
+
+function dismissFloatingHud() {
+  dockCompanionToAi();
+}
+
+function initFloatingHudDraggable() {
+  const hud = document.getElementById('vrmFloatingHud');
+  const header = document.getElementById('vrmHudHeader');
+  if (!hud || !header) return;
+
+  let isDragging = false;
+  let startX = 0;
+  let startY = 0;
+  let initialLeft = 0;
+  let initialTop = 0;
+
+  header.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button')) return;
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    const rect = hud.getBoundingClientRect();
+    initialLeft = rect.left;
+    initialTop = rect.top;
+    hud.style.bottom = 'auto';
+    hud.style.right = 'auto';
+    hud.style.left = initialLeft + 'px';
+    hud.style.top = initialTop + 'px';
+    header.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }, { passive: false });
+
+  window.addEventListener('pointermove', (e) => {
+    if (!isDragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    let newLeft = Math.max(10, Math.min(window.innerWidth - hud.offsetWidth - 10, initialLeft + dx));
+    let newTop = Math.max(10, Math.min(window.innerHeight - hud.offsetHeight - 10, initialTop + dy));
+    hud.style.left = newLeft + 'px';
+    hud.style.top = newTop + 'px';
+    e.preventDefault();
+  }, { passive: false });
+
+  const stopDrag = (e) => {
+    if (!isDragging) return;
+    isDragging = false;
+    try { header.releasePointerCapture(e.pointerId); } catch (_) {}
+  };
+
+  window.addEventListener('pointerup', stopDrag, { passive: true });
+  window.addEventListener('pointercancel', stopDrag, { passive: true });
+}
+
+// [OBSOLETE 2D FACE TOGGLES - Locked to 3D_VRM so 2D face cannot be activated]
+function toggleAvatar2d3d() {
+  switchAvatarEngine('3D_VRM');
+}
+
+function switchAvatarEngine(mode) {
+  activeAvatarEngine = '3D_VRM';
+  const vrmContainer = document.getElementById('vrmStageContainer');
+  const faceCanvas = document.getElementById('waifuFaceCanvas');
+  const selector = document.getElementById('cfgAvatarEngine');
+  const emotionPill = document.getElementById('waifuEmotionPill');
+
+  if (selector) selector.value = '3D_VRM';
+  if (vrmContainer) vrmContainer.style.display = 'flex';
+  if (faceCanvas) faceCanvas.style.display = 'none';
+  if (!vrmInitialized) {
+    initVrmEngine();
+  } else {
+    resizeVrmToStage();
+  }
+  if (emotionPill) emotionPill.innerText = "💖 R.U.M. (3D VRM) • DEVOTED TO MASTER";
+}
+
+// Auto-initialize 3D VRM Rum on startup
+window.addEventListener('load', () => {
+  setTimeout(initVrmEngine, 500);
+});
+window.addEventListener('resize', () => {
+  if (typeof resizeVrmToStage === 'function') resizeVrmToStage();
+});

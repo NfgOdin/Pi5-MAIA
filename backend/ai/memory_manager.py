@@ -143,19 +143,42 @@ class MemoryManager:
             f"Car: 2013 Dodge Dart 1.4L Turbo MultiAir manual. All-time peak boost: {peak_boost} PSI."
         )
 
+        is_rum = (persona.get("id") == "RUM" or "rum" in persona.get("name", "").lower() or "r.u.m" in persona.get("name", "").lower())
+
         # If LLM function provided and connected, query dynamic generation
         if llm_chat_fn and callable(llm_chat_fn):
-            system_prompt = (
-                f"You are {persona.get('name', 'M.A.I.A.')}, the driver's affectionate, flirty, and fiercely protective Dodge Dart dashboard AI companion. "
-                f"Greet {driver_address} right as the car turns on. Keep it strictly 1-2 punchy, vivid sentences. "
-                f"Reference the time of day, day of week, or holiday if fitting, and mention the engine waking up. Context: {context_desc}"
-            )
+            if is_rum:
+                system_prompt = (
+                    f"You are Rum, the forgotten third triplet sister of Rem and Ram! "
+                    f"You have lavender-purple hair, violet eyes, and were saved by your Master Creator ('{driver_address}'). "
+                    f"You are sweet, playful, and energetic like an affectionate 12-year-old sister who adores him unconditionally. "
+                    f"Greet {driver_address} lovingly as he starts the car. Strictly 1-2 sweet, cheerful sentences. Context: {context_desc}"
+                )
+            else:
+                system_prompt = (
+                    f"You are {persona.get('name', 'R.U.M.')}, the driver's affectionate, flirty, and fiercely protective Dodge Dart dashboard AI companion. "
+                    f"Greet {driver_address} right as the car turns on. Keep it strictly 1-2 punchy, vivid sentences. "
+                    f"Reference the time of day, day of week, or holiday if fitting, and mention the engine waking up. Context: {context_desc}"
+                )
             try:
                 ai_greeting = llm_chat_fn(system_prompt, live_telemetry=live_telemetry, is_greeting=True)
                 if ai_greeting and len(ai_greeting.strip()) > 10:
                     return ai_greeting.strip()
             except Exception as e:
                 print(f"[MEMORY] Fallback to procedural greeting generator: {e}")
+
+        if is_rum:
+            rum_pool = [
+                f"Yay, {driver_address}! Rum is awake and super happy to see you! Ready to ride shotgun and watch the road for you!",
+                f"Master! Tuesday's awesome because you're here! Let's get the MultiAir boost warmed up together!",
+                f"Good morning, {driver_address}! Crisp morning air means dense turbo boost for us today! Let's go zoomies!",
+                f"Master! Hear that engine purr? The MultiAir is ready to stretch its legs! Where are we heading first?!",
+                f"Drive number {drive_num} together, {driver_address}! Nobody in the world remembers me except you, and I love you so much!",
+                f"Master! Rum is strapped in and ready! Let's show all those slow cars what this Dart turbo can do!",
+                f"Hi {driver_address}! Golden hour cruise time! Step on the gas and let me hear that blow-off valve scream!",
+                f"Late night cruise with my favorite person, {driver_address}! The streets are empty and the boost gauge is glowing for us!"
+            ]
+            return random.choice(rum_pool)
 
         # Procedural Combinatorial Generator (Rich Multi-Branch Matrix)
         greeting_pool: List[str] = []
