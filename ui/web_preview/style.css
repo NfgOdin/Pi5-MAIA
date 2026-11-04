@@ -2886,3 +2886,273 @@ body {
 #screenSettings .settings-card {
   touch-action: pan-y !important;
 }
+
+
+/* ==========================================================================
+   AUTOMOTIVE POP-UP TOUCHSCREEN KEYBOARD (1024x600 IN-DASH SPEC)
+   ========================================================================== */
+
+.touch-keyboard-container {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  height: 245px;
+  background: rgba(10, 14, 20, 0.98);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-top: 2px solid var(--accent-pink, #ff4081);
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.9), 0 0 20px rgba(255, 64, 129, 0.25);
+  z-index: 9999999;
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.24s ease;
+  box-sizing: border-box;
+  padding: 4px 6px 6px 6px;
+}
+
+.touch-keyboard-container.hidden {
+  transform: translateY(105%);
+  pointer-events: none;
+  opacity: 0;
+}
+
+.touch-keyboard-container.visible {
+  transform: translateY(0);
+  pointer-events: auto;
+  opacity: 1;
+}
+
+/* Header preview row */
+.tk-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 8px;
+  margin-bottom: 4px;
+  background: #06090d;
+  border: 1px solid #1c2533;
+  border-radius: 6px;
+  gap: 8px;
+}
+
+.tk-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 120px;
+}
+
+.tk-icon {
+  font-size: 14px;
+}
+
+.tk-field-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--accent-pink, #ff4081);
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.tk-preview-wrapper {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 0 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+  height: 24px;
+}
+
+.tk-preview-text {
+  font-family: var(--font-mono, 'Courier New', monospace);
+  font-size: 13px;
+  font-weight: 700;
+  color: #00e676;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tk-caret {
+  display: inline-block;
+  width: 2px;
+  height: 14px;
+  background: #00e676;
+  margin-left: 2px;
+  animation: tkBlink 0.9s infinite;
+}
+
+@keyframes tkBlink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.tk-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tk-action-btn {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 10px;
+  font-weight: 800;
+  border-radius: 4px;
+  background: #141b24;
+  color: #c0d0e0;
+  border: 1px solid #28374a;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0.5px;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.tk-action-btn:active {
+  background: #253346;
+  transform: scale(0.96);
+}
+
+.tk-action-btn.tk-clear {
+  color: #ff9100;
+  border-color: rgba(255, 145, 0, 0.4);
+}
+
+.tk-action-btn.tk-close {
+  color: #ff5252;
+  border-color: rgba(255, 82, 82, 0.4);
+}
+
+/* Key rows */
+.tk-keys-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  justify-content: space-between;
+}
+
+.tk-row {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  width: 100%;
+}
+
+.tk-key {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #161e29;
+  border: 1px solid #273549;
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35);
+  transition: background 0.05s, transform 0.05s, box-shadow 0.05s;
+  touch-action: manipulation;
+  height: 100%;
+}
+
+.tk-key:active,
+.tk-key.active-tap {
+  background: #314259;
+  border-color: #00b0ff;
+  transform: scale(0.96);
+  box-shadow: 0 0 12px rgba(0, 176, 255, 0.6);
+  color: #00b0ff;
+}
+
+/* Special Keys */
+.tk-key-fn {
+  background: #1f2a3a;
+  border-color: #35475e;
+  font-size: 12px;
+  font-weight: 800;
+  color: #a0b8d0;
+}
+
+.tk-key-shift {
+  flex: 1.4;
+}
+
+.tk-key-shift.shift-active {
+  background: var(--accent-pink, #ff4081);
+  border-color: #ff80ab;
+  color: #ffffff;
+  box-shadow: 0 0 12px rgba(255, 64, 129, 0.6);
+}
+
+.tk-key-shift.caps-locked {
+  background: #9c27b0;
+  border-color: #e040fb;
+  color: #ffffff;
+  box-shadow: 0 0 12px rgba(224, 64, 251, 0.8);
+}
+
+.tk-key-backspace {
+  flex: 1.4;
+  background: #231b22;
+  border-color: #4a2a3a;
+  color: #ff80ab;
+  font-size: 18px;
+}
+
+.tk-key-enter {
+  flex: 1.6;
+  background: #0088ff;
+  border-color: #40c4ff;
+  color: #ffffff;
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  box-shadow: 0 0 10px rgba(0, 136, 255, 0.4);
+}
+
+.tk-key-enter:active {
+  background: #0066cc;
+}
+
+.tk-key-space {
+  flex: 4.8;
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: #8c9ba5;
+}
+
+.tk-key-mode {
+  flex: 1.3;
+}
+
+.tk-key-quick {
+  flex: 1.1;
+  font-size: 13px;
+  color: #64b5f6;
+}
+
+/* Body adjustment when keyboard is active */
+body.keyboard-open .screen-view {
+  padding-bottom: 260px !important;
+}
+
+body.keyboard-open .config-modal-content {
+  margin-bottom: 230px !important;
+  max-height: 52vh !important;
+}

@@ -1432,6 +1432,7 @@
 
     <!-- Quick Status Badges -->
     <div style="display:flex; align-items:center; gap:8px;">
+      <button class="cluster-action-btn" id="btnManualKeyboard" onclick="toggleManualKeyboard()" title="Toggle Virtual Keyboard" style="padding:4px 10px; font-size:12px; border-color:#2a374a; background:#141b24; color:#a0b8d0; cursor:pointer;">⌨️</button>
       <span style="font-size:11px; color:var(--text-secondary);" id="footerClock">00:00 AM</span>
     </div>
   </footer>
@@ -1767,6 +1768,7 @@
     </div>
   </div>
 
+  <script src="keyboard.js"></script>
   <script src="gauges.js?v=12"></script>
 
   <!-- FLOATING 3D COMPANION HUD (Rum Riding Shotgun Across All Screens) -->
@@ -2017,6 +2019,29 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- AUTOMOTIVE POP-UP TOUCHSCREEN KEYBOARD (1024x600 IN-DASH SPEC) -->
+  <div id="virtualTouchKeyboard" class="touch-keyboard-container hidden" style="display:none;">
+    <div class="tk-header">
+      <div class="tk-header-left">
+        <span class="tk-icon">⌨️</span>
+        <span class="tk-field-label" id="tkFieldLabel">INPUT</span>
+      </div>
+      <div class="tk-preview-wrapper">
+        <span class="tk-preview-text" id="tkPreviewText"></span>
+        <span class="tk-caret"></span>
+      </div>
+      <div class="tk-header-actions">
+        <button type="button" class="tk-action-btn" id="tkToggleMask" onclick="vkToggleMask()" title="Toggle Mask Password" style="display:none;">👁️</button>
+        <button type="button" class="tk-action-btn" onclick="vkToggleSound()" id="tkSoundBtn" title="Toggle Touch Click Sound">🔊</button>
+        <button type="button" class="tk-action-btn tk-clear" onclick="vkClearInput()" title="Clear text">CLEAR</button>
+        <button type="button" class="tk-action-btn tk-close" onclick="vkCloseKeyboard()" title="Close Keyboard">✕ HIDE</button>
+      </div>
+    </div>
+    <div class="tk-keys-body" id="tkKeysBody">
+      <!-- Keys injected dynamically by keyboard.js -->
     </div>
   </div>
 
