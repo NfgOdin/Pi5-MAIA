@@ -513,7 +513,7 @@ function triggerStartupGreeting() {
       if (data && data.greeting) {
         console.log(`[INSTANT BOOT GREETING] "${data.greeting}"`);
         showAiSpeechToast(data.greeting);
-        speakUtterance(data.greeting, data.emotion || "DEVOTED");
+        if (data.emotion) setWaifuEmotion(data.emotion);
       }
     })
     .catch(err => console.warn("[INSTANT GREETING] Note:", err));
@@ -534,7 +534,7 @@ function triggerStartupGreeting() {
               if (neuralData && neuralData.greeting) {
                 console.log(`[OFFICIAL NEURAL GREETING] "${neuralData.greeting}"`);
                 showAiSpeechToast(neuralData.greeting);
-                speakUtterance(neuralData.greeting, neuralData.emotion || "DEVOTED");
+                if (neuralData.emotion) setWaifuEmotion(neuralData.emotion);
               }
             })
             .catch(e => console.warn("[OFFICIAL GREETING] Note:", e));
@@ -1547,11 +1547,11 @@ function sendChatMessage(userText) {
         handleAiAction(data.action);
       }
 
-      // Speak assistant response aloud with custom persona voice
+      // Update waifu emotion & HUD
       if (data.emotion) {
         setWaifuEmotion(data.emotion);
       }
-      speakUtterance(data.reply, data.emotion || "DEVOTED");
+      // Note: Backend /api/ai/chat already spoke clean_reply via state.audio.speak()
 
       // Add to speech log
       appendSpeechLogItem({
@@ -1641,7 +1641,8 @@ function showAiSpeechToast(speech) {
   textEl.innerText = speech;
   toast.classList.add('show');
 
-  speakUtterance(speech);
+  // Note: showAiSpeechToast is purely a visual HUD banner.
+  // Speech playback is handled by backend or explicit speakUtterance to prevent double-talk.
 
   setTimeout(() => toast.classList.remove('show'), 6500);
 }

@@ -40,6 +40,9 @@ class AudioPlayer:
         self.is_speaking = False
         self._piper_voice = None
         self._piper_loaded = False
+        self._piper_lock = threading.Lock()
+        self._last_spoken_text = ""
+        self._last_spoken_time = 0.0
         
         # Candidate paths for Piper neural model
         self.model_candidates = [
@@ -65,27 +68,39 @@ class AudioPlayer:
 
     def _init_piper(self):
         """Loads the Piper neural voice into RAM."""
-        try:
-            from piper.voice import PiperVoice
-            for path in self.model_candidates:
-                if os.path.exists(path):
-                    config_path = path + ".json"
-                    print(f"[AUDIO] Loading Piper TTS model: {path}...")
-                    self._piper_voice = PiperVoice.load(path, config_path=config_path if os.path.exists(config_path) else None)
-                    self._piper_loaded = True
-                    print("[AUDIO] Piper TTS voice ready for in-dash speech!")
-                    return
-            print("[AUDIO] Note: No Piper ONNX voice file found at candidates.")
-        except Exception as e:
-            print(f"[AUDIO] Piper TTS init note: {e}")
+        with self._piper_lock:
+            if self._piper_voice is not None:
+                return
+            try:
+                from piper.voice import PiperVoice
+                for path in self.model_candidates:
+                    if os.path.exists(path):
+                        config_path = path + ".json"
+                        print(f"[AUDIO] Loading Piper TTS model: {path}...")
+                        self._piper_voice = PiperVoice.load(path, config_path=config_path if os.path.exists(config_path) else None)
+                        self._piper_loaded = True
+                        print("[AUDIO] Piper TTS voice ready for in-dash speech!")
+                        return
+                print("[AUDIO] Note: No Piper ONNX voice file found at candidates.")
+            except Exception as e:
+                print(f"[AUDIO] Piper TTS init note: {e}")
 
     def speak(self, text: str, priority: bool = False):
-        """Queue text to be spoken aloud through in-dash speakers."""
+        """Queue text to be spoken aloud through in-dash speakers with automatic de-duplication."""
         if not text or not text.strip():
             return
         clean_text = text.strip()
         # Clean markdown formatting or quotes from text
         clean_text = clean_text.replace("*", "").replace("`", "").replace('"', '')
+        
+        now = time.time()
+        # De-duplicate identical speech requests within 4.0 seconds
+        if clean_text == self._last_spoken_text and (now - self._last_spoken_time) < 4.0:
+            print(f"[AUDIO] De-duplicating repeat speech request: {clean_text[:40]}...")
+            return
+        self._last_spoken_text = clean_text
+        self._last_spoken_time = now
+
         self.speech_queue.put(clean_text)
 
     def play_wav_file(self, wav_path: str):
