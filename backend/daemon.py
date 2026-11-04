@@ -754,7 +754,18 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
         except Exception:
             req_data = {}
 
-        if parsed.path == "/api/ai/chat":
+        if parsed.path == "/api/ai/speak":
+            text = req_data.get("text", "").strip()
+            if text and state.copilot.voice_mode != "MUTED":
+                state.audio.speak(text)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "spoken": text}).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/ai/chat":
             user_msg = req_data.get("message", "").strip()
             if not user_msg:
                 self.send_response(400)
