@@ -553,6 +553,7 @@ function connectTelemetryStream() {
 
   eventSource.onopen = function() {
     console.log("[STREAM] Connected to CarPi5 Telemetry Stream.");
+    dismissBootSplash();
     triggerStartupGreeting();
   };
 
@@ -565,6 +566,18 @@ function connectTelemetryStream() {
     if (!t || !t.timestamp) return;
 
     latestTelemetry = t;
+
+    // Auto-dismiss boot splash on first live telemetry frame
+    if (!bootSplashDismissed) {
+      dismissBootSplash();
+    }
+
+    // Emergency DTC Floating HUD check across ANY screen
+    if (t.active_dtcs && t.active_dtcs.length > 0) {
+      showEmergencyDtcHud(t.active_dtcs[0]);
+    } else if (t.coolant_temp_f && t.coolant_temp_f > 225) {
+      showEmergencyDtcHud("OVERHEAT_WARNING", `Engine coolant temp is high: ${Math.round(t.coolant_temp_f)}°F!`);
+    }
 
     // 0. Continuous Global Telemetry Recorder (All 8 sensors @ ~2Hz)
     recordAllSensorsHistory(t);
@@ -1269,9 +1282,11 @@ function dismissBootSplash() {
   const overlay = document.getElementById('bootSplashOverlay');
   if (overlay) {
     overlay.classList.add('hidden');
+    overlay.style.pointerEvents = 'none';
+    overlay.style.opacity = '0';
     setTimeout(() => {
       overlay.style.display = 'none';
-    }, 600);
+    }, 350);
   }
 }
 
@@ -3319,7 +3334,7 @@ setInterval(() => {
 initGaugeGrid();
 loadAiSettings();
 fetchAiHistory();
-updateMediaUI();
+fetchMediaPlaylist();
 loadScreensaverConfig();
 fetchTelemetryMode();
 setInterval(fetchTelemetryMode, 5000);
@@ -3344,7 +3359,7 @@ function fetchSystemHealth() {
       const tempTxt = document.getElementById('sbcTempText');
       const tempIcon = document.getElementById('sbcTempIcon');
 
-      if (tempTxt) tempTxt.innerText = `${Math.round(data.soc_temp_c)}°C`;
+      if (tempTxt && typeof data.soc_temp_c === 'number') tempTxt.innerText = `${Math.round(data.soc_temp_c)}°C`;
       if (pill) {
         if (data.soc_temp_c > 75 || data.throttled) {
           pill.style.borderColor = "var(--accent-red)";
@@ -3452,9 +3467,10 @@ function renderRomsList() {
   const container = document.getElementById('romsListContainer');
   if (!container) return;
 
+  const list = Array.isArray(allRomsList) ? allRomsList : [];
   const filtered = activeRomPlatform === "all"
-    ? allRomsList
-    : allRomsList.filter(r => r.platform.toLowerCase() === activeRomPlatform.toLowerCase());
+    ? list
+    : list.filter(r => r.platform && r.platform.toLowerCase() === activeRomPlatform.toLowerCase());
 
   if (filtered.length === 0) {
     container.innerHTML = '<div style="color:var(--text-secondary); font-size:12px; padding:16px; grid-column:1/-1;">No ROMs found for this platform. Place ROM files in /home/nfgodin/Roms.</div>';
@@ -3628,7 +3644,8 @@ function fetchTripLogs() {
 
     const tableContainer = document.getElementById('recentTripsTableContainer');
     if (tableContainer) {
-      if (!trips || trips.length === 0) {
+      const validTrips = Array.isArray(trips) ? trips : ((trips && trips.trips) || []);
+      if (validTrips.length === 0) {
         tableContainer.innerHTML = '<div style="color:var(--text-secondary); font-size:11px; padding:8px;">No trip history recorded yet.</div>';
         return;
       }
@@ -3645,7 +3662,7 @@ function fetchTripLogs() {
             </tr>
           </thead>
           <tbody>
-            ${trips.map(t => `
+            ${validTrips.map(t => `
               <tr style="border-bottom:1px solid #141b24;">
                 <td style="padding:6px; color:#fff;">${t.start_time}</td>
                 <td style="padding:6px; color:var(--text-secondary);">${t.duration_min || 1} min</td>
@@ -4368,3 +4385,302 @@ if (btnClock) btnClock.innerText = is24HourClock ? "CLOCK: 24-HOUR (MILITARY)" :
 ['aiChatMessages', 'speechLogList', 'filesListView', 'screenSettings', 'screenGames'].forEach(id => {
   enableKineticTouchScroll(document.getElementById(id));
 });
+
+
+
+// --- 15. GITHUB IN-CAR OTA SYSTEM UPDATES ---
+
+function checkForOtaUpdates() {
+  const btn = document.getElementById('btnCheckUpdates');
+  const badge = document.getElementById('otaUpdateBadge');
+  const statusEl = document.getElementById('otaStatusText');
+  const applyBtn = document.getElementById('btnApplyUpdate');
+  const changelogBox = document.getElementById('otaChangelogBox');
+  const changelogList = document.getElementById('otaChangelogList');
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = "CHECKING GITHUB...";
+  }
+
+  fetch('/api/system/update/check')
+    .then(r => r.json())
+    .then(data => {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerText = "🔄 CHECK FOR UPDATES";
+      }
+      if (data.status === "ok") {
+        const commitEl = document.getElementById('otaCurrentCommit');
+        if (commitEl) commitEl.innerText = `${data.current_commit} (remote: ${data.remote_commit})`;
+
+        if (data.update_available) {
+          if (badge) {
+            badge.innerText = `● ${data.commits_behind || 1} COMMITS BEHIND`;
+            badge.style.color = "var(--accent-yellow)";
+            badge.style.background = "rgba(255, 235, 59, 0.15)";
+          }
+          if (statusEl) {
+            statusEl.innerText = "Update Available on GitHub!";
+            statusEl.style.color = "var(--accent-yellow)";
+          }
+          if (applyBtn) applyBtn.style.display = "inline-block";
+          if (changelogBox && data.changelog && data.changelog.length > 0) {
+            changelogBox.style.display = "block";
+            changelogList.innerHTML = data.changelog.map(c => `<li>${c}</li>`).join('');
+          }
+          showAiSpeechToast("Found a new update on GitHub! You can tap Install to update CarPi5.");
+          speakUtterance("Master, I found a new software update on GitHub! Tap Install whenever you are ready.", "HAPPY");
+        } else {
+          if (badge) {
+            badge.innerText = "● UP TO DATE";
+            badge.style.color = "var(--accent-green)";
+            badge.style.background = "rgba(0, 230, 118, 0.15)";
+          }
+          if (statusEl) {
+            statusEl.innerText = "Tracked on origin/main";
+            statusEl.style.color = "var(--accent-green)";
+          }
+          if (applyBtn) applyBtn.style.display = "none";
+          if (changelogBox) changelogBox.style.display = "none";
+          showAiSpeechToast("CarPi5 is completely up to date with GitHub!");
+        }
+      } else {
+        alert("Failed to check updates: " + (data.message || "Unknown error"));
+      }
+    })
+    .catch(err => {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerText = "🔄 CHECK FOR UPDATES";
+      }
+      alert("Network error checking GitHub: " + err);
+    });
+}
+
+function applyOtaUpdate() {
+  if (!confirm("Update CarPi5 to the latest version from GitHub and restart?")) return;
+
+  const applyBtn = document.getElementById('btnApplyUpdate');
+  if (applyBtn) {
+    applyBtn.disabled = true;
+    applyBtn.innerText = "UPDATING...";
+  }
+
+  showAiSpeechToast("Updating CarPi5 from GitHub and restarting...");
+  speakUtterance("Updating CarPi5 from GitHub now. I'll be back in just a moment, Master!", "DEVOTED");
+
+  fetch('/api/system/update/apply', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      setTimeout(() => {
+        location.reload(true);
+      }, 4000);
+    })
+    .catch(err => {
+      setTimeout(() => {
+        location.reload(true);
+      }, 5000);
+    });
+}
+
+
+// --- 16. LOCAL GGUF NEURAL BRAIN SELECTOR (HOT-SWAP) ---
+
+function fetchAvailableNeuralBrains() {
+  fetch('/api/ai/models')
+    .then(r => r.json())
+    .then(data => {
+      const selector = document.getElementById('neuralBrainSelector');
+      if (!selector) return;
+      if (data.models && data.models.length > 0) {
+        selector.innerHTML = data.models.map(m => {
+          const isSel = (m.filename === data.active_model) ? "selected" : "";
+          return `<option value="${m.filename}" ${isSel}>${m.display_name} (${m.size_mb} MB)</option>`;
+        }).join('');
+      }
+      const badge = document.getElementById('neuralBrainBadge');
+      if (badge) {
+        badge.innerText = data.status === "online" ? "● AI CORE ONLINE" : `● AI CORE ${data.status.toUpperCase()}`;
+      }
+    })
+    .catch(e => console.warn("[LLM] Fetch models error:", e));
+}
+
+function swapNeuralBrain() {
+  const selector = document.getElementById('neuralBrainSelector');
+  const btn = document.getElementById('btnSwapBrain');
+  const badge = document.getElementById('neuralBrainBadge');
+  if (!selector) return;
+
+  const targetModel = selector.value;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = "SWAPPING...";
+  }
+  if (badge) {
+    badge.innerText = "● SWAPPING BRAIN...";
+    badge.style.color = "var(--accent-yellow)";
+  }
+
+  showAiSpeechToast(`Swapping neural brain to ${targetModel}...`);
+
+  fetch('/api/ai/models/swap', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: targetModel })
+  })
+    .then(r => r.json())
+    .then(data => {
+      setTimeout(fetchAvailableNeuralBrains, 4000);
+      if (btn) {
+        btn.disabled = false;
+        btn.innerText = "⚡ HOT-SWAP BRAIN";
+      }
+    })
+    .catch(err => {
+      console.error("[LLM] Swap error:", err);
+      if (btn) {
+        btn.disabled = false;
+        btn.innerText = "⚡ HOT-SWAP BRAIN";
+      }
+    });
+}
+
+
+// --- 17. FLOATING EMERGENCY DTC DIAGNOSTIC HUD ---
+
+let activeEmergencyDtc = null;
+let lastDtcAlertTime = 0;
+
+function showEmergencyDtcHud(dtcCode, customDesc) {
+  if (!dtcCode) return;
+  activeEmergencyDtc = dtcCode;
+
+  const hud = document.getElementById('emergencyDtcHud');
+  const codeEl = document.getElementById('dtcHudCode');
+  const descEl = document.getElementById('dtcHudDesc');
+  const badgeEl = document.getElementById('dtcHudSeverity');
+
+  if (!hud) return;
+
+  if (codeEl) codeEl.innerText = dtcCode;
+
+  let desc = customDesc;
+  if (!desc) {
+    const descriptions = {
+      "P0299": "Turbocharger Underboost condition on 1.4L MultiAir. Inspect wastegate actuator rod, bypass diverter valve diaphragm, and intercooler boost hoses.",
+      "P0234": "Turbocharger Overboost condition on 1.4L MultiAir. Wastegate may be sticking closed or boost control solenoid duty cycle excessive.",
+      "P0300": "Random/Multiple Cylinder Misfire. Inspect MultiAir brick actuator solenoids, spark plug gaps, or ignition coils.",
+      "P0128": "Coolant Thermostat below regulating temperature. Engine running cold.",
+      "OVERHEAT_WARNING": "Engine coolant temperature exceeding safe limit! Pull over safely and allow cooling."
+    };
+    desc = descriptions[dtcCode] || `Diagnostic trouble code ${dtcCode} reported by Fiat Marelli 8GM powertrain controller.`;
+  }
+
+  if (descEl) descEl.innerText = desc;
+  if (badgeEl) badgeEl.innerText = (dtcCode === "OVERHEAT_WARNING" || dtcCode === "P0299" || dtcCode === "P0234") ? "CRITICAL ALERT" : "STORED FAULT";
+
+  hud.style.display = "flex";
+  setWaifuEmotion("CONCERNED");
+
+  // Render mini waifu on DTC canvas
+  renderMiniDtcWaifu();
+
+  // Voice alert throttle: max once every 30 seconds for same code
+  const now = Date.now();
+  if (now - lastDtcAlertTime > 30000) {
+    lastDtcAlertTime = now;
+    const warningText = (dtcCode === "OVERHEAT_WARNING")
+      ? "Master, your coolant temperature is running hot! Please pull over safely so we can let the turbo cool down!"
+      : `Master, I detected an engine trouble code: ${dtcCode}. Tap me if you want me to explain what's happening under the hood!`;
+    showAiSpeechToast(warningText);
+    speakUtterance(warningText, "CONCERNED");
+  }
+}
+
+function dismissDtcHud() {
+  const hud = document.getElementById('emergencyDtcHud');
+  if (hud) hud.style.display = "none";
+  setWaifuEmotion("DEVOTED");
+}
+
+function explainActiveDtc() {
+  dismissDtcHud();
+  navigateTo('ai');
+  const prompt = activeEmergencyDtc 
+    ? `Explain active engine diagnostic trouble code ${activeEmergencyDtc} in detail for my Dodge Dart 1.4L Turbo MultiAir and tell me exactly what to check.`
+    : "Check engine trouble codes and tell me what needs inspection.";
+  sendChatMessage(prompt);
+}
+
+function triggerDtcHudVoice() {
+  if (!activeEmergencyDtc) return;
+  const descEl = document.getElementById('dtcHudDesc');
+  const explanation = descEl ? descEl.innerText : `Code ${activeEmergencyDtc} active.`;
+  showAiSpeechToast(explanation);
+  speakUtterance(explanation, "CONCERNED");
+}
+
+function renderMiniDtcWaifu() {
+  const canvas = document.getElementById('dtcHudCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  ctx.save();
+  ctx.translate(w / 2, h / 2);
+
+  // Blonde twintails
+  ctx.fillStyle = '#dba01c';
+  ctx.beginPath();
+  ctx.arc(-22, 10, 14, 0, Math.PI * 2);
+  ctx.arc(22, 10, 14, 0, Math.PI * 2);
+  ctx.arc(0, -6, 26, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Face
+  ctx.fillStyle = '#fff5ee';
+  ctx.beginPath();
+  ctx.arc(0, 2, 20, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Rosy blush
+  ctx.fillStyle = 'rgba(255, 64, 129, 0.45)';
+  ctx.beginPath();
+  ctx.arc(-11, 7, 5, 0, Math.PI * 2);
+  ctx.arc(11, 7, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Worried eyes (slanted)
+  ctx.strokeStyle = '#1a0826';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(-15, -1);
+  ctx.lineTo(-7, 2);
+  ctx.moveTo(15, -1);
+  ctx.lineTo(7, 2);
+  ctx.stroke();
+
+  // Concerned mouth (small circle 'o')
+  ctx.fillStyle = '#8a1538';
+  ctx.beginPath();
+  ctx.arc(0, 12, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Bangs
+  ctx.fillStyle = '#f5c542';
+  ctx.beginPath();
+  ctx.arc(0, -10, 21, 1.1 * Math.PI, 1.9 * Math.PI);
+  ctx.lineTo(0, -3);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// Fetch available neural brains on startup
+fetchAvailableNeuralBrains();
+setTimeout(dismissBootSplash, 800);

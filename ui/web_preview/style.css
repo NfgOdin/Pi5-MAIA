@@ -1845,3 +1845,108 @@ body {
   pointer-events: none;
   z-index: 2;
 }
+
+
+/* EMERGENCY FLOATING DTC DIAGNOSTIC HUD */
+.emergency-dtc-hud {
+  position: fixed;
+  top: 54px;
+  right: 16px;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(18, 12, 22, 0.94);
+  backdrop-filter: blur(12px);
+  border: 2px solid var(--accent-red);
+  border-radius: 14px;
+  padding: 10px 14px;
+  box-shadow: 0 0 25px rgba(255, 23, 68, 0.55), inset 0 0 15px rgba(255, 23, 68, 0.2);
+  animation: slideInHud 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+  max-width: 480px;
+}
+@keyframes slideInHud {
+  from { transform: translateX(120%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.dtc-hud-avatar-wrapper {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  flex-shrink: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dtc-hud-canvas {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-pink);
+  background: #0d0814;
+}
+.dtc-hud-glow {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 45, 120, 0.5);
+  animation: hudPulse 1.6s infinite alternate;
+  pointer-events: none;
+}
+@keyframes hudPulse {
+  0% { transform: scale(0.96); opacity: 0.4; }
+  100% { transform: scale(1.08); opacity: 0.9; }
+}
+.dtc-hud-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dtc-hud-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dtc-hud-code {
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--accent-red);
+  letter-spacing: 1px;
+}
+.dtc-hud-badge {
+  font-size: 9px;
+  font-weight: 900;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 23, 68, 0.2);
+  color: #ff5252;
+  border: 1px solid rgba(255, 23, 68, 0.4);
+}
+.dtc-hud-desc {
+  font-size: 11px;
+  color: #e0e0e0;
+  line-height: 1.3;
+}
+.dtc-hud-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+.dtc-hud-btn {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: none;
+}
+.dtc-hud-btn.explain {
+  background: var(--accent-pink);
+  color: #fff;
+}
+.dtc-hud-btn.dismiss {
+  background: #252830;
+  color: var(--text-secondary);
+}

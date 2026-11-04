@@ -140,6 +140,65 @@ class LLMClient:
             self.ai_core_status = "online"
         self._llama_loading = False
 
+
+    def get_available_gguf_models(self) -> List[Dict[str, Any]]:
+        """Scans candidate directories for all .gguf model files."""
+        candidates = [
+            "/home/nfgodin/odin-core/models",
+            "/home/nfgodin/CarPi5/models",
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "models")
+        ]
+        found = {}
+        for c in candidates:
+            if os.path.exists(c):
+                try:
+                    for f in os.listdir(c):
+                        if f.endswith(".gguf") and f not in found:
+                            p = os.path.join(c, f)
+                            size_mb = round(os.path.getsize(p) / (1024 * 1024), 1)
+                            name_display = f.replace(".gguf", "").replace("-", " ").replace("_", " ").title()
+                            found[f] = {
+                                "filename": f,
+                                "path": p,
+                                "size_mb": size_mb,
+                                "display_name": name_display
+                            }
+                except Exception as ex:
+                    print(f"[LLM] Error scanning {c}: {ex}")
+        return list(found.values())
+
+    def swap_gguf_model(self, model_filename: str) -> Dict[str, Any]:
+        """Hot-swaps the active Llama GGUF model in RAM."""
+        available = {m["filename"]: m["path"] for m in self.get_available_gguf_models()}
+        if model_filename not in available:
+            return {"success": False, "message": f"Model {model_filename} not found"}
+
+        target_path = available[model_filename]
+        self.ai_core_status = "warming"
+        self._llama_loading = True
+        try:
+            if self._llama_model is not None:
+                del self._llama_model
+                self._llama_model = None
+                import gc
+                gc.collect()
+
+            from llama_cpp import Llama
+            print(f"[LLM] Hot-swapping model to: {target_path}...")
+            self._llama_model = Llama(model_path=target_path, n_ctx=1024, n_threads=4, verbose=False)
+            self.settings["gguf_model_path"] = target_path
+            self.settings["active_model_name"] = model_filename
+            self.save_settings(self.settings)
+            self.ai_core_status = "online"
+            self._llama_loading = False
+            print(f"[LLM] Hot-swap complete! Model {model_filename} is online.")
+            return {"success": True, "model": model_filename, "path": target_path}
+        except Exception as e:
+            print(f"[LLM] Hot-swap failed: {e}")
+            self.ai_core_status = "error"
+            self._llama_loading = False
+            return {"success": False, "message": str(e)}
+
     def reload_personas(self) -> Dict[str, Dict[str, Any]]:
         self.personas = load_personas_from_dir()
         return self.personas

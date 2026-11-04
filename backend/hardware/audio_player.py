@@ -42,8 +42,13 @@ class AudioPlayer:
         
         # Candidate paths for Piper neural model
         self.model_candidates = [
+            "/home/nfgodin/odin-core/models/en_US-amy-medium.onnx",
+            "/home/nfgodin/CarPi5/models/en_US-amy-medium.onnx",
+            "/home/nfgodin/odin-core/models/en_US-hfc_female-medium.onnx",
+            "/home/nfgodin/CarPi5/models/en_US-hfc_female-medium.onnx",
             "/home/nfgodin/odin-core/models/en_US-lessac-low.onnx",
             "/home/nfgodin/CarPi5/models/en_US-lessac-low.onnx",
+            str(Path(__file__).parent.parent.parent / "models" / "en_US-amy-medium.onnx"),
             str(Path(__file__).parent.parent.parent / "models" / "en_US-lessac-low.onnx")
         ]
         
@@ -165,7 +170,7 @@ class AudioPlayer:
             # Try 1: Direct ALSA HDMI 0
             played = False
             try:
-                res = subprocess.run(["aplay", "-D", "plughw:0,0", "-q", file_path], capture_output=True, timeout=15)
+                res = subprocess.run(["aplay", "-D", "plughw:0,0", "-B", "100000", "-q", file_path], capture_output=True, timeout=15)
                 if res.returncode == 0:
                     played = True
             except Exception:
@@ -183,7 +188,7 @@ class AudioPlayer:
             # Try 3: Default ALSA
             if not played:
                 try:
-                    subprocess.run(["aplay", "-q", file_path], capture_output=True, timeout=15)
+                    subprocess.run(["aplay", "-B", "100000", "-q", file_path], capture_output=True, timeout=15)
                 except Exception:
                     pass
         elif sys.platform == "win32":

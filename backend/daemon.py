@@ -412,6 +412,54 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"status": "ok", "spoken": text}).encode("utf-8"))
             return
 
+        
+        elif parsed.path == "/api/ai/models":
+            models = state.ai_client.get_available_gguf_models()
+            current_path = state.ai_client.settings.get("gguf_model_path", "")
+            active_model = os.path.basename(current_path) if current_path else "qwen3b.gguf"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "models": models,
+                "active_model": active_model,
+                "status": state.ai_client.ai_core_status
+            }).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/system/update/check":
+            repo_dir = str(Path(__file__).parent.parent)
+            try:
+                subprocess.run(["git", "-C", repo_dir, "fetch", "origin", "main"], capture_output=True, timeout=15)
+                local_rev = subprocess.run(["git", "-C", repo_dir, "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5).stdout.strip()
+                remote_rev = subprocess.run(["git", "-C", repo_dir, "rev-parse", "origin/main"], capture_output=True, text=True, timeout=5).stdout.strip()
+                behind_res = subprocess.run(["git", "-C", repo_dir, "rev-list", "--count", "HEAD..origin/main"], capture_output=True, text=True, timeout=5).stdout.strip()
+                commits_behind = int(behind_res) if behind_res.isdigit() else 0
+                log_res = subprocess.run(["git", "-C", repo_dir, "log", "HEAD..origin/main", "--oneline", "-n", "10"], capture_output=True, text=True, timeout=5).stdout.strip()
+                changelog = [line for line in log_res.split("\n") if line.strip()]
+                
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "ok",
+                    "update_available": (commits_behind > 0 or (local_rev != remote_rev and bool(remote_rev))),
+                    "commits_behind": commits_behind,
+                    "current_commit": local_rev[:7] if local_rev else "unknown",
+                    "remote_commit": remote_rev[:7] if remote_rev else "unknown",
+                    "changelog": changelog,
+                    "repo_url": "https://github.com/NfgOdin/Pi5-MAIA"
+                }).encode("utf-8"))
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode("utf-8"))
+            return
+
         elif parsed.path == "/api/settings/all":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -740,6 +788,69 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             }).encode("utf-8"))
             return
 
+        
+        elif parsed.path == "/api/ai/models/swap":
+            model_target = req_data.get("model", "")
+            if not model_target:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": "No model specified"}).encode("utf-8"))
+                return
+
+            persona = state.ai_client.personas.get(state.ai_client.settings.get("personality", "MAIA"), {})
+            p_name = persona.get("name", "M.A.I.A.")
+            swap_announcement = f"Swapping out my neural brain to {model_target.replace('.gguf', '')}... give me just a moment!"
+            state.audio.speak(swap_announcement)
+
+            def do_swap():
+                res = state.ai_client.swap_gguf_model(model_target)
+                if res.get("success"):
+                    ready_speech = f"My new neural brain is warm and ready! Cockpit systems fully aligned, Master!"
+                    state.audio.speak(ready_speech)
+                else:
+                    err_speech = f"Could not complete the neural swap: {res.get('message')}"
+                    state.audio.speak(err_speech)
+
+            threading.Thread(target=do_swap, daemon=True).start()
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "message": f"Initiated swap to {model_target}"}).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/system/update/apply":
+            repo_dir = str(Path(__file__).parent.parent)
+            try:
+                pull_res = subprocess.run(["git", "-C", repo_dir, "reset", "--hard", "origin/main"], capture_output=True, text=True, timeout=30)
+                
+                def delayed_restart():
+                    time.sleep(1.5)
+                    restart_cmd = f"pkill -f 'backend/daemon.py'; sleep 1; nohup python3 {repo_dir}/backend/daemon.py > {repo_dir}/daemon.log 2>&1 &"
+                    subprocess.Popen(["/bin/bash", "-c", restart_cmd])
+
+                threading.Thread(target=delayed_restart, daemon=True).start()
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "ok",
+                    "message": "CarPi5 updated successfully! Restarting system...",
+                    "git_output": pull_res.stdout.strip()
+                }).encode("utf-8"))
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode("utf-8"))
+            return
+
         elif parsed.path == "/api/settings/reset":
             defaults = state.reset_settings()
             self.send_response(200)
@@ -950,7 +1061,7 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                     env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
                 else:
                     env["XDG_RUNTIME_DIR"] = "/run/user/1000"
-                proc = subprocess.Popen(["kodi"], env=env)
+                proc = subprocess.Popen(["kodi", "--standalone", "-fs"], env=env)
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Access-Control-Allow-Origin", "*")
@@ -1001,7 +1112,7 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                     env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
                 else:
                     env["XDG_RUNTIME_DIR"] = "/run/user/1000"
-                cmd = ["retroarch"]
+                cmd = ["retroarch", "--fullscreen"]
                 if core:
                     cmd.extend(["-L", core])
                 proc = subprocess.Popen(cmd, env=env)

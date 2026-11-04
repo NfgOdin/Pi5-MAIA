@@ -27,6 +27,26 @@
     </div>
   </div>
 
+  
+  <!-- FLOATING EMERGENCY DTC DIAGNOSTIC HUD (ALL SCREENS) -->
+  <div id="emergencyDtcHud" class="emergency-dtc-hud" style="display:none;">
+    <div class="dtc-hud-avatar-wrapper" onclick="triggerDtcHudVoice()" title="Click to ask M.A.I.A. about this issue">
+      <canvas id="dtcHudCanvas" width="76" height="76" class="dtc-hud-canvas"></canvas>
+      <div class="dtc-hud-glow"></div>
+    </div>
+    <div class="dtc-hud-body">
+      <div class="dtc-hud-header">
+        <span class="dtc-hud-code" id="dtcHudCode">P0299</span>
+        <span class="dtc-hud-badge" id="dtcHudSeverity">CRITICAL ALERT</span>
+      </div>
+      <div class="dtc-hud-desc" id="dtcHudDesc">Turbocharger Underboost condition detected on Fiat 1.4L MultiAir. Possible wastegate actuator or boost leak.</div>
+      <div class="dtc-hud-actions">
+        <button class="dtc-hud-btn explain" onclick="explainActiveDtc()">🗣️ MAIA EXPLAIN</button>
+        <button class="dtc-hud-btn dismiss" onclick="dismissDtcHud()">✕ DISMISS</button>
+      </div>
+    </div>
+  </div>
+
   <!-- PERSISTENT TOP STATUS BAR -->
   <header class="top-header">
     <div class="header-left">
@@ -203,7 +223,7 @@
       <div class="ai-chat-column">
         <div class="ai-chat-header">
           <div style="display:flex; align-items:center; gap:8px;">
-            <img id="chatAssistantAvatar" src="assets/pics/maia_avatar.jpg" class="chat-waifu-avatar" alt="M.A.I.A.">
+            <!-- Avatar removed from chat column as requested -->
             <div>
               <div style="font-size:13px; font-weight:800; color:#fff;" id="chatAssistantTitle">M.A.I.A. Companion</div>
               <div style="font-size:9px; color:var(--accent-pink);" id="chatAssistantSubtitle">MultiAir Intelligent Assistant • Dedicated Companion</div>
@@ -509,6 +529,68 @@
             <div id="driverAddressPreview" style="font-size:16px; font-weight:900; color:var(--accent-pink); margin-top:2px;">Master Creator</div>
           </div>
           <button class="cluster-action-btn" style="background:var(--accent-pink); color:#fff; font-weight:900; padding:8px 18px;" onclick="saveDriverProfile()">💾 SAVE DRIVER PROFILE</button>
+        </div>
+      </div>
+
+      
+      <!-- GITHUB IN-CAR OTA SOFTWARE UPDATES -->
+      <div class="settings-card" id="otaUpdatesCard" style="border-color:var(--accent-blue);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div class="settings-title" style="color:var(--accent-blue); margin-bottom:0;">
+            <span>🔄</span> GITHUB IN-CAR OTA SYSTEM UPDATES
+          </div>
+          <div id="otaUpdateBadge" class="pill" style="background:rgba(0,180,255,0.15); color:var(--accent-blue); font-size:11px;">
+            ● UP TO DATE
+          </div>
+        </div>
+        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">
+          Check the official repository (<code>github.com/NfgOdin/Pi5-MAIA</code>) for the latest CarPi5 dashboard features, M.A.I.A. persona updates, and C635 Fiat MultiAir tuning profiles. One-tap seamless updates via Wi-Fi or Phone Hotspot.
+        </p>
+        <div style="display:flex; align-items:center; justify-content:space-between; background:#0c1219; border:1px solid #212b38; padding:10px 14px; border-radius:8px; margin-bottom:12px;">
+          <div>
+            <div style="font-size:10px; color:var(--text-secondary); font-weight:800;">ACTIVE COMMIT</div>
+            <div style="font-size:14px; font-weight:900; color:#fff;" id="otaCurrentCommit">origin/main</div>
+          </div>
+          <div>
+            <div style="font-size:10px; color:var(--text-secondary); font-weight:800;">STATUS</div>
+            <div style="font-size:12px; font-weight:700; color:var(--accent-green);" id="otaStatusText">Tracked on origin/main</div>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="cluster-action-btn" id="btnCheckUpdates" onclick="checkForOtaUpdates()" style="background:rgba(0,180,255,0.15); color:var(--accent-blue); border-color:var(--accent-blue); font-size:11px; padding:6px 14px;">
+              🔄 CHECK FOR UPDATES
+            </button>
+            <button class="cluster-action-btn" id="btnApplyUpdate" onclick="applyOtaUpdate()" style="display:none; background:var(--accent-green); color:#000; font-weight:900; font-size:11px; padding:6px 14px;">
+              ⬇️ INSTALL UPDATE & RESTART
+            </button>
+          </div>
+        </div>
+        <div id="otaChangelogBox" style="display:none; background:#121822; border:1px solid #1c2736; border-radius:6px; padding:8px 12px; font-size:11px; color:#a1d7f5; margin-bottom:6px;">
+          <div style="font-weight:800; margin-bottom:4px; color:#fff;">New Commits on Remote:</div>
+          <ul id="otaChangelogList" style="margin:0; padding-left:16px;"></ul>
+        </div>
+      </div>
+
+      <!-- LOCAL GGUF NEURAL BRAIN SELECTOR (HOT-SWAP) -->
+      <div class="settings-card" id="neuralBrainCard" style="border-color:var(--accent-purple);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div class="settings-title" style="color:var(--accent-purple); margin-bottom:0;">
+            <span>🧠</span> NEURAL BRAIN SELECTOR (DYNAMIC HOT-SWAP)
+          </div>
+          <div id="neuralBrainBadge" class="pill" style="background:rgba(187,134,252,0.15); color:var(--accent-purple); font-size:11px;">
+            ● AI CORE ONLINE
+          </div>
+        </div>
+        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">
+          Hot-swap the active local LLM neural network powering M.A.I.A. directly in RAM. Choose between ultra-low-latency 1.5B (14-18 tokens/sec) or full 3B depth without restarting.
+        </p>
+        <div style="display:flex; align-items:center; gap:12px;">
+          <select id="neuralBrainSelector" class="slot-dropdown" style="flex:1; border-color:var(--accent-purple); color:#fff; font-size:12px; padding:8px;">
+            <option value="qwen3b.gguf" selected>Qwen 3B (Deep MultiAir Knowledge, High Nuance) • 2.0 GB</option>
+            <option value="qwen2.5-1.5b-instruct-q4_k_m.gguf">Qwen 2.5 1.5B (Ultra-Fast 16 tok/s Instant Speech) • 0.98 GB</option>
+          </select>
+          <button class="cluster-action-btn" id="btnSwapBrain" onclick="swapNeuralBrain()" style="background:var(--accent-purple); color:#000; font-weight:900; padding:8px 16px; font-size:11px;">
+            ⚡ HOT-SWAP BRAIN
+          </button>
         </div>
       </div>
 
