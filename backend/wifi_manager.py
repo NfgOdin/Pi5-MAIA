@@ -69,15 +69,27 @@ class WifiManager:
 
                 # Get IP and signal
                 if connected_ssid:
-                    dev_out = subprocess.check_output(
-                        ["nmcli", "-t", "-f", "IP4.ADDRESS,SIGNAL", "dev", "wifi"],
-                        text=True, timeout=3
-                    )
+                    try:
+                        dev_out = subprocess.check_output(
+                            ["nmcli", "-t", "-f", "IN-USE,SIGNAL,SSID", "dev", "wifi"],
+                            text=True, timeout=3
+                        )
+                        for dline in dev_out.splitlines():
+                            if dline.startswith("*"):
+                                dparts = dline.split(":")
+                                if len(dparts) >= 2 and dparts[1].isdigit():
+                                    signal_percent = int(dparts[1])
+                                    break
+                    except Exception:
+                        signal_percent = 85
+
                     # Use hostname -I for reliable in-car IP
-                    ip_out = subprocess.check_output(["hostname", "-I"], text=True, timeout=2).strip()
-                    if ip_out:
-                        ip_addr = ip_out.split()[0]
-                    signal_percent = 85
+                    try:
+                        ip_out = subprocess.check_output(["hostname", "-I"], text=True, timeout=2).strip()
+                        if ip_out:
+                            ip_addr = ip_out.split()[0]
+                    except Exception:
+                        pass
             except Exception as e:
                 pass
         else:
