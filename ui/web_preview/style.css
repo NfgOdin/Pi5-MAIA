@@ -153,11 +153,22 @@ body {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
   scroll-behavior: smooth;
+  pointer-events: none !important;
+  visibility: hidden !important;
 }
 
 .screen-view.active {
-  display: flex;
-  opacity: 1;
+  display: flex !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  visibility: visible !important;
+}
+
+.screen-view:not(.active) {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
 }
 
 /* --- 1. HOME SCREEN (MAIN LAUNCHER HUB) --- */
@@ -205,9 +216,10 @@ body {
 .home-cards-grid {
   flex: 1;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: 1fr 1fr;
-  gap: 12px;
+  grid-template-columns: repeat(4, 1fr) !important;
+  grid-template-rows: repeat(2, 1fr) !important;
+  gap: 10px !important;
+  min-height: 0;
 }
 
 .launcher-card {
@@ -1989,9 +2001,9 @@ body {
 .home-cards-grid {
   flex: 1;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(2, 1fr);
-  gap: 14px;
+  grid-template-columns: repeat(4, 1fr) !important;
+  grid-template-rows: repeat(2, 1fr) !important;
+  gap: 10px !important;
   min-height: 0;
 }
 
@@ -2376,7 +2388,7 @@ body {
 
 
 /* Full-Height 3D Avatar Stage & Unified Chat Layout */
-#screenAI {
+#screenAI.active {
   display: flex !important;
   flex-direction: row !important;
   gap: 16px !important;
@@ -2781,4 +2793,47 @@ body {
   text-align: center;
   padding: 24px;
   gap: 14px;
+}
+
+
+/* --- MEDIA APP ICON BUTTONS (VLC & KODI) --- */
+.media-app-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 52px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1.5px solid;
+}
+
+.media-app-icon-btn.vlc {
+  background: linear-gradient(135deg, rgba(255, 119, 0, 0.22), rgba(255, 60, 0, 0.12));
+  border-color: rgba(255, 119, 0, 0.55);
+  color: #ff8800;
+}
+
+.media-app-icon-btn.vlc:hover {
+  background: linear-gradient(135deg, rgba(255, 119, 0, 0.4), rgba(255, 60, 0, 0.3));
+  border-color: #ff8800;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(255, 119, 0, 0.4);
+}
+
+.media-app-icon-btn.kodi {
+  background: linear-gradient(135deg, rgba(0, 176, 255, 0.22), rgba(0, 100, 220, 0.12));
+  border-color: rgba(0, 176, 255, 0.55);
+  color: #00b0ff;
+}
+
+.media-app-icon-btn.kodi:hover {
+  background: linear-gradient(135deg, rgba(0, 176, 255, 0.4), rgba(0, 100, 220, 0.3));
+  border-color: #00b0ff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 176, 255, 0.4);
+}
+
+.media-app-icon-btn:active {
+  transform: translateY(0) scale(0.98);
 }

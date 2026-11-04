@@ -32,23 +32,39 @@ function toggleClockFormat() {
   if (scClock) scClock.innerText = formatClockTime(new Date(), true);
 }
 
-// --- DISPLAY BRIGHTNESS SCRIM ---
-function setDisplayBrightness(val) {
-  const pct = Math.max(15, Math.min(100, parseInt(val) || 100));
+// --- DISPLAY BRIGHTNESS SCRIM & HARDWARE BRIGHTNESS ---
+function updateBrightnessFromSlider(val) {
+  const pct = Math.max(10, Math.min(100, parseInt(val) || 100));
+  
+  // 1. Update UI Elements
+  const pill = document.getElementById('brightnessPillVal');
+  if (pill) pill.innerText = `${pct}%`;
+  const slider = document.getElementById('sliderBrightness');
+  if (slider && slider.value !== String(pct)) slider.value = pct;
+  const cfgSlider = document.getElementById('cfgDisplayBrightness');
+  if (cfgSlider && cfgSlider.value !== String(pct)) cfgSlider.value = pct;
+  const label = document.getElementById('cfgBrightnessLabel');
+  if (label) label.innerText = `${pct}%`;
+
+  // 2. Hardware / Software Scrim (Smoothly dims any HDMI or DSI car display)
   const overlay = document.getElementById('screenBrightnessOverlay');
   if (overlay) {
     overlay.style.opacity = (1.0 - (pct / 100.0)).toFixed(2);
   }
-  const slider = document.getElementById('cfgDisplayBrightness');
-  if (slider) slider.value = pct;
-  const label = document.getElementById('cfgBrightnessLabel');
-  if (label) label.innerText = `${pct}%`;
+
+  // 3. Persist setting across reboots
   localStorage.setItem('carpi5_brightness', pct);
-  fetch('/api/display/settings', {
+
+  // 4. Send to backend in case sysfs backlight driver is present
+  fetch('/api/system/brightness', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ brightness: pct })
   }).catch(() => {});
+}
+
+function setDisplayBrightness(val) {
+  updateBrightnessFromSlider(val);
 }
 
 // --- KINETIC TOUCH SCROLLING ---
@@ -3780,16 +3796,7 @@ function closeSystemHealthModal() {
   }
 }
 
-// 2. Hardware Brightness
-function updateBrightnessFromSlider(val) {
-  const pill = document.getElementById('brightnessPillVal');
-  if (pill) pill.innerText = `${val}%`;
-  fetch('/api/system/brightness', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ brightness: parseInt(val) })
-  }).catch(err => console.warn("[BRIGHTNESS] Error:", err));
-}
+// 2. Hardware Brightness (delegates to main handler)
 
 function setPresetBrightness(val) {
   const slider = document.getElementById('sliderBrightness');
@@ -4792,8 +4799,8 @@ function triggerWaifuTouch() {
 
 // Initialize Talking Head, Kinetic Touch Scrolling, and Brightness
 // [OBSOLETE 2D FACE - DORMANT CODE] initWaifuTalkingHead();
-const savedBrightness = localStorage.getItem('carpi5_brightness');
-if (savedBrightness) setDisplayBrightness(savedBrightness);
+const savedBrightness = localStorage.getItem('carpi5_brightness') || 100;
+updateBrightnessFromSlider(savedBrightness);
 const btnClock = document.getElementById('btnClockFormat');
 if (btnClock) btnClock.innerText = is24HourClock ? "CLOCK: 24-HOUR (MILITARY)" : "CLOCK: 12-HOUR (AM/PM)";
 ['aiChatMessages', 'speechLogList', 'filesListView', 'screenSettings', 'screenGames'].forEach(id => {
