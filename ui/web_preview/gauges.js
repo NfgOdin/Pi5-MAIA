@@ -10601,10 +10601,11 @@ let vrmInitialized = false;
 
 
 
-// 3D Multi-World Environment Suite (Loft, Cyber Garage, Sakura Garden, Repaired Bedroom)
+// 3D Multi-World Environment Suite (Sakura Garden, Loft, Cyber Garage, Repaired Bedroom)
 let vrmEnvironmentGroup = null;
-const VRM_ENVIRONMENTS = ['LOFT', 'GARAGE', 'GARDEN', 'BEDROOM'];
-let currentEnvironmentName = localStorage.getItem('vrmEnvironment') || 'LOFT';
+const VRM_ENVIRONMENTS = ['GARDEN', 'LOFT', 'GARAGE', 'BEDROOM'];
+let currentEnvironmentName = localStorage.getItem('vrmEnvironment') || 'GARDEN';
+let vrmCurrentElevation = 0.0;
 let bedroomModel = null;
 let yoshiModel = null;
 let roomLampLight = null;
@@ -10628,11 +10629,11 @@ let vrmRoamCurrentWaypoint = null;
 let vrmRoamWalkAction = null;
 
 const VRM_ROAM_WAYPOINTS = [
-  { id: 'center',  x:  0.00, z:  0.02, name: 'Center Stage', desc: 'Standing proudly in center stage' },
-  { id: 'yoshi',   x:  0.34, z:  0.15, name: 'Yoshi Corner', desc: 'Visiting Yoshi plushie' },
-  { id: 'window',  x: -0.36, z: -0.10, name: 'Window View',  desc: 'Looking out at panoramic city view' },
-  { id: 'cozy',    x: -0.22, z:  0.20, name: 'Cozy Front',   desc: 'Stepping forward close to dashboard' },
-  { id: 'lounge',  x:  0.22, z: -0.16, name: 'Lounge Spot',  desc: 'Checking the side lounge shelf' }
+  { id: 'center',    x:  0.00, z:  0.02, name: 'Center Stage', desc: 'Standing proudly in center stage' },
+  { id: 'yoshi_mat', x:  0.42, z:  0.16, name: 'Tatami Mat',   desc: 'Stepping onto the raised mat beside Yoshi' },
+  { id: 'veranda',   x: -0.34, z: -0.10, name: 'Veranda Rail', desc: 'Looking out at the twilight scenery' },
+  { id: 'cozy_front',x: -0.18, z:  0.22, name: 'Cozy Front',   desc: 'Stepping forward close to dashboard' },
+  { id: 'lantern',   x:  0.20, z: -0.16, name: 'Lantern Spot', desc: 'Relaxing near the warm lantern' }
 ];
 
 
@@ -12554,12 +12555,16 @@ function initVrmEngine() {
       // Autonomous Roaming State Update
       updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, dancing, isSpeedPanic);
 
-      // Anchor feet firmly on stage floor (vrmBaseY), apply autonomous roaming X/Z & G-force inertia
+      // Environment surface elevation (e.g. stepping onto raised tatami mat in Garden)
+      const targetElevation = getEnvironmentSurfaceElevation(vrmRoamCurrentPos.x, vrmRoamCurrentPos.z);
+      vrmCurrentElevation += (targetElevation - vrmCurrentElevation) * Math.min(1.0, delta * 7.0);
+
+      // Anchor feet firmly on stage floor (vrmBaseY + elevation), apply autonomous roaming X/Z & G-force inertia
       vrmModel.rotation.set(0, vrmRoamCurrentRotY, 0);
 
       vrmModel.position.set(
         -vrmCenter.x + vrmRoamCurrentPos.x,
-        vrmBaseY,
+        vrmBaseY + vrmCurrentElevation,
         (-vrmCenter.z) + vrmRoamCurrentPos.z + rumCurrentInertiaZ
       );
 
@@ -12898,8 +12903,8 @@ function updateCameraDirector(delta, isSpeaking, isReacting) {
 
     targetCamPos.set(0.80, vrmBaseY + 0.82, 4.05 * vrmZoomMultiplier);
 
-    // Smoothly track Rem's horizontal wandering position on the stage
-    targetLookAt.set(vrmRoamCurrentPos.x * 0.40, vrmBaseY + 0.68, vrmRoamCurrentPos.z * 0.40);
+    // Smoothly track Rem's horizontal wandering position and elevation on the stage
+    targetLookAt.set(vrmRoamCurrentPos.x * 0.40, vrmBaseY + vrmCurrentElevation + 0.68, vrmRoamCurrentPos.z * 0.40);
 
   }
 
@@ -14105,12 +14110,30 @@ function buildGardenEnvironment() {
     sakuraPetals.push(petal);
   }
 
-  // Yoshi Red Felt Bench Mat
-  const matGeo = new THREE.BoxGeometry(0.55, 0.03, 0.55);
-  const matMat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.8 });
-  const redMat = new THREE.Mesh(matGeo, matMat);
-  redMat.position.set(0.62, vrmBaseY + 0.015, 0.18);
-  vrmEnvironmentGroup.add(redMat);
+  // Walkable Raised Sakura Tatami Mat Platform
+  const matW = 0.84;
+  const matH = 0.04;
+  const matD = 0.70;
+  const matGeo = new THREE.BoxGeometry(matW, matH, matD);
+  const matMat = new THREE.MeshStandardMaterial({
+    color: 0xcc3b68, // rich sakura velvet felt
+    roughness: 0.75,
+    metalness: 0.05
+  });
+  const raisedMat = new THREE.Mesh(matGeo, matMat);
+  raisedMat.position.set(0.52, vrmBaseY + (matH / 2), 0.16);
+  raisedMat.receiveShadow = true;
+  vrmEnvironmentGroup.add(raisedMat);
+
+  // Woven gold brocade border trim
+  const trimGeo = new THREE.BoxGeometry(matW + 0.02, 0.038, matD + 0.02);
+  const trimMat = new THREE.MeshStandardMaterial({
+    color: 0xb48a3c,
+    roughness: 0.60
+  });
+  const matTrim = new THREE.Mesh(trimGeo, trimMat);
+  matTrim.position.set(0.52, vrmBaseY + 0.019, 0.16);
+  vrmEnvironmentGroup.add(matTrim);
 
   updateYoshiEnvironmentRest();
 }
@@ -14215,16 +14238,30 @@ function updateWorldButtonLabel() {
   if (btn) btn.innerText = labels[currentEnvironmentName] || '🏯 LOFT';
 }
 
+function getEnvironmentSurfaceElevation(x, z) {
+  if (currentEnvironmentName === 'GARDEN') {
+    const minX = 0.52 - 0.42;
+    const maxX = 0.52 + 0.42;
+    const minZ = 0.16 - 0.35;
+    const maxZ = 0.16 + 0.35;
+    if (x >= minX && x <= maxX && z >= minZ && z <= maxZ) {
+      return 0.04; // 4cm elevation onto raised mat
+    }
+  }
+  return 0.0;
+}
+
 function getEnvironmentYoshiPos() {
   if (currentEnvironmentName === 'GARAGE') {
-    return { pos: [0.65, vrmBaseY + 0.16, 0.15], rot: [0, -0.4, 0], scale: 1.35 };
+    return { pos: [0.65, vrmBaseY + 0.16, 0.15], rot: [0, 3.0, 0], scale: 1.35 };
   } else if (currentEnvironmentName === 'GARDEN') {
-    return { pos: [0.62, vrmBaseY + 0.18, 0.18], rot: [0, -0.4, 0], scale: 1.35 };
+    // Yoshi sits proudly on the right side of the raised tatami mat facing the screen!
+    return { pos: [0.66, vrmBaseY + 0.04 + 0.16, 0.16], rot: [0, 3.0, 0], scale: 1.35 };
   } else if (currentEnvironmentName === 'BEDROOM') {
-    return { pos: [0.48, vrmBaseY + 0.16, 0.22], rot: [0, -0.4, 0], scale: 1.35 };
+    return { pos: [0.48, vrmBaseY + 0.16, 0.22], rot: [0, 3.0, 0], scale: 1.35 };
   } else {
     // LOFT
-    return { pos: [0.65, vrmBaseY + 0.30, 0.22], rot: [0, -0.55, 0], scale: 1.25 };
+    return { pos: [0.65, vrmBaseY + 0.30, 0.22], rot: [0, 2.7, 0], scale: 1.25 };
   }
 }
 
@@ -14344,13 +14381,15 @@ function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, 
 
       const dx = vrmRoamTargetPos.x - vrmRoamCurrentPos.x;
       const dz = vrmRoamTargetPos.z - vrmRoamCurrentPos.z;
-      vrmRoamTargetRotY = Math.atan2(dx, dz);
+      // In VRM space, rotation.y = 0 faces -Z (away), rotation.y = PI faces +Z (screen/user).
+      // To face destination (dx, dz): forward vector is (-sin(rotY), -cos(rotY)), so angle = atan2(-dx, -dz)
+      vrmRoamTargetRotY = Math.atan2(-dx, -dz);
       vrmRoamState = 'TURNING';
     }
   } else if (vrmRoamState === 'TURNING') {
     let diff = THREE.MathUtils.euclideanModulo(vrmRoamTargetRotY - vrmRoamCurrentRotY + Math.PI, Math.PI * 2) - Math.PI;
     if (Math.abs(diff) > 0.08) {
-      vrmRoamCurrentRotY += Math.sign(diff) * Math.min(Math.abs(diff), delta * 3.5);
+      vrmRoamCurrentRotY += Math.sign(diff) * Math.min(Math.abs(diff), delta * 3.8);
     } else {
       vrmRoamCurrentRotY = vrmRoamTargetRotY;
       vrmRoamState = 'WALKING';
@@ -14362,14 +14401,16 @@ function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, 
     const dist = Math.hypot(dx, dz);
 
     if (dist > 0.045) {
-      const targetAngle = Math.atan2(dx, dz);
+      // Keep Rem facing forward directly along her travel path
+      const targetAngle = Math.atan2(-dx, -dz);
       let diff = THREE.MathUtils.euclideanModulo(targetAngle - vrmRoamCurrentRotY + Math.PI, Math.PI * 2) - Math.PI;
-      vrmRoamCurrentRotY += diff * Math.min(1.0, delta * 3.0);
+      vrmRoamCurrentRotY += diff * Math.min(1.0, delta * 3.5);
 
       const walkSpeed = 0.32;
       const step = Math.min(dist, walkSpeed * delta);
-      vrmRoamCurrentPos.x += Math.sin(vrmRoamCurrentRotY) * step;
-      vrmRoamCurrentPos.z += Math.cos(vrmRoamCurrentRotY) * step;
+      // Advance forward directly along destination vector (zero sliding, zero moonwalking)
+      vrmRoamCurrentPos.x += (dx / dist) * step;
+      vrmRoamCurrentPos.z += (dz / dist) * step;
     } else {
       vrmRoamCurrentPos.x = vrmRoamTargetPos.x;
       vrmRoamCurrentPos.z = vrmRoamTargetPos.z;
