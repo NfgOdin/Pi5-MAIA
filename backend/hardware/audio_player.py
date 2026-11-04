@@ -94,8 +94,8 @@ class AudioPlayer:
         clean_text = clean_text.replace("*", "").replace("`", "").replace('"', '')
         
         now = time.time()
-        # De-duplicate identical speech requests within 4.0 seconds
-        if clean_text == self._last_spoken_text and (now - self._last_spoken_time) < 4.0:
+        # De-duplicate identical speech requests within 8.0 seconds or while currently speaking
+        if clean_text == self._last_spoken_text and ((now - self._last_spoken_time) < 8.0 or self.is_speaking):
             print(f"[AUDIO] De-duplicating repeat speech request: {clean_text[:40]}...")
             return
         self._last_spoken_text = clean_text
