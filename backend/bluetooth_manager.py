@@ -61,17 +61,17 @@ class BluetoothManager:
                 "controller_name": "CarPi (PC Sim)",
                 "controller_mac": "00:1A:7D:DA:71:13",
                 "connected_device": {
-                    "mac": "F4:F5:DB:12:34:56",
-                    "name": "User Phone",
-                    "alias": "User Phone",
+                    "mac": "0C:C0:C0:09:7D:45",
+                    "name": "Uconnect",
+                    "alias": "Uconnect",
                     "paired": True,
                     "connected": True,
                     "audio_connected": True
                 },
                 "connected_devices": [
                     {
-                        "mac": "F4:F5:DB:12:34:56",
-                        "name": "User Phone",
+                        "mac": "0C:C0:C0:09:7D:45",
+                        "name": "Uconnect",
                         "paired": True,
                         "connected": True
                     }
@@ -100,7 +100,6 @@ class BluetoothManager:
             connected = []
             for dline in dev_out.splitlines():
                 dline = dline.strip()
-                # Device AA:BB:CC:DD:EE:FF Name
                 m = re.match(r"Device\s+([0-9A-Fa-f:]+)\s+(.+)", dline)
                 if m:
                     connected.append({
@@ -120,64 +119,76 @@ class BluetoothManager:
         return status
 
     def scan_devices(self) -> List[Dict[str, Any]]:
-        """Scans for nearby Bluetooth devices for 4 seconds and returns discovered list."""
+        """
+        Runs bluetoothctl active scan for 5 seconds and parses all discovered devices,
+        exactly like Odin's _bluetooth_scan_thread.
+        """
         if not IS_LINUX:
             return [
-                {"mac": "F4:F5:DB:12:34:56", "name": "User Phone (Connected)", "rssi": -48, "paired": True, "connected": True},
-                {"mac": "98:CD:AC:44:11:22", "name": "Car OBD Scanner (ELM327)", "rssi": -65, "paired": False, "connected": False},
-                {"mac": "E0:D4:E8:99:88:77", "name": "Wireless Gamepad", "rssi": -72, "paired": False, "connected": False}
+                {"mac": "0C:C0:C0:09:7D:45", "name": "Uconnect (Dodge Dart)", "rssi": -45, "paired": False, "connected": False},
+                {"mac": "18:62:E4:46:73:8B", "name": "PDLCommander", "rssi": -65, "paired": False, "connected": False},
+                {"mac": "F4:F5:DB:12:34:56", "name": "User Phone", "rssi": -55, "paired": True, "connected": True}
             ]
 
         devices_map = {}
         try:
-            # 1. Fetch currently paired/known devices
-            paired_out = subprocess.check_output(["bluetoothctl", "devices", "Paired"], text=True, timeout=3)
-            for line in paired_out.splitlines():
-                m = re.match(r"Device\s+([0-9A-Fa-f:]+)\s+(.+)", line.strip())
-                if m:
-                    devices_map[m.group(1)] = {
-                        "mac": m.group(1),
-                        "name": m.group(2).strip(),
-                        "paired": True,
-                        "connected": False,
-                        "rssi": -60
-                    }
-
-            # 2. Run scan for 4 seconds
+            # 1. Fetch currently paired devices
             try:
-                p = subprocess.Popen(["bluetoothctl", "scan", "on"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                time.sleep(3.5)
-                p.terminate()
+                paired_out = subprocess.check_output(["bluetoothctl", "devices", "Paired"], text=True, timeout=3)
+                for line in paired_out.splitlines():
+                    m = re.match(r"Device\s+([0-9A-Fa-f:]+)\s+(.+)", line.strip())
+                    if m:
+                        devices_map[m.group(1)] = {
+                            "mac": m.group(1),
+                            "name": m.group(2).strip(),
+                            "paired": True,
+                            "connected": False,
+                            "rssi": -60
+                        }
             except Exception:
                 pass
 
-            # 3. List all discovered devices
-            all_devs = subprocess.check_output(["bluetoothctl", "devices"], text=True, timeout=3)
-            for line in all_devs.splitlines():
-                m = re.match(r"Device\s+([0-9A-Fa-f:]+)\s+(.+)", line.strip())
-                if m:
-                    mac = m.group(1)
-                    name = m.group(2).strip()
-                    if mac not in devices_map:
-                        devices_map[mac] = {
-                            "mac": mac,
-                            "name": name,
-                            "paired": False,
-                            "connected": False,
-                            "rssi": -75
-                        }
+            # 2. Trigger active scan (exact Odin command: bluetoothctl --timeout 5 scan on)
+            try:
+                subprocess.run("bluetoothctl --timeout 5 scan on", shell=True, capture_output=True, text=True, timeout=8)
+            except Exception as se:
+                print(f"[BLUETOOTH] Scan subprocess error: {se}")
+
+            # 3. Retrieve all devices found (exact Odin command: bluetoothctl devices)
+            try:
+                result = subprocess.run("bluetoothctl devices", shell=True, capture_output=True, text=True, timeout=3)
+                if result.returncode == 0:
+                    for line in result.stdout.strip().split("\n"):
+                        parts = line.split(" ", 2)
+                        if len(parts) >= 3 and parts[0] == "Device":
+                            mac = parts[1]
+                            name = parts[2].strip()
+                            if mac not in devices_map:
+                                devices_map[mac] = {
+                                    "mac": mac,
+                                    "name": name,
+                                    "paired": False,
+                                    "connected": False,
+                                    "rssi": -70
+                                }
+                            else:
+                                devices_map[mac]["name"] = name
+            except Exception as de:
+                print(f"[BLUETOOTH] Devices fetch error: {de}")
 
             # 4. Check connected
-            conn_devs = subprocess.check_output(["bluetoothctl", "devices", "Connected"], text=True, timeout=3)
-            for line in conn_devs.splitlines():
-                m = re.match(r"Device\s+([0-9A-Fa-f:]+)\s+(.+)", line.strip())
-                if m and m.group(1) in devices_map:
-                    devices_map[m.group(1)]["connected"] = True
+            try:
+                conn_out = subprocess.check_output(["bluetoothctl", "devices", "Connected"], text=True, timeout=3)
+                for line in conn_out.splitlines():
+                    m = re.match(r"Device\s+([0-9A-Fa-f:]+)\s+(.+)", line.strip())
+                    if m and m.group(1) in devices_map:
+                        devices_map[m.group(1)]["connected"] = True
+            except Exception:
+                pass
 
         except Exception as e:
-            print(f"[BLUETOOTH] Scan error: {e}")
+            print(f"[BLUETOOTH] Overall scan error: {e}")
 
-        # Filter out unnamed/raw MAC address duplicates if better ones exist
         results = list(devices_map.values())
         results.sort(key=lambda d: (not d["connected"], not d["paired"], d["name"] == d["mac"]))
         return results
@@ -186,7 +197,7 @@ class BluetoothManager:
         """Returns list of paired devices."""
         if not IS_LINUX:
             return [
-                {"mac": "F4:F5:DB:12:34:56", "name": "User Phone", "connected": True}
+                {"mac": "0C:C0:C0:09:7D:45", "name": "Uconnect", "connected": False}
             ]
 
         paired = []
@@ -208,24 +219,30 @@ class BluetoothManager:
         return paired
 
     def connect_device(self, mac: str) -> Dict[str, Any]:
-        """Pairs, trusts, and connects to a Bluetooth device."""
+        """
+        Pairs, trusts, and connects to a Bluetooth device (Odin implementation: pair -> trust -> connect).
+        """
         if not IS_LINUX:
             return {"status": "ok", "message": f"Connected to {mac} (PC simulation)"}
 
         try:
-            # Trust device so it reconnects automatically in the future
-            subprocess.run(["bluetoothctl", "trust", mac], timeout=4, capture_output=True)
-            # Connect device
-            res = subprocess.run(["bluetoothctl", "connect", mac], timeout=8, capture_output=True, text=True)
-            if res.returncode == 0 or "successful" in res.stdout.lower():
-                return {"status": "ok", "message": f"Successfully connected to {mac}"}
+            # 1. Pair
+            pair_cmd = f"bluetoothctl pair {mac}"
+            p_res = subprocess.run(pair_cmd, shell=True, capture_output=True, text=True, timeout=15)
+            
+            # 2. Trust
+            trust_cmd = f"bluetoothctl trust {mac}"
+            subprocess.run(trust_cmd, shell=True, capture_output=True, text=True, timeout=5)
+
+            # 3. Connect (Audio Sink / Headset / Car Uconnect profile)
+            conn_cmd = f"bluetoothctl connect {mac}"
+            c_res = subprocess.run(conn_cmd, shell=True, capture_output=True, text=True, timeout=12)
+
+            if c_res.returncode == 0 or "successful" in c_res.stdout.lower() or "successful" in p_res.stdout.lower():
+                return {"status": "ok", "message": f"Successfully paired and connected to {mac}!"}
             else:
-                # Try pairing first
-                subprocess.run(["bluetoothctl", "pair", mac], timeout=8, capture_output=True)
-                res2 = subprocess.run(["bluetoothctl", "connect", mac], timeout=8, capture_output=True, text=True)
-                if "successful" in res2.stdout.lower():
-                    return {"status": "ok", "message": f"Successfully paired and connected to {mac}"}
-                return {"status": "ok", "message": res2.stdout.strip() or "Connection command dispatched"}
+                out = (c_res.stdout or "") + (p_res.stdout or "") + (c_res.stderr or "")
+                return {"status": "ok", "message": out.strip() or f"Dispatched connection to {mac}"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
@@ -234,7 +251,7 @@ class BluetoothManager:
         if not IS_LINUX:
             return {"status": "ok", "message": f"Disconnected {mac}"}
         try:
-            subprocess.run(["bluetoothctl", "disconnect", mac], timeout=5, capture_output=True)
+            subprocess.run(f"bluetoothctl disconnect {mac}", shell=True, timeout=5, capture_output=True)
             return {"status": "ok", "message": f"Disconnected {mac}"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -244,8 +261,8 @@ class BluetoothManager:
         if not IS_LINUX:
             return {"status": "ok", "message": f"Removed {mac}"}
         try:
-            subprocess.run(["bluetoothctl", "untrust", mac], timeout=4, capture_output=True)
-            subprocess.run(["bluetoothctl", "remove", mac], timeout=4, capture_output=True)
+            subprocess.run(f"bluetoothctl untrust {mac}", shell=True, timeout=4, capture_output=True)
+            subprocess.run(f"bluetoothctl remove {mac}", shell=True, timeout=4, capture_output=True)
             return {"status": "ok", "message": f"Removed {mac}"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -255,8 +272,8 @@ class BluetoothManager:
         arg = "on" if enable else "off"
         if IS_LINUX:
             try:
-                subprocess.run(["bluetoothctl", "discoverable", arg], timeout=3, capture_output=True)
-                subprocess.run(["bluetoothctl", "pairable", arg], timeout=3, capture_output=True)
+                subprocess.run(f"bluetoothctl discoverable {arg}", shell=True, timeout=3, capture_output=True)
+                subprocess.run(f"bluetoothctl pairable {arg}", shell=True, timeout=3, capture_output=True)
             except Exception:
                 pass
         return {"status": "ok", "discoverable": enable}
