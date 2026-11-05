@@ -7936,16 +7936,27 @@ function toggleBtDiscoverable() {
 }
 
 function focusBtSection() {
-  const card = document.getElementById('btSettingsCard');
-  if (card) card.scrollIntoView({ behavior: 'smooth' });
+  const grp = document.getElementById('accSystemGroup');
+  if (grp && !grp.classList.contains('open')) {
+    toggleAccordion('accSystemGroup');
+  }
+  setTimeout(() => {
+    const card = document.getElementById('btSettingsCard');
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    fetchAudioDevices();
+    fetchBtStatus();
+  }, 100);
 }
 
 function focusWifiSection() {
-
-  const card = document.getElementById('wifiSettingsCard');
-
-  if (card) card.scrollIntoView({ behavior: 'smooth' });
-
+  const grp = document.getElementById('accSystemGroup');
+  if (grp && !grp.classList.contains('open')) {
+    toggleAccordion('accSystemGroup');
+  }
+  setTimeout(() => {
+    const card = document.getElementById('wifiSettingsCard');
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 100);
 }
 
 
