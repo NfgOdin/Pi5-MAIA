@@ -2298,13 +2298,13 @@
         </div>
       </div>
 
-      <!-- Presets Row -->
+      <!-- Presets Row: $uicideboy$ / G59, Metalcore, Dubstep, Rock, Vocal -->
       <div style="display:flex; gap:8px; overflow-x:auto; padding:4px 0;">
-        <button class="cluster-action-btn eq-preset-btn active" id="btnEqPreset_bass" onclick="applyEqPreset('BASS')" style="padding:5px 10px; font-size:10px; font-weight:800; border-color:#00e676; color:#00e676;">🔊 BASS PUNCH</button>
-        <button class="cluster-action-btn eq-preset-btn" id="btnEqPreset_rock" onclick="applyEqPreset('TURBO_ROCK')" style="padding:5px 10px; font-size:10px; font-weight:800; border-color:#ff7700; color:#ff7700;">🏎️ TURBO ROCK</button>
-        <button class="cluster-action-btn eq-preset-btn" id="btnEqPreset_synth" onclick="applyEqPreset('SYNTHWAVE')" style="padding:5px 10px; font-size:10px; font-weight:800; border-color:#a855f7; color:#c084fc;">⚡ SYNTHWAVE</button>
-        <button class="cluster-action-btn eq-preset-btn" id="btnEqPreset_vocal" onclick="applyEqPreset('VOCAL')" style="padding:5px 10px; font-size:10px; font-weight:800; border-color:#00b0ff; color:#00b0ff;">🎙️ VOCAL CLARITY</button>
-        <button class="cluster-action-btn eq-preset-btn" id="btnEqPreset_flat" onclick="applyEqPreset('FLAT')" style="padding:5px 10px; font-size:10px; font-weight:800; border-color:#8c9ba5; color:#8c9ba5;">🎚️ FLAT</button>
+        <button class="cluster-action-btn eq-preset-btn active" id="btnEqPreset_suicideboys" onclick="applyEqPreset('SUICIDEBOYS')" style="padding:5px 11px; font-size:10px; font-weight:800; border-color:#a855f7; color:#c084fc;">💀 $UICIDEBOY$ / G59</button>
+        <button class="cluster-action-btn eq-preset-btn" id="btnEqPreset_metalcore" onclick="applyEqPreset('METALCORE')" style="padding:5px 11px; font-size:10px; font-weight:800; border-color:#ef4444; color:#f87171;">🎸 METALCORE</button>
+        <button class="cluster-action-btn eq-preset-btn" id="btnEqPreset_dubstep" onclick="applyEqPreset('DUBSTEP')" style="padding:5px 11px; font-size:10px; font-weight:800; border-color:#00e676; color:#00e676;">🔊 DUBSTEP</button>
+        <button class="cluster-action-btn eq-preset-btn" id="btnEqPreset_rock" onclick="applyEqPreset('ROCK')" style="padding:5px 11px; font-size:10px; font-weight:800; border-color:#ff7700; color:#ff7700;">⚡ ROCK</button>
+        <button class="cluster-action-btn eq-preset-btn" id="btnEqPreset_vocal" onclick="applyEqPreset('VOCAL')" style="padding:5px 11px; font-size:10px; font-weight:800; border-color:#00b0ff; color:#00b0ff;">🎙️ VOCAL</button>
       </div>
 
       <!-- 10 Sliders Container -->
@@ -2312,13 +2312,16 @@
         <!-- Sliders injected dynamically -->
       </div>
 
-      <!-- Footer DSP Toggles: Bass Boost (+6dB Sub) & Close -->
+      <!-- Footer DSP Toggles: Bass Boost (+6dB Sub) & Reset (Flat) / Done -->
       <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid rgba(255,255,255,0.08); padding-top:10px;">
         <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
           <input type="checkbox" id="chkSubBassBoost" onchange="toggleBassBoost(this.checked)" style="width:16px; height:16px; accent-color:#a855f7;">
           <span style="font-size:11px; font-weight:800; color:#fff;">SUBWOOFER BASS BOOST (+6 dB @ 45 Hz)</span>
         </label>
-        <button onclick="closeEqualizerModal()" class="cluster-action-btn" style="padding:6px 16px; font-size:11px; font-weight:800; background:#a855f7; color:#fff; border-color:#a855f7;">DONE</button>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button onclick="resetEqToFlat()" class="cluster-action-btn" style="padding:6px 14px; font-size:11px; font-weight:800; background:rgba(255,255,255,0.08); color:#cbd5e1; border-color:#64748b;" title="Flatten all sliders back to 0 dB">↺ RESET (FLAT)</button>
+          <button onclick="closeEqualizerModal()" class="cluster-action-btn" style="padding:6px 16px; font-size:11px; font-weight:800; background:#a855f7; color:#fff; border-color:#a855f7;">DONE</button>
+        </div>
       </div>
 
     </div>

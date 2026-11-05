@@ -74,6 +74,7 @@ from hardware.gpio_controller import GpioController
 from hardware.audio_player import AudioPlayer
 from hardware.pedal_commander import PedalCommanderController
 from hardware.avrcp_listener import AvrcpListener
+from hardware.avrcp_player import AvrcpPlayerManager
 
 from games.rom_manager import RomManager
 
@@ -352,6 +353,7 @@ class CarPi5ServerState:
                     pass
         
         self.avrcp = AvrcpListener(action_callback=on_avrcp_event)
+        self.avrcp_player = AvrcpPlayerManager(action_callback=on_avrcp_event)
 
         self.settings_file = SETTINGS_FILE
 
@@ -1791,6 +1793,61 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/browser/proxy":
+            query = parse_qs(parsed.query)
+            target_url = query.get("url", [""])[0]
+            if not target_url:
+                self.send_response(400)
+                self.end_headers()
+                return
+            try:
+                import urllib.request
+                req = urllib.request.Request(
+                    target_url,
+                    headers={'User-Agent': 'Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+                )
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    content = resp.read()
+                    ct = resp.headers.get("Content-Type", "text/html; charset=utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", ct)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                # Do NOT send X-Frame-Options or CSP frame-ancestors so iframes can embed any site
+                self.end_headers()
+                self.wfile.write(content)
+            except Exception as ex:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(f"<h3>Unable to load {target_url}</h3><p>{ex}</p>".encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/media/now_playing":
+            title = req_data.get("title", "CarPi5 In-Dash Audio")
+            artist = req_data.get("artist", "")
+            album = req_data.get("album", "CarPi5")
+            genre = req_data.get("genre", "Music")
+            dur = req_data.get("duration", 0)
+            trk = req_data.get("track_num", 1)
+            total = req_data.get("total_tracks", 1)
+            status = req_data.get("status", "playing")
+            state.avrcp_player.update_track(
+                title=title,
+                artist=artist,
+                album=album,
+                genre=genre,
+                duration_sec=dur,
+                track_num=trk,
+                total_tracks=total
+            )
+            state.avrcp_player.set_status(status)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok"}).encode("utf-8"))
             return
 
         elif parsed.path == "/api/audio/volume":

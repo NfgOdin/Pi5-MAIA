@@ -5067,13 +5067,13 @@ function loadTrack(idx, autoPlay = true) {
 
   renderRealTracklist();
 
-  // Update MediaSession metadata for Dodge Dart Uconnect radio screen!
+  // Update MediaSession & BlueZ AVRCP metadata for Dodge Dart Uconnect 8.4 radio screen!
   if ('mediaSession' in navigator) {
     try {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: t.title || "Track",
         artist: t.artist || "CarPi5 In-Dash Audio",
-        album: "Dodge Dart CarPi5",
+        album: t.album || "CarPi5 In-Dash",
         artwork: [
           { src: '/static/icons/music_art_96.png', sizes: '96x96', type: 'image/png' },
           { src: '/static/icons/music_art_192.png', sizes: '192x192', type: 'image/png' }
@@ -5081,6 +5081,22 @@ function loadTrack(idx, autoPlay = true) {
       });
     } catch (e) {}
   }
+
+  // Publish directly to BlueZ AVRCP Target so the dash screen shows Title, Artist, Album!
+  fetch('/api/media/now_playing', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: t.title || "Track",
+      artist: t.artist || "CarPi5 In-Dash Audio",
+      album: t.album || "CarPi5 In-Dash",
+      genre: t.genre || "Music",
+      duration: realAudio.duration || 180,
+      track_num: realTrackIdx + 1,
+      total_tracks: realPlaylist.length,
+      status: 'playing'
+    })
+  }).catch(() => {});
 
 
 
@@ -15942,7 +15958,12 @@ function browserNavigateTo(url) {
 
   if (overlay) overlay.style.display = 'none';
 
-  if (iframe) iframe.src = url;
+  // If URL is external (Google, YouTube, Dart Forum), route through proxy to bypass X-Frame-Options
+  let targetSrc = url;
+  if (!url.startsWith('http://localhost') && !url.startsWith('/') && !url.startsWith('about:')) {
+    targetSrc = '/api/browser/proxy?url=' + encodeURIComponent(url);
+  }
+  if (iframe) iframe.src = targetSrc;
 
 
 
@@ -16843,15 +16864,16 @@ let isAudioMuted = false;
 
 const EQ_FREQS = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 const EQ_PRESETS = {
-  BASS: [+9, +7, +5, +2, 0, 0, +1, +2, +3, +4],
-  TURBO_ROCK: [+4, +5, +2, -1, +1, +3, +5, +4, +3, +2],
-  SYNTHWAVE: [+6, +5, +2, 0, -1, +1, +4, +6, +7, +8],
-  VOCAL: [-4, -2, 0, +2, +5, +6, +4, +2, +1, 0],
-  FLAT: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  SUICIDEBOYS: [+10, +8, +3, -2, -1, +2, +3, +2, +5, +6],
+  METALCORE:   [+4,  +6, +5, -1, -3, +2, +6, +5, +4, +3],
+  DUBSTEP:     [+12, +9, +4,  0, -1, +4, +6, +4, +7, +8],
+  ROCK:        [+3,  +6, +5, +2, +3, +3, +4, +3, +3, +2],
+  VOCAL:       [-6,  -3,  0, +1, +3, +6, +6, +4, +2,  0],
+  FLAT:        [ 0,   0,  0,  0,  0,  0,  0,  0,  0,  0]
 };
 
-let currentEqGains = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-let currentEqPreset = 'BASS';
+let currentEqGains = [+10, +8, +3, -2, -1, +2, +3, +2, +5, +6];
+let currentEqPreset = 'SUICIDEBOYS';
 
 function initAudioEqualizer() {
   try {
@@ -16946,10 +16968,10 @@ function renderEqSliders() {
   });
 
   // Highlight active preset button
-  ['bass', 'rock', 'synth', 'vocal', 'flat'].forEach(p => {
+  ['suicideboys', 'metalcore', 'dubstep', 'rock', 'vocal'].forEach(p => {
     const btn = document.getElementById(`btnEqPreset_${p}`);
     if (btn) {
-      if (p.toUpperCase().replace('ROCK', 'TURBO_ROCK') === currentEqPreset) {
+      if (p.toUpperCase() === currentEqPreset) {
         btn.classList.add('active');
         btn.style.boxShadow = '0 0 10px rgba(168,85,247,0.5)';
       } else {
@@ -16974,6 +16996,26 @@ function setEqBandGain(idx, val) {
   try {
     localStorage.setItem('carpi5_eq_gains', JSON.stringify(currentEqGains));
   } catch (e) {}
+}
+
+
+function resetEqToFlat() {
+  currentEqGains = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  currentEqPreset = 'FLAT';
+  try {
+    localStorage.setItem('carpi5_eq_preset', 'FLAT');
+    localStorage.setItem('carpi5_eq_gains', JSON.stringify(currentEqGains));
+  } catch (e) {}
+
+  if (eqFilters.length > 0 && !isEqBypassed) {
+    eqFilters.forEach(f => f.gain.value = 0);
+  }
+  const chk = document.getElementById('chkSubBassBoost');
+  if (chk) chk.checked = false;
+  if (subBassFilter) subBassFilter.gain.value = 0;
+
+  renderEqSliders();
+  showAiSpeechToast("↺ Equalizer Reset to Flat (0 dB)");
 }
 
 function applyEqPreset(presetKey) {
