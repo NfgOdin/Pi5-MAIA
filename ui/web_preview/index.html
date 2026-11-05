@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dodge Dart CarPi5 - MultiAir OS & Cockpit</title>
-  <link rel="stylesheet" href="style.css?v=15">
+  <link rel="stylesheet" href="style.css?v=16">
   <script src="assets/vendor/three.min.js"></script>
   <script src="assets/vendor/GLTFLoader.js"></script>
   <script src="assets/vendor/qrcode.min.js"></script>
@@ -1073,7 +1073,7 @@
             <span>📜</span> PERSISTENT VEHICLE TRIP LOGS & TELEMETRY
           </div>
           <div style="display:flex; gap:8px;">
-            <button class="cluster-action-btn" onclick="fetchTripLogs()" style="font-size:10px; padding:6px 12px;">
+            <button class="cluster-action-btn" id="btnRefreshTrips" onclick="fetchTripLogs(true)" style="font-size:10px; padding:6px 12px;">
               🔄 REFRESH
             </button>
             <button class="cluster-action-btn" onclick="promptClearTripLogs()" style="font-size:10px; padding:6px 12px; background:rgba(239,68,68,0.15); border-color:#ef4444; color:#ef4444;">
@@ -1823,7 +1823,7 @@
   </div>
 
   <script src="keyboard.js"></script>
-  <script src="gauges.js?v=15"></script>
+  <script src="gauges.js?v=16"></script>
 
   <!-- FLOATING 3D COMPANION HUD (Rum Riding Shotgun Across All Screens) -->
   <div id="vrmFloatingHud" class="vrm-floating-hud" style="display:none;">
@@ -1949,6 +1949,22 @@
       <div style="display:flex; justify-content:center; gap:12px;">
         <button class="cluster-action-btn" onclick="closeClearTripsModal()" style="font-size:11px; padding:10px 22px;">CANCEL</button>
         <button class="cluster-action-btn" onclick="executeClearTripLogs()" style="background:#ef4444; border-color:#ef4444; color:#fff; font-size:11px; padding:10px 22px; font-weight:900;">YES, CLEAR ALL LOGS</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONFIRM SINGLE TRIP DELETE MODAL -->
+  <div class="config-modal-overlay" id="confirmDeleteSingleTripModal" style="display:none;" onclick="if(event.target === this) closeDeleteSingleTripModal()">
+    <div class="config-modal-content" style="max-width:440px; width:90%; padding:22px; text-align:center; border:2px solid #ef4444; box-shadow:0 0 25px rgba(239,68,68,0.4);">
+      <div style="font-size:36px; margin-bottom:8px;">🗑️</div>
+      <div id="deleteSingleTripTitle" style="font-size:16px; font-weight:900; color:#ef4444; margin-bottom:8px; letter-spacing:0.5px;">DELETE TRIP LOG?</div>
+      <p id="deleteSingleTripMsg" style="font-size:12px; color:var(--text-secondary); line-height:1.5; margin-bottom:18px;">
+        Are you sure you want to permanently delete this trip session and its telemetry logs from <code>vehicle_data.db</code>?<br><br>
+        <strong style="color:#fff;">This action cannot be undone.</strong>
+      </p>
+      <div style="display:flex; justify-content:center; gap:12px;">
+        <button class="cluster-action-btn" onclick="closeDeleteSingleTripModal()" style="font-size:11px; padding:10px 22px;">CANCEL</button>
+        <button class="cluster-action-btn" id="btnConfirmDeleteSingleTrip" onclick="executeDeleteSingleTrip()" style="background:#ef4444; border-color:#ef4444; color:#fff; font-size:11px; padding:10px 22px; font-weight:900;">YES, DELETE TRIP</button>
       </div>
     </div>
   </div>
