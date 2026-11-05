@@ -1736,6 +1736,42 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             return
 
+        elif parsed.path == "/api/bluetooth/status":
+            status = state.bluetooth.get_status()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(status).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/bluetooth/scan":
+            devices = state.bluetooth.scan_devices()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(devices).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/bluetooth/paired":
+            paired = state.bluetooth.get_paired()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(paired).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/audio/devices":
+            audio = state.bluetooth.get_audio_devices()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(audio).encode("utf-8"))
+            return
+
 
 
         elif parsed.path == "/api/ui/navigate":
@@ -3234,6 +3270,62 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             self.wfile.write(json.dumps(res).encode("utf-8"))
 
+            return
+
+        elif parsed.path == "/api/bluetooth/connect":
+            mac = req_data.get("mac", "")
+            res = state.bluetooth.connect_device(mac)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/bluetooth/disconnect":
+            mac = req_data.get("mac", "")
+            res = state.bluetooth.disconnect_device(mac)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/bluetooth/remove":
+            mac = req_data.get("mac", "")
+            res = state.bluetooth.remove_device(mac)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/bluetooth/discoverable":
+            enable = req_data.get("enable", True)
+            res = state.bluetooth.set_discoverable(enable)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/audio/output":
+            sink = req_data.get("sink")
+            auto_r = req_data.get("auto_route")
+            if auto_r is not None:
+                state.bluetooth.set_auto_route(bool(auto_r))
+            if sink is not None:
+                res = state.bluetooth.set_audio_sink(sink)
+            else:
+                res = {"status": "ok", "auto_route": state.bluetooth.config.get("auto_route_audio", True)}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
 

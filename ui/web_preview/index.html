@@ -1268,6 +1268,56 @@
           </div>
         </div>
 
+        
+        <!-- Audio Output Routing (PipeWire / WirePlumber) -->
+        <div style="background:#0c1219; border:1px solid #1c2d42; border-radius:8px; padding:12px 14px; margin-bottom:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+            <div style="font-size:11px; font-weight:800; color:#fff; display:flex; align-items:center; gap:6px;">
+              <span>🔊</span> AUDIO OUTPUT ROUTING &amp; SPEAKERS:
+            </div>
+            <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:#00e676; cursor:pointer;">
+              <input type="checkbox" id="chkAutoRouteAudio" checked onchange="toggleAutoRouteAudio(this.checked)" style="accent-color:#00e676;">
+              <span>Auto-Switch to Car Speakers</span>
+            </label>
+          </div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;" id="audioOutputsButtonGroup">
+            <button id="btnAudioCar" class="cluster-action-btn active" onclick="setAudioOutput('bluetooth')" style="font-size:10px; padding:6px 14px; display:flex; align-items:center; gap:6px; color:#00e676; border-color:#00e676;">
+              <span>📻</span> UCONNECT (CAR SPEAKERS)
+            </button>
+            <button id="btnAudioHdmi" class="cluster-action-btn" onclick="setAudioOutput('hdmi')" style="font-size:10px; padding:6px 14px; display:flex; align-items:center; gap:6px;">
+              <span>🖥️</span> HDMI DISPLAY AUDIO
+            </button>
+            <span id="audioCurrentSinkLabel" style="font-size:10px; color:var(--text-secondary); display:flex; align-items:center; margin-left:auto;">
+              Active: Uconnect (100% Vol)
+            </span>
+          </div>
+        </div>
+
+        <!-- Pedal Commander BLE Throttle Controller -->
+        <div style="background:#0c1219; border:1px solid rgba(255,119,0,0.3); border-radius:8px; padding:12px 14px; margin-bottom:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+            <div style="font-size:11px; font-weight:800; color:#ff7700; display:flex; align-items:center; gap:6px;">
+              <span>⚡</span> PEDAL COMMANDER (DRIVE-BY-WIRE THROTTLE CONTROLLER)
+            </div>
+            <span class="pill" id="pdlCommanderStatusBadge" style="background:rgba(0,230,118,0.15); color:#00e676; font-size:9.5px;">● CONNECTED (BLE UART 18:62:E4:46:73:8B)</span>
+          </div>
+          <p style="font-size:11px; color:var(--text-secondary); margin-bottom:10px;">
+            Adjusts electronic throttle curve and removes Dodge Dart MultiAir pedal lag via Bluetooth Low Energy.
+          </p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <button class="cluster-action-btn" id="btnPdlEco" onclick="setPdlMode('ECO')" style="font-size:10px; padding:6px 14px; color:#00e676; border-color:#00e676;">ECO</button>
+            <button class="cluster-action-btn" id="btnPdlCity" onclick="setPdlMode('CITY')" style="font-size:10px; padding:6px 14px; color:#00b0ff; border-color:#00b0ff;">CITY</button>
+            <button class="cluster-action-btn active" id="btnPdlSport" onclick="setPdlMode('SPORT')" style="font-size:10px; padding:6px 14px; color:#ff9800; border-color:#ff9800; font-weight:900;">SPORT</button>
+            <button class="cluster-action-btn" id="btnPdlSportPlus" onclick="setPdlMode('SPORT_PLUS')" style="font-size:10px; padding:6px 14px; color:#ff1744; border-color:#ff1744; font-weight:900;">SPORT+</button>
+            <div style="display:flex; align-items:center; gap:6px; margin-left:auto;">
+              <span style="font-size:10px; color:var(--text-secondary);">SENSITIVITY:</span>
+              <button class="cluster-action-btn" onclick="adjustPdlLevel(-1)" style="font-size:11px; padding:4px 10px;">-</button>
+              <span id="pdlLevelDisplay" style="font-size:12px; font-weight:900; color:#ff7700; width:34px; text-align:center;">+2</span>
+              <button class="cluster-action-btn" onclick="adjustPdlLevel(1)" style="font-size:11px; padding:4px 10px;">+</button>
+            </div>
+          </div>
+        </div>
+
         <!-- Discovered Bluetooth Devices -->
         <div style="margin-bottom:14px;">
           <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px; display:flex; justify-content:space-between;">

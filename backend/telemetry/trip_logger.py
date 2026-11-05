@@ -167,6 +167,7 @@ class TripLogger:
                 ("archive_path", "TEXT"),
                 ("sha256_hash", "TEXT"),
                 ("max_speed_time", "TEXT DEFAULT ''"),
+                ("engine_runtime_sec", "INTEGER DEFAULT 0"),
                 ("is_active", "INTEGER DEFAULT 1")
             ]
             for col_name, col_def in new_columns:
@@ -178,7 +179,7 @@ class TripLogger:
 
                         # Check points table columns
             pts_cols = [row[1] for row in c.execute("PRAGMA table_info(trip_telemetry_points)").fetchall()]
-            for p_col in [("time_12h", "TEXT DEFAULT ''"), ("elapsed_str", "TEXT DEFAULT ''")]:
+            for p_col in [("time_12h", "TEXT DEFAULT ''"), ("elapsed_str", "TEXT DEFAULT ''"), ("engine_runtime_sec", "INTEGER DEFAULT 0")]:
                 if p_col[0] not in pts_cols:
                     try: c.execute(f"ALTER TABLE trip_telemetry_points ADD COLUMN {p_col[0]} {p_col[1]}")
                     except: pass
@@ -343,6 +344,7 @@ class TripLogger:
         gear = str(telem.get("gear") or "N")
         dtcs = telem.get("active_dtcs") or []
         z60 = telem.get("zero_to_sixty_time")
+        engine_runtime = int(telem.get("engine_runtime_sec") or 0)
 
         # Automatic Trip Start/Stop Detection
         if rpm > 400 or speed > 1.0:
@@ -427,12 +429,12 @@ class TripLogger:
                             trip_id, timestamp, time_str, time_12h, elapsed_str, speed_mph, rpm, boost_psi, vacuum_inhg,
                             throttle_pct, pedal_pos_pct, engine_load_pct, coolant_temp_f, intake_temp_f,
                             battery_volts, afr, timing_advance_deg, fuel_level_pct, fuel_gph,
-                            fuel_mpg_instant, ambient_temp_f, baro_kpa, distance_miles, gear, dtc_count
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            fuel_mpg_instant, ambient_temp_f, baro_kpa, distance_miles, gear, dtc_count, engine_runtime_sec
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         self.current_trip_id, now, time_str, time_12h, elapsed_str, speed, rpm, boost, vacuum,
                         throttle, pedal, load, coolant, iat, volts, afr, timing, fuel_lvl,
-                        fuel_gph, mpg, ambient, baro, round(self.distance_miles, 3), gear, len(dtcs)
+                        fuel_gph, mpg, ambient, baro, round(self.distance_miles, 3), gear, len(dtcs), engine_runtime
                     ))
 
                     # 2. Update trip summary row
@@ -459,7 +461,8 @@ class TripLogger:
                             dtc_list = ?,
                             boost_pulls_count = ?,
                             best_zero_to_sixty = ?,
-                            max_speed_time = ?
+                            max_speed_time = ?,
+                            engine_runtime_sec = MAX(COALESCE(engine_runtime_sec, 0), ?)
                         WHERE id = ?
                     """, (
                         time_str,
@@ -484,6 +487,7 @@ class TripLogger:
                         self.boost_pulls_count,
                         self.best_zero_to_sixty,
                         getattr(self, "max_speed_time", ""),
+                        engine_runtime,
                         self.current_trip_id
                     ))
                     conn.commit()
@@ -533,7 +537,7 @@ class TripLogger:
             "Date", "Time_12H", "Time_24H", "Elapsed_Time", "Timestamp_Unix", "Speed_MPH", "Speed_KPH", "RPM", "Boost_PSI",
             "Vacuum_inHg", "Throttle_Pct", "Pedal_Pos_Pct", "Engine_Load_Pct", "Coolant_Temp_F",
             "Intake_Temp_F", "Battery_Volts", "AFR", "Timing_Advance_Deg", "Fuel_Level_Pct",
-            "Fuel_Burn_GPH", "Instant_MPG", "Ambient_Temp_F", "Baro_kPa", "Distance_Miles", "Gear", "DTC_Count"
+            "Fuel_Burn_GPH", "Instant_MPG", "Ambient_Temp_F", "Baro_kPa", "Distance_Miles", "Gear", "DTC_Count", "Engine_Runtime_Sec", "Engine_Hours"
         ]
         writer = csv.DictWriter(csv_buffer, fieldnames=fieldnames)
         writer.writeheader()
@@ -571,7 +575,9 @@ class TripLogger:
                 "Baro_kPa": f"{p.get('baro_kpa', 0):.1f}",
                 "Distance_Miles": f"{p.get('distance_miles', 0):.3f}",
                 "Gear": p.get("gear", "N"),
-                "DTC_Count": p.get("dtc_count", 0)
+                "DTC_Count": p.get("dtc_count", 0),
+                "Engine_Runtime_Sec": p.get("engine_runtime_sec", 0),
+                "Engine_Hours": f"{(p.get('engine_runtime_sec', 0) / 3600.0):.2f}"
             })
         csv_bytes = csv_buffer.getvalue().encode("utf-8")
 
@@ -644,6 +650,8 @@ class TripLogger:
         min_v = f"{trip.get('min_volts', 0):.1f} V"
         max_v = f"{trip.get('max_volts', 0):.1f} V"
         zero60 = f"{trip.get('best_zero_to_sixty', 'N/A')} s" if trip.get('best_zero_to_sixty') else "N/A"
+        engine_runtime_total = trip.get('engine_runtime_sec', 0) or 0
+        engine_hours_display = f"{(engine_runtime_total / 3600.0):.2f} hrs" if engine_runtime_total > 0 else "N/A" 
 
         # Downsample points for preview table (up to 20 representative timeline points)
         sample_rows_html = ""
@@ -915,6 +923,10 @@ class TripLogger:
     <div class="stat-card">
       <div class="stat-label">Battery Voltage Range</div>
       <div class="stat-value">{min_v} - {max_v}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Engine Hours</div>
+      <div class="stat-value">{engine_hours_display}</div>
     </div>
   </div>
 

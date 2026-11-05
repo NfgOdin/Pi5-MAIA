@@ -8892,6 +8892,10 @@ function openTripInspectorModal(tripId) {
           <div style="font-size:15px; font-weight:900; color:#fff;">${trip.fuel_used_gal || 0} GAL</div>
         </div>
         <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
+          <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">ENGINE HOURS</div>
+          <div style="font-size:15px; font-weight:900; color:#00e676;">${((trip.engine_runtime_sec || 0) / 3600.0).toFixed(2)} HRS</div>
+        </div>
+        <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
           <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">AVG AFR</div>
           <div style="font-size:15px; font-weight:900; color:#69f0ae;">${trip.avg_afr || 14.7}:1</div>
         </div>
@@ -9468,581 +9472,6 @@ function fetchGpioPins() {
     })
 
     .catch(err => console.warn("[GPIO] Pins fetch error:", err));
-
-}
-
-
-
-// 5. SQLite Persistent Trip Logs & Driving Diagnostics
-
-
-// --- BADASS TRIP TELEMETRY FLIGHT RECORDER & INSPECTOR ---
-
-let activeInspectorTripId = null;
-let inspectorTripData = null;
-let inspectorPoints = [];
-let inspectorActiveChannels = {
-  speed: true,
-  boost: true,
-  rpm: true,
-  afr: true,
-  load: true,
-  coolant: false
-};
-let inspectorScrubIdx = -1;
-
-function fetchTripLogs() {
-  Promise.all([
-    fetch('/api/trips/stats').then(r => r.json()).catch(() => ({})),
-    fetch('/api/trips/recent').then(r => r.json()).catch(() => []),
-    fetch('/api/trips/settings').then(r => r.json()).catch(() => ({}))
-  ])
-  .then(([stats, trips, settings]) => {
-    // 1. Settings synchronization
-    const retentionSelect = document.getElementById('tripRetentionSelect');
-    if (retentionSelect && settings && settings.retention_days !== undefined) {
-      retentionSelect.value = String(settings.retention_days);
-    }
-    const zipSelect = document.getElementById('tripZipIntervalSelect');
-    if (zipSelect && settings && settings.auto_zip_interval_min !== undefined) {
-      zipSelect.value = String(settings.auto_zip_interval_min);
-    }
-
-    // 2. Active Flight Recorder Banner
-    const recStatus = document.getElementById('liveTripRecorderStatus');
-    if (recStatus) {
-      if (stats.active_trip_id) {
-        recStatus.innerHTML = `<span style="color:#00e676; font-weight:800;">ACTIVE TRIP #${stats.active_trip_id}</span> &bull; ${stats.total_distance_miles || 0} mi total &bull; Auto-Zip every ${settings.auto_zip_interval_min || 30}m`;
-      } else {
-        recStatus.innerText = `Standby (Auto-starts when engine starts / rolling)`;
-      }
-    }
-
-    // 3. Lifetime Stats Cards (8 key metrics)
-    const statsContainer = document.getElementById('tripLifetimeStats');
-    if (statsContainer) {
-      statsContainer.innerHTML = `
-        <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
-          <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">TOTAL DRIVES</div>
-          <div style="font-size:16px; font-weight:900; color:#fff;">${stats.total_trips || 0}</div>
-        </div>
-        <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
-          <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">TOTAL MILES</div>
-          <div style="font-size:16px; font-weight:900; color:var(--accent-blue);">${stats.total_distance_miles || 0} MI</div>
-        </div>
-        <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
-          <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">TOTAL DRIVE TIME</div>
-          <div style="font-size:16px; font-weight:900; color:#fff;">${stats.total_drive_hours || 0} HRS</div>
-        </div>
-        <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
-          <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">PEAK BOOST EVER</div>
-          <div style="font-size:16px; font-weight:900; color:var(--accent-green);">+${stats.peak_boost_ever || 0} PSI</div>
-        </div>
-        <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
-          <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">TOP SPEED EVER</div>
-          <div style="font-size:16px; font-weight:900; color:var(--accent-blue);">${stats.top_speed_ever || 0} MPH</div>
-        </div>
-        <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
-          <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">MAX RPM EVER</div>
-          <div style="font-size:16px; font-weight:900; color:var(--accent-red);">${stats.max_rpm_ever || 0} RPM</div>
-        </div>
-        <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
-          <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">LIFETIME AVG MPG</div>
-          <div style="font-size:16px; font-weight:900; color:var(--accent-yellow);">${stats.lifetime_avg_mpg || 0} MPG</div>
-        </div>
-        <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
-          <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">BOOST PULLS</div>
-          <div style="font-size:16px; font-weight:900; color:var(--accent-purple);">${stats.total_boost_pulls || 0} PULLS</div>
-        </div>
-      `;
-    }
-
-    // 4. Badass Trips Table with Inspect, Print & Zip Download Actions
-    const tableContainer = document.getElementById('recentTripsTableContainer');
-    if (tableContainer) {
-      const validTrips = Array.isArray(trips) ? trips : ((trips && trips.trips) || []);
-      if (validTrips.length === 0) {
-        tableContainer.innerHTML = '<div style="color:var(--text-secondary); font-size:11px; padding:12px; text-align:center;">No trip history recorded in vehicle_data.db yet. Go for a drive to begin logging!</div>';
-        return;
-      }
-
-      tableContainer.innerHTML = `
-        <table style="width:100%; border-collapse:collapse; font-size:11px; text-align:left; white-space:nowrap;">
-          <thead>
-            <tr style="border-bottom:1px solid #212b38; color:var(--text-secondary); background:rgba(0,0,0,0.3);">
-              <th style="padding:7px 8px;">TRIP ID &amp; DATE</th>
-              <th style="padding:7px 8px;">DURATION &amp; DIST</th>
-              <th style="padding:7px 8px;">SPEED (TOP / AVG)</th>
-              <th style="padding:7px 8px;">MAX BOOST</th>
-              <th style="padding:7px 8px;">MAX RPM</th>
-              <th style="padding:7px 8px;">ECONOMY</th>
-              <th style="padding:7px 8px;">FAULTS</th>
-              <th style="padding:7px 8px; text-align:right;">ACTIONS</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${validTrips.map(t => {
-              const dtcBadge = (t.dtc_count > 0) 
-                ? `<span style="background:rgba(239,68,68,0.25); color:#ef4444; border:1px solid #ef4444; padding:1px 5px; border-radius:4px; font-weight:800; font-size:9px;">${t.dtc_count} DTC</span>`
-                : `<span style="color:var(--accent-green); font-weight:700; font-size:9px;">✓ CLEAN</span>`;
-              
-              const activeBadge = t.is_active 
-                ? `<span style="color:#00e676; font-size:9px; font-weight:800; margin-left:4px;">● REC</span>`
-                : ``;
-
-              return `
-                <tr style="border-bottom:1px solid #141b24; transition:background 0.15s ease;">
-                  <td style="padding:7px 8px; color:#fff; font-weight:700;">
-                    #${t.id} <span style="color:var(--text-secondary); font-weight:400; font-size:10px;">${t.start_time}</span>${activeBadge}
-                  </td>
-                  <td style="padding:7px 8px; color:var(--text-secondary);">
-                    ${t.duration_min || 0} min <span style="color:#fff; font-weight:700;">(${t.distance_miles || 0} mi)</span>
-                  </td>
-                  <td style="padding:7px 8px; color:var(--accent-blue); font-weight:800;">
-                    ${t.max_speed_mph || 0} MPH <span style="font-size:9px; color:var(--text-secondary); font-weight:400;">(${t.avg_speed_mph || 0} avg)</span>
-                  </td>
-                  <td style="padding:7px 8px; color:var(--accent-green); font-weight:800;">
-                    +${t.max_boost_psi || 0} PSI
-                  </td>
-                  <td style="padding:7px 8px; color:var(--accent-red); font-weight:700;">
-                    ${t.max_rpm || 0}
-                  </td>
-                  <td style="padding:7px 8px; color:var(--accent-yellow); font-weight:700;">
-                    ${t.avg_mpg || 0} MPG <span style="font-size:9px; color:var(--text-secondary); font-weight:400;">(${t.fuel_used_gal || 0} gal)</span>
-                  </td>
-                  <td style="padding:7px 8px;">${dtcBadge}</td>
-                  <td style="padding:7px 8px; text-align:right;">
-                    <div style="display:inline-flex; gap:4px; align-items:center;">
-                      <button onclick="openTripInspectorModal(${t.id})" class="cluster-action-btn" style="font-size:9px; padding:3px 8px; color:var(--accent-blue); border-color:var(--accent-blue);" title="Inspect Multi-Channel Graphs">📊 INSPECT</button>
-                      <button onclick="printTripManifest(${t.id})" class="cluster-action-btn" style="font-size:9px; padding:3px 8px; color:#fff; background:#1f6feb; border-color:#388bfd;" title="Open Court / Legal Print Manifest">🖨️ PRINT</button>
-                      <button onclick="downloadTripZip(${t.id})" class="cluster-action-btn" style="font-size:9px; padding:3px 8px; color:var(--accent-green); border-color:var(--accent-green);" title="Download Full .ZIP Archive">📦 ZIP</button>
-                      <button onclick="deleteSingleTrip(${t.id})" style="background:transparent; border:none; color:var(--text-secondary); cursor:pointer; font-size:12px; padding:2px 4px;" title="Delete this trip">🗑️</button>
-                    </div>
-                  </td>
-                </tr>
-              `;
-            }).join('')}
-          </tbody>
-        </table>
-      `;
-    }
-  })
-  .catch(err => console.warn("[TRIP] Fetch error:", err));
-}
-
-function updateTripRetention(val) {
-  fetch('/api/trips/retention', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ retention_days: parseInt(val) || 0 })
-  })
-  .then(r => r.json())
-  .then(() => fetchTripLogs())
-  .catch(err => console.warn("Retention update error:", err));
-}
-
-function updateTripZipInterval(val) {
-  fetch('/api/trips/settings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ auto_zip_interval_min: parseInt(val) || 0 })
-  })
-  .then(r => r.json())
-  .then(() => fetchTripLogs())
-  .catch(err => console.warn("Zip interval update error:", err));
-}
-
-function archiveCurrentTripNow() {
-  fetch('/api/trips/archive_now', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
-  .then(r => r.json())
-  .then(res => {
-    alert("Trip successfully compiled and zipped to storage/trip_archives!");
-    fetchTripLogs();
-  })
-  .catch(err => alert("Archive error: " + err));
-}
-
-function deleteSingleTrip(tripId) {
-  if (!confirm(`Permanently delete Trip #${tripId} and its telemetry records?`)) return;
-  fetch('/api/trips/delete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: tripId })
-  })
-  .then(r => r.json())
-  .then(() => fetchTripLogs())
-  .catch(err => console.warn("Delete trip error:", err));
-}
-
-function printTripManifest(tripId) {
-  const id = tripId || activeInspectorTripId;
-  if (!id) return;
-  const win = window.open(`/api/trips/manifest?id=${id}`, '_blank');
-  if (win) win.focus();
-}
-
-function downloadTripZip(tripId) {
-  const id = tripId || activeInspectorTripId;
-  if (!id) return;
-  window.location.href = `/api/trips/download?id=${id}`;
-}
-
-// --- INTERACTIVE TRIP INSPECTOR MODAL & MULTI-CHANNEL GRAPH ---
-
-function openTripInspectorModal(tripId) {
-  activeInspectorTripId = tripId;
-  const modal = document.getElementById('tripInspectorModal');
-  if (modal) modal.style.display = 'flex';
-
-  // 1. Fetch metadata & telemetry points
-  Promise.all([
-    fetch('/api/trips/recent').then(r => r.json()).catch(() => []),
-    fetch(`/api/trips/telemetry?id=${tripId}&max_points=400`).then(r => r.json()).catch(() => [])
-  ])
-  .then(([recentTrips, points]) => {
-    const trip = recentTrips.find(t => t.id === tripId) || {};
-    inspectorTripData = trip;
-    inspectorPoints = points;
-
-    // Header & Badges
-    const title = document.getElementById('inspTripTitle');
-    if (title) title.innerText = `TRIP #${trip.id || tripId} TELEMETRY FLIGHT RECORDER`;
-    const badge = document.getElementById('inspTripStatusBadge');
-    if (badge) {
-      badge.innerText = trip.is_active ? "● ACTIVE RECORDING" : "ARCHIVED FLIGHT";
-      badge.style.color = trip.is_active ? "#00e676" : "#00b0ff";
-    }
-
-    // Quick Metrics Grid (12 key parameters)
-    const metricsGrid = document.getElementById('inspMetricsGrid');
-    if (metricsGrid) {
-      metricsGrid.innerHTML = `
-        <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
-          <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">TOP SPEED</div>
-          <div style="font-size:15px; font-weight:900; color:var(--accent-blue);">${trip.max_speed_mph || 0} MPH</div>
-        </div>
-        <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
-          <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">AVG SPEED</div>
-          <div style="font-size:15px; font-weight:900; color:#fff;">${trip.avg_speed_mph || 0} MPH</div>
-        </div>
-        <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
-          <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">PEAK BOOST</div>
-          <div style="font-size:15px; font-weight:900; color:var(--accent-green);">+${trip.max_boost_psi || 0} PSI</div>
-        </div>
-        <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
-          <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">MAX RPM</div>
-          <div style="font-size:15px; font-weight:900; color:var(--accent-red);">${trip.max_rpm || 0}</div>
-        </div>
-        <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
-          <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">MULTIAIR TEMP</div>
-          <div style="font-size:15px; font-weight:900; color:#ff7700;">${trip.peak_coolant_f || 0}°F</div>
-        </div>
-        <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
-          <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">PEAK LOAD</div>
-          <div style="font-size:15px; font-weight:900; color:#ff5252;">${trip.peak_load_pct || 0}%</div>
-        </div>
-        <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
-          <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">DISTANCE</div>
-          <div style="font-size:15px; font-weight:900; color:#fff;">${trip.distance_miles || 0} MI</div>
-        </div>
-        <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
-          <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">DURATION</div>
-          <div style="font-size:15px; font-weight:900; color:#fff;">${trip.duration_min || 0} MIN</div>
-        </div>
-        <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
-          <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">AVG ECONOMY</div>
-          <div style="font-size:15px; font-weight:900; color:var(--accent-yellow);">${trip.avg_mpg || 0} MPG</div>
-        </div>
-        <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
-          <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">FUEL CONSUMED</div>
-          <div style="font-size:15px; font-weight:900; color:#fff;">${trip.fuel_used_gal || 0} GAL</div>
-        </div>
-        <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
-          <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">AVG AFR</div>
-          <div style="font-size:15px; font-weight:900; color:#69f0ae;">${trip.avg_afr || 14.7}:1</div>
-        </div>
-        <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
-          <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">VOLTS RANGE</div>
-          <div style="font-size:15px; font-weight:900; color:#00e5ff;">${trip.min_volts || 12}V - ${trip.max_volts || 14}V</div>
-        </div>
-      `;
-    }
-
-    // Sample count & hash
-    const sampleCountEl = document.getElementById('inspSampleCount');
-    if (sampleCountEl) sampleCountEl.innerText = String(points.length);
-    const hashEl = document.getElementById('inspShaSeal');
-    if (hashEl) hashEl.innerText = trip.sha256_hash ? trip.sha256_hash : "GENERATED DYNAMICALLY ON ZIP EXPORT";
-    const csvLink = document.getElementById('btnInspCsvDownload');
-    if (csvLink) csvLink.href = `/api/trips/download?id=${tripId}`;
-
-    // Render multi-channel graph
-    setupInspectorCanvasEvents();
-    renderInspectorGraph();
-  })
-  .catch(err => console.warn("[INSP] Error loading trip telemetry:", err));
-}
-
-function closeTripInspectorModal() {
-  const modal = document.getElementById('tripInspectorModal');
-  if (modal) modal.style.display = 'none';
-  activeInspectorTripId = null;
-  inspectorPoints = [];
-}
-
-function toggleInspChannel(chan) {
-  inspectorActiveChannels[chan] = !inspectorActiveChannels[chan];
-  const btn = document.getElementById(`btnChan_${chan}`);
-  if (btn) {
-    if (inspectorActiveChannels[chan]) {
-      btn.style.opacity = '1.0';
-      btn.classList.add('active');
-    } else {
-      btn.style.opacity = '0.35';
-      btn.classList.remove('active');
-    }
-  }
-  renderInspectorGraph();
-}
-
-function setupInspectorCanvasEvents() {
-  const canvas = document.getElementById('tripScrubberCanvas');
-  if (!canvas || canvas._hasEvents) return;
-  canvas._hasEvents = true;
-
-  function handleScrub(clientX) {
-    if (!inspectorPoints || inspectorPoints.length < 2) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
-    const pct = x / rect.width;
-    inspectorScrubIdx = Math.max(0, Math.min(inspectorPoints.length - 1, Math.round(pct * (inspectorPoints.length - 1))));
-    renderInspectorGraph();
-  }
-
-  canvas.addEventListener('mousemove', (e) => handleScrub(e.clientX));
-  canvas.addEventListener('touchmove', (e) => {
-    if (e.touches && e.touches[0]) handleScrub(e.touches[0].clientX);
-  });
-  canvas.addEventListener('mouseleave', () => {
-    inspectorScrubIdx = -1;
-    const tt = document.getElementById('tripScrubberTooltip');
-    if (tt) tt.style.display = 'none';
-    renderInspectorGraph();
-  });
-}
-
-function renderInspectorGraph() {
-  const canvas = document.getElementById('tripScrubberCanvas');
-  if (!canvas) return;
-  const dpr = window.devicePixelRatio || 1;
-  const rect = canvas.getBoundingClientRect();
-  if (rect.width > 0 && (canvas.width !== Math.round(rect.width * dpr) || canvas.height !== Math.round(rect.height * dpr))) {
-    canvas.width = Math.round(rect.width * dpr);
-    canvas.height = Math.round(rect.height * dpr);
-  }
-  const w = canvas.width;
-  const h = canvas.height;
-  if (w <= 0 || h <= 0) return;
-
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, w, h);
-
-  if (!inspectorPoints || inspectorPoints.length === 0) {
-    ctx.fillStyle = '#8b949e';
-    ctx.font = '12px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('No high-resolution telemetry samples recorded for this session yet.', w / 2, h / 2);
-    return;
-  }
-
-  // Draw background horizontal gridlines (25%, 50%, 75%)
-  ctx.strokeStyle = '#18202b';
-  ctx.lineWidth = 1;
-  [0.25, 0.5, 0.75].forEach(pct => {
-    ctx.beginPath();
-    ctx.moveTo(0, h * pct);
-    ctx.lineTo(w, h * pct);
-    ctx.stroke();
-  });
-
-  const channelsConfig = {
-    speed: { key: 'speed_mph', color: '#00b0ff', min: 0, max: 120, label: 'Speed' },
-    boost: { key: 'boost_psi', color: '#00e676', min: -20, max: 22, label: 'Boost' },
-    rpm: { key: 'rpm', color: '#ffcc00', min: 0, max: 7000, label: 'RPM' },
-    afr: { key: 'afr', color: '#69f0ae', min: 10, max: 20, label: 'AFR' },
-    load: { key: 'engine_load_pct', color: '#ff5252', min: 0, max: 100, label: 'Load' },
-    coolant: { key: 'coolant_temp_f', color: '#ff7700', min: 100, max: 230, label: 'Coolant' }
-  };
-
-  const pts = inspectorPoints;
-  const n = pts.length;
-
-  // Plot active channels
-  Object.keys(channelsConfig).forEach(cKey => {
-    if (!inspectorActiveChannels[cKey]) return;
-    const cfg = channelsConfig[cKey];
-
-    ctx.beginPath();
-    ctx.strokeStyle = cfg.color;
-    ctx.lineWidth = Math.max(1.5, 2.0 * dpr);
-    ctx.lineJoin = 'round';
-
-    for (let i = 0; i < n; i++) {
-      const val = pts[i][cfg.key] !== undefined ? pts[i][cfg.key] : 0;
-      const x = (i / (n - 1)) * w;
-      const normY = Math.max(0, Math.min(1, (val - cfg.min) / (cfg.max - cfg.min)));
-      const y = h - (normY * (h - 20) + 10);
-
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-  });
-
-  // Draw Scrubber Line & Tooltip if scrubbing
-  if (inspectorScrubIdx >= 0 && inspectorScrubIdx < n) {
-    const p = pts[inspectorScrubIdx];
-    const scrubX = (inspectorScrubIdx / (n - 1)) * w;
-
-    ctx.beginPath();
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([4, 4]);
-    ctx.moveTo(scrubX, 0);
-    ctx.lineTo(scrubX, h);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Update Tooltip
-    const tt = document.getElementById('tripScrubberTooltip');
-    if (tt) {
-      tt.style.display = 'block';
-      const cssX = scrubX / dpr;
-      const alignRight = cssX > (rect.width * 0.65);
-      tt.style.left = alignRight ? `${Math.max(10, cssX - 250)}px` : `${Math.min(rect.width - 250, cssX + 12)}px`;
-
-      const time12 = p.time_12h || (p.time_str ? p.time_str.split(' ')[1] : '');
-      const elapsed = p.elapsed_str ? `(${p.elapsed_str} into drive)` : '';
-      tt.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #212b38; padding-bottom:3px; margin-bottom:4px; gap:8px;">
-          <span style="font-weight:900; color:var(--accent-blue); font-size:11px;">⏱ ${time12}</span>
-          <span style="color:var(--text-secondary); font-size:9.5px; font-family:monospace;">${p.time_str || ''} ${elapsed}</span>
-        </div>
-        <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:6px; font-size:9.5px;">
-          <div>Speed: <strong style="color:#00b0ff; font-size:11px;">${(p.speed_mph || 0).toFixed(1)} MPH</strong></div>
-          <div>Boost: <strong style="color:#00e676;">${(p.boost_psi || 0).toFixed(1)} PSI</strong></div>
-          <div>RPM: <strong style="color:#ffcc00;">${Math.round(p.rpm || 0)}</strong></div>
-          <div>AFR: <strong style="color:#69f0ae;">${(p.afr || 14.7).toFixed(2)}</strong></div>
-          <div>Load: <strong style="color:#ff5252;">${Math.round(p.engine_load_pct || 0)}%</strong></div>
-          <div>Volts: <strong style="color:#00e5ff;">${(p.battery_volts || 0).toFixed(1)}V</strong></div>
-        </div>
-      `;
-    }
-  }
-}
-
-
-function executeClearTripLogs() {
-
-  closeClearTripsModal();
-
-  fetch('/api/trips/clear', {
-
-    method: 'POST',
-
-    headers: { 'Content-Type': 'application/json' },
-
-    body: JSON.stringify({})
-
-  })
-
-  .then(r => r.json())
-
-  .then(data => {
-
-    if (data.status === 'ok') {
-
-      showAiSpeechToast("All trip logs and sensor data cleared successfully.");
-
-      fetchTripLogs();
-
-    } else {
-
-      showAiSpeechToast("Failed to clear trip logs: " + (data.message || 'Error'));
-
-    }
-
-  })
-
-  .catch(err => {
-
-    console.error("[TRIP] Clear error:", err);
-
-    showAiSpeechToast("Error clearing trip logs.");
-
-  });
-
-}
-
-
-
-function updateTripRetention(days) {
-
-  fetch('/api/trips/retention', {
-
-    method: 'POST',
-
-    headers: { 'Content-Type': 'application/json' },
-
-    body: JSON.stringify({ retention_days: parseInt(days) })
-
-  })
-
-  .then(r => r.json())
-
-  .then(data => {
-
-    const d = data.retention_days;
-
-    showAiSpeechToast(d > 0 ? `Trip logs older than ${d} days will be automatically deleted.` : "Trip auto-deletion disabled (logs kept forever).");
-
-    fetchTripLogs();
-
-  })
-
-  .catch(err => console.warn("[TRIP] Retention error:", err));
-
-}
-
-
-
-function deleteSingleTrip(tripId) {
-
-  if (!tripId) return;
-
-  fetch('/api/trips/delete', {
-
-    method: 'POST',
-
-    headers: { 'Content-Type': 'application/json' },
-
-    body: JSON.stringify({ id: tripId })
-
-  })
-
-  .then(r => r.json())
-
-  .then(data => {
-
-    if (data.status === 'ok') {
-
-      fetchTripLogs();
-
-    }
-
-  })
-
-  .catch(err => console.warn("[TRIP] Delete trip error:", err));
 
 }
 
@@ -17590,3 +17019,115 @@ function updateGeminiModel(model) {
 
 }
 
+
+
+function deleteSingleTrip(tripId) {
+  promptDeleteSingleTrip(tripId);
+}
+
+
+// --- AUDIO OUTPUT ROUTING (PIPEWIRE / WIREPLUMBER) ---
+
+function fetchAudioDevices() {
+  fetch('/api/audio/devices')
+    .then(r => r.json())
+    .then(data => {
+      const isBt = (data.sinks || []).some(s => s.is_bluetooth && s.is_default);
+      const btnCar = document.getElementById('btnAudioCar');
+      const btnHdmi = document.getElementById('btnAudioHdmi');
+      const label = document.getElementById('audioCurrentSinkLabel');
+      const chk = document.getElementById('chkAutoRouteAudio');
+      if (chk && data.auto_route !== undefined) chk.checked = !!data.auto_route;
+
+      if (btnCar && btnHdmi) {
+        if (isBt) {
+          btnCar.classList.add('active');
+          btnCar.style.borderColor = '#00e676';
+          btnCar.style.color = '#00e676';
+          btnHdmi.classList.remove('active');
+          btnHdmi.style.borderColor = '';
+          btnHdmi.style.color = '';
+        } else {
+          btnHdmi.classList.add('active');
+          btnHdmi.style.borderColor = '#00b0ff';
+          btnHdmi.style.color = '#00b0ff';
+          btnCar.classList.remove('active');
+          btnCar.style.borderColor = '';
+          btnCar.style.color = '';
+        }
+      }
+
+      const activeSink = (data.sinks || []).find(s => s.is_default);
+      if (label && activeSink) {
+        label.innerText = `Active Sink: ${activeSink.name} (${Math.round(activeSink.volume * 100)}% Vol)`;
+      }
+    })
+    .catch(err => console.warn("[AUDIO] Fetch devices error:", err));
+}
+
+function setAudioOutput(target) {
+  showAiSpeechToast(`Switching audio output to ${target}...`);
+  fetch('/api/audio/output', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sink: target })
+  })
+  .then(r => r.json())
+  .then(res => {
+    showAiSpeechToast(res.message || `Audio routed to ${target}`);
+    setTimeout(fetchAudioDevices, 800);
+  })
+  .catch(err => showAiSpeechToast("Audio switch error: " + err));
+}
+
+function toggleAutoRouteAudio(enabled) {
+  fetch('/api/audio/output', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ auto_route: enabled })
+  })
+  .then(() => {
+    showAiSpeechToast(enabled ? "Auto-audio routing enabled (prefers car speakers)." : "Auto-audio routing disabled (manual output mode).");
+    fetchAudioDevices();
+  });
+}
+
+// --- PEDAL COMMANDER THROTTLE CONTROLLER WIDGET ---
+
+let currentPdlMode = 'SPORT';
+let currentPdlLevel = 2;
+
+function setPdlMode(mode) {
+  currentPdlMode = mode;
+  updatePdlUI();
+  showAiSpeechToast(`Pedal Commander: Throttle curve set to ${mode} (${currentPdlLevel >= 0 ? '+' : ''}${currentPdlLevel})`);
+}
+
+function adjustPdlLevel(delta) {
+  currentPdlLevel = Math.max(-4, Math.min(4, currentPdlLevel + delta));
+  updatePdlUI();
+  showAiSpeechToast(`Pedal Commander Sensitivity: ${currentPdlLevel >= 0 ? '+' : ''}${currentPdlLevel}`);
+}
+
+function updatePdlUI() {
+  ['Eco', 'City', 'Sport', 'SportPlus'].forEach(m => {
+    const btn = document.getElementById(`btnPdl${m}`);
+    if (btn) {
+      if (m.toUpperCase().replace('PLUS', '_PLUS') === currentPdlMode.replace('SPORT+', 'SPORT_PLUS')) {
+        btn.classList.add('active');
+        btn.style.boxShadow = '0 0 10px rgba(255,119,0,0.5)';
+      } else {
+        btn.classList.remove('active');
+        btn.style.boxShadow = 'none';
+      }
+    }
+  });
+  const disp = document.getElementById('pdlLevelDisplay');
+  if (disp) {
+    disp.innerText = (currentPdlLevel >= 0 ? '+' : '') + currentPdlLevel;
+    disp.style.color = currentPdlLevel > 0 ? '#ff7700' : (currentPdlLevel < 0 ? '#00e676' : '#fff');
+  }
+}
+
+// Periodic audio check
+setInterval(fetchAudioDevices, 6000);

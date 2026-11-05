@@ -10,6 +10,7 @@ import json
 import time
 import platform
 import subprocess
+import threading
 from typing import Dict, Any, List, Optional
 
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), "bluetooth_saved.json")
@@ -18,6 +19,23 @@ IS_LINUX = platform.system().lower() == "linux"
 class BluetoothManager:
     def __init__(self):
         self.config = self.load_config()
+        if "auto_route_audio" not in self.config:
+            self.config["auto_route_audio"] = True
+            self.save_config()
+        self._start_audio_monitor_thread()
+
+    def _start_audio_monitor_thread(self):
+        t = threading.Thread(target=self._audio_monitor_loop, daemon=True)
+        t.start()
+
+    def _audio_monitor_loop(self):
+        while True:
+            try:
+                if self.config.get("auto_route_audio", True):
+                    self.auto_route_audio()
+            except Exception:
+                pass
+            time.sleep(4.0)
 
     def load_config(self) -> Dict[str, Any]:
         default_config = {
@@ -239,6 +257,8 @@ class BluetoothManager:
             c_res = subprocess.run(conn_cmd, shell=True, capture_output=True, text=True, timeout=12)
 
             if c_res.returncode == 0 or "successful" in c_res.stdout.lower() or "successful" in p_res.stdout.lower():
+                time.sleep(1.2)
+                self.auto_route_audio()
                 return {"status": "ok", "message": f"Successfully paired and connected to {mac}!"}
             else:
                 out = (c_res.stdout or "") + (p_res.stdout or "") + (c_res.stderr or "")
@@ -277,3 +297,174 @@ class BluetoothManager:
             except Exception:
                 pass
         return {"status": "ok", "discoverable": enable}
+
+    def get_audio_devices(self) -> Dict[str, Any]:
+        """
+        Queries PipeWire via wpctl status to discover Sinks and Sources.
+        Identifies HDMI, Uconnect, and Bluetooth audio sinks.
+        """
+        if not IS_LINUX:
+            return {
+                "sinks": [
+                    {"id": 56, "name": "Built-in Audio Digital Stereo (HDMI)", "is_default": False, "volume": 1.0, "is_bluetooth": False},
+                    {"id": 95, "name": "Uconnect (Dodge Dart)", "is_default": True, "volume": 1.0, "is_bluetooth": True}
+                ],
+                "sources": [
+                    {"id": 87, "name": "Uconnect (Car Microphone)", "is_default": True, "volume": 1.0, "is_bluetooth": True}
+                ],
+                "active_sink_id": 95,
+                "auto_route": self.config.get("auto_route_audio", True)
+            }
+
+        sinks = []
+        sources = []
+        active_sink_id = None
+        current_section = None
+
+        env = os.environ.copy()
+        env['XDG_RUNTIME_DIR'] = '/run/user/1000'
+
+        try:
+            res = subprocess.run(['wpctl', 'status'], capture_output=True, text=True, env=env, timeout=3)
+            out = res.stdout
+            for line in out.splitlines():
+                clean = re.sub(r'^[│├─└\s]+', '', line).strip()
+                if 'Sinks:' in clean:
+                    current_section = 'sinks'
+                    continue
+                elif 'Sources:' in clean:
+                    current_section = 'sources'
+                    continue
+                elif 'Sink endpoints:' in clean or 'Filters:' in clean or 'Streams:' in clean or 'Video' in clean:
+                    current_section = None
+                    continue
+
+                if current_section == 'sinks':
+                    m = re.search(r'(\*?)\s*(\d+)\.\s+(.+?)\s+\[vol:\s*([\d\.]+)\]', clean)
+                    if m:
+                        is_def = bool(m.group(1))
+                        s_id = int(m.group(2))
+                        name = m.group(3).strip()
+                        vol = float(m.group(4))
+                        is_bt = 'uconnect' in name.lower() or 'bluez' in name.lower()
+                        sinks.append({
+                            'id': s_id,
+                            'name': name,
+                            'is_default': is_def,
+                            'volume': vol,
+                            'is_bluetooth': is_bt
+                        })
+                        if is_def:
+                            active_sink_id = s_id
+                elif current_section == 'sources':
+                    m = re.search(r'(\*?)\s*(\d+)\.\s+(.+?)\s+\[vol:\s*([\d\.]+)\]', clean)
+                    if m:
+                        is_def = bool(m.group(1))
+                        s_id = int(m.group(2))
+                        name = m.group(3).strip()
+                        vol = float(m.group(4))
+                        is_bt = 'uconnect' in name.lower() or 'bluez' in name.lower()
+                        sources.append({
+                            'id': s_id,
+                            'name': name,
+                            'is_default': is_def,
+                            'volume': vol,
+                            'is_bluetooth': is_bt
+                        })
+        except Exception as e:
+            print(f"[BLUETOOTH AUDIO] Error querying wpctl: {e}")
+
+        return {
+            "sinks": sinks,
+            "sources": sources,
+            "active_sink_id": active_sink_id,
+            "auto_route": self.config.get("auto_route_audio", True)
+        }
+
+    def set_audio_sink(self, sink_id_or_type: Any) -> Dict[str, Any]:
+        """Sets the active audio output sink (e.g. sink_id int, or 'bluetooth', 'hdmi')."""
+        if not IS_LINUX:
+            return {"status": "ok", "message": f"Set audio output to {sink_id_or_type} (PC simulation)"}
+
+        env = os.environ.copy()
+        env['XDG_RUNTIME_DIR'] = '/run/user/1000'
+
+        devs = self.get_audio_devices()
+        target_id = None
+
+        if isinstance(sink_id_or_type, int) or (isinstance(sink_id_or_type, str) and str(sink_id_or_type).isdigit()):
+            target_id = int(sink_id_or_type)
+        elif str(sink_id_or_type).lower() in ("bluetooth", "uconnect", "car"):
+            for s in devs.get("sinks", []):
+                if s["is_bluetooth"]:
+                    target_id = s["id"]
+                    break
+        elif str(sink_id_or_type).lower() in ("hdmi", "display", "builtin"):
+            for s in devs.get("sinks", []):
+                if not s["is_bluetooth"]:
+                    target_id = s["id"]
+                    break
+
+        if target_id is not None:
+            try:
+                subprocess.run(['wpctl', 'set-default', str(target_id)], env=env, timeout=3)
+                subprocess.run(['wpctl', 'set-volume', str(target_id), '1.0'], env=env, timeout=3)
+                return {"status": "ok", "sink_id": target_id, "message": f"Audio routed to sink {target_id}"}
+            except Exception as e:
+                return {"status": "error", "message": str(e)}
+
+        return {"status": "error", "message": f"Could not find sink matching '{sink_id_or_type}'"}
+
+    def set_auto_route(self, enabled: bool) -> Dict[str, Any]:
+        self.config["auto_route_audio"] = bool(enabled)
+        self.save_config()
+        if enabled:
+            self.auto_route_audio()
+        return {"status": "ok", "auto_route": self.config["auto_route_audio"]}
+
+    def auto_route_audio(self) -> Dict[str, Any]:
+        """
+        Auto-switches audio output to Bluetooth (e.g. Uconnect) if connected;
+        otherwise routes to HDMI.
+        """
+        devs = self.get_audio_devices()
+        bt_sink = None
+        hdmi_sink = None
+        for s in devs.get("sinks", []):
+            if s["is_bluetooth"]:
+                bt_sink = s
+            else:
+                hdmi_sink = s
+
+        bt_source = None
+        for src in devs.get("sources", []):
+            if src["is_bluetooth"]:
+                bt_source = src
+                break
+
+        env = os.environ.copy()
+        env['XDG_RUNTIME_DIR'] = '/run/user/1000'
+
+        if bt_sink:
+            if not bt_sink.get("is_default"):
+                print(f"[BLUETOOTH AUDIO] Auto-routing audio to Bluetooth car sink: {bt_sink['name']} (ID {bt_sink['id']})")
+                if IS_LINUX:
+                    try:
+                        subprocess.run(['wpctl', 'set-default', str(bt_sink['id'])], env=env, timeout=3)
+                        subprocess.run(['wpctl', 'set-volume', str(bt_sink['id']), '1.0'], env=env, timeout=3)
+                        if bt_source:
+                            subprocess.run(['wpctl', 'set-default', str(bt_source['id'])], env=env, timeout=3)
+                    except Exception as e:
+                        print(f"[BLUETOOTH AUDIO] Routing error: {e}")
+            return {"status": "ok", "mode": "bluetooth", "sink": bt_sink}
+        elif hdmi_sink:
+            if not hdmi_sink.get("is_default"):
+                print(f"[BLUETOOTH AUDIO] Bluetooth sink not found. Falling back to HDMI: {hdmi_sink['name']}")
+                if IS_LINUX:
+                    try:
+                        subprocess.run(['wpctl', 'set-default', str(hdmi_sink['id'])], env=env, timeout=3)
+                    except Exception:
+                        pass
+            return {"status": "ok", "mode": "hdmi", "sink": hdmi_sink}
+
+        return {"status": "ok", "mode": "none"}
