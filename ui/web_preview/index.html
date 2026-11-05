@@ -93,6 +93,9 @@
       <div class="wifi-status-pill" id="headerWifiPill" onclick="navigateTo('settings'); setTimeout(focusWifiSection, 100);" title="Click to manage Wi-Fi & Hotspots">
         <span id="headerWifiIcon">📶</span> <span id="headerWifiText">WI-FI</span>
       </div>
+      <div class="bt-status-pill" id="headerBtPill" onclick="navigateTo('settings'); setTimeout(focusBtSection, 100);" title="Click to manage Bluetooth & Phone Audio Pairing" style="background:rgba(0,176,255,0.12); border:1px solid #00b0ff; color:#00b0ff; font-size:10px; font-weight:800; padding:3px 10px; border-radius:12px; cursor:pointer; display:flex; align-items:center; gap:5px;">
+        <span id="headerBtIcon">ᛒ</span> <span id="headerBtText">BLUETOOTH</span>
+      </div>
       <div class="usb-status-pill" id="headerUsbPill" onclick="openFileExplorer()" title="Click to open File Explorer & USB storage">
         <span>💾</span> <span id="headerUsbText">USB READY</span>
       </div>
@@ -1220,6 +1223,69 @@
           </div>
           <div class="wifi-saved-list" id="wifiSavedList">
             <!-- Injected dynamically -->
+          </div>
+        </div>
+      </div>
+
+      <!-- BLUETOOTH & WIRELESS AUDIO MANAGER CARD -->
+      <div class="settings-card" id="btSettingsCard" style="border-color:#00b0ff; margin-top:14px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div class="settings-title" style="color:#00b0ff; margin-bottom:0;">
+            <span>ᛒ</span> BLUETOOTH & PHONE AUDIO MANAGER
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="cluster-action-btn" id="btnToggleBtPairable" onclick="toggleBtDiscoverable()" style="font-size:10px; background:rgba(0,230,118,0.15); color:var(--accent-green); border-color:var(--accent-green);">
+              🟢 PAIRABLE & DISCOVERABLE
+            </button>
+            <button class="cluster-action-btn" id="btnScanBt" onclick="scanBtDevices()" style="font-size:10px;">
+              🔄 SCAN DEVICES
+            </button>
+          </div>
+        </div>
+
+        <!-- Live Bluetooth Controller & Connected Device Banner -->
+        <div class="wifi-status-banner" style="border-color:#1c2d42;">
+          <div>
+            <div style="font-size:10px; color:var(--text-secondary); font-weight:800;">CONNECTED AUDIO / PHONE:</div>
+            <div style="font-size:15px; font-weight:900; color:#fff; display:flex; align-items:center; gap:8px; margin-top:2px;">
+              <span id="btCurrentDevice" style="color:#00b0ff;">No Device Connected</span>
+              <span class="pill" id="btCurrentBadge" style="background:rgba(140,155,165,0.15); color:var(--text-secondary); font-size:10px;">STANDBY</span>
+            </div>
+          </div>
+          <div style="display:flex; gap:16px; font-family:var(--font-mono); font-size:11px;">
+            <div>
+              <div style="color:var(--text-secondary); font-size:9px;">PI BLUETOOTH NAME</div>
+              <div style="color:#fff;" id="btControllerName">CarPi</div>
+            </div>
+            <div>
+              <div style="color:var(--text-secondary); font-size:9px;">MAC ADDRESS</div>
+              <div style="color:var(--accent-blue);" id="btControllerMac">--</div>
+            </div>
+            <div>
+              <div style="color:var(--text-secondary); font-size:9px;">AUTO-AGENT</div>
+              <div style="color:var(--accent-green);" id="btAgentStatus">ACTIVE (NO-PIN)</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Discovered Bluetooth Devices -->
+        <div style="margin-bottom:14px;">
+          <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px; display:flex; justify-content:space-between;">
+            <span>NEARBY & AVAILABLE DEVICES (PHONES, TABLETS, CONTROLLERS):</span>
+            <span style="font-size:10px; color:var(--text-secondary);" id="btScanCount">Tap device to pair/connect</span>
+          </div>
+          <div class="wifi-network-list" id="btDeviceList" style="max-height:190px;">
+            <div style="color:var(--text-secondary); padding:16px; text-align:center;">Scanning nearby Bluetooth devices...</div>
+          </div>
+        </div>
+
+        <!-- Paired Devices -->
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <div style="font-size:11px; font-weight:800; color:#fff;">PAIRED & TRUSTED DEVICES:</div>
+          </div>
+          <div class="wifi-saved-list" id="btPairedList">
+            <div style="color:var(--text-secondary); padding:10px; font-size:11px;">No paired devices saved yet. Connect above or discover 'CarPi' from your phone!</div>
           </div>
         </div>
       </div>

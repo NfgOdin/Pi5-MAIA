@@ -7532,6 +7532,10 @@ function submitWifiConnect() {
         closeWifiConnectModal();
 
         fetchWifiStatus();
+fetchBtStatus();
+fetchBtPaired();
+scanBtDevices();
+setInterval(fetchBtStatus, 8000);
 
         scanWifiNetworks();
 
@@ -7656,6 +7660,275 @@ function toggleWifiAlwaysOn() {
 }
 
 
+
+
+// --- BLUETOOTH & PHONE AUDIO CONNECTION LOGIC ---
+let btStatus = {
+  powered: false,
+  pairable: true,
+  discoverable: true,
+  controller_name: "CarPi",
+  controller_mac: "",
+  connected_device: null,
+  connected_devices: []
+};
+
+function fetchBtStatus() {
+  fetch('/api/bluetooth/status')
+    .then(r => r.json())
+    .then(data => {
+      btStatus = data || {};
+      updateBtHeaderPill();
+      updateBtSettingsCard();
+    })
+    .catch(err => console.warn("[BT] Status error:", err));
+}
+
+function updateBtHeaderPill() {
+  const pill = document.getElementById('headerBtPill');
+  const text = document.getElementById('headerBtText');
+  const icon = document.getElementById('headerBtIcon');
+  if (!pill) return;
+
+  if (btStatus.connected_device) {
+    pill.style.borderColor = "var(--accent-blue)";
+    pill.style.color = "var(--accent-blue)";
+    pill.style.background = "rgba(0, 176, 255, 0.25)";
+    if (text) text.innerText = btStatus.connected_device.name || "PHONE CONNECTED";
+    if (icon) icon.innerText = "ᛒ";
+    pill.title = `${btStatus.connected_device.name} • Connected • Click to manage Bluetooth`;
+  } else {
+    pill.style.borderColor = "var(--panel-border)";
+    pill.style.color = "var(--text-secondary)";
+    pill.style.background = "rgba(255, 255, 255, 0.04)";
+    if (text) text.innerText = "BLUETOOTH";
+    if (icon) icon.innerText = "ᛒ";
+    pill.title = "Bluetooth Ready (Discoverable as CarPi) • Click to pair phone";
+  }
+}
+
+function updateBtSettingsCard() {
+  const devEl = document.getElementById('btCurrentDevice');
+  const badgeEl = document.getElementById('btCurrentBadge');
+  const ctrlNameEl = document.getElementById('btControllerName');
+  const ctrlMacEl = document.getElementById('btControllerMac');
+  const btnPair = document.getElementById('btnToggleBtPairable');
+
+  if (ctrlNameEl && btStatus.controller_name) ctrlNameEl.innerText = btStatus.controller_name;
+  if (ctrlMacEl && btStatus.controller_mac) ctrlMacEl.innerText = btStatus.controller_mac;
+
+  if (devEl) {
+    if (btStatus.connected_device) {
+      devEl.innerText = btStatus.connected_device.name || btStatus.connected_device.mac;
+      devEl.style.color = "var(--accent-blue)";
+    } else {
+      devEl.innerText = "No Device Connected";
+      devEl.style.color = "var(--text-secondary)";
+    }
+  }
+
+  if (badgeEl) {
+    if (btStatus.connected_device) {
+      badgeEl.innerText = "CONNECTED";
+      badgeEl.style.background = "rgba(0,230,118,0.15)";
+      badgeEl.style.color = "var(--accent-green)";
+    } else {
+      badgeEl.innerText = "STANDBY (READY)";
+      badgeEl.style.background = "rgba(140,155,165,0.15)";
+      badgeEl.style.color = "var(--text-secondary)";
+    }
+  }
+
+  if (btnPair) {
+    if (btStatus.discoverable) {
+      btnPair.innerHTML = "🟢 PAIRABLE & DISCOVERABLE";
+      btnPair.style.color = "var(--accent-green)";
+      btnPair.style.borderColor = "var(--accent-green)";
+      btnPair.style.background = "rgba(0,230,118,0.15)";
+    } else {
+      btnPair.innerHTML = "⚪ DISCOVERY OFF";
+      btnPair.style.color = "var(--text-secondary)";
+      btnPair.style.borderColor = "var(--panel-border)";
+      btnPair.style.background = "rgba(255,255,255,0.05)";
+    }
+  }
+}
+
+function scanBtDevices() {
+  const btn = document.getElementById('btnScanBt');
+  const countEl = document.getElementById('btScanCount');
+  const listEl = document.getElementById('btDeviceList');
+
+  if (btn) {
+    btn.innerHTML = "🔄 SCANNING...";
+    btn.style.opacity = "0.7";
+  }
+  if (countEl) countEl.innerText = "Scanning nearby Bluetooth devices...";
+
+  fetch('/api/bluetooth/scan')
+    .then(r => r.json())
+    .then(devices => {
+      renderBtDevices(devices || []);
+      fetchBtPaired();
+      if (btn) {
+        btn.innerHTML = "✓ SCANNED";
+        btn.style.opacity = "1";
+        setTimeout(() => { if (btn) btn.innerHTML = "🔄 SCAN DEVICES"; }, 2500);
+      }
+    })
+    .catch(err => {
+      console.error("[BT] Scan error:", err);
+      if (btn) {
+        btn.innerHTML = "⚠️ ERROR";
+        setTimeout(() => { if (btn) btn.innerHTML = "🔄 SCAN DEVICES"; }, 2000);
+      }
+    });
+}
+
+function renderBtDevices(devices) {
+  const listEl = document.getElementById('btDeviceList');
+  const countEl = document.getElementById('btScanCount');
+  if (!listEl) return;
+
+  if (!devices || devices.length === 0) {
+    listEl.innerHTML = '<div style="color:var(--text-secondary); padding:16px; text-align:center;">No Bluetooth devices found nearby. Make sure your phone Bluetooth is on!</div>';
+    if (countEl) countEl.innerText = "0 devices found";
+    return;
+  }
+
+  if (countEl) countEl.innerText = `${devices.length} device${devices.length === 1 ? '' : 's'} available - Tap CONNECT`;
+
+  listEl.innerHTML = devices.map(d => {
+    const isConn = d.connected;
+    const isPaired = d.paired;
+    const icon = "📱";
+
+    return `
+      <div class="wifi-network-row ${isConn ? 'connected' : ''}" style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; background:#0c1017; border:1px solid #1a222e; border-radius:8px; margin-bottom:6px;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:16px;">${icon}</span>
+          <div>
+            <div style="font-size:12px; font-weight:800; color:#fff; display:flex; align-items:center; gap:6px;">
+              ${escapeHtml(d.name || d.mac)}
+              ${isPaired ? '<span style="font-size:9px; background:rgba(0,176,255,0.15); color:var(--accent-blue); padding:1px 5px; border-radius:4px;">PAIRED</span>' : ''}
+              ${isConn ? '<span style="font-size:9px; background:rgba(0,230,118,0.15); color:var(--accent-green); padding:1px 5px; border-radius:4px;">CONNECTED</span>' : ''}
+            </div>
+            <div style="font-size:10px; color:var(--text-secondary); font-family:var(--font-mono);">${d.mac}</div>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          ${isConn
+            ? `<button class="cluster-action-btn" style="color:var(--accent-red); border-color:var(--accent-red); font-size:10px; padding:4px 12px;" onclick="disconnectBtDevice('${d.mac}')">DISCONNECT</button>`
+            : `<button class="cluster-action-btn" style="color:var(--accent-blue); border-color:var(--accent-blue); font-size:10px; padding:4px 12px;" onclick="connectBtDevice('${d.mac}', '${escapeHtml(d.name || d.mac)}')">CONNECT / PAIR</button>`
+          }
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function fetchBtPaired() {
+  const pairedList = document.getElementById('btPairedList');
+  fetch('/api/bluetooth/paired')
+    .then(r => r.json())
+    .then(devices => {
+      if (!pairedList) return;
+      if (!devices || devices.length === 0) {
+        pairedList.innerHTML = '<div style="color:var(--text-secondary); padding:10px; font-size:11px;">No paired devices saved yet. Connect above or discover "CarPi" from your phone!</div>';
+        return;
+      }
+
+      pairedList.innerHTML = devices.map(d => `
+        <div class="wifi-saved-row" style="display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:#0c1017; border:1px solid #1a222e; border-radius:6px; margin-bottom:4px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:13px;">📱</span>
+            <div>
+              <span style="font-size:12px; font-weight:800; color:#fff;">${escapeHtml(d.name)}</span>
+              <span style="font-size:10px; color:var(--text-secondary); margin-left:6px; font-family:var(--font-mono);">${d.mac}</span>
+            </div>
+          </div>
+          <div style="display:flex; gap:6px;">
+            ${!d.connected ? `<button class="cluster-action-btn" style="color:var(--accent-blue); font-size:10px; padding:3px 10px;" onclick="connectBtDevice('${d.mac}', '${escapeHtml(d.name)}')">CONNECT</button>` : ''}
+            <button class="cluster-action-btn" style="color:var(--accent-red); font-size:10px; padding:3px 8px;" onclick="removeBtDevice('${d.mac}', '${escapeHtml(d.name)}')">
+              FORGET
+            </button>
+          </div>
+        </div>
+      `).join('');
+    })
+    .catch(err => console.warn("[BT] Paired fetch error:", err));
+}
+
+function connectBtDevice(mac, name) {
+  showAiSpeechToast(`Connecting to Bluetooth device ${name || mac}...`);
+  fetch('/api/bluetooth/connect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mac: mac })
+  })
+    .then(r => r.json())
+    .then(res => {
+      showAiSpeechToast(res.message || `Bluetooth connection command dispatched for ${name}`);
+      setTimeout(() => {
+        fetchBtStatus();
+        fetchBtPaired();
+        scanBtDevices();
+      }, 2000);
+    })
+    .catch(err => showAiSpeechToast(`Bluetooth connect error: ${err.message}`));
+}
+
+function disconnectBtDevice(mac) {
+  fetch('/api/bluetooth/disconnect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mac: mac })
+  })
+    .then(r => r.json())
+    .then(res => {
+      showAiSpeechToast(`Disconnected ${mac}`);
+      fetchBtStatus();
+      scanBtDevices();
+    })
+    .catch(err => console.error("[BT] Disconnect error:", err));
+}
+
+function removeBtDevice(mac, name) {
+  fetch('/api/bluetooth/remove', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mac: mac })
+  })
+    .then(r => r.json())
+    .then(() => {
+      showAiSpeechToast(`Forgot Bluetooth device ${name || mac}`);
+      fetchBtStatus();
+      fetchBtPaired();
+      scanBtDevices();
+    })
+    .catch(err => console.error("[BT] Remove error:", err));
+}
+
+function toggleBtDiscoverable() {
+  const next = !btStatus.discoverable;
+  fetch('/api/bluetooth/discoverable', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled: next })
+  })
+    .then(r => r.json())
+    .then(res => {
+      btStatus.discoverable = res.discoverable;
+      updateBtSettingsCard();
+      showAiSpeechToast(res.discoverable ? "Bluetooth is now Discoverable and Pairable" : "Bluetooth Discovery hidden");
+    })
+    .catch(err => console.error("[BT] Toggle discoverable error:", err));
+}
+
+function focusBtSection() {
+  const card = document.getElementById('btSettingsCard');
+  if (card) card.scrollIntoView({ behavior: 'smooth' });
+}
 
 function focusWifiSection() {
 

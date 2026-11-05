@@ -65,6 +65,7 @@ from fs_manager import (
 )
 
 from wifi_manager import WifiManager
+from bluetooth_manager import BluetoothManager
 
 from hardware.system_monitor import SystemMonitor
 
@@ -319,6 +320,7 @@ class CarPi5ServerState:
         self.llm = LLMClient()
 
         self.wifi = WifiManager()
+        self.bluetooth = BluetoothManager()
 
         self.sys_monitor = SystemMonitor()
 
@@ -1732,6 +1734,33 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             self.wfile.write(json.dumps(saved).encode("utf-8"))
 
+            return
+
+        elif parsed.path == "/api/bluetooth/status":
+            status = state.bluetooth.get_status()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(status).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/bluetooth/scan":
+            devices = state.bluetooth.scan_devices()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(devices).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/bluetooth/paired":
+            paired = state.bluetooth.get_paired()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(paired).encode("utf-8"))
             return
 
 
@@ -3362,6 +3391,46 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             self.wfile.write(json.dumps(res).encode("utf-8"))
 
+            return
+
+        elif parsed.path == "/api/bluetooth/connect":
+            mac = req_data.get("mac", "")
+            res = state.bluetooth.connect_device(mac)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/bluetooth/disconnect":
+            mac = req_data.get("mac", "")
+            res = state.bluetooth.disconnect_device(mac)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/bluetooth/remove":
+            mac = req_data.get("mac", "")
+            res = state.bluetooth.remove_device(mac)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/bluetooth/discoverable":
+            enabled = req_data.get("enabled", True)
+            res = state.bluetooth.set_discoverable(enabled)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
 
