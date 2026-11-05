@@ -1,3 +1,13 @@
+import os
+import sys
+
+# Initialize D-Bus GLib MainLoop as default before any D-Bus connection is opened
+try:
+    import dbus.mainloop.glib
+    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+except Exception:
+    pass
+
 """
 
 daemon.py - CarPi5 Central Telemetry & AI Daemon
@@ -119,85 +129,86 @@ def get_media_playlist():
     seen = set()
 
     seen_filenames = set()
-
     track_id = 0
-
     audio_exts = {".mp3", ".m4a", ".wav", ".flac", ".ogg", ".aac"}
 
+    try:
+        import mutagen
+    except ImportError:
+        mutagen = None
+
     for s_dir in search_dirs:
-
         if not s_dir.exists():
-
             continue
-
         for root, _, files in os.walk(s_dir):
-
             for f in sorted(files):
-
                 ext = os.path.splitext(f)[1].lower()
-
                 if ext in audio_exts:
-
                     full_p = os.path.abspath(os.path.join(root, f))
-
                     if full_p in seen or f.lower() in seen_filenames:
-
                         continue
-
                     seen.add(full_p)
-
                     seen_filenames.add(f.lower())
-
                     clean_name = os.path.splitext(f)[0]
-
                     artist = "In-Dash Audio"
-
                     title = clean_name
+                    album = "CarPi5 In-Dash"
+                    genre = "G59 / Hip-Hop"
+                    year = "2024"
+                    dur_sec = 0
 
-                    if " - " in clean_name:
+                    if mutagen:
+                        try:
+                            m = mutagen.File(full_p, easy=True)
+                            if m:
+                                if m.get("title"):
+                                    title = str(m["title"][0]).strip()
+                                if m.get("artist"):
+                                    artist = str(m["artist"][0]).strip()
+                                if m.get("album"):
+                                    album = str(m["album"][0]).strip()
+                                if m.get("genre"):
+                                    genre = str(m["genre"][0]).strip()
+                                if m.get("date"):
+                                    year = str(m["date"][0]).strip()[:4]
+                                elif m.get("year"):
+                                    year = str(m["year"][0]).strip()[:4]
+                            raw_m = mutagen.File(full_p)
+                            if raw_m and hasattr(raw_m, 'info') and hasattr(raw_m.info, 'length'):
+                                dur_sec = round(raw_m.info.length)
+                        except Exception:
+                            pass
 
-                        parts = clean_name.split(" - ", 1)
+                    # Fallbacks if metadata not populated
+                    if not title or title == clean_name:
+                        if " - " in clean_name:
+                            parts = clean_name.split(" - ", 1)
+                            artist = parts[0].strip()
+                            title = parts[1].strip()
+                        elif "_" in clean_name:
+                            title = clean_name.replace("_", " ")
 
-                        artist = parts[0].strip()
-
-                        title = parts[1].strip()
-
-                    elif "_" in clean_name:
-
-                        title = clean_name.replace("_", " ")
-
-
-
-                    # Clean leading track numbers like 01, 02.
-
-                    title = re.sub(r'^\d+[\.\s\-]+', '', title)
-
+                    title = re.sub(r'^\d+[\.\s\-]+', '', title).strip()
                     if artist.startswith("0") or artist.startswith("1"):
-
-                        artist = re.sub(r'^\d+[\.\s\-]+', '', artist)
-
-
+                        artist = re.sub(r'^\d+[\.\s\-]+', '', artist).strip()
+                    if not artist or artist == clean_name or artist == "In-Dash Audio":
+                        if "$uicideboy$" in full_p.lower() or "grey" in full_p.lower() or "g59" in full_p.lower():
+                            artist = "$uicideboy$"
 
                     tracks.append({
-
                         "id": track_id,
-
                         "title": title or clean_name,
-
-                        "artist": artist if artist != clean_name else "Grey59 / Dodge Dart",
-
+                        "artist": artist if artist != clean_name else "$uicideboy$",
+                        "album": album or "CarPi5 In-Dash",
+                        "genre": genre or "G59 / Hip-Hop",
+                        "year": year,
+                        "duration": dur_sec,
                         "filename": f,
-
                         "path": full_p,
-
                         "size_mb": round(os.path.getsize(full_p) / (1024 * 1024), 2),
-
                         "stream_url": f"/api/media/stream?file={urllib.parse.quote(full_p)}"
-
                     })
-
                     track_id += 1
-
     return tracks
 
 
@@ -1825,29 +1836,12 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             return
 
         elif parsed.path == "/api/media/now_playing":
-            title = req_data.get("title", "CarPi5 In-Dash Audio")
-            artist = req_data.get("artist", "")
-            album = req_data.get("album", "CarPi5")
-            genre = req_data.get("genre", "Music")
-            dur = req_data.get("duration", 0)
-            trk = req_data.get("track_num", 1)
-            total = req_data.get("total_tracks", 1)
-            status = req_data.get("status", "playing")
-            state.avrcp_player.update_track(
-                title=title,
-                artist=artist,
-                album=album,
-                genre=genre,
-                duration_sec=dur,
-                track_num=trk,
-                total_tracks=total
-            )
-            state.avrcp_player.set_status(status)
+            cur = getattr(state.avrcp_player, "current_track", {}) if hasattr(state, "avrcp_player") else {}
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
-            self.wfile.write(json.dumps({"status": "ok"}).encode("utf-8"))
+            self.wfile.write(json.dumps({"status": "ok", "track": cur}).encode("utf-8"))
             return
 
         elif parsed.path == "/api/audio/volume":
@@ -2003,6 +1997,27 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             return
 
 
+
+        elif parsed.path == "/api/system/keyboard/toggle":
+            env = os.environ.copy()
+            env['XDG_RUNTIME_DIR'] = '/run/user/1000'
+            env['WAYLAND_DISPLAY'] = 'wayland-0'
+            try:
+                check = subprocess.run(['pgrep', '-f', 'wvkbd-mobintl'], capture_output=True, text=True)
+                if check.stdout.strip():
+                    subprocess.run(['killall', '-SIGUSR1', 'wvkbd-mobintl'], env=env)
+                    status = "toggled"
+                else:
+                    subprocess.Popen(['wvkbd-mobintl', '-L', '240', '--bg', '1a1a24', '--fg', 'ffffff', '--fn', 'Sans 13'], env=env)
+                    status = "started"
+            except Exception as e:
+                status = f"error: {e}"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": status}).encode("utf-8"))
+            return
 
         elif parsed.path == "/api/system/browser/status":
 
@@ -2605,6 +2620,39 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
 
         content_length = int(self.headers.get('Content-Length', 0))
+
+        if parsed.path == "/api/media/now_playing":
+            req_data = {}
+            if content_length > 0:
+                try:
+                    req_data = json.loads(self.rfile.read(content_length).decode('utf-8'))
+                except Exception:
+                    pass
+            title = req_data.get("title", "CarPi5 In-Dash Audio")
+            artist = req_data.get("artist", "$uicideboy$")
+            album = req_data.get("album", "CarPi5 In-Dash")
+            genre = req_data.get("genre", "Music")
+            dur = req_data.get("duration", 0)
+            trk = req_data.get("track_num", 1)
+            total = req_data.get("total_tracks", 1)
+            status = req_data.get("status", "playing")
+            if hasattr(state, "avrcp_player") and state.avrcp_player:
+                state.avrcp_player.update_track(
+                    title=title,
+                    artist=artist,
+                    album=album,
+                    genre=genre,
+                    duration_sec=dur,
+                    track_num=trk,
+                    total_tracks=total
+                )
+                state.avrcp_player.set_status(status)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "broadcasted": title}).encode("utf-8"))
+            return
 
 
 

@@ -1,4 +1,139 @@
 
+function publishNowPlaying(status = 'playing') {
+  if (!realPlaylist || realPlaylist.length === 0) return;
+  const t = realPlaylist[realTrackIdx] || {};
+  const dur = (realAudio.duration && !isNaN(realAudio.duration) && realAudio.duration > 0) ? realAudio.duration : (t.duration || 180);
+  fetch('/api/media/now_playing', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: t.title || "Track",
+      artist: t.artist || "$uicideboy$",
+      album: t.album || "CarPi5 In-Dash",
+      genre: t.genre || "G59 / Hip-Hop",
+      year: t.year || "2024",
+      duration: dur,
+      track_num: realTrackIdx + 1,
+      total_tracks: realPlaylist.length,
+      status: status
+    })
+  }).catch(() => {});
+}
+
+
+// ==========================================
+// R.U.M. SMART AUDIO DUCKING & SUBWOOFER HUD
+// ==========================================
+let mediaPreDuckingVolume = null;
+let duckingRampInterval = null;
+
+function setMediaDuckState(isDucking) {
+  if (typeof realAudio === 'undefined' || !realAudio) return;
+  if (realAudio.paused && mediaPreDuckingVolume === null) return;
+  
+  clearInterval(duckingRampInterval);
+
+  if (isDucking) {
+    if (mediaPreDuckingVolume === null) {
+      mediaPreDuckingVolume = realAudio.volume;
+    }
+    const targetVolume = Math.max(0.08, mediaPreDuckingVolume * 0.18);
+    rampAudioVolume(targetVolume, 200);
+  } else {
+    if (mediaPreDuckingVolume !== null) {
+      const restoreVolume = mediaPreDuckingVolume;
+      mediaPreDuckingVolume = null;
+      rampAudioVolume(restoreVolume, 350);
+    }
+  }
+}
+
+function rampAudioVolume(target, durationMs) {
+  if (typeof realAudio === 'undefined' || !realAudio) return;
+  const startVol = realAudio.volume;
+  const startTime = Date.now();
+  duckingRampInterval = setInterval(() => {
+    const elapsed = Date.now() - startTime;
+    const progress = Math.min(1.0, elapsed / durationMs);
+    const current = startVol + (target - startVol) * (progress * (2 - progress));
+    realAudio.volume = Math.max(0, Math.min(1, current));
+    if (progress >= 1.0) {
+      clearInterval(duckingRampInterval);
+    }
+  }, 25);
+}
+
+// Digital Subwoofer Gain & Peak Clipping Indicator
+let currentSubGain = 0;
+let clipAnalyser = null;
+let clipMonitorStarted = false;
+let lastClipAlertTime = 0;
+const timeDomainBuffer = new Float32Array(256);
+
+function onSubGainChange(val) {
+  currentSubGain = parseFloat(val);
+  const label = document.getElementById('subGainVal');
+  if (label) {
+    label.innerText = (currentSubGain >= 0 ? '+' : '') + currentSubGain.toFixed(1) + ' dB';
+    if (currentSubGain > 6) {
+      label.style.color = '#ff5252';
+    } else if (currentSubGain > 0) {
+      label.style.color = '#c084fc';
+    } else {
+      label.style.color = 'var(--text-secondary)';
+    }
+  }
+  if (typeof subBassFilter !== 'undefined' && subBassFilter && typeof audioCtx !== 'undefined' && audioCtx) {
+    try {
+      subBassFilter.gain.setTargetAtTime(currentSubGain, audioCtx.currentTime, 0.02);
+    } catch (e) {}
+  }
+}
+
+function startClipMonitor() {
+  if (clipMonitorStarted) return;
+  clipMonitorStarted = true;
+  function checkAudioClip() {
+    if (clipAnalyser && typeof realAudio !== 'undefined' && realAudio && !realAudio.paused) {
+      clipAnalyser.getFloatTimeDomainData(timeDomainBuffer);
+      let peak = 0;
+      for (let i = 0; i < timeDomainBuffer.length; i++) {
+        const abs = Math.abs(timeDomainBuffer[i]);
+        if (abs > peak) peak = abs;
+      }
+      const now = Date.now();
+      if (peak >= 0.96) {
+        lastClipAlertTime = now;
+      }
+      const badge = document.getElementById('subClipBadge');
+      if (badge) {
+        if (now - lastClipAlertTime < 350) {
+          badge.innerText = '⚡ CLIP';
+          badge.style.background = 'rgba(255, 23, 68, 0.4)';
+          badge.style.color = '#ff1744';
+          badge.style.borderColor = '#ff1744';
+          badge.style.boxShadow = '0 0 12px rgba(255, 23, 68, 0.8)';
+        } else if (peak >= 0.82) {
+          badge.innerText = 'WARM';
+          badge.style.background = 'rgba(255, 171, 0, 0.2)';
+          badge.style.color = '#ffab00';
+          badge.style.borderColor = 'rgba(255, 171, 0, 0.4)';
+          badge.style.boxShadow = 'none';
+        } else {
+          badge.innerText = 'CLEAN';
+          badge.style.background = 'rgba(0, 230, 118, 0.15)';
+          badge.style.color = 'var(--accent-green)';
+          badge.style.borderColor = 'rgba(0, 230, 118, 0.3)';
+          badge.style.boxShadow = 'none';
+        }
+      }
+    }
+    requestAnimationFrame(checkAudioClip);
+  }
+  requestAnimationFrame(checkAudioClip);
+}
+
+
 // --- FULLSCREEN 12-GAUGE CLUSTER CONTROLS ---
 let isGaugeFullscreen = false;
 let previousLayoutBeforeFullscreen = 3;
@@ -1555,6 +1690,7 @@ function connectTelemetryStream() {
       const wasSpeaking = isHardwareSpeaking;
 
       isWaifuSpeaking = data.is_speaking;
+      setMediaDuckState(data.is_speaking);
 
       isHardwareSpeaking = data.is_speaking;
 
@@ -2945,6 +3081,12 @@ function handleAiAction(action) {
       showAiSpeechToast("⏮️ Previous Track (Steering Wheel / Radio)");
 
     } else if (action.action === 'toggle') {
+      togglePlayPause();
+      showAiSpeechToast(realAudio.paused ? "⏸️ Paused" : "▶️ Playing");
+    } else if (action.action === 'play') {
+      if (realAudio.paused) togglePlayPause();
+    } else if (action.action === 'pause') {
+      if (!realAudio.paused) togglePlayPause();
 
       togglePlayPause();
 
@@ -4870,14 +5012,26 @@ function initRealAudioPlayer() {
 
 
 
+  realAudio.addEventListener('loadedmetadata', () => {
+    publishNowPlaying(realAudio.paused ? 'paused' : 'playing');
+    const durEl = document.getElementById('trackDuration');
+    if (durEl && !isNaN(realAudio.duration)) {
+      durEl.innerText = formatTime(realAudio.duration);
+    }
+  });
+
   realAudio.addEventListener('play', () => {
-
     const playBtn = document.getElementById('playPauseBtn');
-
     if (playBtn) playBtn.innerText = "⏸️";
-
     renderRealTracklist();
+    publishNowPlaying('playing');
+  });
 
+  realAudio.addEventListener('pause', () => {
+    const playBtn = document.getElementById('playPauseBtn');
+    if (playBtn) playBtn.innerText = "▶️";
+    renderRealTracklist();
+    publishNowPlaying('paused');
   });
 
 
@@ -5075,28 +5229,14 @@ function loadTrack(idx, autoPlay = true) {
         artist: t.artist || "CarPi5 In-Dash Audio",
         album: t.album || "CarPi5 In-Dash",
         artwork: [
-          { src: '/static/icons/music_art_96.png', sizes: '96x96', type: 'image/png' },
-          { src: '/static/icons/music_art_192.png', sizes: '192x192', type: 'image/png' }
+          { src: '/assets/pics/splash.png', sizes: '512x512', type: 'image/png' }
         ]
       });
     } catch (e) {}
   }
 
   // Publish directly to BlueZ AVRCP Target so the dash screen shows Title, Artist, Album!
-  fetch('/api/media/now_playing', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      title: t.title || "Track",
-      artist: t.artist || "CarPi5 In-Dash Audio",
-      album: t.album || "CarPi5 In-Dash",
-      genre: t.genre || "Music",
-      duration: realAudio.duration || 180,
-      track_num: realTrackIdx + 1,
-      total_tracks: realPlaylist.length,
-      status: 'playing'
-    })
-  }).catch(() => {});
+  publishNowPlaying(autoPlay ? 'playing' : 'paused');
 
 
 
@@ -16925,8 +17065,14 @@ function initAudioEqualizer() {
         prev.connect(f);
         prev = f;
       });
-      prev.connect(audioCtx.destination);
-      console.log("[EQUALIZER] 10-Band Studio DSP pipeline active!");
+      // Subwoofer Analyser for Real-Time Peak Clipping Detection
+      clipAnalyser = audioCtx.createAnalyser();
+      clipAnalyser.fftSize = 256;
+      clipAnalyser.smoothingTimeConstant = 0.3;
+      prev.connect(clipAnalyser);
+      clipAnalyser.connect(audioCtx.destination);
+      startClipMonitor();
+      console.log("[EQUALIZER] 10-Band Studio DSP pipeline + Subwoofer Peak Analyser active!");
     } catch (e) {
       console.warn("[EQUALIZER] Web Audio connect note:", e);
     }

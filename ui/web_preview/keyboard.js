@@ -296,12 +296,31 @@ function vkInsertText(text) {
   if (!vkActiveInput) return;
 
   const el = vkActiveInput;
-  const start = el.selectionStart !== null ? el.selectionStart : el.value.length;
-  const end = el.selectionEnd !== null ? el.selectionEnd : el.value.length;
   const val = el.value || '';
+
+  // Reliable cursor tracking: prevent selectionStart=0 collapse on touch
+  let start = val.length;
+  let end = val.length;
+
+  if (typeof el._vkCursor === 'number') {
+    start = el._vkCursor;
+    end = el._vkCursor;
+  } else {
+    try {
+      if (typeof el.selectionStart === 'number' && el.selectionStart > 0) {
+        start = el.selectionStart;
+        end = el.selectionEnd;
+      }
+    } catch (e) {}
+  }
+
+  // Bounds safety check
+  start = Math.max(0, Math.min(val.length, start));
+  end = Math.max(start, Math.min(val.length, end));
 
   el.value = val.substring(0, start) + text + val.substring(end);
   const nextPos = start + text.length;
+  el._vkCursor = nextPos;
   try {
     el.selectionStart = el.selectionEnd = nextPos;
   } catch (e) {}
@@ -314,17 +333,35 @@ function vkBackspace() {
   if (!vkActiveInput) return;
 
   const el = vkActiveInput;
-  const start = el.selectionStart !== null ? el.selectionStart : el.value.length;
-  const end = el.selectionEnd !== null ? el.selectionEnd : el.value.length;
   const val = el.value || '';
+
+  let start = val.length;
+  let end = val.length;
+
+  if (typeof el._vkCursor === 'number') {
+    start = el._vkCursor;
+    end = el._vkCursor;
+  } else {
+    try {
+      if (typeof el.selectionStart === 'number' && el.selectionStart > 0) {
+        start = el.selectionStart;
+        end = el.selectionEnd;
+      }
+    } catch (e) {}
+  }
+
+  start = Math.max(0, Math.min(val.length, start));
+  end = Math.max(start, Math.min(val.length, end));
 
   if (start !== end) {
     el.value = val.substring(0, start) + val.substring(end);
+    el._vkCursor = start;
     try {
       el.selectionStart = el.selectionEnd = start;
     } catch (e) {}
   } else if (start > 0) {
     el.value = val.substring(0, start - 1) + val.substring(start);
+    el._vkCursor = start - 1;
     try {
       el.selectionStart = el.selectionEnd = start - 1;
     } catch (e) {}
@@ -337,6 +374,7 @@ function vkBackspace() {
 function vkClearInput() {
   if (!vkActiveInput) return;
   vkActiveInput.value = '';
+  vkActiveInput._vkCursor = 0;
   try {
     vkActiveInput.selectionStart = vkActiveInput.selectionEnd = 0;
   } catch (e) {}
@@ -535,11 +573,13 @@ if (document.readyState === 'loading') {
 
 function toggleManualKeyboard() {
   const kb = document.getElementById('virtualTouchKeyboard');
+  const activeScreen = document.querySelector('.screen-view.active');
+  const isBrowserScreen = activeScreen && (activeScreen.id === 'screenBrowser' || activeScreen.id === 'screenGames');
+
   if (kb && kb.classList.contains('visible')) {
     vkCloseKeyboard();
   } else {
     if (!vkActiveInput) {
-      const activeScreen = document.querySelector('.screen-view.active');
       const candidate = activeScreen ? activeScreen.querySelector('input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea') : null;
       if (candidate) {
         candidate.focus();
@@ -547,5 +587,10 @@ function toggleManualKeyboard() {
       }
     }
     openVirtualKeyboard(vkActiveInput || document.getElementById('browserUrlInput') || document.getElementById('chatInput'));
+  }
+
+  // Also notify backend to toggle OS-level wvkbd overlay if in fullscreen or browser mode
+  if (isBrowserScreen) {
+    fetch('/api/system/keyboard/toggle').catch(() => {});
   }
 }
