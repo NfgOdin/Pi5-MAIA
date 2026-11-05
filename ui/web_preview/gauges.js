@@ -8112,8 +8112,6 @@ function openSystemHealthModal() {
 
   fetchSystemHealth();
 
-}
-
 
 
 function closeSystemHealthModal() {
