@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dodge Dart CarPi5 - MultiAir OS & Cockpit</title>
-  <link rel="stylesheet" href="style.css?v=13">
+  <link rel="stylesheet" href="style.css?v=14">
   <script src="assets/vendor/three.min.js"></script>
   <script src="assets/vendor/GLTFLoader.js"></script>
   <script src="assets/vendor/qrcode.min.js"></script>
@@ -1085,19 +1085,45 @@
           Permanent Dodge Dart telemetry archive in <code>vehicle_data.db</code>. Tracks distance, speed, peak boost, RPM, MultiAir temps, economy, DTC incidents, and full-throttle pulls.
         </p>
 
-        <!-- Auto-Delete Retention Selector -->
-        <div style="display:flex; align-items:center; justify-content:space-between; background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
-          <div style="font-size:11px; color:#fff; display:flex; align-items:center; gap:6px;">
-            <span>⏳</span> <strong>AUTO-DELETE TRIP RETENTION:</strong>
+        <!-- Live Black Box Recorder Banner -->
+        <div id="liveTripRecorderBanner" style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,176,255,0.08); border:1px solid rgba(0,176,255,0.3); padding:8px 14px; border-radius:8px; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+          <div style="font-size:11px; color:#fff; display:flex; align-items:center; gap:8px;">
+            <span style="color:#00e676; font-size:14px;">●</span>
+            <strong>FLIGHT DATA RECORDER:</strong>
+            <span id="liveTripRecorderStatus" style="color:var(--text-secondary);">Logging all 16 sensors @ 1Hz</span>
           </div>
-          <select id="tripRetentionSelect" onchange="updateTripRetention(this.value)" class="slot-dropdown" style="width:auto; padding:5px 10px; font-size:11px;">
-            <option value="0">Never (Keep All Trips Forever)</option>
-            <option value="7">Auto-Delete After 7 Days</option>
-            <option value="14">Auto-Delete After 14 Days</option>
-            <option value="30">Auto-Delete After 30 Days</option>
-            <option value="60">Auto-Delete After 60 Days</option>
-            <option value="90">Auto-Delete After 90 Days</option>
-          </select>
+          <button class="cluster-action-btn" onclick="archiveCurrentTripNow()" style="font-size:10px; padding:5px 12px; color:var(--accent-green); border-color:var(--accent-green);">
+            📦 ARCHIVE / ZIP CURRENT TRIP NOW
+          </button>
+        </div>
+
+        <!-- Controls Bar: Retention + Auto-Zip Frequency -->
+        <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:10px; margin-bottom:14px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px; flex-wrap:wrap; gap:6px;">
+            <div style="font-size:11px; color:#fff; display:flex; align-items:center; gap:6px;">
+              <span>⏳</span> <strong>AUTO-DELETE RETENTION:</strong>
+            </div>
+            <select id="tripRetentionSelect" onchange="updateTripRetention(this.value)" class="slot-dropdown" style="width:auto; padding:5px 10px; font-size:11px;">
+              <option value="0">Never (Keep All Trips Forever)</option>
+              <option value="7">Auto-Delete After 7 Days</option>
+              <option value="14">Auto-Delete After 14 Days</option>
+              <option value="30">Auto-Delete After 30 Days</option>
+              <option value="60">Auto-Delete After 60 Days</option>
+              <option value="90">Auto-Delete After 90 Days</option>
+            </select>
+          </div>
+
+          <div style="display:flex; align-items:center; justify-content:space-between; background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px; flex-wrap:wrap; gap:6px;">
+            <div style="font-size:11px; color:#fff; display:flex; align-items:center; gap:6px;">
+              <span>📦</span> <strong>AUTO-ZIP ARCHIVE FREQUENCY:</strong>
+            </div>
+            <select id="tripZipIntervalSelect" onchange="updateTripZipInterval(this.value)" class="slot-dropdown" style="width:auto; padding:5px 10px; font-size:11px;">
+              <option value="15">Every 15 Minutes</option>
+              <option value="30" selected>Every 30 Minutes (Recommended)</option>
+              <option value="60">Every 60 Minutes</option>
+              <option value="0">On Trip Completion Only</option>
+            </select>
+          </div>
         </div>
 
         <!-- Comprehensive Lifetime Telemetry Stats (8 metrics) -->
@@ -1797,7 +1823,7 @@
   </div>
 
   <script src="keyboard.js"></script>
-  <script src="gauges.js?v=13"></script>
+  <script src="gauges.js?v=14"></script>
 
   <!-- FLOATING 3D COMPANION HUD (Rum Riding Shotgun Across All Screens) -->
   <div id="vrmFloatingHud" class="vrm-floating-hud" style="display:none;">
@@ -2052,6 +2078,67 @@
     </div>
     <div class="tk-keys-body" id="tkKeysBody">
       <!-- Keys injected dynamically by keyboard.js -->
+    </div>
+  </div>
+
+
+  <!-- BADASS TRIP TELEMETRY & BLACK BOX INSPECTOR MODAL -->
+  <div class="config-modal-overlay" id="tripInspectorModal" style="display:none;" onclick="if(event.target === this) closeTripInspectorModal()">
+    <div class="config-modal-content" style="max-width:940px; width:95%; max-height:92vh; display:flex; flex-direction:column; padding:18px 22px; border-color:var(--accent-blue); box-shadow:0 0 35px rgba(0,176,255,0.3);">
+      <!-- Header -->
+      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #222933; padding-bottom:10px; margin-bottom:12px;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span style="font-size:26px;">🛸</span>
+          <div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <h3 id="inspTripTitle" style="font-size:17px; font-weight:900; color:var(--accent-blue); margin:0;">TRIP TELEMETRY FLIGHT RECORDER</h3>
+              <span id="inspTripStatusBadge" class="pill" style="background:rgba(0,230,118,0.15); color:var(--accent-green); border:1px solid var(--accent-green); font-size:10px; padding:2px 8px;">ARCHIVED</span>
+            </div>
+            <span id="inspTripSubtitle" style="font-size:11px; color:var(--text-secondary); font-weight:700;">DODGE DART 1.4L TURBO MULTIAIR &bull; ISO 15765-4 CAN 29/500</span>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="cluster-action-btn" id="btnInspPrint" onclick="printTripManifest()" style="color:#fff; background:#1f6feb; border-color:#388bfd; font-size:11px; padding:6px 14px; font-weight:800;">🖨️ COURT MANIFEST</button>
+          <button class="cluster-action-btn" id="btnInspDownloadZip" onclick="downloadTripZip()" style="color:var(--accent-green); border-color:var(--accent-green); font-size:11px; padding:6px 14px; font-weight:800;">📦 DOWNLOAD ZIP</button>
+          <button class="cluster-action-btn" onclick="closeTripInspectorModal()" style="font-size:11px; padding:6px 12px; font-weight:800;">✕</button>
+        </div>
+      </div>
+
+      <!-- Quick Metrics Grid -->
+      <div id="inspMetricsGrid" style="display:grid; grid-template-columns: repeat(6, 1fr); gap:8px; margin-bottom:12px;">
+        <!-- Filled dynamically -->
+      </div>
+
+      <!-- Multi-Channel Graph Header & Channel Toggles -->
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:6px;">
+        <div style="font-size:11px; font-weight:800; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px;">
+          📈 HIGH-RESOLUTION TIMELINE SCRUBBER (<span id="inspSampleCount" style="color:#fff;">0</span> SAMPLES)
+        </div>
+        <div style="display:flex; gap:6px;" id="inspChannelToggles">
+          <button class="cluster-action-btn insp-chan-btn active" id="btnChan_speed" onclick="toggleInspChannel('speed')" style="font-size:9px; padding:3px 8px; color:#00b0ff; border-color:#00b0ff;">SPEED</button>
+          <button class="cluster-action-btn insp-chan-btn active" id="btnChan_boost" onclick="toggleInspChannel('boost')" style="font-size:9px; padding:3px 8px; color:#00e676; border-color:#00e676;">BOOST</button>
+          <button class="cluster-action-btn insp-chan-btn active" id="btnChan_rpm" onclick="toggleInspChannel('rpm')" style="font-size:9px; padding:3px 8px; color:#ffcc00; border-color:#ffcc00;">RPM</button>
+          <button class="cluster-action-btn insp-chan-btn active" id="btnChan_afr" onclick="toggleInspChannel('afr')" style="font-size:9px; padding:3px 8px; color:#69f0ae; border-color:#69f0ae;">AFR</button>
+          <button class="cluster-action-btn insp-chan-btn active" id="btnChan_load" onclick="toggleInspChannel('load')" style="font-size:9px; padding:3px 8px; color:#ff5252; border-color:#ff5252;">LOAD</button>
+          <button class="cluster-action-btn insp-chan-btn" id="btnChan_coolant" onclick="toggleInspChannel('coolant')" style="font-size:9px; padding:3px 8px; color:#ff7700; opacity:0.6;">TEMP</button>
+        </div>
+      </div>
+
+      <!-- Interactive Canvas Graph Container -->
+      <div id="tripCanvasWrapper" style="position:relative; width:100%; height:200px; background:#0a0d12; border:1px solid #1f2733; border-radius:8px; overflow:hidden;">
+        <canvas id="tripScrubberCanvas" style="width:100%; height:100%; display:block;"></canvas>
+        <div id="tripScrubberTooltip" style="display:none; position:absolute; top:8px; pointer-events:none; background:rgba(13,17,23,0.94); border:1px solid var(--accent-blue); border-radius:6px; padding:6px 10px; font-size:10px; color:#fff; box-shadow:0 4px 14px rgba(0,0,0,0.8); z-index:10; white-space:nowrap;"></div>
+      </div>
+
+      <!-- Forensic Checksum & Footer -->
+      <div style="margin-top:10px; display:flex; justify-content:space-between; align-items:center; font-size:10px; color:var(--text-secondary); background:#0c1017; padding:7px 12px; border-radius:6px; border:1px solid #1a222e;">
+        <div>
+          <strong>SHA-256 INTEGRITY SEAL:</strong> <span id="inspShaSeal" style="font-family:monospace; color:var(--accent-yellow); font-size:9.5px;">--</span>
+        </div>
+        <div style="display:flex; gap:12px;">
+          <a id="btnInspCsvDownload" href="#" target="_blank" style="color:var(--accent-blue); text-decoration:none; font-weight:700;">📥 Direct CSV Telemetry</a>
+        </div>
+      </div>
     </div>
   </div>
 

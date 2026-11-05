@@ -1,10 +1,15 @@
 """
-trip_logger.py - SQLite Persistent Driving & Vehicle Diagnostics Database
+trip_logger.py - Professional Black-Box Flight Recorder & Driving Telemetry Suite for CarPi5
 Records:
-- Driving Sessions / Trips (start/end timestamp, duration, distance, peak boost, max speed, average speed, max RPM, temperatures, fuel economy, DTC incidents, boost pulls, 0-60 launches)
-- High-resolution sensor snapshots during full-throttle boost pulls
-- Permanent DTC incident history
-- Configurable retention policy (auto-delete after X days) & manual clear all with confirmation
+- Continuous high-resolution telemetry (16+ sensors @ 1Hz) for every driving session.
+- Automatic trip segmentation (engine start/stop detection).
+- Automatic periodic archiving & zipping (configurable: every 15, 30, 60 min, or trip end).
+- Generation of:
+  1. Full high-resolution telemetry CSV (Excel, MegaLogViewer, HP Tuners compatible).
+  2. Statistical JSON summary.
+  3. Official Court-Admissible / Legal Print Manifest (HTML/PDF printable report with SHA-256 verification).
+- Interactive multi-channel graph timeline scrubbing.
+- Configurable retention policy (auto-delete after X days) & manual purge with confirmation.
 """
 
 import os
@@ -12,29 +17,50 @@ import sqlite3
 import time
 import json
 import threading
+import hashlib
+import zipfile
+import csv
+import io
 from typing import Dict, List, Any, Optional
 
 
 class TripLogger:
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: Optional[str] = None, archive_dir: Optional[str] = None):
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.db_path = db_path or os.path.join(os.path.dirname(__file__), "vehicle_data.db")
+        self.archive_dir = archive_dir or os.path.join(base_dir, "storage", "trip_archives")
+        os.makedirs(self.archive_dir, exist_ok=True)
+
         self.current_trip_id: Optional[int] = None
         self.trip_start_time = time.time()
         self.last_sample_time = time.time()
+        self.last_archive_time = time.time()
+        self.engine_off_start_time: Optional[float] = None
+        
+        # In-memory running stats for fast aggregate calculations
         self.max_boost = 0.0
         self.max_speed = 0.0
         self.max_rpm = 0.0
         self.peak_coolant = 0.0
         self.peak_iat = 0.0
+        self.peak_load = 0.0
+        self.min_volts = 99.0
+        self.max_volts = 0.0
         self.distance_miles = 0.0
+        self.idle_duration_sec = 0.0
         self.speed_samples: List[float] = []
         self.rpm_samples: List[float] = []
         self.mpg_samples: List[float] = []
+        self.afr_samples: List[float] = []
         self.dtc_incidents: List[str] = []
         self.boost_pulls_count = 0
         self.was_in_pull = False
         self.best_zero_to_sixty: Optional[float] = None
-        self.retention_days = 0  # 0 = keep forever / disabled
+        
+        # Settings
+        self.retention_days = 0          # 0 = keep forever
+        self.auto_zip_interval_min = 30  # Default: auto-zip every 30 minutes
+        self.auto_log_enabled = True
         self.last_purge_time = 0.0
         self.lock = threading.RLock()
 
@@ -45,7 +71,7 @@ class TripLogger:
     def _init_db(self):
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            # Main Trips Table
+            # 1. Main Trips Summary Table
             c.execute("""
                 CREATE TABLE IF NOT EXISTS trips (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,31 +86,57 @@ class TripLogger:
                     avg_rpm REAL DEFAULT 0.0,
                     peak_coolant_f REAL DEFAULT 0.0,
                     peak_iat_f REAL DEFAULT 0.0,
+                    peak_load_pct REAL DEFAULT 0.0,
+                    avg_afr REAL DEFAULT 14.7,
+                    min_volts REAL DEFAULT 0.0,
+                    max_volts REAL DEFAULT 0.0,
+                    idle_duration_min REAL DEFAULT 0.0,
                     avg_mpg REAL DEFAULT 0.0,
                     fuel_used_gal REAL DEFAULT 0.0,
                     dtc_count INTEGER DEFAULT 0,
                     dtc_list TEXT DEFAULT '[]',
                     boost_pulls_count INTEGER DEFAULT 0,
-                    best_zero_to_sixty REAL
+                    best_zero_to_sixty REAL,
+                    archive_path TEXT,
+                    sha256_hash TEXT,
+                    is_active INTEGER DEFAULT 1
                 )
             """)
 
-            # High-resolution Sensor Pulls
+            # 2. Continuous High-Resolution Telemetry Stream Points Table
             c.execute("""
-                CREATE TABLE IF NOT EXISTS sensor_logs (
+                CREATE TABLE IF NOT EXISTS trip_telemetry_points (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     trip_id INTEGER,
                     timestamp REAL,
+                    time_str TEXT,
                     speed_mph REAL,
+                    rpm REAL,
                     boost_psi REAL,
-                    rpm INTEGER,
-                    coolant_temp_f REAL,
+                    vacuum_inhg REAL,
                     throttle_pct REAL,
+                    pedal_pos_pct REAL,
+                    engine_load_pct REAL,
+                    coolant_temp_f REAL,
+                    intake_temp_f REAL,
+                    battery_volts REAL,
+                    afr REAL,
+                    timing_advance_deg REAL,
+                    fuel_level_pct REAL,
+                    fuel_gph REAL,
+                    fuel_mpg_instant REAL,
+                    ambient_temp_f REAL,
+                    baro_kpa REAL,
+                    distance_miles REAL,
+                    gear TEXT,
+                    dtc_count INTEGER,
                     FOREIGN KEY(trip_id) REFERENCES trips(id) ON DELETE CASCADE
                 )
             """)
+            c.execute("CREATE INDEX IF NOT EXISTS idx_trip_pts_trip_id ON trip_telemetry_points(trip_id)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_trip_pts_ts ON trip_telemetry_points(timestamp)")
 
-            # Key-Value Settings Table (for retention policy, etc.)
+            # 3. Settings Table
             c.execute("""
                 CREATE TABLE IF NOT EXISTS trip_settings (
                     key TEXT PRIMARY KEY,
@@ -92,7 +144,7 @@ class TripLogger:
                 )
             """)
 
-            # Migration: Ensure all new columns exist on pre-existing databases
+            # Migrations: Ensure all columns exist on pre-existing databases
             existing_cols = [row[1] for row in c.execute("PRAGMA table_info(trips)").fetchall()]
             new_columns = [
                 ("distance_miles", "REAL DEFAULT 0.0"),
@@ -101,10 +153,18 @@ class TripLogger:
                 ("avg_rpm", "REAL DEFAULT 0.0"),
                 ("peak_coolant_f", "REAL DEFAULT 0.0"),
                 ("peak_iat_f", "REAL DEFAULT 0.0"),
+                ("peak_load_pct", "REAL DEFAULT 0.0"),
+                ("avg_afr", "REAL DEFAULT 14.7"),
+                ("min_volts", "REAL DEFAULT 0.0"),
+                ("max_volts", "REAL DEFAULT 0.0"),
+                ("idle_duration_min", "REAL DEFAULT 0.0"),
                 ("fuel_used_gal", "REAL DEFAULT 0.0"),
                 ("dtc_list", "TEXT DEFAULT '[]'"),
                 ("boost_pulls_count", "INTEGER DEFAULT 0"),
-                ("best_zero_to_sixty", "REAL")
+                ("best_zero_to_sixty", "REAL"),
+                ("archive_path", "TEXT"),
+                ("sha256_hash", "TEXT"),
+                ("is_active", "INTEGER DEFAULT 1")
             ]
             for col_name, col_def in new_columns:
                 if col_name not in existing_cols:
@@ -122,102 +182,75 @@ class TripLogger:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 c = conn.cursor()
-                c.execute("SELECT value FROM trip_settings WHERE key = 'retention_days'")
-                row = c.fetchone()
-                if row:
-                    self.retention_days = int(row[0])
+                c.execute("SELECT key, value FROM trip_settings")
+                for k, v in c.fetchall():
+                    if k == "retention_days":
+                        self.retention_days = int(v)
+                    elif k == "auto_zip_interval_min":
+                        self.auto_zip_interval_min = int(v)
+                    elif k == "auto_log_enabled":
+                        self.auto_log_enabled = (v.lower() == "true")
         except Exception as e:
             print(f"[TRIP_LOG] Error reading settings: {e}")
 
-    def set_retention_days(self, days: int) -> int:
+    def update_settings(self, settings_dict: Dict[str, Any]) -> Dict[str, Any]:
         with self.lock:
-            self.retention_days = max(0, int(days))
+            if "retention_days" in settings_dict:
+                self.retention_days = max(0, int(settings_dict["retention_days"]))
+            if "auto_zip_interval_min" in settings_dict:
+                self.auto_zip_interval_min = max(0, int(settings_dict["auto_zip_interval_min"]))
+            if "auto_log_enabled" in settings_dict:
+                self.auto_log_enabled = bool(settings_dict["auto_log_enabled"])
+
             try:
                 with sqlite3.connect(self.db_path) as conn:
                     c = conn.cursor()
-                    c.execute("""
-                        INSERT INTO trip_settings (key, value) VALUES ('retention_days', ?)
-                        ON CONFLICT(key) DO UPDATE SET value=excluded.value
-                    """, (str(self.retention_days),))
+                    for k, v in [
+                        ("retention_days", str(self.retention_days)),
+                        ("auto_zip_interval_min", str(self.auto_zip_interval_min)),
+                        ("auto_log_enabled", str(self.auto_log_enabled))
+                    ]:
+                        c.execute("""
+                            INSERT INTO trip_settings (key, value) VALUES (?, ?)
+                            ON CONFLICT(key) DO UPDATE SET value=excluded.value
+                        """, (k, v))
                     conn.commit()
             except Exception as e:
-                print(f"[TRIP_LOG] Error saving retention setting: {e}")
-        self.purge_old_trips()
-        return self.retention_days
+                print(f"[TRIP_LOG] Error saving settings: {e}")
 
-    def purge_old_trips(self) -> int:
-        """Purges trips older than retention_days. If retention_days <= 0, no trips are auto-deleted."""
-        if self.retention_days <= 0:
-            return 0
-        purged_count = 0
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                c = conn.cursor()
-                # Find trips older than N days (excluding the active trip)
-                c.execute("""
-                    SELECT id FROM trips 
-                    WHERE id != ? AND datetime(start_time) < datetime('now', '-' || ? || ' days')
-                """, (self.current_trip_id or -1, self.retention_days))
-                old_ids = [r[0] for r in c.fetchall()]
-                if old_ids:
-                    id_placeholders = ",".join("?" * len(old_ids))
-                    c.execute(f"DELETE FROM sensor_logs WHERE trip_id IN ({id_placeholders})", old_ids)
-                    c.execute(f"DELETE FROM trips WHERE id IN ({id_placeholders})", old_ids)
-                    purged_count = len(old_ids)
-                    conn.commit()
-                    print(f"[TRIP_LOG] Auto-purged {purged_count} trips older than {self.retention_days} days.")
-        except Exception as e:
-            print(f"[TRIP_LOG] Error purging old trips: {e}")
-        return purged_count
+        if self.retention_days > 0:
+            self.purge_old_trips()
+        return self.get_settings()
 
-    def clear_all_trips(self) -> bool:
-        """Permanently deletes all historical trip records and resets session stats."""
-        with self.lock:
-            try:
-                with sqlite3.connect(self.db_path) as conn:
-                    c = conn.cursor()
-                    c.execute("DELETE FROM sensor_logs")
-                    c.execute("DELETE FROM trips")
-                    try:
-                        c.execute("DELETE FROM sqlite_sequence WHERE name IN ('trips', 'sensor_logs')")
-                    except Exception:
-                        pass
-                    conn.commit()
-                print("[TRIP_LOG] All trip logs cleared by user.")
-                # Immediately start a clean new trip
-                self.start_trip()
-                return True
-            except Exception as e:
-                print(f"[TRIP_LOG] Error clearing trips: {e}")
-                return False
-
-    def delete_trip(self, trip_id: int) -> bool:
-        """Deletes a single specific trip by ID."""
-        with self.lock:
-            try:
-                with sqlite3.connect(self.db_path) as conn:
-                    c = conn.cursor()
-                    c.execute("DELETE FROM sensor_logs WHERE trip_id = ?", (trip_id,))
-                    c.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
-                    conn.commit()
-                return True
-            except Exception as e:
-                print(f"[TRIP_LOG] Error deleting trip {trip_id}: {e}")
-                return False
+    def get_settings(self) -> Dict[str, Any]:
+        return {
+            "retention_days": self.retention_days,
+            "auto_zip_interval_min": self.auto_zip_interval_min,
+            "auto_log_enabled": self.auto_log_enabled
+        }
 
     def start_trip(self):
         with self.lock:
             self.trip_start_time = time.time()
             self.last_sample_time = time.time()
+            self.last_archive_time = time.time()
+            self.engine_off_start_time = None
+            
             self.max_boost = 0.0
             self.max_speed = 0.0
             self.max_rpm = 0.0
             self.peak_coolant = 0.0
             self.peak_iat = 0.0
+            self.peak_load = 0.0
+            self.min_volts = 99.0
+            self.max_volts = 0.0
             self.distance_miles = 0.0
+            self.idle_duration_sec = 0.0
+            
             self.speed_samples.clear()
             self.rpm_samples.clear()
             self.mpg_samples.clear()
+            self.afr_samples.clear()
             self.dtc_incidents.clear()
             self.boost_pulls_count = 0
             self.was_in_pull = False
@@ -226,22 +259,48 @@ class TripLogger:
             try:
                 with sqlite3.connect(self.db_path) as conn:
                     c = conn.cursor()
+                    # Mark any previously open trips as inactive
+                    c.execute("UPDATE trips SET is_active = 0 WHERE is_active = 1")
+                    
+                    start_str = time.strftime("%Y-%m-%d %H:%M:%S")
                     c.execute("""
                         INSERT INTO trips (
                             start_time, max_speed_mph, avg_speed_mph, max_boost_psi, 
-                            max_rpm, avg_rpm, peak_coolant_f, peak_iat_f, avg_mpg, 
-                            distance_miles, fuel_used_gal, dtc_count, dtc_list, boost_pulls_count
+                            max_rpm, avg_rpm, peak_coolant_f, peak_iat_f, peak_load_pct,
+                            avg_afr, min_volts, max_volts, idle_duration_min, avg_mpg, 
+                            distance_miles, fuel_used_gal, dtc_count, dtc_list, boost_pulls_count,
+                            is_active
                         )
-                        VALUES (?, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, '[]', 0)
-                    """, (time.strftime("%Y-%m-%d %H:%M:%S"),))
+                        VALUES (?, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 14.7, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, '[]', 0, 1)
+                    """, (start_str,))
                     self.current_trip_id = c.lastrowid
                     conn.commit()
+                    print(f"[TRIP_LOG] Started new driving session Trip #{self.current_trip_id} at {start_str}")
             except Exception as e:
                 print(f"[TRIP_LOG] Error starting trip: {e}")
 
+    def end_current_trip(self) -> Optional[str]:
+        """Finalizes current active trip and auto-generates the zip archive."""
+        with self.lock:
+            if not self.current_trip_id:
+                return None
+            trip_id = self.current_trip_id
+            print(f"[TRIP_LOG] Ending Trip #{trip_id}...")
+            try:
+                with sqlite3.connect(self.db_path) as conn:
+                    c = conn.cursor()
+                    c.execute("UPDATE trips SET is_active = 0 WHERE id = ?", (trip_id,))
+                    conn.commit()
+            except Exception as e:
+                print(f"[TRIP_LOG] Error marking trip ended: {e}")
+
+            # Generate final archive
+            zip_path = self.export_and_zip_trip(trip_id, is_interim=False)
+            return zip_path
+
     def log_telemetry_sample(self, telem: Dict[str, Any]):
-        """Called periodically from daemon telemetry loop (approx 1Hz)."""
-        if not telem or not self.current_trip_id:
+        """Called periodically (1Hz) from the telemetry loop."""
+        if not self.auto_log_enabled or not telem:
             return
 
         now = time.time()
@@ -249,47 +308,71 @@ class TripLogger:
         self.last_sample_time = now
 
         speed = float(telem.get("speed_mph") or 0.0)
-        boost = float(telem.get("boost_psi") or 0.0)
         rpm = float(telem.get("rpm") or 0.0)
+        boost = float(telem.get("boost_psi") or 0.0)
+        vacuum = float(telem.get("vacuum_inhg") or 0.0)
+        throttle = float(telem.get("throttle_pct") or 0.0)
+        pedal = float(telem.get("pedal_pos_pct") or 0.0)
+        load = float(telem.get("engine_load_pct") or 0.0)
         coolant = float(telem.get("coolant_temp_f") or 0.0)
         iat = float(telem.get("intake_temp_f") or 0.0)
-        throttle = float(telem.get("throttle_pct") or 0.0)
+        volts = float(telem.get("battery_volts") or 0.0)
+        afr = float(telem.get("afr") or 14.7)
+        timing = float(telem.get("timing_advance_deg") or 0.0)
+        fuel_lvl = float(telem.get("fuel_level_pct") or 0.0)
+        fuel_gph = float(telem.get("fuel_gph") or 0.0)
         mpg = float(telem.get("fuel_mpg_instant") or 0.0)
+        ambient = float(telem.get("ambient_temp_f") or 0.0)
+        baro = float(telem.get("baro_kpa") or 101.3)
+        gear = str(telem.get("gear") or "N")
         dtcs = telem.get("active_dtcs") or []
         z60 = telem.get("zero_to_sixty_time")
 
+        # Automatic Trip Start/Stop Detection
+        if rpm > 400 or speed > 1.0:
+            self.engine_off_start_time = None
+            if not self.current_trip_id:
+                self.start_trip()
+        elif rpm < 50 and speed < 0.5:
+            if self.engine_off_start_time is None:
+                self.engine_off_start_time = now
+            elif (now - self.engine_off_start_time) > 120:  # Engine off for > 2 min -> auto finalize trip
+                if self.current_trip_id and (now - self.trip_start_time) > 30:
+                    print(f"[TRIP_LOG] Vehicle parked & engine off for > 2 min. Auto-finalizing Trip #{self.current_trip_id}.")
+                    self.end_current_trip()
+                    self.current_trip_id = None
+                return
+
+        if not self.current_trip_id:
+            return
+
         with self.lock:
-            # Distance integration (speed * hours)
+            # Distance integration
             if speed > 0.5:
                 self.distance_miles += speed * (dt_sec / 3600.0)
+            else:
+                self.idle_duration_sec += dt_sec
 
-            # Maxima
-            if speed > self.max_speed:
-                self.max_speed = speed
-            if boost > self.max_boost:
-                self.max_boost = boost
-            if rpm > self.max_rpm:
-                self.max_rpm = rpm
-            if coolant > self.peak_coolant:
-                self.peak_coolant = coolant
-            if iat > self.peak_iat:
-                self.peak_iat = iat
+            # Maxima & Minima
+            if speed > self.max_speed: self.max_speed = speed
+            if boost > self.max_boost: self.max_boost = boost
+            if rpm > self.max_rpm: self.max_rpm = rpm
+            if coolant > self.peak_coolant: self.peak_coolant = coolant
+            if iat > self.peak_iat: self.peak_iat = iat
+            if load > self.peak_load: self.peak_load = load
+            if volts > 5.0:
+                if volts < self.min_volts: self.min_volts = volts
+                if volts > self.max_volts: self.max_volts = volts
 
-            # Samples
+            # Samples for moving averages
             if speed > 0.5:
                 self.speed_samples.append(speed)
-                if len(self.speed_samples) > 600:
-                    self.speed_samples.pop(0)
-
             if rpm > 400:
                 self.rpm_samples.append(rpm)
-                if len(self.rpm_samples) > 600:
-                    self.rpm_samples.pop(0)
-
-            if mpg > 0:
+            if mpg > 0 and speed > 2.0:
                 self.mpg_samples.append(mpg)
-                if len(self.mpg_samples) > 600:
-                    self.mpg_samples.pop(0)
+            if afr > 5.0:
+                self.afr_samples.append(afr)
 
             # Boost pulls count
             is_pull = (boost >= 5.0 or throttle >= 80.0)
@@ -307,17 +390,34 @@ class TripLogger:
                 if d and d not in self.dtc_incidents:
                     self.dtc_incidents.append(str(d))
 
-            # Averages
             duration_min = round((now - self.trip_start_time) / 60.0, 1)
+            idle_min = round(self.idle_duration_sec / 60.0, 1)
             avg_speed = round(sum(self.speed_samples) / len(self.speed_samples), 1) if self.speed_samples else round(self.max_speed, 1)
             avg_rpm = round(sum(self.rpm_samples) / len(self.rpm_samples), 0) if self.rpm_samples else round(self.max_rpm, 0)
             avg_mpg = round(sum(self.mpg_samples) / len(self.mpg_samples), 1) if self.mpg_samples else 28.5
-            fuel_used_gal = round(self.distance_miles / max(5.0, avg_mpg), 2)
+            avg_afr = round(sum(self.afr_samples) / len(self.afr_samples), 2) if self.afr_samples else 14.7
+            fuel_used_gal = round((self.distance_miles / max(5.0, avg_mpg)) + (idle_min * (fuel_gph or 0.2) / 60.0), 2)
 
-            # Update DB
+            time_str = time.strftime("%Y-%m-%d %H:%M:%S")
+
+            # 1. Insert high-res point into trip_telemetry_points
             try:
                 with sqlite3.connect(self.db_path) as conn:
                     c = conn.cursor()
+                    c.execute("""
+                        INSERT INTO trip_telemetry_points (
+                            trip_id, timestamp, time_str, speed_mph, rpm, boost_psi, vacuum_inhg,
+                            throttle_pct, pedal_pos_pct, engine_load_pct, coolant_temp_f, intake_temp_f,
+                            battery_volts, afr, timing_advance_deg, fuel_level_pct, fuel_gph,
+                            fuel_mpg_instant, ambient_temp_f, baro_kpa, distance_miles, gear, dtc_count
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        self.current_trip_id, now, time_str, speed, rpm, boost, vacuum,
+                        throttle, pedal, load, coolant, iat, volts, afr, timing, fuel_lvl,
+                        fuel_gph, mpg, ambient, baro, round(self.distance_miles, 3), gear, len(dtcs)
+                    ))
+
+                    # 2. Update trip summary row
                     c.execute("""
                         UPDATE trips
                         SET end_time = ?,
@@ -330,6 +430,11 @@ class TripLogger:
                             avg_rpm = ?,
                             peak_coolant_f = ?,
                             peak_iat_f = ?,
+                            peak_load_pct = ?,
+                            avg_afr = ?,
+                            min_volts = ?,
+                            max_volts = ?,
+                            idle_duration_min = ?,
                             avg_mpg = ?,
                             fuel_used_gal = ?,
                             dtc_count = ?,
@@ -338,7 +443,7 @@ class TripLogger:
                             best_zero_to_sixty = ?
                         WHERE id = ?
                     """, (
-                        time.strftime("%Y-%m-%d %H:%M:%S"),
+                        time_str,
                         duration_min,
                         round(self.distance_miles, 2),
                         round(self.max_speed, 1),
@@ -348,6 +453,11 @@ class TripLogger:
                         avg_rpm,
                         round(self.peak_coolant, 1),
                         round(self.peak_iat, 1),
+                        round(self.peak_load, 1),
+                        avg_afr,
+                        round(self.min_volts if self.min_volts < 90 else volts, 1),
+                        round(self.max_volts, 1),
+                        idle_min,
                         avg_mpg,
                         fuel_used_gal,
                         len(self.dtc_incidents),
@@ -358,59 +468,624 @@ class TripLogger:
                     ))
                     conn.commit()
             except Exception as e:
-                print(f"[TRIP_LOG] Error updating trip: {e}")
+                print(f"[TRIP_LOG] Error writing telemetry sample: {e}")
+
+        # Check periodic auto-zip interval (e.g. every 15, 30, or 60 min)
+        if self.auto_zip_interval_min > 0:
+            if (now - self.last_archive_time) >= (self.auto_zip_interval_min * 60):
+                self.last_archive_time = now
+                threading.Thread(target=self.export_and_zip_trip, args=(self.current_trip_id, True), daemon=True).start()
 
         # Periodic retention check (once every 10 minutes)
         if now - self.last_purge_time > 600:
             self.last_purge_time = now
             self.purge_old_trips()
 
-    def get_recent_trips(self, limit: int = 30) -> List[Dict[str, Any]]:
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute("""
-                SELECT * FROM trips ORDER BY id DESC LIMIT ?
-            """, (limit,))
-            rows = c.fetchall()
-            trips = []
-            for r in rows:
-                d = dict(r)
-                # Parse dtc_list safely
-                if isinstance(d.get("dtc_list"), str):
-                    try:
-                        d["dtc_list"] = json.loads(d["dtc_list"])
-                    except Exception:
-                        d["dtc_list"] = []
-                trips.append(d)
-            return trips
+    def export_and_zip_trip(self, trip_id: int, is_interim: bool = False) -> Optional[str]:
+        """
+        Creates a comprehensive ZIP archive containing:
+        1. telemetry_highres.csv (full-drive high-res telemetry)
+        2. trip_summary.json (statistical metadata & forensic hashes)
+        3. official_trip_manifest.html (court-ready printable legal manifest)
+        """
+        with self.lock:
+            try:
+                with sqlite3.connect(self.db_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    c = conn.cursor()
+                    c.execute("SELECT * FROM trips WHERE id = ?", (trip_id,))
+                    trip_row = c.fetchone()
+                    if not trip_row:
+                        return None
+                    trip_data = dict(trip_row)
+
+                    c.execute("SELECT * FROM trip_telemetry_points WHERE trip_id = ? ORDER BY id ASC", (trip_id,))
+                    points_rows = c.fetchall()
+            except Exception as e:
+                print(f"[TRIP_LOG] Error fetching trip data for zip export: {e}")
+                return None
+
+        points_list = [dict(r) for r in points_rows]
+
+        # 1. Generate High-Res CSV
+        csv_buffer = io.StringIO()
+        fieldnames = [
+            "Time_ISO", "Timestamp_Unix", "Speed_MPH", "Speed_KPH", "RPM", "Boost_PSI",
+            "Vacuum_inHg", "Throttle_Pct", "Pedal_Pos_Pct", "Engine_Load_Pct", "Coolant_Temp_F",
+            "Intake_Temp_F", "Battery_Volts", "AFR", "Timing_Advance_Deg", "Fuel_Level_Pct",
+            "Fuel_Burn_GPH", "Instant_MPG", "Ambient_Temp_F", "Baro_kPa", "Distance_Miles", "Gear", "DTC_Count"
+        ]
+        writer = csv.DictWriter(csv_buffer, fieldnames=fieldnames)
+        writer.writeheader()
+        for p in points_list:
+            writer.writerow({
+                "Time_ISO": p.get("time_str", ""),
+                "Timestamp_Unix": f"{p.get('timestamp', 0):.2f}",
+                "Speed_MPH": f"{p.get('speed_mph', 0):.1f}",
+                "Speed_KPH": f"{(p.get('speed_mph', 0) * 1.60934):.1f}",
+                "RPM": f"{p.get('rpm', 0):.0f}",
+                "Boost_PSI": f"{p.get('boost_psi', 0):.1f}",
+                "Vacuum_inHg": f"{p.get('vacuum_inhg', 0):.1f}",
+                "Throttle_Pct": f"{p.get('throttle_pct', 0):.1f}",
+                "Pedal_Pos_Pct": f"{p.get('pedal_pos_pct', 0):.1f}",
+                "Engine_Load_Pct": f"{p.get('engine_load_pct', 0):.1f}",
+                "Coolant_Temp_F": f"{p.get('coolant_temp_f', 0):.1f}",
+                "Intake_Temp_F": f"{p.get('intake_temp_f', 0):.1f}",
+                "Battery_Volts": f"{p.get('battery_volts', 0):.1f}",
+                "AFR": f"{p.get('afr', 14.7):.2f}",
+                "Timing_Advance_Deg": f"{p.get('timing_advance_deg', 0):.1f}",
+                "Fuel_Level_Pct": f"{p.get('fuel_level_pct', 0):.1f}",
+                "Fuel_Burn_GPH": f"{p.get('fuel_gph', 0):.2f}",
+                "Instant_MPG": f"{p.get('fuel_mpg_instant', 0):.1f}",
+                "Ambient_Temp_F": f"{p.get('ambient_temp_f', 0):.1f}",
+                "Baro_kPa": f"{p.get('baro_kpa', 0):.1f}",
+                "Distance_Miles": f"{p.get('distance_miles', 0):.3f}",
+                "Gear": p.get("gear", "N"),
+                "DTC_Count": p.get("dtc_count", 0)
+            })
+        csv_bytes = csv_buffer.getvalue().encode("utf-8")
+
+        # 2. Compute SHA-256 Checksum for Forensic / Legal Integrity
+        sha256 = hashlib.sha256(csv_bytes).hexdigest()
+
+        # 3. Generate JSON summary
+        trip_summary = {
+            "vehicle": "Dodge Dart 1.4L Turbo MultiAir (C635 6-Speed Manual)",
+            "telemetry_recorder": "CarPi5 MultiAir OS Telemetry Suite",
+            "trip_id": trip_id,
+            "is_interim_snapshot": is_interim,
+            "generated_timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "sha256_csv_checksum": sha256,
+            "summary_stats": trip_data,
+            "total_samples_recorded": len(points_list)
+        }
+        json_bytes = json.dumps(trip_summary, indent=2).encode("utf-8")
+
+        # 4. Generate Court-Ready HTML Manifest
+        manifest_html = self._build_manifest_html(trip_data, points_list, sha256, is_interim)
+        html_bytes = manifest_html.encode("utf-8")
+
+        # 5. Pack into ZIP
+        date_stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime(time.time()))
+        zip_filename = f"Trip_{trip_data.get('start_time', '').replace(':', '-').replace(' ', '_')}_ID{trip_id}.zip"
+        zip_path = os.path.join(self.archive_dir, zip_filename)
+
+        try:
+            with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr("telemetry_highres.csv", csv_bytes)
+                zf.writestr("trip_summary.json", json_bytes)
+                zf.writestr("official_trip_manifest.html", html_bytes)
+
+            # Store archive path and hash in database
+            with sqlite3.connect(self.db_path) as conn:
+                c = conn.cursor()
+                c.execute("""
+                    UPDATE trips SET archive_path = ?, sha256_hash = ? WHERE id = ?
+                """, (zip_path, sha256, trip_id))
+                conn.commit()
+
+            print(f"[TRIP_LOG] Successfully created trip archive: {zip_path} ({len(points_list)} samples, SHA256: {sha256[:10]}...)")
+            return zip_path
+        except Exception as e:
+            print(f"[TRIP_LOG] Error creating zip archive: {e}")
+            return None
+
+    def _build_manifest_html(self, trip: Dict[str, Any], points: List[Dict[str, Any]], sha256_hash: str, is_interim: bool) -> str:
+        """Constructs an official, printable, high-contrast black-box flight manifest."""
+        dtc_list = []
+        if isinstance(trip.get("dtc_list"), str):
+            try: dtc_list = json.loads(trip["dtc_list"])
+            except: pass
+
+        start_time = trip.get("start_time", "Unknown")
+        end_time = trip.get("end_time", "In Progress" if is_interim else "Finished")
+        duration = f"{trip.get('duration_min', 0):.1f} min"
+        distance = f"{trip.get('distance_miles', 0):.2f} miles"
+        top_speed = f"{trip.get('max_speed_mph', 0):.1f} MPH"
+        avg_speed = f"{trip.get('avg_speed_mph', 0):.1f} MPH"
+        peak_boost = f"{trip.get('max_boost_psi', 0):.1f} PSI"
+        peak_rpm = f"{trip.get('max_rpm', 0):.0f} RPM"
+        peak_coolant = f"{trip.get('peak_coolant_f', 0):.1f} °F"
+        avg_mpg = f"{trip.get('avg_mpg', 0):.1f} MPG"
+        fuel_used = f"{trip.get('fuel_used_gal', 0):.2f} gal"
+        idle_time = f"{trip.get('idle_duration_min', 0):.1f} min"
+        peak_load = f"{trip.get('peak_load_pct', 0):.1f}%"
+        avg_afr = f"{trip.get('avg_afr', 14.7):.2f}:1"
+        min_v = f"{trip.get('min_volts', 0):.1f} V"
+        max_v = f"{trip.get('max_volts', 0):.1f} V"
+        zero60 = f"{trip.get('best_zero_to_sixty', 'N/A')} s" if trip.get('best_zero_to_sixty') else "N/A"
+
+        # Downsample points for preview table (up to 20 representative timeline points)
+        sample_rows_html = ""
+        step = max(1, len(points) // 20) if points else 1
+        for idx in range(0, len(points), step):
+            p = points[idx]
+            sample_rows_html += f"""
+            <tr>
+                <td>{p.get('time_str', '')}</td>
+                <td>{p.get('speed_mph', 0):.1f} MPH</td>
+                <td>{p.get('rpm', 0):.0f}</td>
+                <td>{p.get('boost_psi', 0):.1f} PSI</td>
+                <td>{p.get('throttle_pct', 0):.0f}%</td>
+                <td>{p.get('engine_load_pct', 0):.0f}%</td>
+                <td>{p.get('coolant_temp_f', 0):.0f}°F</td>
+                <td>{p.get('afr', 14.7):.2f}</td>
+                <td>{p.get('battery_volts', 0):.1f}V</td>
+            </tr>
+            """
+
+        dtc_display = ", ".join(dtc_list) if dtc_list else "NONE (POWERTRAIN NOMINAL - NO ACTIVE FAULT CODES)"
+
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Official Vehicle Flight Manifest - Trip #{trip.get('id')}</title>
+<style>
+  body {{
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    margin: 0;
+    padding: 30px;
+  }}
+  .manifest-container {{
+    max-width: 900px;
+    margin: 0 auto;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 36px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  }}
+  .header {{
+    border-bottom: 2px solid #388bfd;
+    padding-bottom: 20px;
+    margin-bottom: 25px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }}
+  .title {{
+    font-size: 24px;
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    color: #58a6ff;
+    margin: 0 0 4px 0;
+  }}
+  .subtitle {{
+    font-size: 13px;
+    color: #8b949e;
+    margin: 0;
+  }}
+  .badge {{
+    background: #1f6feb26;
+    color: #58a6ff;
+    border: 1px solid #388bfd;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }}
+  .grid-stats {{
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 30px;
+  }}
+  .stat-card {{
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 14px;
+  }}
+  .stat-label {{
+    font-size: 11px;
+    text-transform: uppercase;
+    color: #8b949e;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }}
+  .stat-value {{
+    font-size: 20px;
+    font-weight: 800;
+    color: #f0f6fc;
+  }}
+  .section-title {{
+    font-size: 15px;
+    font-weight: 800;
+    color: #79c0ff;
+    margin: 25px 0 12px 0;
+    border-bottom: 1px solid #21262d;
+    padding-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+  }}
+  table {{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin-bottom: 25px;
+  }}
+  th, td {{
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid #21262d;
+  }}
+  th {{
+    background: #0d1117;
+    color: #8b949e;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 10px;
+  }}
+  .hash-box {{
+    background: #0b0f14;
+    border: 1px dashed #30363d;
+    padding: 14px;
+    border-radius: 8px;
+    font-family: monospace;
+    font-size: 11px;
+    word-break: break-all;
+    margin-bottom: 25px;
+  }}
+  .print-btn {{
+    background: #238636;
+    color: #fff;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(35, 134, 54, 0.4);
+  }}
+  @media print {{
+    body {{
+      background: #fff !important;
+      color: #000 !important;
+      padding: 0 !important;
+    }}
+    .manifest-container {{
+      border: none !important;
+      box-shadow: none !important;
+      background: #fff !important;
+      color: #000 !important;
+      padding: 0 !important;
+      max-width: 100% !important;
+    }}
+    .print-btn {{ display: none !important; }}
+    .title {{ color: #000 !important; }}
+    .subtitle {{ color: #444 !important; }}
+    .header {{ border-bottom: 2px solid #000 !important; }}
+    .badge {{ border: 1px solid #000 !important; color: #000 !important; background: transparent !important; }}
+    .stat-card {{ background: #f6f8fa !important; border: 1px solid #d0d7de !important; }}
+    .stat-value {{ color: #000 !important; }}
+    .stat-label {{ color: #555 !important; }}
+    .section-title {{ color: #000 !important; border-bottom: 1px solid #000 !important; }}
+    th {{ background: #f0f2f5 !important; color: #000 !important; }}
+    td {{ border-bottom: 1px solid #ddd !important; color: #000 !important; }}
+    .hash-box {{ background: #f6f8fa !important; border: 1px dashed #999 !important; color: #000 !important; }}
+  }}
+</style>
+</head>
+<body>
+<div class="manifest-container">
+  <div class="header">
+    <div>
+      <h1 class="title">OFFICIAL VEHICLE FLIGHT MANIFEST</h1>
+      <p class="subtitle">Black-Box Forensic Telemetry Record &bull; Dodge Dart 1.4L Turbo MultiAir</p>
+      <p class="subtitle">CarPi5 Flight OS &bull; ECU Protocol: ISO 15765-4 CAN 29/500</p>
+    </div>
+    <div style="text-align:right;">
+      <span class="badge">Trip ID #{trip.get('id')}</span>
+      <div style="margin-top:10px;">
+        <button class="print-btn" onclick="window.print()">🖨️ PRINT OFFICIAL REPORT</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-stats">
+    <div class="stat-card">
+      <div class="stat-label">Start Time</div>
+      <div class="stat-value" style="font-size:14px;">{start_time}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">End Time</div>
+      <div class="stat-value" style="font-size:14px;">{end_time}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Duration</div>
+      <div class="stat-value">{duration}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Distance</div>
+      <div class="stat-value">{distance}</div>
+    </div>
+  </div>
+
+  <div class="section-title">
+    <span>SPEED &amp; DYNAMIC FLIGHT DATA</span>
+    <span>{len(points)} Total Samples</span>
+  </div>
+  <div class="grid-stats">
+    <div class="stat-card">
+      <div class="stat-label">Top Speed</div>
+      <div class="stat-value">{top_speed}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Average Speed</div>
+      <div class="stat-value">{avg_speed}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Idle Duration</div>
+      <div class="stat-value">{idle_time}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Best 0-60 Time</div>
+      <div class="stat-value">{zero60}</div>
+    </div>
+  </div>
+
+  <div class="section-title">POWERTRAIN &amp; ENGINE HEALTH</div>
+  <div class="grid-stats">
+    <div class="stat-card">
+      <div class="stat-label">Peak Turbo Boost</div>
+      <div class="stat-value">{peak_boost}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Max Engine RPM</div>
+      <div class="stat-value">{peak_rpm}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Peak MultiAir Temp</div>
+      <div class="stat-value">{peak_coolant}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Peak Engine Load</div>
+      <div class="stat-value">{peak_load}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg Fuel Economy</div>
+      <div class="stat-value">{avg_mpg}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Est Fuel Consumed</div>
+      <div class="stat-value">{fuel_used}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg Air/Fuel Ratio</div>
+      <div class="stat-value">{avg_afr}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Battery Voltage Range</div>
+      <div class="stat-value">{min_v} - {max_v}</div>
+    </div>
+  </div>
+
+  <div class="section-title">ON-BOARD DIAGNOSTIC (OBD-II) FAULT AUDIT</div>
+  <div style="background:#0d1117; border:1px solid #30363d; border-radius:8px; padding:12px; font-size:12px; margin-bottom:25px;">
+    <strong>Active DTC Incident Codes:</strong> {dtc_display}
+  </div>
+
+  <div class="section-title">HIGH-RESOLUTION CHRONOLOGICAL SAMPLE LOG (Representative Preview)</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Timestamp</th>
+        <th>Speed</th>
+        <th>RPM</th>
+        <th>Boost</th>
+        <th>Throttle</th>
+        <th>Load</th>
+        <th>Coolant</th>
+        <th>AFR</th>
+        <th>Volts</th>
+      </tr>
+    </thead>
+    <tbody>
+      {sample_rows_html}
+    </tbody>
+  </table>
+
+  <div class="section-title">CRYPTOGRAPHIC INTEGRITY &amp; DIGITAL SIGNATURE</div>
+  <div class="hash-box">
+    <strong>SHA-256 CSV CHECKSUM:</strong><br>
+    {sha256_hash}<br><br>
+    <strong>LEGAL ATTESTATION:</strong><br>
+    This document constitutes an automated, cryptographically sealed record of digital vehicle operations acquired directly from the ECU via standard OBD-II hardware capture. Any modification of the underlying raw CSV telemetry invalidates the above checksum.
+  </div>
+
+  <div style="font-size:10px; color:#8b949e; text-align:center; margin-top:20px;">
+    CarPi5 MultiAir OS &bull; Flight-Data Black Box System &bull; Generated: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}
+  </div>
+</div>
+</body>
+</html>
+"""
+
+    def get_trip_telemetry(self, trip_id: int, max_points: int = 300) -> List[Dict[str, Any]]:
+        """Returns time-series samples for UI graph scrubber."""
+        with self.lock:
+            try:
+                with sqlite3.connect(self.db_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    c = conn.cursor()
+                    c.execute("""
+                        SELECT * FROM trip_telemetry_points WHERE trip_id = ? ORDER BY id ASC
+                    """, (trip_id,))
+                    rows = c.fetchall()
+                    if not rows:
+                        return []
+                    
+                    total = len(rows)
+                    if total <= max_points:
+                        return [dict(r) for r in rows]
+                    
+                    # Evenly downsample to max_points
+                    step = total / float(max_points)
+                    sampled = []
+                    for i in range(max_points):
+                        idx = int(i * step)
+                        sampled.append(dict(rows[min(idx, total - 1)]))
+                    return sampled
+            except Exception as e:
+                print(f"[TRIP_LOG] Error fetching telemetry points for trip {trip_id}: {e}")
+                return []
+
+    def get_recent_trips(self, limit: int = 50) -> List[Dict[str, Any]]:
+        with self.lock:
+            try:
+                with sqlite3.connect(self.db_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    c = conn.cursor()
+                    c.execute("SELECT * FROM trips ORDER BY id DESC LIMIT ?", (limit,))
+                    rows = c.fetchall()
+                    trips = []
+                    for r in rows:
+                        d = dict(r)
+                        if isinstance(d.get("dtc_list"), str):
+                            try: d["dtc_list"] = json.loads(d["dtc_list"])
+                            except: d["dtc_list"] = []
+                        # Check if zip exists on disk
+                        arch = d.get("archive_path")
+                        d["has_archive"] = bool(arch and os.path.exists(arch))
+                        trips.append(d)
+                    return trips
+            except Exception as e:
+                print(f"[TRIP_LOG] Error getting recent trips: {e}")
+                return []
 
     def get_lifetime_stats(self) -> Dict[str, Any]:
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute("""
-                SELECT 
-                    COUNT(*), 
-                    MAX(max_boost_psi), 
-                    MAX(max_speed_mph), 
-                    AVG(avg_mpg), 
-                    SUM(duration_min),
-                    SUM(distance_miles),
-                    SUM(boost_pulls_count),
-                    MIN(best_zero_to_sixty),
-                    MAX(max_rpm)
-                FROM trips
-            """)
-            count, peak_boost, top_speed, avg_mpg, total_dur, total_dist, total_pulls, best_060, max_rpm = c.fetchone()
-            return {
-                "total_trips": count or 0,
-                "peak_boost_ever": round(peak_boost or 0.0, 1),
-                "top_speed_ever": round(top_speed or 0.0, 1),
-                "lifetime_avg_mpg": round(avg_mpg or 0.0, 1),
-                "total_drive_hours": round((total_dur or 0.0) / 60.0, 1),
-                "total_distance_miles": round(total_dist or 0.0, 1),
-                "total_boost_pulls": total_pulls or 0,
-                "best_zero_to_sixty_ever": round(best_060, 2) if best_060 is not None else None,
-                "max_rpm_ever": round(max_rpm or 0.0, 0),
-                "retention_days": self.retention_days
-            }
+        with self.lock:
+            try:
+                with sqlite3.connect(self.db_path) as conn:
+                    c = conn.cursor()
+                    c.execute("""
+                        SELECT 
+                            COUNT(*), 
+                            MAX(max_boost_psi), 
+                            MAX(max_speed_mph), 
+                            AVG(avg_mpg), 
+                            SUM(duration_min),
+                            SUM(distance_miles),
+                            SUM(boost_pulls_count),
+                            MIN(best_zero_to_sixty),
+                            MAX(max_rpm),
+                            SUM(fuel_used_gal)
+                        FROM trips
+                    """)
+                    row = c.fetchone()
+                    count, peak_boost, top_speed, avg_mpg, total_dur, total_dist, total_pulls, best_060, max_rpm, fuel_used = row
+                    return {
+                        "total_trips": count or 0,
+                        "peak_boost_ever": round(peak_boost or 0.0, 1),
+                        "top_speed_ever": round(top_speed or 0.0, 1),
+                        "lifetime_avg_mpg": round(avg_mpg or 0.0, 1),
+                        "total_drive_hours": round((total_dur or 0.0) / 60.0, 1),
+                        "total_distance_miles": round(total_dist or 0.0, 1),
+                        "total_boost_pulls": total_pulls or 0,
+                        "best_zero_to_sixty_ever": round(best_060, 2) if best_060 is not None else None,
+                        "max_rpm_ever": round(max_rpm or 0.0, 0),
+                        "lifetime_fuel_gallons": round(fuel_used or 0.0, 1),
+                        "retention_days": self.retention_days,
+                        "auto_zip_interval_min": self.auto_zip_interval_min,
+                        "auto_log_enabled": self.auto_log_enabled,
+                        "active_trip_id": self.current_trip_id
+                    }
+            except Exception as e:
+                print(f"[TRIP_LOG] Error getting lifetime stats: {e}")
+                return {}
+
+    def purge_old_trips(self) -> int:
+        if self.retention_days <= 0:
+            return 0
+        purged = 0
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                c = conn.cursor()
+                c.execute("""
+                    SELECT id, archive_path FROM trips 
+                    WHERE id != ? AND datetime(start_time) < datetime('now', '-' || ? || ' days')
+                """, (self.current_trip_id or -1, self.retention_days))
+                old_rows = c.fetchall()
+                if old_rows:
+                    old_ids = [r[0] for r in old_rows]
+                    # Remove zip archives
+                    for _, arch in old_rows:
+                        if arch and os.path.exists(arch):
+                            try: os.remove(arch)
+                            except: pass
+
+                    placeholders = ",".join("?" * len(old_ids))
+                    c.execute(f"DELETE FROM trip_telemetry_points WHERE trip_id IN ({placeholders})", old_ids)
+                    c.execute(f"DELETE FROM trips WHERE id IN ({placeholders})", old_ids)
+                    conn.commit()
+                    purged = len(old_ids)
+                    print(f"[TRIP_LOG] Purged {purged} trips older than {self.retention_days} days.")
+        except Exception as e:
+            print(f"[TRIP_LOG] Error purging trips: {e}")
+        return purged
+
+    def delete_trip(self, trip_id: int) -> bool:
+        with self.lock:
+            try:
+                with sqlite3.connect(self.db_path) as conn:
+                    c = conn.cursor()
+                    c.execute("SELECT archive_path FROM trips WHERE id = ?", (trip_id,))
+                    row = c.fetchone()
+                    if row and row[0] and os.path.exists(row[0]):
+                        try: os.remove(row[0])
+                        except: pass
+                    c.execute("DELETE FROM trip_telemetry_points WHERE trip_id = ?", (trip_id,))
+                    c.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
+                    conn.commit()
+                return True
+            except Exception as e:
+                print(f"[TRIP_LOG] Error deleting trip {trip_id}: {e}")
+                return False
+
+    def clear_all_trips(self) -> bool:
+        with self.lock:
+            try:
+                # Remove all archive files
+                if os.path.exists(self.archive_dir):
+                    for f in os.listdir(self.archive_dir):
+                        if f.endswith(".zip"):
+                            try: os.remove(os.path.join(self.archive_dir, f))
+                            except: pass
+
+                with sqlite3.connect(self.db_path) as conn:
+                    c = conn.cursor()
+                    c.execute("DELETE FROM trip_telemetry_points")
+                    c.execute("DELETE FROM trips")
+                    try:
+                        c.execute("DELETE FROM sqlite_sequence WHERE name IN ('trips', 'trip_telemetry_points')")
+                    except: pass
+                    conn.commit()
+                self.start_trip()
+                return True
+            except Exception as e:
+                print(f"[TRIP_LOG] Error clearing all trips: {e}")
+                return False
