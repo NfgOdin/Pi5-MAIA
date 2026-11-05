@@ -110,6 +110,8 @@ class TripLogger:
                     trip_id INTEGER,
                     timestamp REAL,
                     time_str TEXT,
+                    time_12h TEXT,
+                    elapsed_str TEXT,
                     speed_mph REAL,
                     rpm REAL,
                     boost_psi REAL,
@@ -164,6 +166,7 @@ class TripLogger:
                 ("best_zero_to_sixty", "REAL"),
                 ("archive_path", "TEXT"),
                 ("sha256_hash", "TEXT"),
+                ("max_speed_time", "TEXT DEFAULT ''"),
                 ("is_active", "INTEGER DEFAULT 1")
             ]
             for col_name, col_def in new_columns:
@@ -173,6 +176,12 @@ class TripLogger:
                     except Exception as e:
                         print(f"[TRIP_LOG] Migration note for {col_name}: {e}")
 
+                        # Check points table columns
+            pts_cols = [row[1] for row in c.execute("PRAGMA table_info(trip_telemetry_points)").fetchall()]
+            for p_col in [("time_12h", "TEXT DEFAULT ''"), ("elapsed_str", "TEXT DEFAULT ''")]:
+                if p_col[0] not in pts_cols:
+                    try: c.execute(f"ALTER TABLE trip_telemetry_points ADD COLUMN {p_col[0]} {p_col[1]}")
+                    except: pass
             conn.commit()
 
         # Start initial driving session
@@ -255,6 +264,7 @@ class TripLogger:
             self.boost_pulls_count = 0
             self.was_in_pull = False
             self.best_zero_to_sixty = None
+            self.max_speed_time = ""
 
             try:
                 with sqlite3.connect(self.db_path) as conn:
@@ -306,6 +316,12 @@ class TripLogger:
         now = time.time()
         dt_sec = max(0.05, min(5.0, now - self.last_sample_time))
         self.last_sample_time = now
+        elapsed_sec = max(0, int(now - self.trip_start_time))
+        elapsed_str = f"+{elapsed_sec//3600:02d}:{(elapsed_sec%3600)//60:02d}:{elapsed_sec%60:02d}"
+        time_12h = time.strftime("%I:%M:%S %p", time.localtime(now))
+        time_24h = time.strftime("%H:%M:%S", time.localtime(now))
+        date_str = time.strftime("%Y-%m-%d", time.localtime(now))
+        time_str = f"{date_str} {time_24h}"
 
         speed = float(telem.get("speed_mph") or 0.0)
         rpm = float(telem.get("rpm") or 0.0)
@@ -354,7 +370,9 @@ class TripLogger:
                 self.idle_duration_sec += dt_sec
 
             # Maxima & Minima
-            if speed > self.max_speed: self.max_speed = speed
+            if speed > self.max_speed:
+                self.max_speed = speed
+                self.max_speed_time = f"{time_12h} ({elapsed_str})"
             if boost > self.max_boost: self.max_boost = boost
             if rpm > self.max_rpm: self.max_rpm = rpm
             if coolant > self.peak_coolant: self.peak_coolant = coolant
@@ -406,13 +424,13 @@ class TripLogger:
                     c = conn.cursor()
                     c.execute("""
                         INSERT INTO trip_telemetry_points (
-                            trip_id, timestamp, time_str, speed_mph, rpm, boost_psi, vacuum_inhg,
+                            trip_id, timestamp, time_str, time_12h, elapsed_str, speed_mph, rpm, boost_psi, vacuum_inhg,
                             throttle_pct, pedal_pos_pct, engine_load_pct, coolant_temp_f, intake_temp_f,
                             battery_volts, afr, timing_advance_deg, fuel_level_pct, fuel_gph,
                             fuel_mpg_instant, ambient_temp_f, baro_kpa, distance_miles, gear, dtc_count
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
-                        self.current_trip_id, now, time_str, speed, rpm, boost, vacuum,
+                        self.current_trip_id, now, time_str, time_12h, elapsed_str, speed, rpm, boost, vacuum,
                         throttle, pedal, load, coolant, iat, volts, afr, timing, fuel_lvl,
                         fuel_gph, mpg, ambient, baro, round(self.distance_miles, 3), gear, len(dtcs)
                     ))
@@ -440,7 +458,8 @@ class TripLogger:
                             dtc_count = ?,
                             dtc_list = ?,
                             boost_pulls_count = ?,
-                            best_zero_to_sixty = ?
+                            best_zero_to_sixty = ?,
+                            max_speed_time = ?
                         WHERE id = ?
                     """, (
                         time_str,
@@ -464,6 +483,7 @@ class TripLogger:
                         json.dumps(self.dtc_incidents),
                         self.boost_pulls_count,
                         self.best_zero_to_sixty,
+                        getattr(self, "max_speed_time", ""),
                         self.current_trip_id
                     ))
                     conn.commit()
@@ -510,7 +530,7 @@ class TripLogger:
         # 1. Generate High-Res CSV
         csv_buffer = io.StringIO()
         fieldnames = [
-            "Time_ISO", "Timestamp_Unix", "Speed_MPH", "Speed_KPH", "RPM", "Boost_PSI",
+            "Date", "Time_12H", "Time_24H", "Elapsed_Time", "Timestamp_Unix", "Speed_MPH", "Speed_KPH", "RPM", "Boost_PSI",
             "Vacuum_inHg", "Throttle_Pct", "Pedal_Pos_Pct", "Engine_Load_Pct", "Coolant_Temp_F",
             "Intake_Temp_F", "Battery_Volts", "AFR", "Timing_Advance_Deg", "Fuel_Level_Pct",
             "Fuel_Burn_GPH", "Instant_MPG", "Ambient_Temp_F", "Baro_kPa", "Distance_Miles", "Gear", "DTC_Count"
@@ -518,9 +538,19 @@ class TripLogger:
         writer = csv.DictWriter(csv_buffer, fieldnames=fieldnames)
         writer.writeheader()
         for p in points_list:
+            ts = p.get('timestamp', 0)
+            t_str = p.get('time_str', '')
+            d_str = t_str.split(' ')[0] if ' ' in t_str else time.strftime('%Y-%m-%d', time.localtime(ts))
+            t_24 = t_str.split(' ')[1] if ' ' in t_str else time.strftime('%H:%M:%S', time.localtime(ts))
+            t_12 = p.get('time_12h') or time.strftime('%I:%M:%S %p', time.localtime(ts))
+            el_str = p.get('elapsed_str', '')
+
             writer.writerow({
-                "Time_ISO": p.get("time_str", ""),
-                "Timestamp_Unix": f"{p.get('timestamp', 0):.2f}",
+                "Date": d_str,
+                "Time_12H": t_12,
+                "Time_24H": t_24,
+                "Elapsed_Time": el_str,
+                "Timestamp_Unix": f"{ts:.2f}",
                 "Speed_MPH": f"{p.get('speed_mph', 0):.1f}",
                 "Speed_KPH": f"{(p.get('speed_mph', 0) * 1.60934):.1f}",
                 "RPM": f"{p.get('rpm', 0):.0f}",
@@ -620,10 +650,14 @@ class TripLogger:
         step = max(1, len(points) // 20) if points else 1
         for idx in range(0, len(points), step):
             p = points[idx]
+            ts_row = p.get('timestamp', 0)
+            t12_val = p.get('time_12h') or time.strftime('%I:%M:%S %p', time.localtime(ts_row))
+            el_val = p.get('elapsed_str', '')
             sample_rows_html += f"""
             <tr>
-                <td>{p.get('time_str', '')}</td>
-                <td>{p.get('speed_mph', 0):.1f} MPH</td>
+                <td><strong>{t12_val}</strong> <span style="color:#8b949e; font-size:10px;">({p.get('time_str', '')})</span></td>
+                <td style="color:#8b949e; font-family:monospace;">{el_val}</td>
+                <td><strong style="color:#58a6ff;">{p.get('speed_mph', 0):.1f} MPH</strong></td>
                 <td>{p.get('rpm', 0):.0f}</td>
                 <td>{p.get('boost_psi', 0):.1f} PSI</td>
                 <td>{p.get('throttle_pct', 0):.0f}%</td>
@@ -891,9 +925,28 @@ class TripLogger:
 
   <div class="section-title">HIGH-RESOLUTION CHRONOLOGICAL SAMPLE LOG (Representative Preview)</div>
   <table>
+    <div style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
+      <input type="text" id="manifestSearch" placeholder="🔍 Search specific time (e.g. 04:30 PM, 03:00 AM) or speed..." oninput="filterManifestTable(this.value)" style="width:360px; padding:8px 12px; border-radius:6px; border:1px solid #30363d; background:#0d1117; color:#fff; font-size:12px;">
+      <span id="filteredRowCount" style="font-size:11px; color:#8b949e;">Showing all rows</span>
+    </div>
+    <script>
+      function filterManifestTable(query) {{
+        query = (query || '').toLowerCase().trim();
+        const rows = document.querySelectorAll('#manifestTableBody tr');
+        let visible = 0;
+        rows.forEach(r => {{
+          const match = !query || r.innerText.toLowerCase().includes(query);
+          r.style.display = match ? '' : 'none';
+          if (match) visible++;
+        }});
+        document.getElementById('filteredRowCount').innerText = query ? ('Showing ' + visible + ' of ' + rows.length + ' rows') : 'Showing all rows';
+      }}
+    </script>
+    <table>
     <thead>
       <tr>
-        <th>Timestamp</th>
+        <th>Date &amp; Time (12H AM/PM)</th>
+        <th>Elapsed</th>
         <th>Speed</th>
         <th>RPM</th>
         <th>Boost</th>
@@ -904,7 +957,7 @@ class TripLogger:
         <th>Volts</th>
       </tr>
     </thead>
-    <tbody>
+    <tbody id="manifestTableBody">
       {sample_rows_html}
     </tbody>
   </table>

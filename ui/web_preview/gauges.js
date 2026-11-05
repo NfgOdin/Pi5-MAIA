@@ -8683,10 +8683,15 @@ function renderInspectorGraph() {
       const alignRight = cssX > (rect.width * 0.65);
       tt.style.left = alignRight ? `${Math.max(10, cssX - 250)}px` : `${Math.min(rect.width - 250, cssX + 12)}px`;
 
+      const time12 = p.time_12h || (p.time_str ? p.time_str.split(' ')[1] : '');
+      const elapsed = p.elapsed_str ? `(${p.elapsed_str} into drive)` : '';
       tt.innerHTML = `
-        <div style="font-weight:800; color:var(--accent-blue); margin-bottom:2px;">⏱ ${p.time_str || ''}</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #212b38; padding-bottom:3px; margin-bottom:4px; gap:8px;">
+          <span style="font-weight:900; color:var(--accent-blue); font-size:11px;">⏱ ${time12}</span>
+          <span style="color:var(--text-secondary); font-size:9.5px; font-family:monospace;">${p.time_str || ''} ${elapsed}</span>
+        </div>
         <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:6px; font-size:9.5px;">
-          <div>Speed: <strong style="color:#00b0ff;">${(p.speed_mph || 0).toFixed(1)} MPH</strong></div>
+          <div>Speed: <strong style="color:#00b0ff; font-size:11px;">${(p.speed_mph || 0).toFixed(1)} MPH</strong></div>
           <div>Boost: <strong style="color:#00e676;">${(p.boost_psi || 0).toFixed(1)} PSI</strong></div>
           <div>RPM: <strong style="color:#ffcc00;">${Math.round(p.rpm || 0)}</strong></div>
           <div>AFR: <strong style="color:#69f0ae;">${(p.afr || 14.7).toFixed(2)}</strong></div>
