@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dodge Dart CarPi5 - MultiAir OS & Cockpit</title>
-  <link rel="stylesheet" href="style.css?v=12">
+  <link rel="stylesheet" href="style.css?v=13">
   <script src="assets/vendor/three.min.js"></script>
   <script src="assets/vendor/GLTFLoader.js"></script>
   <script src="assets/vendor/qrcode.min.js"></script>
@@ -230,7 +230,7 @@
 
       <!-- Dynamic Gauge Grid (1, 2, 3, 4, 6, 8) -->
       <!-- Floating Touch-Friendly Exit Fullscreen Button -->
-      <button id="btnExitGaugeFullscreen" class="gauge-fullscreen-exit-btn" onclick="exitFullscreenGauges()" title="Exit Fullscreen Mode">
+      <button id="btnExitGaugeFullscreen" class="gauge-fullscreen-exit-btn" style="display:none;" onclick="exitFullscreenGauges()" title="Exit Fullscreen Mode">
         <span style="font-size:16px; font-weight:900;">✕</span> EXIT FULLSCREEN
       </button>
 
@@ -1797,7 +1797,7 @@
   </div>
 
   <script src="keyboard.js"></script>
-  <script src="gauges.js?v=12"></script>
+  <script src="gauges.js?v=13"></script>
 
   <!-- FLOATING 3D COMPANION HUD (Rum Riding Shotgun Across All Screens) -->
   <div id="vrmFloatingHud" class="vrm-floating-hud" style="display:none;">
