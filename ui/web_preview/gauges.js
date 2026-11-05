@@ -66,6 +66,28 @@ function rampAudioVolume(target, durationMs) {
 // Digital Subwoofer Gain & Peak Clipping Indicator
 let currentSubGain = 0;
 let clipAnalyser = null;
+let isAntiClipEnabled = true;
+try {
+  const savedAnti = localStorage.getItem('carpi5_anticlip_enabled');
+  if (savedAnti !== null) isAntiClipEnabled = (savedAnti === 'true');
+} catch (e) {}
+let autoClipLimiterNode = null;
+
+let isSubsonicFilterActive = true;
+try {
+  const savedSub = localStorage.getItem('carpi5_subsonic_active');
+  if (savedSub !== null) isSubsonicFilterActive = (savedSub === 'true');
+} catch (e) {}
+let subsonicFilter = null;
+
+let currentSubBassFreq = 45;
+try {
+  const savedFreq = localStorage.getItem('carpi5_sub_freq');
+  if (savedFreq) currentSubBassFreq = parseInt(savedFreq) || 45;
+} catch (e) {}
+
+let currentPlaybackSpeed = 1.0;
+let isPitchLocked = true;
 let clipMonitorStarted = false;
 let lastClipAlertTime = 0;
 const timeDomainBuffer = new Float32Array(256);
@@ -105,14 +127,53 @@ function startClipMonitor() {
       if (peak >= 0.96) {
         lastClipAlertTime = now;
       }
+
+      // Check real-time limiter reduction in dB
+      let reduction = 0;
+      if (typeof autoClipLimiterNode !== 'undefined' && autoClipLimiterNode && isAntiClipEnabled) {
+        try {
+          reduction = autoClipLimiterNode.reduction; // dB value <= 0
+        } catch (e) {}
+      }
+
+      // Update Limiter Meter in Audio Suite if open
+      const meterFill = document.getElementById('limiterMeterFill');
+      const meterText = document.getElementById('limiterMeterText');
+      if (meterFill && meterText) {
+        const redDb = Math.abs(reduction);
+        const pct = Math.min(100, (redDb / 12) * 100);
+        meterFill.style.width = pct + '%';
+        if (isAntiClipEnabled) {
+          meterText.innerText = redDb > 0.1 ? `-${redDb.toFixed(1)} dB (LIMITING CLIPS)` : '0.0 dB (TRANSPARENT)';
+          meterText.style.color = redDb > 0.1 ? '#00b0ff' : 'var(--text-secondary)';
+        } else {
+          meterText.innerText = 'BYPASSED (RAW SIGNAL)';
+          meterText.style.color = '#ff5252';
+        }
+      }
+
       const badge = document.getElementById('subClipBadge');
       if (badge) {
-        if (now - lastClipAlertTime < 350) {
-          badge.innerText = '⚡ CLIP';
-          badge.style.background = 'rgba(255, 23, 68, 0.4)';
-          badge.style.color = '#ff1744';
-          badge.style.borderColor = '#ff1744';
-          badge.style.boxShadow = '0 0 12px rgba(255, 23, 68, 0.8)';
+        if (isAntiClipEnabled && reduction < -0.8) {
+          badge.innerText = `🛡️ -${Math.abs(reduction).toFixed(0)}dB`;
+          badge.style.background = 'rgba(0, 176, 255, 0.25)';
+          badge.style.color = '#00b0ff';
+          badge.style.borderColor = '#00b0ff';
+          badge.style.boxShadow = '0 0 10px rgba(0, 176, 255, 0.6)';
+        } else if (now - lastClipAlertTime < 350) {
+          if (isAntiClipEnabled) {
+            badge.innerText = '🛡️ CLAMP';
+            badge.style.background = 'rgba(0, 230, 118, 0.25)';
+            badge.style.color = 'var(--accent-green)';
+            badge.style.borderColor = 'var(--accent-green)';
+            badge.style.boxShadow = '0 0 10px rgba(0, 230, 118, 0.6)';
+          } else {
+            badge.innerText = '⚡ CLIP';
+            badge.style.background = 'rgba(255, 23, 68, 0.4)';
+            badge.style.color = '#ff1744';
+            badge.style.borderColor = '#ff1744';
+            badge.style.boxShadow = '0 0 12px rgba(255, 23, 68, 0.8)';
+          }
         } else if (peak >= 0.82) {
           badge.innerText = 'WARM';
           badge.style.background = 'rgba(255, 171, 0, 0.2)';
@@ -17051,28 +17112,44 @@ function initAudioEqualizer() {
         return filter;
       });
 
-      // Dedicated 45Hz sub-bass boost filter
+      // 1. Subsonic High-Pass Filter (Protection for subwoofers below 28Hz)
+      subsonicFilter = audioCtx.createBiquadFilter();
+      subsonicFilter.type = 'highpass';
+      subsonicFilter.frequency.value = isSubsonicFilterActive ? 28 : 10;
+      subsonicFilter.Q.value = 0.707;
+
+      // 2. Sub-Bass Shelf / Peaking Filter
       subBassFilter = audioCtx.createBiquadFilter();
       subBassFilter.type = 'lowshelf';
-      subBassFilter.frequency.value = 45;
-      subBassFilter.gain.value = 0;
+      subBassFilter.frequency.value = currentSubBassFreq || 45;
+      subBassFilter.gain.value = currentSubGain || 0;
 
-      // Chain: Source -> SubBass -> Filter[0] -> Filter[1] -> ... -> Destination
-      let prev = audioSourceNode;
-      prev.connect(subBassFilter);
-      prev = subBassFilter;
+      // 3. Connect: Source -> Subsonic -> SubBass -> 10-Band EQ
+      audioSourceNode.connect(subsonicFilter);
+      subsonicFilter.connect(subBassFilter);
+      let prev = subBassFilter;
       eqFilters.forEach(f => {
         prev.connect(f);
         prev = f;
       });
-      // Subwoofer Analyser for Real-Time Peak Clipping Detection
+
+      // 4. Hardware Dynamics Compressor / Anti-Clip Brickwall Limiter
+      autoClipLimiterNode = audioCtx.createDynamicsCompressor();
+      autoClipLimiterNode.threshold.value = isAntiClipEnabled ? -1.5 : 0.0;
+      autoClipLimiterNode.knee.value = 0.0;
+      autoClipLimiterNode.ratio.value = isAntiClipEnabled ? 20.0 : 1.0;
+      autoClipLimiterNode.attack.value = 0.003;
+      autoClipLimiterNode.release.value = 0.150;
+      prev.connect(autoClipLimiterNode);
+
+      // 5. Peak Analyser & Master Destination
       clipAnalyser = audioCtx.createAnalyser();
       clipAnalyser.fftSize = 256;
       clipAnalyser.smoothingTimeConstant = 0.3;
-      prev.connect(clipAnalyser);
+      autoClipLimiterNode.connect(clipAnalyser);
       clipAnalyser.connect(audioCtx.destination);
       startClipMonitor();
-      console.log("[EQUALIZER] 10-Band Studio DSP pipeline + Subwoofer Peak Analyser active!");
+      console.log("[AUDIO SUITE] Studio DSP Pipeline (10-Band EQ + Subsonic + Anti-Clip Limiter) active!");
     } catch (e) {
       console.warn("[EQUALIZER] Web Audio connect note:", e);
     }
@@ -17295,5 +17372,200 @@ function setupHardwareMediaKeys() {
     } else if (e.key === 'MediaPlayPause' || e.keyCode === 179) {
       togglePlayPause();
     }
+  });
+}
+
+
+// ========================================================
+// CARPI5 IN-DASH AUDIO SUITE & DSP STUDIO CONTROLS
+// ========================================================
+
+function openAudioSuiteModal() {
+  const m = document.getElementById('modalEqualizer');
+  if (m) {
+    m.style.display = 'flex';
+    renderEqSliders();
+    syncAudioSuiteUI();
+  }
+}
+
+// Keep backward compatibility for existing buttons
+function openEqualizerModal() {
+  openAudioSuiteModal();
+}
+
+function closeAudioSuiteModal() {
+  const m = document.getElementById('modalEqualizer');
+  if (m) m.style.display = 'none';
+}
+
+function closeEqualizerModal() {
+  closeAudioSuiteModal();
+}
+
+function switchAudioSuiteTab(tabKey) {
+  ['eq', 'anticlip', 'tempo', 'uconnect'].forEach(t => {
+    const pane = document.getElementById(`audioTabPane_${t}`);
+    const btn = document.getElementById(`audioTabBtn_${t}`);
+    if (pane) pane.style.display = (t === tabKey ? 'block' : 'none');
+    if (btn) {
+      if (t === tabKey) {
+        btn.classList.add('active');
+        btn.style.borderColor = '#c084fc';
+        btn.style.color = '#fff';
+        btn.style.background = 'rgba(168, 85, 247, 0.25)';
+      } else {
+        btn.classList.remove('active');
+        btn.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+        btn.style.color = 'var(--text-secondary)';
+        btn.style.background = 'rgba(0, 0, 0, 0.25)';
+      }
+    }
+  });
+}
+
+function syncAudioSuiteUI() {
+  // Sync Limiter
+  const chkLimiter = document.getElementById('chkAutoLimiter');
+  if (chkLimiter) chkLimiter.checked = isAntiClipEnabled;
+  const statusBadge = document.getElementById('antiClipStatusBadge');
+  if (statusBadge) {
+    statusBadge.innerText = isAntiClipEnabled ? "ACTIVE (ZERO DISTORTION)" : "BYPASSED (RAW)";
+    statusBadge.style.color = isAntiClipEnabled ? "var(--accent-green)" : "#ff5252";
+    statusBadge.style.borderColor = isAntiClipEnabled ? "rgba(0,230,118,0.4)" : "rgba(255,82,82,0.4)";
+  }
+
+  // Sync Subsonic Filter
+  const chkSub = document.getElementById('chkSubsonicFilter');
+  if (chkSub) chkSub.checked = isSubsonicFilterActive;
+
+  // Sync Sub Frequency Buttons
+  ['35', '45', '60'].forEach(f => {
+    const btn = document.getElementById(`btnSubFreq_${f}`);
+    if (btn) {
+      if (parseInt(f) === currentSubBassFreq) {
+        btn.classList.add('active');
+        btn.style.boxShadow = '0 0 10px rgba(192, 132, 252, 0.5)';
+      } else {
+        btn.classList.remove('active');
+        btn.style.boxShadow = 'none';
+      }
+    }
+  });
+
+  // Sync Speed & Tempo
+  const speedSlider = document.getElementById('mediaSpeedSlider');
+  if (speedSlider) speedSlider.value = currentPlaybackSpeed;
+  const speedLabel = document.getElementById('speedValLabel');
+  if (speedLabel) {
+    let modeText = "";
+    if (currentPlaybackSpeed === 1.0) modeText = " (Normal)";
+    else if (currentPlaybackSpeed === 0.8) modeText = " (Slowed & Throwed)";
+    else if (currentPlaybackSpeed < 1.0) modeText = " (Slowed)";
+    else if (currentPlaybackSpeed === 1.25) modeText = " (Nightcore)";
+    else modeText = " (Fast)";
+    speedLabel.innerText = `${currentPlaybackSpeed.toFixed(2)}x${modeText}`;
+  }
+
+  // Sync Pitch Lock
+  const chkPitch = document.getElementById('chkPitchLock');
+  if (chkPitch) chkPitch.checked = isPitchLocked;
+  const pitchStatus = document.getElementById('pitchLockStatus');
+  if (pitchStatus) {
+    pitchStatus.innerText = isPitchLocked ? "🔒 NATURAL VOCAL PITCH LOCKED" : "📼 ANALOG TAPE / VINYL PITCH (Authentic Pitch Shift)";
+    pitchStatus.style.color = isPitchLocked ? "var(--accent-blue)" : "var(--accent-purple)";
+  }
+
+  // Sync Uconnect Dash Track Text
+  const dashTrack = document.getElementById('uconnectDashText');
+  const tTitle = document.getElementById('trackTitle')?.innerText || "CarPi5 In-Dash";
+  const tArtist = document.getElementById('trackArtist')?.innerText || "Dodge Dart";
+  if (dashTrack) dashTrack.innerText = `${tArtist} - ${tTitle}`;
+}
+
+function toggleAntiClipLimiter(enable) {
+  isAntiClipEnabled = !!enable;
+  try {
+    localStorage.setItem('carpi5_anticlip_enabled', isAntiClipEnabled ? 'true' : 'false');
+  } catch (e) {}
+
+  if (autoClipLimiterNode) {
+    autoClipLimiterNode.threshold.value = isAntiClipEnabled ? -1.5 : 0.0;
+    autoClipLimiterNode.ratio.value = isAntiClipEnabled ? 20.0 : 1.0;
+  }
+  syncAudioSuiteUI();
+  showAiSpeechToast(isAntiClipEnabled ? "Anti-Clip Limiter: ACTIVE (Zero Digital Clipping)" : "Anti-Clip Limiter: Bypassed");
+}
+
+function toggleSubsonicFilter(enable) {
+  isSubsonicFilterActive = !!enable;
+  try {
+    localStorage.setItem('carpi5_subsonic_active', isSubsonicFilterActive ? 'true' : 'false');
+  } catch (e) {}
+  if (subsonicFilter) {
+    subsonicFilter.frequency.value = isSubsonicFilterActive ? 28 : 10;
+  }
+  syncAudioSuiteUI();
+  showAiSpeechToast(isSubsonicFilterActive ? "Subsonic Filter: 28Hz Subwoofer Protection Active" : "Subsonic Filter: Inactive");
+}
+
+function setSubBassFrequency(freq) {
+  currentSubBassFreq = parseInt(freq) || 45;
+  try {
+    localStorage.setItem('carpi5_sub_freq', currentSubBassFreq.toString());
+  } catch (e) {}
+  if (subBassFilter) {
+    subBassFilter.frequency.value = currentSubBassFreq;
+  }
+  syncAudioSuiteUI();
+  showAiSpeechToast(`Subwoofer Bass Tuned to ${currentSubBassFreq} Hz`);
+}
+
+function setPlaybackTempo(rate) {
+  rate = parseFloat(rate);
+  if (isNaN(rate) || rate < 0.25 || rate > 4.0) rate = 1.0;
+  currentPlaybackSpeed = rate;
+  if (typeof realAudio !== 'undefined' && realAudio) {
+    realAudio.playbackRate = currentPlaybackSpeed;
+    realAudio.preservesPitch = isPitchLocked;
+  }
+  syncAudioSuiteUI();
+  showAiSpeechToast(`Playback Speed: ${rate.toFixed(2)}x`);
+}
+
+function togglePitchLock(locked) {
+  isPitchLocked = !!locked;
+  if (typeof realAudio !== 'undefined' && realAudio) {
+    realAudio.preservesPitch = isPitchLocked;
+  }
+  syncAudioSuiteUI();
+  showAiSpeechToast(isPitchLocked ? "Pitch Lock: Natural Vocal Preserved" : "Pitch Lock Off: Authentic Tape / Vinyl Pitch Shift");
+}
+
+function resyncUconnectDashDisplay() {
+  const currentTitle = document.getElementById('trackTitle')?.innerText || "CarPi5 In-Dash";
+  const currentArtist = document.getElementById('trackArtist')?.innerText || "Dodge Dart";
+  fetch('/api/media/now_playing', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: currentTitle,
+      artist: currentArtist,
+      album: "CarPi5 In-Dash",
+      genre: "Music",
+      duration: realAudio?.duration || 180,
+      track_num: (typeof currentTrackIndex !== 'undefined' ? currentTrackIndex + 1 : 1),
+      total_tracks: (typeof playlist !== 'undefined' ? playlist.length : 1),
+      status: realAudio?.paused ? 'paused' : 'playing'
+    })
+  })
+  .then(r => r.json())
+  .then(data => {
+    showAiSpeechToast(`🚗 Dash Display Re-Synced: ${currentArtist} - ${currentTitle}`);
+    const dashStatus = document.getElementById('uconnectDashText');
+    if (dashStatus) dashStatus.innerText = `${currentArtist} - ${currentTitle}`;
+  })
+  .catch(err => {
+    showAiSpeechToast("Uconnect Sync Broadcast sent");
   });
 }

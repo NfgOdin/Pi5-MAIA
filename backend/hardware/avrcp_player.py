@@ -261,12 +261,12 @@ class AvrcpPlayerManager:
         }
         print(f"[AVRCP METADATA] Broadcasting to Uconnect Dash Screen: '{title}' by '{artist}' (Album: '{album}', {int(duration_sec)}s)", flush=True)
 
+        # 1. Fire on MPRIS2.Player interface (BlueZ uses this for AVRCP Title, Artist, Album)
         if self._player_obj:
             try:
                 import dbus
                 m_meta = self._build_mpris_metadata_dict()
                 changed_mpris = dbus.Dictionary({'Metadata': m_meta}, signature='sv')
-                # 1. Fire on MPRIS2.Player interface (BlueZ uses this for AVRCP Title, Artist, Album)
                 self._player_obj.PropertiesChanged(PLAYER_IFACE, changed_mpris, dbus.Array([], signature='s'))
 
                 # 2. Fire on legacy BlueZ interface
@@ -284,6 +284,26 @@ class AvrcpPlayerManager:
                 self._mpris_session_player.PropertiesChanged(PLAYER_IFACE, changed_mpris, dbus.Array([], signature='s'))
             except Exception:
                 pass
+
+        # 3. Dynamic GAP Device Alias Fallback for Legacy Radios (e.g. 2013-2016 Dodge Dart Uconnect 8.4)
+        # When Uconnect ignores AVRCP 1.5 metadata packets, it falls back to displaying the Bluetooth Adapter Alias!
+        if self._sys_bus:
+            try:
+                import dbus
+                clean_artist = (artist or "").strip()
+                clean_title = (title or "").strip()
+                if clean_artist and clean_title:
+                    alias_str = f"{clean_artist} - {clean_title}"[:32]
+                elif clean_title:
+                    alias_str = clean_title[:32]
+                else:
+                    alias_str = "CarPi"
+                adapter = self._sys_bus.get_object('org.bluez', '/org/bluez/hci0')
+                props = dbus.Interface(adapter, 'org.freedesktop.DBus.Properties')
+                props.Set('org.bluez.Adapter1', 'Alias', dbus.String(alias_str))
+                print(f"[AVRCP LEGACY SYNC] Broadcasted to Dodge Dart Uconnect Display: '{alias_str}'", flush=True)
+            except Exception as e:
+                print(f"[AVRCP LEGACY SYNC] Note: {e}", flush=True)
 
     def set_status(self, status: str):
         self.playback_status = "playing" if status == "playing" else "paused"
