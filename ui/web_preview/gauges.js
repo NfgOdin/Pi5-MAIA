@@ -7937,9 +7937,7 @@ function toggleBtDiscoverable() {
 
 function focusBtSection() {
   const grp = document.getElementById('accSystemGroup');
-  if (grp && !grp.classList.contains('open')) {
-    toggleAccordion('accSystemGroup');
-  }
+  if (grp) grp.classList.add('active');
   setTimeout(() => {
     const card = document.getElementById('btSettingsCard');
     if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -7950,9 +7948,7 @@ function focusBtSection() {
 
 function focusWifiSection() {
   const grp = document.getElementById('accSystemGroup');
-  if (grp && !grp.classList.contains('open')) {
-    toggleAccordion('accSystemGroup');
-  }
+  if (grp) grp.classList.add('active');
   setTimeout(() => {
     const card = document.getElementById('wifiSettingsCard');
     if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
