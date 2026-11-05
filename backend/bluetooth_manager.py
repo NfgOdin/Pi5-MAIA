@@ -300,25 +300,27 @@ class BluetoothManager:
 
     def get_audio_devices(self) -> Dict[str, Any]:
         """
-        Queries PipeWire via wpctl status to discover Sinks and Sources.
-        Identifies HDMI, Uconnect, and Bluetooth audio sinks.
+        Parses PipeWire / WirePlumber audio devices via `wpctl status`.
+        Returns available Sinks, Sources, Bluetooth Device IDs, and the currently active default sink.
         """
         if not IS_LINUX:
             return {
                 "sinks": [
-                    {"id": 56, "name": "Built-in Audio Digital Stereo (HDMI)", "is_default": False, "volume": 1.0, "is_bluetooth": False},
-                    {"id": 95, "name": "Uconnect (Dodge Dart)", "is_default": True, "volume": 1.0, "is_bluetooth": True}
+                    {"id": 56, "name": "Built-in Audio Digital Stereo (HDMI)", "is_default": False, "volume": 1.40, "is_bluetooth": False},
+                    {"id": 93, "name": "Uconnect", "is_default": True, "volume": 1.00, "is_bluetooth": True}
                 ],
                 "sources": [
-                    {"id": 87, "name": "Uconnect (Car Microphone)", "is_default": True, "volume": 1.0, "is_bluetooth": True}
+                    {"id": 95, "name": "Uconnect", "is_default": False, "volume": 1.40, "is_bluetooth": True}
                 ],
-                "active_sink_id": 95,
+                "active_sink_id": 93,
+                "bt_device_id": 84,
                 "auto_route": self.config.get("auto_route_audio", True)
             }
 
         sinks = []
         sources = []
         active_sink_id = None
+        bt_device_id = None
         current_section = None
 
         env = os.environ.copy()
@@ -328,8 +330,11 @@ class BluetoothManager:
             res = subprocess.run(['wpctl', 'status'], capture_output=True, text=True, env=env, timeout=3)
             out = res.stdout
             for line in out.splitlines():
-                clean = re.sub(r'^[│├─└\s]+', '', line).strip()
-                if 'Sinks:' in clean:
+                clean = re.sub(r'^[\u2500-\u257F\s]+', '', line).strip()
+                if 'Devices:' in clean:
+                    current_section = 'devices'
+                    continue
+                elif 'Sinks:' in clean:
                     current_section = 'sinks'
                     continue
                 elif 'Sources:' in clean:
@@ -339,7 +344,11 @@ class BluetoothManager:
                     current_section = None
                     continue
 
-                if current_section == 'sinks':
+                if current_section == 'devices':
+                    m = re.search(r'(\d+)\.\s+(.+?)\s+\[bluez5\]', clean)
+                    if m:
+                        bt_device_id = int(m.group(1))
+                elif current_section == 'sinks':
                     m = re.search(r'(\*?)\s*(\d+)\.\s+(.+?)\s+\[vol:\s*([\d\.]+)\]', clean)
                     if m:
                         is_def = bool(m.group(1))
@@ -378,6 +387,7 @@ class BluetoothManager:
             "sinks": sinks,
             "sources": sources,
             "active_sink_id": active_sink_id,
+            "bt_device_id": bt_device_id,
             "auto_route": self.config.get("auto_route_audio", True)
         }
 
@@ -391,10 +401,16 @@ class BluetoothManager:
 
         devs = self.get_audio_devices()
         target_id = None
+        is_bt_target = False
 
         if isinstance(sink_id_or_type, int) or (isinstance(sink_id_or_type, str) and str(sink_id_or_type).isdigit()):
             target_id = int(sink_id_or_type)
+            for s in devs.get("sinks", []):
+                if s["id"] == target_id and s["is_bluetooth"]:
+                    is_bt_target = True
+                    break
         elif str(sink_id_or_type).lower() in ("bluetooth", "uconnect", "car"):
+            is_bt_target = True
             for s in devs.get("sinks", []):
                 if s["is_bluetooth"]:
                     target_id = s["id"]
@@ -407,6 +423,11 @@ class BluetoothManager:
 
         if target_id is not None:
             try:
+                # If target is Bluetooth (Uconnect), ensure profile 131073 (A2DP High Fidelity Stereo) is locked
+                bt_dev_id = devs.get("bt_device_id")
+                if is_bt_target and bt_dev_id:
+                    subprocess.run(['wpctl', 'set-profile', str(bt_dev_id), '131073'], env=env, timeout=3)
+
                 subprocess.run(['wpctl', 'set-default', str(target_id)], env=env, timeout=3)
                 subprocess.run(['wpctl', 'set-volume', str(target_id), '1.0'], env=env, timeout=3)
                 return {"status": "ok", "sink_id": target_id, "message": f"Audio routed to sink {target_id}"}
@@ -424,8 +445,8 @@ class BluetoothManager:
 
     def auto_route_audio(self) -> Dict[str, Any]:
         """
-        Auto-switches audio output to Bluetooth (e.g. Uconnect) if connected;
-        otherwise routes to HDMI.
+        Auto-switches audio output to Bluetooth (e.g. Uconnect) in pristine A2DP stereo if connected;
+        otherwise routes to HDMI. Does NOT switch mic to Uconnect so Bluetooth is never degraded to 8kHz CVSD telephone mode.
         """
         devs = self.get_audio_devices()
         bt_sink = None
@@ -436,12 +457,7 @@ class BluetoothManager:
             else:
                 hdmi_sink = s
 
-        bt_source = None
-        for src in devs.get("sources", []):
-            if src["is_bluetooth"]:
-                bt_source = src
-                break
-
+        bt_dev_id = devs.get("bt_device_id")
         env = os.environ.copy()
         env['XDG_RUNTIME_DIR'] = '/run/user/1000'
 
@@ -450,10 +466,11 @@ class BluetoothManager:
                 print(f"[BLUETOOTH AUDIO] Auto-routing audio to Bluetooth car sink: {bt_sink['name']} (ID {bt_sink['id']})")
                 if IS_LINUX:
                     try:
+                        # Lock high fidelity A2DP profile
+                        if bt_dev_id:
+                            subprocess.run(['wpctl', 'set-profile', str(bt_dev_id), '131073'], env=env, timeout=3)
                         subprocess.run(['wpctl', 'set-default', str(bt_sink['id'])], env=env, timeout=3)
                         subprocess.run(['wpctl', 'set-volume', str(bt_sink['id']), '1.0'], env=env, timeout=3)
-                        if bt_source:
-                            subprocess.run(['wpctl', 'set-default', str(bt_source['id'])], env=env, timeout=3)
                     except Exception as e:
                         print(f"[BLUETOOTH AUDIO] Routing error: {e}")
             return {"status": "ok", "mode": "bluetooth", "sink": bt_sink}

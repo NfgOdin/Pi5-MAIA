@@ -2930,6 +2930,44 @@ function handleAiAction(action) {
 
     }
 
+  } else if (action.type === 'media') {
+
+    if (action.action === 'next') {
+
+      nextTrack();
+
+      showAiSpeechToast("⏭️ Next Track (Steering Wheel / Radio)");
+
+    } else if (action.action === 'prev') {
+
+      prevTrack();
+
+      showAiSpeechToast("⏮️ Previous Track (Steering Wheel / Radio)");
+
+    } else if (action.action === 'toggle') {
+
+      togglePlayPause();
+
+      showAiSpeechToast(realAudio.paused ? "⏸️ Paused" : "▶️ Playing");
+
+    }
+
+  } else if (action.type === 'volume') {
+
+    if (action.action === 'up') {
+
+      adjustRadioVolume(5);
+
+    } else if (action.action === 'down') {
+
+      adjustRadioVolume(-5);
+
+    } else if (action.action === 'mute') {
+
+      toggleAudioMute();
+
+    }
+
   }
 
 }
@@ -3668,9 +3706,9 @@ function speakUtterance(text, emotion) {
 
 
 
-  // 3. Fallback browser SpeechSynthesis for desktop PC preview
+  // 3. Fallback browser SpeechSynthesis ONLY for offline desktop browser preview (not on live Pi backend)
 
-  if ('speechSynthesis' in window) {
+  if (!isConnected && 'speechSynthesis' in window) {
 
     try {
 
@@ -4892,7 +4930,7 @@ function initRealAudioPlayer() {
 
 
 
-  // Volume bar
+  // Volume bar (Linked to PipeWire & Car Radio Master Gain)
 
   const volBar = document.getElementById('mediaVolBar');
 
@@ -4904,15 +4942,32 @@ function initRealAudioPlayer() {
 
       const val = parseInt(e.target.value);
 
-      realAudio.volume = val / 100;
+      realAudio.volume = Math.min(1.0, val / 100);
 
       if (volLabel) volLabel.innerText = `${val}%`;
 
+      fetch('/api/audio/volume', {
+
+        method: 'POST',
+
+        headers: { 'Content-Type': 'application/json' },
+
+        body: JSON.stringify({ volume: val })
+
+      }).catch(() => {});
+
     });
 
-    realAudio.volume = (parseInt(volBar.value) || 80) / 100;
-
   }
+
+  // Setup Bluetooth AVRCP MediaSession handlers for Steering Wheel & Car Radio buttons
+  setupMediaSessionHandlers();
+
+  // Setup Linux Kernel AVRCP Keyboard listener for /dev/input/event10
+  setupHardwareMediaKeys();
+
+  // Load Equalizer
+  initAudioEqualizer();
 
 
 
@@ -5011,6 +5066,21 @@ function loadTrack(idx, autoPlay = true) {
   realAudio.src = t.stream_url;
 
   renderRealTracklist();
+
+  // Update MediaSession metadata for Dodge Dart Uconnect radio screen!
+  if ('mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: t.title || "Track",
+        artist: t.artist || "CarPi5 In-Dash Audio",
+        album: "Dodge Dart CarPi5",
+        artwork: [
+          { src: '/static/icons/music_art_96.png', sizes: '96x96', type: 'image/png' },
+          { src: '/static/icons/music_art_192.png', sizes: '192x192', type: 'image/png' }
+        ]
+      });
+    } catch (e) {}
+  }
 
 
 
@@ -16706,16 +16776,35 @@ function toggleAutoRouteAudio(enabled) {
 let currentPdlMode = 'SPORT';
 let currentPdlLevel = 2;
 
+function sendPdlCommand() {
+  fetch('/api/pedal_commander/set', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: currentPdlMode, level: currentPdlLevel })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.sent) {
+      showAiSpeechToast(`Pedal Commander: Sent ${currentPdlMode} (${currentPdlLevel >= 0 ? '+' : ''}${currentPdlLevel})`);
+    } else {
+      showAiSpeechToast(`Pedal Commander: ${currentPdlMode} (${currentPdlLevel >= 0 ? '+' : ''}${currentPdlLevel})`);
+    }
+  })
+  .catch(err => {
+    console.warn('Pedal commander send err:', err);
+  });
+}
+
 function setPdlMode(mode) {
   currentPdlMode = mode;
   updatePdlUI();
-  showAiSpeechToast(`Pedal Commander: Throttle curve set to ${mode} (${currentPdlLevel >= 0 ? '+' : ''}${currentPdlLevel})`);
+  sendPdlCommand();
 }
 
 function adjustPdlLevel(delta) {
   currentPdlLevel = Math.max(-4, Math.min(4, currentPdlLevel + delta));
   updatePdlUI();
-  showAiSpeechToast(`Pedal Commander Sensitivity: ${currentPdlLevel >= 0 ? '+' : ''}${currentPdlLevel}`);
+  sendPdlCommand();
 }
 
 function updatePdlUI() {
@@ -16740,3 +16829,283 @@ function updatePdlUI() {
 
 // Periodic audio check
 setInterval(fetchAudioDevices, 6000);
+
+// =========================================================================
+// 10-BAND STUDIO GRAPHIC EQUALIZER & HARDWARE DSP AUDIO SYSTEM
+// =========================================================================
+
+let audioCtx = null;
+let audioSourceNode = null;
+let eqFilters = [];
+let subBassFilter = null;
+let isEqBypassed = false;
+let isAudioMuted = false;
+
+const EQ_FREQS = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+const EQ_PRESETS = {
+  BASS: [+9, +7, +5, +2, 0, 0, +1, +2, +3, +4],
+  TURBO_ROCK: [+4, +5, +2, -1, +1, +3, +5, +4, +3, +2],
+  SYNTHWAVE: [+6, +5, +2, 0, -1, +1, +4, +6, +7, +8],
+  VOCAL: [-4, -2, 0, +2, +5, +6, +4, +2, +1, 0],
+  FLAT: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+};
+
+let currentEqGains = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+let currentEqPreset = 'BASS';
+
+function initAudioEqualizer() {
+  try {
+    const saved = localStorage.getItem('carpi5_eq_gains');
+    if (saved) {
+      currentEqGains = JSON.parse(saved);
+    } else {
+      currentEqGains = [...EQ_PRESETS.BASS];
+    }
+    const savedPreset = localStorage.getItem('carpi5_eq_preset');
+    if (savedPreset) currentEqPreset = savedPreset;
+  } catch (e) {}
+
+  // Lazily connect Web Audio API on first user interaction / playback
+  const connectWebAudio = () => {
+    if (audioCtx) return;
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AudioContext();
+      audioSourceNode = audioCtx.createMediaElementSource(realAudio);
+
+      // Create 10-band peaking filters
+      eqFilters = EQ_FREQS.map((freq, idx) => {
+        const filter = audioCtx.createBiquadFilter();
+        if (idx === 0) {
+          filter.type = 'lowshelf';
+        } else if (idx === EQ_FREQS.length - 1) {
+          filter.type = 'highshelf';
+        } else {
+          filter.type = 'peaking';
+          filter.Q.value = 1.4;
+        }
+        filter.frequency.value = freq;
+        filter.gain.value = currentEqGains[idx] || 0;
+        return filter;
+      });
+
+      // Dedicated 45Hz sub-bass boost filter
+      subBassFilter = audioCtx.createBiquadFilter();
+      subBassFilter.type = 'lowshelf';
+      subBassFilter.frequency.value = 45;
+      subBassFilter.gain.value = 0;
+
+      // Chain: Source -> SubBass -> Filter[0] -> Filter[1] -> ... -> Destination
+      let prev = audioSourceNode;
+      prev.connect(subBassFilter);
+      prev = subBassFilter;
+      eqFilters.forEach(f => {
+        prev.connect(f);
+        prev = f;
+      });
+      prev.connect(audioCtx.destination);
+      console.log("[EQUALIZER] 10-Band Studio DSP pipeline active!");
+    } catch (e) {
+      console.warn("[EQUALIZER] Web Audio connect note:", e);
+    }
+  };
+
+  realAudio.addEventListener('play', connectWebAudio, { once: true });
+  window.addEventListener('click', connectWebAudio, { once: true });
+}
+
+function openEqualizerModal() {
+  const m = document.getElementById('modalEqualizer');
+  if (m) {
+    m.style.display = 'flex';
+    renderEqSliders();
+  }
+}
+
+function closeEqualizerModal() {
+  const m = document.getElementById('modalEqualizer');
+  if (m) m.style.display = 'none';
+}
+
+function renderEqSliders() {
+  const container = document.getElementById('eqSlidersGrid');
+  if (!container) return;
+  container.innerHTML = '';
+
+  EQ_FREQS.forEach((freq, idx) => {
+    const val = currentEqGains[idx] || 0;
+    const label = freq >= 1000 ? `${freq / 1000}k` : `${freq}`;
+    const col = document.createElement('div');
+    col.style.cssText = 'display:flex; flex-direction:column; align-items:center; justify-content:space-between; height:100%;';
+    col.innerHTML = `
+      <div style="font-size:9.5px; font-weight:800; font-family:var(--font-mono); color:${val > 0 ? '#00e676' : (val < 0 ? '#ff5252' : '#8c9ba5')}; min-height:14px;" id="eqDb_${idx}">${val >= 0 ? '+' : ''}${val}</div>
+      <input type="range" class="eq-vertical-slider" min="-12" max="12" step="1" value="${val}" oninput="setEqBandGain(${idx}, this.value)" style="writing-mode:bt-lr; -webkit-appearance:slider-vertical; width:18px; height:110px; accent-color:var(--accent-purple); cursor:pointer;">
+      <div style="font-size:9.5px; font-weight:800; color:var(--text-secondary); margin-top:4px;">${label}</div>
+    `;
+    container.appendChild(col);
+  });
+
+  // Highlight active preset button
+  ['bass', 'rock', 'synth', 'vocal', 'flat'].forEach(p => {
+    const btn = document.getElementById(`btnEqPreset_${p}`);
+    if (btn) {
+      if (p.toUpperCase().replace('ROCK', 'TURBO_ROCK') === currentEqPreset) {
+        btn.classList.add('active');
+        btn.style.boxShadow = '0 0 10px rgba(168,85,247,0.5)';
+      } else {
+        btn.classList.remove('active');
+        btn.style.boxShadow = 'none';
+      }
+    }
+  });
+}
+
+function setEqBandGain(idx, val) {
+  val = parseInt(val);
+  currentEqGains[idx] = val;
+  const dbEl = document.getElementById(`eqDb_${idx}`);
+  if (dbEl) {
+    dbEl.innerText = `${val >= 0 ? '+' : ''}${val}`;
+    dbEl.style.color = val > 0 ? '#00e676' : (val < 0 ? '#ff5252' : '#8c9ba5');
+  }
+  if (eqFilters[idx] && !isEqBypassed) {
+    eqFilters[idx].gain.value = val;
+  }
+  try {
+    localStorage.setItem('carpi5_eq_gains', JSON.stringify(currentEqGains));
+  } catch (e) {}
+}
+
+function applyEqPreset(presetKey) {
+  const curve = EQ_PRESETS[presetKey];
+  if (!curve) return;
+  currentEqPreset = presetKey;
+  currentEqGains = [...curve];
+  try {
+    localStorage.setItem('carpi5_eq_preset', presetKey);
+    localStorage.setItem('carpi5_eq_gains', JSON.stringify(currentEqGains));
+  } catch (e) {}
+
+  if (eqFilters.length > 0 && !isEqBypassed) {
+    eqFilters.forEach((f, i) => {
+      f.gain.value = currentEqGains[i] || 0;
+    });
+  }
+  renderEqSliders();
+  showAiSpeechToast(`Sound DSP: Applied ${presetKey.replace('_', ' ')} Preset`);
+}
+
+function toggleBassBoost(checked) {
+  if (subBassFilter) {
+    subBassFilter.gain.value = checked ? 6.0 : 0.0;
+  }
+  showAiSpeechToast(checked ? "Subwoofer Bass Boost: +6 dB @ 45Hz Active" : "Subwoofer Bass Boost: Off");
+}
+
+function toggleEqBypass() {
+  isEqBypassed = !isEqBypassed;
+  const btn = document.getElementById('btnEqBypass');
+  if (isEqBypassed) {
+    if (eqFilters.length > 0) eqFilters.forEach(f => f.gain.value = 0);
+    if (subBassFilter) subBassFilter.gain.value = 0;
+    if (btn) {
+      btn.innerText = "DSP: BYPASSED";
+      btn.style.borderColor = "#ff5252";
+      btn.style.color = "#ff5252";
+    }
+    showAiSpeechToast("Equalizer Bypassed (Flat Output)");
+  } else {
+    if (eqFilters.length > 0) {
+      eqFilters.forEach((f, i) => f.gain.value = currentEqGains[i] || 0);
+    }
+    const chk = document.getElementById('chkSubBassBoost');
+    if (subBassFilter && chk && chk.checked) subBassFilter.gain.value = 6.0;
+    if (btn) {
+      btn.innerText = "DSP: ACTIVE";
+      btn.style.borderColor = "#22c55e";
+      btn.style.color = "#4ade80";
+    }
+    showAiSpeechToast("Equalizer DSP Engaged");
+  }
+}
+
+// Master Radio Volume Controls
+function adjustRadioVolume(delta) {
+  fetch('/api/audio/volume', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ delta: delta })
+  })
+  .then(r => r.json())
+  .then(() => {
+    syncRadioVolumeUI();
+  });
+}
+
+function toggleAudioMute() {
+  fetch('/api/audio/volume', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'mute' })
+  })
+  .then(r => r.json())
+  .then(() => {
+    syncRadioVolumeUI();
+  });
+}
+
+function syncRadioVolumeUI() {
+  fetch('/api/audio/volume')
+    .then(r => r.json())
+    .then(data => {
+      const volBar = document.getElementById('mediaVolBar');
+      const volLabel = document.getElementById('volLabel');
+      if (volBar && data.volume !== undefined) {
+        volBar.value = data.volume;
+      }
+      if (volLabel && data.volume !== undefined) {
+        volLabel.innerText = data.muted ? "MUTED" : `${data.volume}%`;
+        volLabel.style.color = data.muted ? "#ff5252" : "var(--text-secondary)";
+      }
+    });
+}
+
+// Bluetooth AVRCP & Steering Wheel Button Handlers
+function setupMediaSessionHandlers() {
+  if ('mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.setActionHandler('play', () => {
+        realAudio.play().catch(() => {});
+      });
+      navigator.mediaSession.setActionHandler('pause', () => {
+        realAudio.pause();
+      });
+      navigator.mediaSession.setActionHandler('previoustrack', () => {
+        prevTrack();
+      });
+      navigator.mediaSession.setActionHandler('nexttrack', () => {
+        nextTrack();
+      });
+      navigator.mediaSession.setActionHandler('seekto', (details) => {
+        if (details.seekTime && realAudio.duration) {
+          realAudio.currentTime = details.seekTime;
+        }
+      });
+      console.log("[AVRCP] MediaSession action handlers registered for steering wheel controls!");
+    } catch (e) {
+      console.warn("[AVRCP] MediaSession handler note:", e);
+    }
+  }
+}
+
+function setupHardwareMediaKeys() {
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'MediaTrackNext' || e.keyCode === 176) {
+      nextTrack();
+    } else if (e.key === 'MediaTrackPrevious' || e.keyCode === 177) {
+      prevTrack();
+    } else if (e.key === 'MediaPlayPause' || e.keyCode === 179) {
+      togglePlayPause();
+    }
+  });
+}

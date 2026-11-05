@@ -72,6 +72,8 @@ from hardware.system_monitor import SystemMonitor
 from hardware.gpio_controller import GpioController
 
 from hardware.audio_player import AudioPlayer
+from hardware.pedal_commander import PedalCommanderController
+from hardware.avrcp_listener import AvrcpListener
 
 from games.rom_manager import RomManager
 
@@ -331,6 +333,25 @@ class CarPi5ServerState:
         self.trip_logger = TripLogger()
 
         self.audio = AudioPlayer()
+        self.pedal_commander = PedalCommanderController()
+        
+        def on_avrcp_event(act):
+            with self.lock:
+                self.latest_ui_action = act
+            if act.get("type") == "volume":
+                env = os.environ.copy()
+                env['XDG_RUNTIME_DIR'] = '/run/user/1000'
+                try:
+                    if act.get("action") == "up":
+                        subprocess.run(['wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', '5%+'], env=env, timeout=2)
+                    elif act.get("action") == "down":
+                        subprocess.run(['wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', '5%-'], env=env, timeout=2)
+                    elif act.get("action") == "mute":
+                        subprocess.run(['wpctl', 'set-mute', '@DEFAULT_AUDIO_SINK@', 'toggle'], env=env, timeout=2)
+                except Exception:
+                    pass
+        
+        self.avrcp = AvrcpListener(action_callback=on_avrcp_event)
 
         self.settings_file = SETTINGS_FILE
 
@@ -1761,6 +1782,36 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps(paired).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/pedal_commander/status":
+            res = state.pedal_commander.get_status()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/audio/volume":
+            vol = 80
+            muted = False
+            env = os.environ.copy()
+            env['XDG_RUNTIME_DIR'] = '/run/user/1000'
+            try:
+                res = subprocess.run(['wpctl', 'get-volume', '@DEFAULT_AUDIO_SINK@'], capture_output=True, text=True, env=env, timeout=2)
+                # output: "Volume: 0.80" or "Volume: 0.80 [MUTED]"
+                m = re.search(r'Volume:\s*([\d\.]+)', res.stdout)
+                if m:
+                    vol = int(float(m.group(1)) * 100)
+                muted = "[MUTED]" in res.stdout
+            except Exception:
+                pass
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "volume": vol, "muted": muted}).encode("utf-8"))
             return
 
         elif parsed.path == "/api/audio/devices":
@@ -3310,6 +3361,41 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/pedal_commander/set":
+            mode = req_data.get("mode", "SPORT")
+            level = req_data.get("level", 0)
+            res = state.pedal_commander.set_curve(mode, level)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/audio/volume":
+            vol_val = req_data.get("volume")
+            delta = req_data.get("delta")
+            act = req_data.get("action")
+            env = os.environ.copy()
+            env['XDG_RUNTIME_DIR'] = '/run/user/1000'
+            try:
+                if act == "mute":
+                    subprocess.run(['wpctl', 'set-mute', '@DEFAULT_AUDIO_SINK@', 'toggle'], env=env, timeout=2)
+                elif vol_val is not None:
+                    frac = max(0.0, min(1.5, float(vol_val) / 100.0))
+                    subprocess.run(['wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', f"{frac:.2f}"], env=env, timeout=2)
+                elif delta is not None:
+                    d_str = f"{abs(int(delta))}%+" if int(delta) > 0 else f"{abs(int(delta))}%-"
+                    subprocess.run(['wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', d_str], env=env, timeout=2)
+            except Exception as e:
+                print(f"[AUDIO VOLUME] Error setting volume: {e}")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok"}).encode("utf-8"))
             return
 
         elif parsed.path == "/api/audio/output":

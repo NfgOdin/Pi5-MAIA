@@ -1184,10 +1184,24 @@ class LLMClient:
 
             return {"type": "navigate", "target": "gauges"}
 
-        # Media / Music
+        # Media playback & Track skipping
+        if any(k in t for k in ["skip song", "next song", "next track", "skip track", "play next"]):
+            return {"type": "media", "action": "next"}
+        elif any(k in t for k in ["previous song", "prev song", "last song", "previous track", "prev track", "go back song"]):
+            return {"type": "media", "action": "prev"}
+        elif any(k in t for k in ["pause music", "stop music", "resume music", "play pause"]):
+            return {"type": "media", "action": "toggle"}
 
+        # Radio & Audio Volume Control
+        elif any(k in t for k in ["turn it up", "louder", "volume up", "increase volume", "crank it"]):
+            return {"type": "volume", "action": "up"}
+        elif any(k in t for k in ["turn it down", "quieter", "volume down", "decrease volume", "lower volume"]):
+            return {"type": "volume", "action": "down"}
+        elif any(k in t for k in ["mute audio", "mute music", "unmute audio"]):
+            return {"type": "volume", "action": "mute"}
+
+        # Media / Music Screen Navigation
         elif any(k in t for k in ["music", "song", "playlist", "media", "radio", "track"]):
-
             return {"type": "navigate", "target": "media"}
 
         # Retro gaming
