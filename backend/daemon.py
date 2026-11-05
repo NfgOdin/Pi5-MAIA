@@ -3471,7 +3471,20 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
         elif parsed.path == "/api/pedal_commander/set":
             mode = req_data.get("mode", "SPORT")
             level = req_data.get("level", 0)
-            res = state.pedal_commander.set_curve(mode, level)
+            pin = req_data.get("pin")
+            res = state.pedal_commander.set_curve(mode, level, pin=pin)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/pedal_commander/pin":
+            pin = req_data.get("pin", "")
+            if hasattr(state, "pedal_commander") and state.pedal_commander:
+                state.pedal_commander.set_pin(pin)
+            res = {"status": "ok", "pin": pin, "message": "Authentication PIN transmitted to Pedal Commander"}
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")

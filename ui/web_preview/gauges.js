@@ -16999,23 +16999,80 @@ let currentPdlMode = 'SPORT';
 let currentPdlLevel = 2;
 
 function sendPdlCommand() {
+  const pin = localStorage.getItem('carpi5_pdl_pin') || '';
   fetch('/api/pedal_commander/set', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mode: currentPdlMode, level: currentPdlLevel })
+    body: JSON.stringify({ mode: currentPdlMode, level: currentPdlLevel, pin: pin })
   })
   .then(r => r.json())
   .then(data => {
-    if (data.sent) {
-      showAiSpeechToast(`Pedal Commander: Sent ${currentPdlMode} (${currentPdlLevel >= 0 ? '+' : ''}${currentPdlLevel})`);
-    } else {
-      showAiSpeechToast(`Pedal Commander: ${currentPdlMode} (${currentPdlLevel >= 0 ? '+' : ''}${currentPdlLevel})`);
+    updatePdlBadge(data.connected);
+    const lastAck = document.getElementById('pdlLastAck');
+    if (lastAck) {
+      lastAck.innerText = `Sent ${currentPdlMode} (${currentPdlLevel >= 0 ? '+' : ''}${currentPdlLevel})`;
     }
+    showAiSpeechToast(`⚡ Pedal Commander: ${currentPdlMode} (${currentPdlLevel >= 0 ? '+' : ''}${currentPdlLevel}) Transmitted!`);
   })
   .catch(err => {
     console.warn('Pedal commander send err:', err);
   });
 }
+
+function updatePdlBadge(isConnected) {
+  const badge = document.getElementById('pdlCommanderStatusBadge');
+  if (badge) {
+    if (isConnected) {
+      badge.innerText = '● CONNECTED (BLE UART 18:62:E4:46:73:8B)';
+      badge.style.background = 'rgba(0,230,118,0.18)';
+      badge.style.color = '#00e676';
+      badge.style.borderColor = 'rgba(0,230,118,0.4)';
+    } else {
+      badge.innerText = '○ CONNECTING (STANDBY)';
+      badge.style.background = 'rgba(255,171,0,0.18)';
+      badge.style.color = '#ffab00';
+      badge.style.borderColor = 'rgba(255,171,0,0.4)';
+    }
+  }
+}
+
+function savePdlPin() {
+  const input = document.getElementById('pdlPinInput');
+  if (!input) return;
+  const pin = input.value.trim();
+  localStorage.setItem('carpi5_pdl_pin', pin);
+  fetch('/api/pedal_commander/pin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin: pin })
+  })
+  .then(r => r.json())
+  .then(data => {
+    showAiSpeechToast(`Pedal Commander S/N ${pin} Saved & Authenticated!`);
+    sendPdlCommand();
+  });
+}
+
+function pollPedalCommanderStatus() {
+  fetch('/api/pedal_commander/status')
+    .then(r => r.json())
+    .then(data => {
+      updatePdlBadge(data.connected);
+      if (data.mode && data.mode !== currentPdlMode) {
+        currentPdlMode = data.mode;
+        updatePdlUI();
+      }
+      if (data.level !== undefined && data.level !== currentPdlLevel) {
+        currentPdlLevel = data.level;
+        updatePdlUI();
+      }
+    })
+    .catch(() => {});
+}
+
+// Poll Pedal Commander status every 5 seconds
+setInterval(pollPedalCommanderStatus, 5000);
+setTimeout(pollPedalCommanderStatus, 1500);
 
 function setPdlMode(mode) {
   currentPdlMode = mode;

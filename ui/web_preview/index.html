@@ -1345,6 +1345,13 @@
               <button class="cluster-action-btn" onclick="adjustPdlLevel(1)" style="font-size:11px; padding:4px 10px;">+</button>
             </div>
           </div>
+          <!-- Pedal Commander 6-Digit S/N Auth & Live Status Row -->
+          <div style="display:flex; align-items:center; gap:8px; margin-top:10px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.06); flex-wrap:wrap;">
+            <span style="font-size:9.5px; color:var(--text-secondary); white-space:nowrap;">6-DIGIT S/N:</span>
+            <input type="text" id="pdlPinInput" placeholder="Sticker S/N on back" maxlength="8" style="background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.12); border-radius:6px; color:#fff; font-size:10.5px; padding:3px 8px; width:125px; font-family:var(--font-mono);">
+            <button class="cluster-action-btn" onclick="savePdlPin()" style="font-size:9.5px; padding:3px 10px; color:var(--accent-blue); border-color:var(--accent-blue);">SAVE S/N</button>
+            <span id="pdlLastAck" style="font-size:9.5px; color:var(--accent-green); margin-left:auto; font-family:var(--font-mono);">Standby</span>
+          </div>
         </div>
 
         <!-- Discovered Bluetooth Devices -->
