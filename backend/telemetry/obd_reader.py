@@ -1,15 +1,17 @@
 """
 obd_reader.py - Live OBD-II & CAN Telemetry Acquisition for 2013-2016 Dodge Dart 1.4T
 Calibrated specifically for:
-- 1.4L Turbo MultiAir (Magneti Marelli 8GM ECU)
+- 1.4L Turbo MultiAir (Magneti Marelli 8GM ECU, CAN 29/500 ISO 15765-4)
 - Fiat C635 6-Speed Manual Transmission
-- Globe, Arizona Atmospheric Elevation (~3,510 ft, P_atm ~89.2 kPa / 12.94 PSI)
+- Globe, Arizona Atmospheric Elevation (~3,510 ft, P_atm ~88-89 kPa / 12.8-12.9 PSI)
 - True resting hardware states (None / '--') when disconnected or ignition is off.
+- Auto-baud detection across 38400 (standard CH340), 115200, 9600.
 """
 
 import time
 import os
 import glob
+import re
 import math
 from dataclasses import dataclass, asdict
 from typing import Optional, Dict, Any, List
@@ -29,16 +31,19 @@ FINAL_DRIVE = 3.824
 TIRE_CIRCUMFERENCE_METERS = 2.015  # Standard 225/45R17 tire
 
 # Atmospheric Calibration for Globe, Arizona (Elevation: ~3,510 ft / 1,070m)
-GLOBE_AZ_BARO_KPA = 89.2  # ~12.94 PSI / 26.34 inHg
+GLOBE_AZ_BARO_KPA = 88.0  # Verified live on vehicle (~12.76 PSI / 26.0 inHg)
+KNOWN_BAUDRATES = [38400, 115200, 9600, 230400, 500000]
 
 class RealVehicleTelemetryReader:
-    def __init__(self, port: Optional[str] = None, baudrate: int = 115200):
+    def __init__(self, port: Optional[str] = None, baudrate: int = 38400):
         self.preferred_port = port
+        self.preferred_baud = baudrate
         self.baudrate = baudrate
         self.serial_conn = None
         self.connected = False
         self.last_attempt_time = 0.0
         self.status_message = "DISCONNECTED"
+        self.tick_count = 0
         
         # Calibrated local barometric pressure in kPa (default Globe, AZ)
         self.baro_kpa = GLOBE_AZ_BARO_KPA
@@ -71,7 +76,7 @@ class RealVehicleTelemetryReader:
         if self.preferred_port:
             return self.preferred_port
 
-        # Linux / Raspberry Pi serial devices (FTDI, STN, ELM327)
+        # Linux / Raspberry Pi serial devices (CH340, FTDI, STN, ELM327)
         linux_candidates = sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*"))
         if linux_candidates:
             return linux_candidates[0]
@@ -90,10 +95,43 @@ class RealVehicleTelemetryReader:
 
         return None
 
+    def _close_conn(self):
+        """Safely close active serial connection."""
+        if self.serial_conn:
+            try:
+                self.serial_conn.close()
+            except Exception:
+                pass
+            self.serial_conn = None
+
+    def _send_cmd(self, cmd: str, timeout: float = 0.35) -> str:
+        """Send command to ELM327 adapter and return cleaned response string."""
+        if not self.serial_conn:
+            return ""
+        try:
+            self.serial_conn.reset_input_buffer()
+            self.serial_conn.write((cmd.strip() + "\r").encode("ascii"))
+            resp = b""
+            start = time.time()
+            while time.time() - start < timeout:
+                c = self.serial_conn.read(1)
+                if c:
+                    resp += c
+                    if c == b">":
+                        break
+            clean = resp.decode("ascii", errors="ignore").replace(">", "").strip()
+            return clean
+        except Exception as e:
+            print(f"[REAL OBD] Serial communication error: {e}")
+            self._close_conn()
+            self.connected = False
+            self.status_message = "COMMUNICATION LOST"
+            return ""
+
     def _try_connect(self):
-        """Attempt to open serial connection to the USB OBD-II interface."""
+        """Attempt to auto-detect and open serial connection to the USB OBD-II interface."""
         now = time.time()
-        if now - self.last_attempt_time < 3.0:
+        if now - self.last_attempt_time < 2.5:
             return
         self.last_attempt_time = now
 
@@ -103,47 +141,97 @@ class RealVehicleTelemetryReader:
             self.status_message = "NO OBD-II CABLE DETECTED"
             return
 
+        self._close_conn()
+
         try:
             import serial
-            self.serial_conn = serial.Serial(target_port, self.baudrate, timeout=0.12)
-            # Initialize ELM327 / STN commands
-            self._send_cmd("AT Z")      # Reset adapter
-            time.sleep(0.08)
-            self._send_cmd("AT E0")     # Echo off
-            self._send_cmd("AT L0")     # Linefeeds off
-            self._send_cmd("AT SP 6")   # ISO 15765-4 CAN 11-bit 500k (Dodge Dart standard)
-            
-            # Test ping with battery voltage command
-            resp = self._send_cmd("AT RV")
-            if resp and "V" in resp:
-                self.connected = True
-                self.status_message = f"ONLINE ({os.path.basename(target_port)})"
-                print(f"[REAL OBD] Connected to Dodge Dart OBD-II on {target_port}")
-            else:
-                self.connected = False
-                self.status_message = "CABLE CONNECTED - KEY OFF"
-        except Exception as e:
+        except ImportError:
             self.connected = False
-            self.status_message = f"PORT ERROR: {e}"
+            self.status_message = "PYSERIAL NOT INSTALLED"
+            return
 
-    def _send_cmd(self, cmd: str) -> str:
-        """Send command to ELM327 adapter and return cleaned response string."""
-        if not self.serial_conn:
-            return ""
-        try:
-            self.serial_conn.write((cmd.strip() + "\r").encode("ascii"))
-            resp = b""
-            start = time.time()
-            while time.time() - start < 0.10:
-                chunk = self.serial_conn.read(64)
-                if chunk:
-                    resp += chunk
-                    if b">" in resp:
-                        break
-            return resp.decode("ascii", errors="ignore").replace(">", "").strip()
-        except Exception:
-            self.connected = False
-            return ""
+        # Prioritize 38400 (standard for CH340), then preferred, then other known rates
+        candidate_bauds = []
+        if self.preferred_baud:
+            candidate_bauds.append(self.preferred_baud)
+        for b in KNOWN_BAUDRATES:
+            if b not in candidate_bauds:
+                candidate_bauds.append(b)
+
+        for baud in candidate_bauds:
+            try:
+                s = serial.Serial(target_port, baud, timeout=0.25)
+                s.reset_input_buffer()
+                s.reset_output_buffer()
+                self.serial_conn = s
+                self.baudrate = baud
+
+                # Reset and configure ELM327
+                self.serial_conn.write(b"ATZ\r")
+                time.sleep(0.30)
+                self.serial_conn.reset_input_buffer()
+                
+                self._send_cmd("ATE0", timeout=0.25)     # Echo off
+                self._send_cmd("ATL0", timeout=0.20)     # Linefeeds off
+                self._send_cmd("ATH0", timeout=0.20)     # Headers off
+                self._send_cmd("ATAT1", timeout=0.20)    # Adaptive timing enabled
+                
+                # ISO 15765-4 (CAN 29/500) is Protocol 7 on ELM327 (Standard for Dodge Dart 1.4T)
+                sp_res = self._send_cmd("ATSP7", timeout=0.30)
+                if not sp_res or "ERROR" in sp_res:
+                    self._send_cmd("ATSP0", timeout=0.30)  # Fallback to Auto
+                
+                # Check battery voltage
+                volt_raw = self._send_cmd("ATRV", timeout=0.25)
+                v_match = re.search(r'([0-9]+\.[0-9]+)', volt_raw)
+                if v_match:
+                    self.battery_volts = round(float(v_match.group(1)), 1)
+                
+                if volt_raw and ("V" in volt_raw or v_match):
+                    # Ping ECU for support
+                    ping = self._send_cmd("0100", timeout=0.45)
+                    if "41 00" in ping or "41" in ping:
+                        self.connected = True
+                        self.status_message = f"ONLINE (CAN 29/500 @ {baud})"
+                        print(f"[REAL OBD] Connected to Dodge Dart ECU on {target_port} @ {baud} baud! Battery: {self.battery_volts}V")
+                        
+                        # Pre-seed initial values for static sensors
+                        clt_init = self._send_cmd("0105", timeout=0.35)
+                        m_clt = re.search(r'41\s+05\s+([0-9A-Fa-f]{2})', clt_init)
+                        if m_clt:
+                            c = int(m_clt.group(1), 16) - 40
+                            self.coolant_temp_f = round(c * 9/5 + 32, 1)
+                            self.multiair_ready = (self.coolant_temp_f >= 170.0)
+
+                        iat_init = self._send_cmd("010F", timeout=0.35)
+                        m_iat = re.search(r'41\s+0F\s+([0-9A-Fa-f]{2})', iat_init)
+                        if m_iat:
+                            c = int(m_iat.group(1), 16) - 40
+                            self.intake_temp_f = round(c * 9/5 + 32, 1)
+
+                        baro_init = self._send_cmd("0133", timeout=0.35)
+                        m_baro = re.search(r'41\s+33\s+([0-9A-Fa-f]{2})', baro_init)
+                        if m_baro:
+                            meas = float(int(m_baro.group(1), 16))
+                            if 60.0 <= meas <= 110.0:
+                                self.baro_kpa = meas
+                                self.baro_calibrated = True
+                        return
+                    else:
+                        # Cable is alive and voltage is read, but key is off or engine sleeping
+                        self.connected = False
+                        self.status_message = f"CABLE ONLINE ({self.battery_volts}V) - KEY OFF"
+                        print(f"[REAL OBD] Cable detected @ {baud} ({self.battery_volts}V), awaiting vehicle ignition...")
+                        return
+                
+                # If no valid ATRV response at this baud, close and try next
+                self._close_conn()
+            except Exception as e:
+                self._close_conn()
+                continue
+
+        self.connected = False
+        self.status_message = "CABLE CONNECTED - KEY OFF"
 
     def _calculate_gear(self, speed_mph: float, rpm: float) -> str:
         """Calculate active transmission gear on C635 6-speed manual from ratio."""
@@ -168,14 +256,15 @@ class RealVehicleTelemetryReader:
         return best_gear
 
     def read_frame(self) -> TelemetryFrame:
-        """Query live vehicle sensors or return resting safe telemetry if disconnected."""
+        """Query live vehicle sensors using non-blocking staggered polling."""
         now = time.time()
+        self.tick_count += 1
 
-        if not self.connected or not self.serial_conn:
+        if not self.serial_conn or (not self.connected and (now - self.last_attempt_time > 2.5)):
             self._try_connect()
 
         # If still disconnected, return pure resting states (no fake numbers)
-        if not self.connected:
+        if not self.connected or not self.serial_conn:
             return TelemetryFrame(
                 timestamp=now,
                 speed_mph=0.0,
@@ -188,7 +277,7 @@ class RealVehicleTelemetryReader:
                 is_in_boost=False,
                 coolant_temp_f=None,
                 intake_temp_f=None,
-                battery_volts=None,
+                battery_volts=self.battery_volts,
                 fuel_mpg_instant=None,
                 multiair_ready=False,
                 shift_indicator=False,
@@ -200,59 +289,27 @@ class RealVehicleTelemetryReader:
                 status_message=self.status_message
             )
 
-        # Vehicle is connected - query live PIDs
+        # Vehicle is connected - execute staggered PID queries for max smoothness
         try:
-            # 1. Battery Voltage (AT RV)
-            volt_raw = self._send_cmd("AT RV")
-            if "V" in volt_raw:
-                try:
-                    self.battery_volts = round(float(volt_raw.replace("V", "").strip()), 1)
-                except ValueError:
-                    pass
-
-            # 2. RPM (PID 010C)
-            rpm_raw = self._send_cmd("010C")
-            if "41 0C" in rpm_raw or len(rpm_raw.split()) >= 4:
-                parts = rpm_raw.split()
-                idx = parts.index("0C") if "0C" in parts else 1
-                if len(parts) > idx + 2:
-                    a, b = int(parts[idx+1], 16), int(parts[idx+2], 16)
+            # High-priority alternating queries:
+            # Even ticks -> RPM (010C)
+            # Odd ticks  -> MAP / Boost (010B)
+            if self.tick_count % 2 == 0:
+                rpm_raw = self._send_cmd("010C", timeout=0.35)
+                m = re.search(r'41\s+0C\s+([0-9A-Fa-f]{2})\s+([0-9A-Fa-f]{2})', rpm_raw)
+                if m:
+                    a = int(m.group(1), 16)
+                    b = int(m.group(2), 16)
                     self.rpm = float(((a * 256) + b) / 4)
-
-            # 3. Speed (PID 010D)
-            spd_raw = self._send_cmd("010D")
-            if "41 0D" in spd_raw or len(spd_raw.split()) >= 3:
-                parts = spd_raw.split()
-                idx = parts.index("0D") if "0D" in parts else 1
-                if len(parts) > idx + 1:
-                    kph = float(int(parts[idx+1], 16))
-                    self.speed_mph = kph * 0.621371
-
-            # 4. Barometric Pressure (PID 0133) for Elevation Calibration
-            baro_raw = self._send_cmd("0133")
-            if "41 33" in baro_raw:
-                parts = baro_raw.split()
-                idx = parts.index("33") if "33" in parts else 1
-                if len(parts) > idx + 1:
-                    measured_baro = float(int(parts[idx+1], 16))
-                    if 60.0 <= measured_baro <= 110.0:
-                        self.baro_kpa = measured_baro
-                        self.baro_calibrated = True
-
-            # 5. MAP (Intake Manifold Absolute Pressure - PID 010B)
-            map_raw = self._send_cmd("010B")
-            if "41 0B" in map_raw or len(map_raw.split()) >= 3:
-                parts = map_raw.split()
-                idx = parts.index("0B") if "0B" in parts else 1
-                if len(parts) > idx + 1:
-                    map_kpa = float(int(parts[idx+1], 16))
-                    
-                    # Key-on elevation calibration: If engine is stopped, MAP directly equals ambient baro
-                    if not self.baro_calibrated and self.rpm < 300 and 70.0 <= map_kpa <= 105.0:
-                        self.baro_kpa = map_kpa
-                        self.baro_calibrated = True
-
-                    # Accurate Boost / Vacuum calculated against Globe, AZ ambient baro
+                    self.connected = True
+                elif "UNABLE TO CONNECT" in rpm_raw or "BUS INIT" in rpm_raw:
+                    self.connected = False
+                    self.status_message = "IGNITION TURNED OFF"
+            else:
+                map_raw = self._send_cmd("010B", timeout=0.35)
+                m = re.search(r'41\s+0B\s+([0-9A-Fa-f]{2})', map_raw)
+                if m:
+                    map_kpa = float(int(m.group(1), 16))
                     delta_p = map_kpa - self.baro_kpa
                     if delta_p > 0.4:
                         self.boost_psi = round(delta_p * 0.145038, 1)
@@ -263,43 +320,65 @@ class RealVehicleTelemetryReader:
                         self.vacuum_inhg = round(abs(delta_p) * 0.2953, 0)
                         self.is_in_boost = False
 
-            # 6. Coolant Temp (PID 0105)
-            clt_raw = self._send_cmd("0105")
-            if "41 05" in clt_raw or len(clt_raw.split()) >= 3:
-                parts = clt_raw.split()
-                idx = parts.index("05") if "05" in parts else 1
-                if len(parts) > idx + 1:
-                    celsius = int(parts[idx+1], 16) - 40
+            # Query Group 2: Speed (PID 010D) every 6 ticks
+            if self.tick_count % 6 == 0:
+                spd_raw = self._send_cmd("010D", timeout=0.35)
+                m = re.search(r'41\s+0D\s+([0-9A-Fa-f]{2})', spd_raw)
+                if m:
+                    kph = float(int(m.group(1), 16))
+                    self.speed_mph = kph * 0.621371
+
+            # Query Group 3: Throttle (PID 0111) every 8 ticks
+            if self.tick_count % 8 == 0:
+                throt_raw = self._send_cmd("0111", timeout=0.35)
+                m = re.search(r'41\s+11\s+([0-9A-Fa-f]{2})', throt_raw)
+                if m:
+                    self.throttle_pct = round((int(m.group(1), 16) * 100.0) / 255.0, 1)
+
+            # Query Group 4: Coolant Temp (PID 0105) every 20 ticks (~1s)
+            if self.tick_count % 20 == 0:
+                clt_raw = self._send_cmd("0105", timeout=0.35)
+                m = re.search(r'41\s+05\s+([0-9A-Fa-f]{2})', clt_raw)
+                if m:
+                    celsius = int(m.group(1), 16) - 40
                     self.coolant_temp_f = round(celsius * 9/5 + 32, 1)
-                    # MultiAir hydraulic VVA requires oil/coolant at least 170°F
                     self.multiair_ready = (self.coolant_temp_f >= 170.0)
 
-            # 7. Intake Air Temp (PID 010F)
-            iat_raw = self._send_cmd("010F")
-            if "41 0F" in iat_raw or len(iat_raw.split()) >= 3:
-                parts = iat_raw.split()
-                idx = parts.index("0F") if "0F" in parts else 1
-                if len(parts) > idx + 1:
-                    celsius = int(parts[idx+1], 16) - 40
+            # Query Group 5: Intake Temp (PID 010F) every 25 ticks
+            if self.tick_count % 25 == 0:
+                iat_raw = self._send_cmd("010F", timeout=0.35)
+                m = re.search(r'41\s+0F\s+([0-9A-Fa-f]{2})', iat_raw)
+                if m:
+                    celsius = int(m.group(1), 16) - 40
                     self.intake_temp_f = round(celsius * 9/5 + 32, 1)
 
-            # 8. Throttle Position (PID 0111)
-            throt_raw = self._send_cmd("0111")
-            if "41 11" in throt_raw or len(throt_raw.split()) >= 3:
-                parts = throt_raw.split()
-                idx = parts.index("11") if "11" in parts else 1
-                if len(parts) > idx + 1:
-                    self.throttle_pct = round((int(parts[idx+1], 16) * 100.0) / 255.0, 1)
+            # Query Group 6: Battery Voltage (AT RV) every 50 ticks (~2s)
+            if self.tick_count % 50 == 0:
+                volt_raw = self._send_cmd("ATRV", timeout=0.25)
+                v_match = re.search(r'([0-9]+\.[0-9]+)', volt_raw)
+                if v_match:
+                    self.battery_volts = round(float(v_match.group(1)), 1)
+
+            # Query Group 7: Barometric Pressure (PID 0133) every 100 ticks
+            if self.tick_count % 100 == 0:
+                baro_raw = self._send_cmd("0133", timeout=0.35)
+                m = re.search(r'41\s+33\s+([0-9A-Fa-f]{2})', baro_raw)
+                if m:
+                    meas = float(int(m.group(1), 16))
+                    if 60.0 <= meas <= 110.0:
+                        self.baro_kpa = meas
+                        self.baro_calibrated = True
 
         except Exception as e:
-            print(f"[REAL OBD] Read error: {e}")
+            print(f"[REAL OBD] Frame error: {e}")
+            self._close_conn()
             self.connected = False
-            self.status_message = "COMMUNICATION LOST"
+            self.status_message = "COMMUNICATION ERROR"
 
-        # Calculate gear from live RPM & Speed
+        # Calculate active transmission gear
         self.gear = self._calculate_gear(self.speed_mph, self.rpm)
 
-        # F1 Sequential Shift Lights for 1.4T MultiAir
+        # Sequential F1 Shift Lights for 1.4T MultiAir
         f1_level = 0
         if self.rpm > 6200: f1_level = 5
         elif self.rpm > 5800: f1_level = 4
