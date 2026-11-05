@@ -1736,33 +1736,6 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             return
 
-        elif parsed.path == "/api/bluetooth/status":
-            status = state.bluetooth.get_status()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(json.dumps(status).encode("utf-8"))
-            return
-
-        elif parsed.path == "/api/bluetooth/scan":
-            devices = state.bluetooth.scan_devices()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(json.dumps(devices).encode("utf-8"))
-            return
-
-        elif parsed.path == "/api/bluetooth/paired":
-            paired = state.bluetooth.get_paired()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(json.dumps(paired).encode("utf-8"))
-            return
-
 
 
         elif parsed.path == "/api/ui/navigate":
@@ -2100,136 +2073,6 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             self.end_headers()
 
             self.wfile.write(json.dumps(res).encode("utf-8"))
-
-            return
-
-
-
-        elif parsed.path == "/api/trips/settings":
-
-            settings = state.trip_logger.get_settings()
-
-            self.send_response(200)
-
-            self.send_header("Content-Type", "application/json")
-
-            self.send_header("Access-Control-Allow-Origin", "*")
-
-            self.end_headers()
-
-            self.wfile.write(json.dumps(settings).encode("utf-8"))
-
-            return
-
-
-
-        elif parsed.path == "/api/trips/telemetry":
-
-            qs = parse_qs(parsed.query)
-
-            trip_id = int(qs.get("id", ["0"])[0])
-
-            max_pts = int(qs.get("max_points", ["300"])[0])
-
-            points = state.trip_logger.get_trip_telemetry(trip_id, max_pts)
-
-            self.send_response(200)
-
-            self.send_header("Content-Type", "application/json")
-
-            self.send_header("Access-Control-Allow-Origin", "*")
-
-            self.end_headers()
-
-            self.wfile.write(json.dumps(points).encode("utf-8"))
-
-            return
-
-
-
-        elif parsed.path == "/api/trips/download":
-
-            qs = parse_qs(parsed.query)
-
-            trip_id = int(qs.get("id", ["0"])[0])
-
-            trips = state.trip_logger.get_recent_trips(100)
-
-            trip_info = next((t for t in trips if t.get("id") == trip_id), None)
-
-            arch_path = trip_info.get("archive_path") if trip_info else None
-
-            if not arch_path or not os.path.exists(arch_path):
-
-                arch_path = state.trip_logger.export_and_zip_trip(trip_id)
-
-            if arch_path and os.path.exists(arch_path):
-
-                filename = os.path.basename(arch_path)
-
-                with open(arch_path, "rb") as zf:
-
-                    zip_data = zf.read()
-
-                self.send_response(200)
-
-                self.send_header("Content-Type", "application/zip")
-
-                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
-
-                self.send_header("Access-Control-Allow-Origin", "*")
-
-                self.end_headers()
-
-                self.wfile.write(zip_data)
-
-            else:
-
-                self.send_response(404)
-
-                self.end_headers()
-
-                self.wfile.write(b'{"error": "Trip archive not found"}')
-
-            return
-
-
-
-        elif parsed.path == "/api/trips/manifest":
-
-            qs = parse_qs(parsed.query)
-
-            trip_id = int(qs.get("id", ["0"])[0])
-
-            trips = state.trip_logger.get_recent_trips(100)
-
-            trip_info = next((t for t in trips if t.get("id") == trip_id), None)
-
-            if trip_info:
-
-                points = state.trip_logger.get_trip_telemetry(trip_id, 1000)
-
-                sha = trip_info.get("sha256_hash") or "DIGITAL-SEAL-PENDING"
-
-                manifest_html = state.trip_logger._build_manifest_html(trip_info, points, sha, bool(trip_info.get("is_active")))
-
-                self.send_response(200)
-
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-
-                self.send_header("Access-Control-Allow-Origin", "*")
-
-                self.end_headers()
-
-                self.wfile.write(manifest_html.encode("utf-8"))
-
-            else:
-
-                self.send_response(404)
-
-                self.end_headers()
-
-                self.wfile.write(b"Trip not found")
 
             return
 
@@ -3393,46 +3236,6 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             return
 
-        elif parsed.path == "/api/bluetooth/connect":
-            mac = req_data.get("mac", "")
-            res = state.bluetooth.connect_device(mac)
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(json.dumps(res).encode("utf-8"))
-            return
-
-        elif parsed.path == "/api/bluetooth/disconnect":
-            mac = req_data.get("mac", "")
-            res = state.bluetooth.disconnect_device(mac)
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(json.dumps(res).encode("utf-8"))
-            return
-
-        elif parsed.path == "/api/bluetooth/remove":
-            mac = req_data.get("mac", "")
-            res = state.bluetooth.remove_device(mac)
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(json.dumps(res).encode("utf-8"))
-            return
-
-        elif parsed.path == "/api/bluetooth/discoverable":
-            enabled = req_data.get("enabled", True)
-            res = state.bluetooth.set_discoverable(enabled)
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(json.dumps(res).encode("utf-8"))
-            return
-
 
 
         elif parsed.path == "/api/system/brightness":
@@ -3709,7 +3512,7 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             days = req_data.get("retention_days", 0)
 
-            saved_days = state.trip_logger.update_settings({"retention_days": int(days)})
+            saved_days = state.trip_logger.set_retention_days(int(days))
 
             self.send_response(200)
 
@@ -3719,45 +3522,7 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             self.end_headers()
 
-            self.wfile.write(json.dumps({"status": "ok", "retention_days": saved_days.get("retention_days", 0)}).encode("utf-8"))
-
-            return
-
-
-
-        elif parsed.path == "/api/trips/settings":
-
-            updated = state.trip_logger.update_settings(req_data)
-
-            self.send_response(200)
-
-            self.send_header("Content-Type", "application/json")
-
-            self.send_header("Access-Control-Allow-Origin", "*")
-
-            self.end_headers()
-
-            self.wfile.write(json.dumps({"status": "ok", "settings": updated}).encode("utf-8"))
-
-            return
-
-
-
-        elif parsed.path == "/api/trips/archive_now":
-
-            trip_id = req_data.get("id") or state.trip_logger.current_trip_id
-
-            arch_path = state.trip_logger.export_and_zip_trip(int(trip_id)) if trip_id else None
-
-            self.send_response(200 if arch_path else 500)
-
-            self.send_header("Content-Type", "application/json")
-
-            self.send_header("Access-Control-Allow-Origin", "*")
-
-            self.end_headers()
-
-            self.wfile.write(json.dumps({"status": "ok" if arch_path else "error", "archive_path": arch_path}).encode("utf-8"))
+            self.wfile.write(json.dumps({"status": "ok", "retention_days": saved_days}).encode("utf-8"))
 
             return
 
