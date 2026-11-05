@@ -54,6 +54,16 @@ let is24HourClock = localStorage.getItem('carpi5_clock_format') === '24H';
 
 
 
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 function formatClockTime(date = new Date(), includeSeconds = false) {
 
   if (is24HourClock) {
