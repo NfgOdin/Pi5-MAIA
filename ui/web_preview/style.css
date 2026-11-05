@@ -654,6 +654,13 @@ body {
   grid-template-rows: 1fr 1fr;
 }
 
+/* 12 Gauges Layout: 3 ROWS OF 4 COLUMNS (User Requested Fullscreen/Multi-Metric Mode) */
+.grid-layout-12 {
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 6px;
+}
+
 /* Gauge Tile */
 .gauge-tile {
   background: radial-gradient(circle at center, #151b24 0%, #0d1015 100%);
@@ -751,6 +758,11 @@ body {
 .grid-layout-8 .readout-value { font-size: 20px; }
 .grid-layout-8 .readout-label { font-size: 9px; }
 .grid-layout-8 .readout-sub { font-size: 8px; }
+.grid-layout-12 .readout-value { font-size: 17px; font-weight: 800; }
+.grid-layout-12 .readout-label { font-size: 8px; }
+.grid-layout-12 .readout-sub { font-size: 7.5px; }
+.grid-layout-12 .gauge-tile { border-radius: 10px; }
+.grid-layout-12 .click-hint { font-size: 8px; top: 3px; right: 5px; opacity: 0.5; }
 
 /* --- CLICK-TO-INSPECT LIVE GRAPH MODAL OVERLAY --- */
 .graph-modal-overlay {
@@ -3251,4 +3263,74 @@ body.keyboard-open .screen-view {
 body.keyboard-open .config-modal-content {
   margin-bottom: 230px !important;
   max-height: 52vh !important;
+}
+
+
+/* --- FULLSCREEN 12-GAUGE CLUSTER MODE --- */
+.gauge-fullscreen-exit-btn {
+  display: none;
+}
+
+body.gauge-fullscreen-active #appHeader,
+body.gauge-fullscreen-active #appDock {
+  display: none !important;
+}
+
+body.gauge-fullscreen-active .app-main-content {
+  height: 100vh !important;
+  max-height: 100vh !important;
+  padding: 0 !important;
+}
+
+body.gauge-fullscreen-active #screenGauges {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 9999 !important;
+  padding: 8px !important;
+  background: #080a0d !important;
+}
+
+body.gauge-fullscreen-active #screenGauges .gauge-cluster-toolbar {
+  display: none !important;
+}
+
+body.gauge-fullscreen-active #screenGauges #gaugeGridContainer {
+  height: 100% !important;
+  max-height: 100% !important;
+}
+
+body.gauge-fullscreen-active .gauge-fullscreen-exit-btn {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  position: fixed;
+  top: 12px;
+  right: 14px;
+  z-index: 10001;
+  background: rgba(13, 17, 24, 0.92);
+  backdrop-filter: blur(8px);
+  border: 1.5px solid var(--accent-yellow);
+  color: var(--accent-yellow);
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  padding: 10px 18px;
+  border-radius: 24px;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8), 0 0 12px rgba(255, 204, 0, 0.25);
+  transition: all 0.2s ease;
+}
+
+body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:hover {
+  background: rgba(255, 204, 0, 0.2);
+  box-shadow: 0 4px 24px rgba(255, 204, 0, 0.4);
+}
+
+body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
+  transform: scale(0.95);
+  background: var(--accent-yellow);
+  color: #000;
 }

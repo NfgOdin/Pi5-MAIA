@@ -223,11 +223,17 @@
     <div class="screen-view" id="screenGauges">
       <div class="gauge-cluster-toolbar">
         <button class="cluster-action-btn" onclick="openConfigModal()">⚙️ GAUGE CLUSTER CONFIG</button>
+        <button class="cluster-action-btn" id="btnGaugeFullscreen" onclick="toggleFullscreenGauges()" style="color:var(--accent-yellow); border-color:rgba(255,204,0,0.4);"><span style="font-size:14px;">⛶</span> FULLSCREEN (12-GAUGE)</button>
         <div class="launch-stat-badge" id="launchTimerBadge">⏱️ 0-60 MPH: READY</div>
         <button class="cluster-action-btn" onclick="toggleSpeedUnits()" id="unitToggleBtn">UNITS: MPH</button>
       </div>
 
       <!-- Dynamic Gauge Grid (1, 2, 3, 4, 6, 8) -->
+      <!-- Floating Touch-Friendly Exit Fullscreen Button -->
+      <button id="btnExitGaugeFullscreen" class="gauge-fullscreen-exit-btn" onclick="exitFullscreenGauges()" title="Exit Fullscreen Mode">
+        <span style="font-size:16px; font-weight:900;">✕</span> EXIT FULLSCREEN
+      </button>
+
       <main class="dashboard-grid-container" id="gaugeGridContainer">
         <!-- Injected dynamically by gauges.js -->
       </main>
@@ -1499,6 +1505,7 @@
         <button class="layout-opt-btn" id="opt_4" onclick="selectLayout(4)">4 Quad</button>
         <button class="layout-opt-btn" id="opt_6" onclick="selectLayout(6)">6 Matrix</button>
         <button class="layout-opt-btn" id="opt_8" onclick="selectLayout(8)">8 (4 Top / 4 Bottom)</button>
+        <button class="layout-opt-btn" id="opt_12" onclick="selectLayout(12)">12 (3 Rows of 4)</button>
       </div>
 
       <!-- Slot Assigners Grid -->

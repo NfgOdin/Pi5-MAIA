@@ -35,6 +35,15 @@ class TelemetryFrame:
     active_dtcs: Optional[List[str]] = None
     connected: bool = True
     status_message: str = "ONLINE"
+    engine_load_pct: Optional[float] = None
+    timing_advance_deg: Optional[float] = None
+    afr: Optional[float] = None
+    fuel_level_pct: Optional[float] = None
+    ambient_temp_f: Optional[float] = None
+    pedal_pos_pct: Optional[float] = None
+    engine_runtime_sec: Optional[int] = None
+    fuel_gph: Optional[float] = None
+    baro_kpa: Optional[float] = None
 
 class Dart14TSimulator:
     def __init__(self, config_path: Optional[str] = None):
@@ -174,6 +183,12 @@ class Dart14TSimulator:
         if self.rpm >= float(self.cfg["shift_indicator_rpm"]): f1_level = 5  # Flash Blue!
 
         # 4. Assemble Telemetry Frame
+        sim_load = round(min(100.0, 20.0 + self.throttle_pct * 0.75), 1)
+        sim_timing = round(max(-5.0, min(35.0, 5.0 + (self.rpm / 400.0) - (self.boost_psi * 0.4))), 1)
+        sim_afr = round(14.7 - (0.15 * max(0.0, self.boost_psi)), 2)
+        sim_gph = round(max(0.22, (self.rpm / 750.0) * 0.25 + (self.throttle_pct * 0.05)), 2)
+        sim_mpg = 0.0 if self.speed_mph < 1.0 else round(min(99.9, self.speed_mph / sim_gph), 1)
+
         frame = TelemetryFrame(
             timestamp=time.time(),
             speed_mph=round(self.speed_mph, 1),
@@ -187,13 +202,22 @@ class Dart14TSimulator:
             coolant_temp_f=round(self.coolant_temp_f, 1),
             intake_temp_f=round(self.intake_temp_f + (self.boost_psi * 1.2), 1),
             battery_volts=round(14.2 + random.uniform(-0.1, 0.1), 2),
-            fuel_mpg_instant=round(max(0.0, min(55.0, (self.speed_mph / (self.throttle_pct * 0.08 + 0.1)))), 1),
+            fuel_mpg_instant=sim_mpg,
             multiair_ready=self.coolant_temp_f >= float(self.cfg["multiair_warmup_temp_f"]),
             shift_indicator=self.rpm >= float(self.cfg["shift_indicator_rpm"]),
             f1_light_level=f1_level,
             launch_timer_active=self.is_launching,
             zero_to_sixty_time=self.last_0_60_time,
-            active_dtcs=self.active_dtcs.copy()
+            active_dtcs=self.active_dtcs.copy(),
+            engine_load_pct=sim_load,
+            timing_advance_deg=sim_timing,
+            afr=sim_afr,
+            fuel_level_pct=68.5,
+            ambient_temp_f=75.0,
+            pedal_pos_pct=round(self.throttle_pct, 1),
+            engine_runtime_sec=int(self.sim_time),
+            fuel_gph=sim_gph,
+            baro_kpa=88.0
         )
         return frame
 

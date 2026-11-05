@@ -1,4 +1,52 @@
 
+// --- FULLSCREEN 12-GAUGE CLUSTER CONTROLS ---
+let isGaugeFullscreen = false;
+let previousLayoutBeforeFullscreen = 3;
+
+function toggleFullscreenGauges() {
+  if (isGaugeFullscreen) {
+    exitFullscreenGauges();
+  } else {
+    enterFullscreenGauges();
+  }
+}
+
+function enterFullscreenGauges() {
+  isGaugeFullscreen = true;
+  document.body.classList.add('gauge-fullscreen-active');
+  previousLayoutBeforeFullscreen = currentLayout;
+  currentLayout = 12;
+  initGaugeGrid();
+  
+  try {
+    if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  } catch (e) {}
+}
+
+function exitFullscreenGauges() {
+  isGaugeFullscreen = false;
+  document.body.classList.remove('gauge-fullscreen-active');
+  if (previousLayoutBeforeFullscreen) {
+    currentLayout = previousLayoutBeforeFullscreen;
+  }
+  initGaugeGrid();
+  
+  try {
+    if (document.exitFullscreen && document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+  } catch (e) {}
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && isGaugeFullscreen) {
+    exitFullscreenGauges();
+  }
+});
+
+
 
 // --- CLOCK FORMATTING (12-Hour AM/PM vs 24-Hour Military) ---
 
@@ -265,23 +313,22 @@ function enableKineticTouchScroll(element) {
 
 
 const SENSORS = {
-
   speed: { id: "speed", name: "Vehicle Speed", unit: "MPH", min: 0, max: 140, color: "#00b0ff" },
-
   boost: { id: "boost", name: "Turbo Boost", unit: "PSI", min: -25, max: 22, color: "#00e676" },
-
   rpm: { id: "rpm", name: "Engine RPM", unit: "RPM", min: 0, max: 7000, color: "#ffcc00" },
-
-  coolant: { id: "coolant", name: "MultiAir Oil Temp", unit: "°F", min: 60, max: 240, color: "#ff7700" },
-
-  iat: { id: "iat", name: "Intake Air Temp", unit: "°F", min: 50, max: 160, color: "#00e5ff" },
-
+  coolant: { id: "coolant", name: "MultiAir Temp", unit: "°F", min: 60, max: 240, color: "#ff7700" },
+  load: { id: "load", name: "Engine Load", unit: "%", min: 0, max: 100, color: "#ff5252" },
   throttle: { id: "throttle", name: "Throttle Pos", unit: "%", min: 0, max: 100, color: "#b388ff" },
-
+  timing: { id: "timing", name: "Timing Advance", unit: "°", min: -10, max: 40, color: "#e040fb" },
+  afr: { id: "afr", name: "Air/Fuel Ratio", unit: ":1", min: 10, max: 20, color: "#69f0ae" },
+  iat: { id: "iat", name: "Intake Air Temp", unit: "°F", min: 50, max: 160, color: "#00e5ff" },
   volts: { id: "volts", name: "Battery Volts", unit: "V", min: 10, max: 16, color: "#00e676" },
-
-  mpg: { id: "mpg", name: "Fuel Economy", unit: "MPG", min: 0, max: 60, color: "#00e676" }
-
+  mpg: { id: "mpg", name: "Fuel Economy", unit: "MPG", min: 0, max: 60, color: "#00e676" },
+  fuel_level: { id: "fuel_level", name: "Fuel Level", unit: "%", min: 0, max: 100, color: "#40c4ff" },
+  ambient: { id: "ambient", name: "Ambient Temp", unit: "°F", min: 0, max: 130, color: "#ffd740" },
+  pedal: { id: "pedal", name: "Pedal Position", unit: "%", min: 0, max: 100, color: "#7c4dff" },
+  runtime: { id: "runtime", name: "Engine Runtime", unit: "min", min: 0, max: 180, color: "#64ffda" },
+  baro: { id: "baro", name: "Baro Pressure", unit: "kPa", min: 60, max: 110, color: "#ffab40" }
 };
 
 
@@ -292,7 +339,27 @@ let currentScreen = "home";
 
 let currentLayout = 3; // Default 3 gauges (Speed, Boost, RPM)
 
-let currentSlots = ["speed", "boost", "rpm", "coolant", "iat", "throttle", "volts", "mpg"];
+let currentSlots = [
+  "speed", "boost", "rpm", "coolant",
+  "load", "throttle", "timing", "afr",
+  "iat", "volts", "mpg", "fuel_level",
+  "ambient", "pedal", "runtime", "baro"
+];
+
+// Restore saved preferences
+try {
+  const savedLayout = localStorage.getItem('carpi5_layout');
+  if (savedLayout) currentLayout = parseInt(savedLayout, 10) || 3;
+  const savedSlots = localStorage.getItem('carpi5_slots');
+  if (savedSlots) {
+    const parsed = JSON.parse(savedSlots);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      for (let i = 0; i < parsed.length; i++) {
+        if (parsed[i] && SENSORS[parsed[i]]) currentSlots[i] = parsed[i];
+      }
+    }
+  }
+} catch (e) {}
 
 let isKph = false;
 
@@ -411,7 +478,9 @@ let mediaPlayInterval = null;
 
 
 function navigateTo(screenId) {
-
+  if (screenId !== "gauges" && isGaugeFullscreen) {
+    exitFullscreenGauges();
+  }
   currentScreen = screenId;
 
 
@@ -915,32 +984,79 @@ function updateTile(slotIdx, sensorKey, telemetry) {
     }
 
   } else if (sensorKey === "mpg") {
-
-    if (!isConnected || telemetry.fuel_mpg_instant === null || telemetry.fuel_mpg_instant === undefined) {
-
+    if (!isConnected || (telemetry.fuel_mpg_instant === null && telemetry.fuel_gph === null)) {
       displayStr = "--";
-
       subStr = "DISCONNECTED";
-
       pct = 0;
-
       color = "#8c9ba5";
-
-    } else {
-
+    } else if ((telemetry.speed_mph || 0) < 2.0) {
+      const gph = (telemetry.fuel_gph !== null && telemetry.fuel_gph !== undefined) ? telemetry.fuel_gph : 0.25;
+      rawVal = gph;
+      displayStr = rawVal.toFixed(2);
+      subStr = "GPH (IDLE BURN)";
+      pct = Math.min(1.0, rawVal / 2.0);
+      color = "#00e676";
+    } else if (telemetry.fuel_mpg_instant !== null && telemetry.fuel_mpg_instant !== undefined) {
       rawVal = telemetry.fuel_mpg_instant;
-
       displayStr = rawVal.toFixed(1);
-
       subStr = "INSTANT MPG";
-
-      pct = rawVal / 50.0;
-
+      pct = Math.min(1.0, rawVal / 50.0);
+      color = "#00e676";
+    } else {
+      displayStr = "--";
+      subStr = "CALCULATING";
+      pct = 0;
+      color = "#00e676";
     }
-
+  } else if (sensorKey === "load") {
+    rawVal = (telemetry.engine_load_pct !== undefined && telemetry.engine_load_pct !== null) ? telemetry.engine_load_pct : 0;
+    displayStr = Math.round(rawVal) + "%";
+    subStr = rawVal > 85 ? "HIGH LOAD" : "ENGINE LOAD";
+    pct = rawVal / 100.0;
+    color = rawVal > 85 ? "#ff3344" : "#ff5252";
+  } else if (sensorKey === "timing") {
+    rawVal = (telemetry.timing_advance_deg !== undefined && telemetry.timing_advance_deg !== null) ? telemetry.timing_advance_deg : 0;
+    displayStr = (rawVal >= 0 ? "+" : "") + rawVal.toFixed(1) + "°";
+    subStr = "TIMING ADV";
+    pct = Math.max(0, Math.min(1, (rawVal + 10) / 50.0));
+    color = "#e040fb";
+  } else if (sensorKey === "afr") {
+    rawVal = (telemetry.afr !== undefined && telemetry.afr !== null) ? telemetry.afr : 14.7;
+    displayStr = rawVal.toFixed(2);
+    subStr = rawVal < 14.2 ? "RICH (POWER)" : (rawVal > 15.2 ? "LEAN (ECO)" : "STOICH (14.7)");
+    pct = Math.max(0, Math.min(1, (rawVal - 10) / 10.0));
+    color = "#69f0ae";
+  } else if (sensorKey === "fuel_level") {
+    rawVal = (telemetry.fuel_level_pct !== undefined && telemetry.fuel_level_pct !== null) ? telemetry.fuel_level_pct : 50;
+    displayStr = Math.round(rawVal) + "%";
+    subStr = rawVal < 15 ? "LOW FUEL" : "TANK LEVEL";
+    pct = rawVal / 100.0;
+    color = rawVal < 15 ? "#ff3344" : "#40c4ff";
+  } else if (sensorKey === "ambient") {
+    rawVal = (telemetry.ambient_temp_f !== undefined && telemetry.ambient_temp_f !== null) ? telemetry.ambient_temp_f : 72;
+    displayStr = Math.round(rawVal) + "°F";
+    subStr = "OUTSIDE AIR";
+    pct = Math.max(0, Math.min(1, (rawVal - 20) / 100.0));
+    color = "#ffd740";
+  } else if (sensorKey === "pedal") {
+    rawVal = (telemetry.pedal_pos_pct !== undefined && telemetry.pedal_pos_pct !== null) ? telemetry.pedal_pos_pct : 0;
+    displayStr = Math.round(rawVal) + "%";
+    subStr = "ACCEL PEDAL";
+    pct = rawVal / 100.0;
+    color = "#7c4dff";
+  } else if (sensorKey === "runtime") {
+    rawVal = (telemetry.engine_runtime_sec || 0) / 60.0;
+    displayStr = rawVal < 60 ? Math.round(rawVal) + "m" : (rawVal / 60.0).toFixed(1) + "h";
+    subStr = "RUN TIME";
+    pct = Math.min(1.0, rawVal / 120.0);
+    color = "#64ffda";
+  } else if (sensorKey === "baro") {
+    rawVal = (telemetry.baro_kpa !== undefined && telemetry.baro_kpa !== null) ? telemetry.baro_kpa : 101.3;
+    displayStr = Math.round(rawVal) + " kPa";
+    subStr = "BAROMETRIC";
+    pct = Math.max(0, Math.min(1, (rawVal - 60) / 50.0));
+    color = "#ffab40";
   }
-
-
 
   drawGaugeDial(ctx, canvas.width, canvas.height, pct, color);
 
@@ -1519,23 +1635,22 @@ function recordAllSensorsHistory(t) {
 
 
   const currentVals = {
-
     speed: isKph ? (t.speed_kph || 0) : (t.speed_mph || 0),
-
     boost: t.is_in_boost ? (t.boost_psi || 0) : -(t.vacuum_inhg || 0),
-
     rpm: t.rpm || 0,
-
     coolant: t.coolant_temp_f || 0,
-
     iat: t.intake_temp_f || 0,
-
     throttle: t.throttle_pct || 0,
-
     volts: t.battery_volts || 0,
-
-    mpg: t.fuel_mpg_instant || 0
-
+    mpg: (t.speed_mph || 0) < 2.0 ? (t.fuel_gph || 0.25) : (t.fuel_mpg_instant || 0),
+    load: t.engine_load_pct || 0,
+    timing: t.timing_advance_deg || 0,
+    afr: t.afr || 0,
+    fuel_level: t.fuel_level_pct || 0,
+    ambient: t.ambient_temp_f || 0,
+    pedal: t.pedal_pos_pct || 0,
+    runtime: (t.engine_runtime_sec || 0) / 60.0,
+    baro: t.baro_kpa || 0
   };
 
 
@@ -1599,9 +1714,23 @@ function seedSensorHistory(sensorKey) {
     baseVal = t ? t.battery_volts : 14.1;
 
   } else if (sensorKey === "mpg") {
-
-    baseVal = t ? t.fuel_mpg_instant : 28.5;
-
+    baseVal = t ? ((t.speed_mph || 0) < 2.0 ? (t.fuel_gph || 0.25) : (t.fuel_mpg_instant || 28.5)) : 28.5;
+  } else if (sensorKey === "load") {
+    baseVal = t ? (t.engine_load_pct || 25) : 25;
+  } else if (sensorKey === "timing") {
+    baseVal = t ? (t.timing_advance_deg || 5) : 5;
+  } else if (sensorKey === "afr") {
+    baseVal = t ? (t.afr || 14.7) : 14.7;
+  } else if (sensorKey === "fuel_level") {
+    baseVal = t ? (t.fuel_level_pct || 65) : 65;
+  } else if (sensorKey === "ambient") {
+    baseVal = t ? (t.ambient_temp_f || 75) : 75;
+  } else if (sensorKey === "pedal") {
+    baseVal = t ? (t.pedal_pos_pct || 0) : 0;
+  } else if (sensorKey === "runtime") {
+    baseVal = t ? ((t.engine_runtime_sec || 0) / 60.0) : 15;
+  } else if (sensorKey === "baro") {
+    baseVal = t ? (t.baro_kpa || 101.3) : 101.3;
   }
 
 
@@ -2230,7 +2359,7 @@ function selectLayout(num) {
 
 function updateLayoutButtons() {
 
-  [1, 2, 3, 4, 6, 8].forEach(n => {
+  [1, 2, 3, 4, 6, 8, 12].forEach(n => {
 
     const btn = document.getElementById(`opt_${n}`);
 
@@ -2289,11 +2418,12 @@ function changeSlot(idx, sensorKey) {
 
 
 function applyGaugeConfig() {
-
+  try {
+    localStorage.setItem('carpi5_layout', currentLayout);
+    localStorage.setItem('carpi5_slots', JSON.stringify(currentSlots));
+  } catch (e) {}
   initGaugeGrid();
-
   closeConfigModal();
-
 }
 
 
