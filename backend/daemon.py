@@ -1718,6 +1718,52 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
 
 
+        elif parsed.path.startswith("/api/dashcam/") or parsed.path.startswith("/dashcam/"):
+            # Proxy dashcam requests from Pi 5 to Pi 3 over direct Ethernet (10.0.0.2:8000)
+            pi3_host = "http://10.0.0.2:8000"
+            subpath = parsed.path
+            if subpath.startswith("/dashcam/"):
+                subpath = subpath[len("/dashcam"):]
+            target_url = f"{pi3_host}{subpath}"
+            if parsed.query:
+                target_url += f"?{parsed.query}"
+            try:
+                import urllib.request
+                req = urllib.request.Request(target_url)
+                resp = urllib.request.urlopen(req, timeout=10)
+                ctype = resp.headers.get("Content-Type", "application/octet-stream")
+                self.send_response(resp.status)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                
+                # If continuous stream (e.g. multipart MJPEG), stream chunks without buffering entire content
+                if "multipart" in ctype:
+                    self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                    self.send_header("Pragma", "no-cache")
+                    self.end_headers()
+                    while True:
+                        chunk = resp.read(8192)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+                else:
+                    data = resp.read()
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                resp.close()
+            except Exception as e:
+                try:
+                    self.send_response(502)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": "Pi 3 dashcam unreachable", "details": str(e)}).encode("utf-8"))
+                except Exception:
+                    pass
+            return
+
         elif parsed.path == "/api/wifi/status":
 
             status = state.wifi.get_status()

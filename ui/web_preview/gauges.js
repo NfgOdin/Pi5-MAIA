@@ -707,6 +707,8 @@ function navigateTo(screenId) {
 
     browser: document.getElementById('screenBrowser'),
 
+    dashcam: document.getElementById('screenDashcam'),
+
     settings: document.getElementById('screenSettings')
 
   };
@@ -748,6 +750,8 @@ function navigateTo(screenId) {
     games: document.getElementById('dockBtnGames'),
 
     browser: document.getElementById('dockBtnBrowser'),
+
+    dashcam: document.getElementById('dockBtnDashcam'),
 
     settings: document.getElementById('dockBtnSettings')
 
@@ -17626,3 +17630,128 @@ function resyncUconnectDashDisplay() {
     showAiSpeechToast("Uconnect Sync Broadcast sent");
   });
 }
+
+
+// ==========================================
+// CARPI3 ETHERNET DASHCAM & REPLAY CONTROLLER
+// ==========================================
+let dashcamStatusTimer = null;
+
+function initDashcamController() {
+  refreshDashcamStatus();
+  refreshDashcamClips();
+  if (dashcamStatusTimer) clearInterval(dashcamStatusTimer);
+  dashcamStatusTimer = setInterval(refreshDashcamStatus, 4000);
+}
+
+function refreshDashcamStatus() {
+  fetch('/dashcam/api/status')
+    .then(r => r.json())
+    .then(data => {
+      const sub = document.getElementById('dashcamSubStatus');
+      const badge = document.getElementById('dashcamSourceBadge');
+      const storeText = document.getElementById('dashcamStorageText');
+      const homeBadge = document.getElementById('homeDashcamBadge');
+
+      if (data && data.online) {
+        if (sub) sub.innerText = 'Link: Direct Ethernet 10.0.0.2 • Uptime: ' + Math.floor(data.uptime_sec / 60) + 'm • Source: ' + (data.source || 'testpattern').toUpperCase();
+        if (badge) {
+          if (data.source === 'csi') {
+            badge.innerText = 'SENSOR: SONY IMX219 (CSI RIBBON ACTIVE)';
+            badge.style.color = '#00e676';
+          } else if (data.source === 'usb') {
+            badge.innerText = 'SENSOR: USB WEBCAM (' + (data.device || 'v4l2') + ')';
+            badge.style.color = '#00e676';
+          } else {
+            badge.innerText = 'SENSOR: TEST PATTERN (WAITING ON SENSOR)';
+            badge.style.color = '#ffab00';
+          }
+        }
+        if (storeText && data.disk) {
+          storeText.innerText = 'Pi 3 Storage: ' + data.disk.used_gb + ' GB used / ' + data.disk.total_gb + ' GB (' + data.disk.used_percent + '%)';
+        }
+        if (homeBadge) {
+          homeBadge.innerHTML = '🎥 CARPI3: ' + (data.source === 'testpattern' ? 'SIM' : 'ONLINE');
+        }
+      }
+    })
+    .catch(err => {
+      const sub = document.getElementById('dashcamSubStatus');
+      if (sub) sub.innerText = 'Link: Connecting to Pi 3 (10.0.0.2:8000)...';
+    });
+}
+
+function refreshDashcamClips() {
+  fetch('/dashcam/api/clips')
+    .then(r => r.json())
+    .then(data => {
+      const container = document.getElementById('dashcamClipsList');
+      const countBadge = document.getElementById('dashcamClipCountBadge');
+      if (!container) return;
+
+      const clips = (data && data.clips) ? data.clips : [];
+      if (countBadge) countBadge.innerText = clips.length + ' CLIPS';
+
+      if (clips.length === 0) {
+        container.innerHTML = '<div style="text-align:center; padding:30px; color:var(--text-secondary); font-size:12px;">No clips recorded yet.<br><span style="font-size:10px;">Clips save automatically every 3 minutes.</span></div>';
+        return;
+      }
+
+      let html = '';
+      clips.forEach(clip => {
+        html += '<div style="background:rgba(255,255,255,0.03); border:1px solid #1c2636; border-radius:8px; padding:10px 12px; display:flex; justify-content:space-between; align-items:center;">';
+        html += '  <div>';
+        html += '    <div style="font-size:12px; font-weight:800; color:#fff; font-family:var(--font-mono);">🎬 ' + clip.filename + '</div>';
+        html += '    <div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">' + clip.created_at + ' • ' + clip.size_mb + ' MB</div>';
+        html += '  </div>';
+        html += '  <div style="display:flex; gap:6px;">';
+        html += '    <button onclick="playDashcamClip(\'' + clip.filename + '\', \'/dashcam' + clip.url + '\')" class="cluster-action-btn" style="padding:4px 10px; font-size:11px; border-color:var(--accent-blue); color:var(--accent-blue); font-weight:800;">▶ PLAY</button>';
+        html += '  </div>';
+        html += '</div>';
+      });
+      container.innerHTML = html;
+    })
+    .catch(() => {});
+}
+
+function playDashcamClip(filename, url) {
+  const wrapper = document.getElementById('clipPlayerWrapper');
+  const video = document.getElementById('clipPlayer');
+  const title = document.getElementById('activeClipTitle');
+  if (wrapper && video && title) {
+    wrapper.style.display = 'block';
+    title.innerText = filename;
+    video.src = url;
+    video.play().catch(() => {});
+  }
+}
+
+function closeClipPlayer() {
+  const wrapper = document.getElementById('clipPlayerWrapper');
+  const video = document.getElementById('clipPlayer');
+  if (wrapper && video) {
+    video.pause();
+    video.src = '';
+    wrapper.style.display = 'none';
+  }
+}
+
+function toggleDashcamFullscreen() {
+  const img = document.getElementById('dashcamLiveImg');
+  if (!img) return;
+  if (!document.fullscreenElement) {
+    img.requestFullscreen().catch(() => {});
+  } else {
+    document.exitFullscreen().catch(() => {});
+  }
+}
+
+// Hook into navigateTo
+const origNavigateTo = window.navigateTo;
+window.navigateTo = function(screenName) {
+  if (screenName === 'dashcam') {
+    initDashcamController();
+  }
+  if (origNavigateTo) origNavigateTo(screenName);
+};
+
