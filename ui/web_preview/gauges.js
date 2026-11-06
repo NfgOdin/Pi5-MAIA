@@ -17640,6 +17640,11 @@ let dashcamStatusTimer = null;
 function initDashcamController() {
   refreshDashcamStatus();
   refreshDashcamClips();
+  const img = document.getElementById('dashcamLiveImg');
+  if (img) {
+    // Refresh live MJPEG stream source
+    img.src = '/dashcam/stream.mjpg?t=' + Date.now();
+  }
   if (dashcamStatusTimer) clearInterval(dashcamStatusTimer);
   dashcamStatusTimer = setInterval(refreshDashcamStatus, 4000);
 }
@@ -17737,14 +17742,49 @@ function closeClipPlayer() {
 }
 
 function toggleDashcamFullscreen() {
-  const img = document.getElementById('dashcamLiveImg');
-  if (!img) return;
+  const pane = document.getElementById('dashcamLiveImg') ? document.getElementById('dashcamLiveImg').parentElement : null;
+  if (!pane) return;
+  
   if (!document.fullscreenElement) {
-    img.requestFullscreen().catch(() => {});
+    pane.requestFullscreen().then(() => {
+      let exitBtn = document.getElementById('dashcamTouchExitBtn');
+      if (!exitBtn) {
+        exitBtn = document.createElement('button');
+        exitBtn.id = 'dashcamTouchExitBtn';
+        exitBtn.innerText = '✕ EXIT FULLSCREEN';
+        exitBtn.style.position = 'absolute';
+        exitBtn.style.top = '16px';
+        exitBtn.style.right = '16px';
+        exitBtn.style.zIndex = '999999';
+        exitBtn.style.padding = '12px 20px';
+        exitBtn.style.fontSize = '14px';
+        exitBtn.style.fontWeight = '900';
+        exitBtn.style.background = 'rgba(255,51,68,0.85)';
+        exitBtn.style.color = '#fff';
+        exitBtn.style.border = '2px solid #fff';
+        exitBtn.style.borderRadius = '12px';
+        exitBtn.style.boxShadow = '0 4px 15px rgba(0,0,0,0.6)';
+        exitBtn.onclick = function(e) {
+          e.stopPropagation();
+          document.exitFullscreen().catch(() => {});
+        };
+        pane.appendChild(exitBtn);
+      } else {
+        exitBtn.style.display = 'block';
+      }
+    }).catch(() => {});
   } else {
     document.exitFullscreen().catch(() => {});
   }
 }
+
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement) {
+    const exitBtn = document.getElementById('dashcamTouchExitBtn');
+    if (exitBtn) exitBtn.style.display = 'none';
+  }
+});
+
 
 // Hook into navigateTo
 const origNavigateTo = window.navigateTo;
@@ -17755,3 +17795,10 @@ window.navigateTo = function(screenName) {
   if (origNavigateTo) origNavigateTo(screenName);
 };
 
+
+document.addEventListener('DOMContentLoaded', () => {
+  const img = document.getElementById('dashcamLiveImg');
+  if (img) {
+    img.onclick = toggleDashcamFullscreen;
+  }
+});
