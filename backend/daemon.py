@@ -61,6 +61,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from telemetry.simulator import Dart14TSimulator
 
 from telemetry.obd_reader import RealVehicleTelemetryReader
+from telemetry.gps_manager import GpsManager
 
 from ai.copilot import AICopilot
 
@@ -346,6 +347,8 @@ class CarPi5ServerState:
 
         self.audio = AudioPlayer()
         self.pedal_commander = PedalCommanderController()
+        self.gps = GpsManager()
+        self.gps.start()
         
         def on_avrcp_event(act):
             with self.lock:
@@ -1103,6 +1106,7 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                     payload = {
 
                         "telemetry": frame_dict,
+                        "gps": state.gps.get_telemetry(),
 
                         "ai_event": ai_dict if ai_dict != last_ai_id else None,
 
@@ -1967,6 +1971,14 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             return
 
 
+
+        elif parsed.path == "/api/gps":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(state.gps.get_telemetry()).encode("utf-8"))
+            return
 
         elif parsed.path == "/api/telemetry/mode":
 

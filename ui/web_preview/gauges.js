@@ -707,6 +707,7 @@ function navigateTo(screenId) {
 
     browser: document.getElementById('screenBrowser'),
 
+    maps: document.getElementById('screenMaps'),
     dashcam: document.getElementById('screenDashcam'),
 
     settings: document.getElementById('screenSettings')
@@ -751,6 +752,7 @@ function navigateTo(screenId) {
 
     browser: document.getElementById('dockBtnBrowser'),
 
+    maps: document.getElementById('dockBtnMaps'),
     dashcam: document.getElementById('dockBtnDashcam'),
 
     settings: document.getElementById('dockBtnSettings')
@@ -796,6 +798,14 @@ function navigateTo(screenId) {
     scrollChatToBottom();
 
     fetchAiHistory();
+
+  } else if (screenId === "maps") {
+
+    initOrUpdateMap();
+
+  } else if (screenId === "dashcam") {
+
+    refreshDashcamClips();
 
   }
 
@@ -17802,3 +17812,162 @@ document.addEventListener('DOMContentLoaded', () => {
     img.onclick = toggleDashcamFullscreen;
   }
 });
+
+
+// ==========================================
+// 🧭 LEAFLET MAP & DRAGY TELEMETRY ENGINE
+// ==========================================
+let leafletMap = null;
+let carMarker = null;
+let currentGpsData = null;
+
+function initOrUpdateMap() {
+  setTimeout(() => {
+    const mapDiv = document.getElementById('liveMapCanvas');
+    if (!mapDiv) return;
+
+    if (!leafletMap && typeof L !== 'undefined') {
+      const initialLat = (currentGpsData && currentGpsData.lat) || 33.4484;
+      const initialLon = (currentGpsData && currentGpsData.lon) || -112.0740;
+
+      leafletMap = L.map('liveMapCanvas', {
+        center: [initialLat, initialLon],
+        zoom: 15,
+        zoomControl: false,
+        attributionControl: false
+      });
+
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        subdomains: 'abc'
+      }).addTo(leafletMap);
+
+      const carIcon = L.divIcon({
+        className: 'car-heading-marker',
+        html: `<div id="carIconHeading" style="width:28px; height:28px; border-radius:50%; background:rgba(0,176,255,0.3); border:2px solid #00b0ff; box-shadow:0 0 12px #00b0ff; display:flex; align-items:center; justify-content:center; transition:transform 0.3s ease;">
+                 <div style="width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:12px solid #fff;"></div>
+               </div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14]
+      });
+
+      carMarker = L.marker([initialLat, initialLon], { icon: carIcon }).addTo(leafletMap);
+    }
+    
+    if (leafletMap) {
+      leafletMap.invalidateSize();
+      if (currentGpsData && currentGpsData.lat && currentGpsData.lon && currentGpsData.fix) {
+        leafletMap.panTo([currentGpsData.lat, currentGpsData.lon]);
+        if (carMarker) carMarker.setLatLng([currentGpsData.lat, currentGpsData.lon]);
+      }
+    }
+  }, 200);
+}
+
+function recenterMap() {
+  if (leafletMap && currentGpsData && currentGpsData.lat && currentGpsData.lon) {
+    leafletMap.setView([currentGpsData.lat, currentGpsData.lon], 16);
+  }
+}
+
+function updateGpsAndDragyUI(gps) {
+  if (!gps) return;
+  currentGpsData = gps;
+
+  // Home card badge
+  const homeBadge = document.getElementById('homeGpsBadge');
+  if (homeBadge) {
+    const fixText = gps.fix ? `🛰️ GPS: LOCKED (${gps.sats})` : `🛰️ SATS: ${gps.sats_in_view || 0}`;
+    homeBadge.textContent = fixText;
+    homeBadge.style.color = gps.fix ? 'var(--accent-green)' : 'var(--accent-blue)';
+    homeBadge.style.borderColor = gps.fix ? 'var(--accent-green)' : 'var(--accent-blue)';
+  }
+
+  // Maps top HUD
+  const navFixBadge = document.getElementById('navFixBadge');
+  if (navFixBadge) {
+    navFixBadge.textContent = gps.fix ? '3D FIX LOCKED' : (gps.sats_in_view > 0 ? 'ACQUIRING...' : 'SEARCHING SATS');
+    navFixBadge.style.color = gps.fix ? '#00e676' : '#ffab00';
+    navFixBadge.style.background = gps.fix ? 'rgba(0,230,118,0.15)' : 'rgba(255,171,0,0.15)';
+    navFixBadge.style.borderColor = gps.fix ? '#00e676' : '#ffab00';
+  }
+
+  const navSatsCount = document.getElementById('navSatsCount');
+  if (navSatsCount) navSatsCount.textContent = `🛰️ ${gps.sats || 0} Locked (${gps.sats_in_view || 0} in view)`;
+
+  const navGpsSpeed = document.getElementById('navGpsSpeed');
+  if (navGpsSpeed) navGpsSpeed.textContent = (gps.speed_mph || 0.0).toFixed(1);
+
+  const navHeadingVal = document.getElementById('navHeadingVal');
+  if (navHeadingVal) navHeadingVal.textContent = `${Math.round(gps.heading || 0)}°`;
+
+  const navCardinal = document.getElementById('navCardinal');
+  if (navCardinal) navCardinal.textContent = gps.heading_cardinal || 'N';
+
+  const navAltitude = document.getElementById('navAltitude');
+  if (navAltitude) navAltitude.textContent = gps.altitude_ft ? Math.round(gps.altitude_ft) : '--';
+
+  const navCoords = document.getElementById('navCoords');
+  if (navCoords) {
+    if (gps.lat && gps.lon) {
+      navCoords.textContent = `${gps.lat.toFixed(5)}°N, ${gps.lon.toFixed(5)}°W`;
+    } else {
+      navCoords.textContent = 'Waiting for satellite fix...';
+    }
+  }
+
+  // Update Leaflet Car Position & Rotation
+  if (leafletMap && carMarker && gps.lat && gps.lon && gps.fix) {
+    carMarker.setLatLng([gps.lat, gps.lon]);
+    const headingElem = document.getElementById('carIconHeading');
+    if (headingElem && typeof gps.heading === 'number') {
+      headingElem.style.transform = `rotate(${gps.heading}deg)`;
+    }
+  }
+
+  // DRAGY PERFORMANCE METRICS
+  const d = gps.dragy;
+  if (d) {
+    const badge = document.getElementById('dragyStateBadge');
+    if (badge) {
+      badge.textContent = d.state || 'IDLE';
+      if (d.state === 'STAGED') {
+        badge.style.color = '#00e676';
+        badge.style.background = 'rgba(0,230,118,0.15)';
+        badge.style.borderColor = '#00e676';
+      } else if (d.state === 'ACCELERATING') {
+        badge.style.color = '#ff3d00';
+        badge.style.background = 'rgba(255,61,0,0.15)';
+        badge.style.borderColor = '#ff3d00';
+      } else {
+        badge.style.color = '#00b0ff';
+        badge.style.background = 'rgba(0,176,255,0.15)';
+        badge.style.borderColor = '#00b0ff';
+      }
+    }
+
+    const t060 = document.getElementById('dragy060');
+    if (t060) t060.textContent = d.time_0_60 ? `${d.time_0_60.toFixed(2)}s` : '--';
+
+    const t60ft = document.getElementById('dragy60ft');
+    if (t60ft) t60ft.textContent = d.time_60ft ? `${d.time_60ft.toFixed(2)}s` : '--';
+
+    const t18mi = document.getElementById('dragy18mi');
+    if (t18mi) t18mi.textContent = d.time_1_8mi ? `${d.time_1_8mi.toFixed(2)}s` : '--';
+
+    const s18mph = document.getElementById('dragy18mph');
+    if (s18mph) s18mph.textContent = d.speed_1_8mi ? `@ ${d.speed_1_8mi.toFixed(1)} MPH` : '@ -- MPH';
+
+    const t14mi = document.getElementById('dragy14mi');
+    if (t14mi) t14mi.textContent = d.time_1_4mi ? `${d.time_1_4mi.toFixed(2)}s` : '--';
+
+    const s14mph = document.getElementById('dragy14mph');
+    if (s14mph) s14mph.textContent = d.speed_1_4mi ? `@ ${d.speed_1_4mi.toFixed(1)} MPH` : '@ -- MPH';
+
+    const liveTimer = document.getElementById('dragyLiveTimer');
+    if (liveTimer) liveTimer.textContent = `${(d.current_run_time || 0.0).toFixed(2)}s`;
+
+    const peakG = document.getElementById('dragyPeakG');
+    if (peakG) peakG.textContent = `${(d.peak_g || 0.0).toFixed(2)} G`;
+  }
+}
