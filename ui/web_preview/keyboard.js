@@ -513,9 +513,11 @@ function vkCloseKeyboard() {
   }, 250);
 
   if (vkActiveInput) {
-    try {
-      vkActiveInput.blur();
-    } catch (e) {}
+    if (document.activeElement !== vkActiveInput) {
+      try {
+        vkActiveInput.blur();
+      } catch (e) {}
+    }
   }
   vkActiveInput = null;
 }
@@ -535,10 +537,15 @@ function isEligibleInput(el) {
 
 // Universal initialization & listeners
 function initVirtualKeyboard() {
-  // 1. Focusin listener
+  // Detect touch device (in-dash touch screen or mobile/tablet vs desktop mouse/keyboard)
+  const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+
+  // 1. Focusin listener - auto-open only on touch devices so desktop keyboards type freely
   document.addEventListener('focusin', (e) => {
     if (isEligibleInput(e.target)) {
-      openVirtualKeyboard(e.target);
+      if (isTouchDevice) {
+        openVirtualKeyboard(e.target);
+      }
     }
   });
 
@@ -549,11 +556,31 @@ function initVirtualKeyboard() {
     if (kb && kb.contains(e.target)) return;
 
     if (isEligibleInput(e.target)) {
-      openVirtualKeyboard(e.target);
+      if (e.pointerType === 'touch' || e.pointerType === 'pen' || isTouchDevice) {
+        openVirtualKeyboard(e.target);
+      }
     } else if (kb && kb.classList.contains('visible')) {
-      // Tap outside active input and outside keyboard closes it
-      // unless clicking a button that triggered it
       if (e.target !== vkActiveInput) {
+        vkCloseKeyboard();
+      }
+    }
+  });
+
+  // 3. Keep preview synchronized with physical keyboard typing
+  document.addEventListener('input', (e) => {
+    if (isEligibleInput(e.target)) {
+      if (vkActiveInput === e.target) {
+        vkActiveInput._vkCursor = e.target.selectionEnd || e.target.value.length;
+        vkUpdatePreview();
+      }
+    }
+  });
+
+  // 4. Auto-dismiss touch keyboard when physical typing is detected
+  window.addEventListener('keydown', (e) => {
+    const kb = document.getElementById('virtualTouchKeyboard');
+    if (kb && kb.classList.contains('visible')) {
+      if (e.key && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
         vkCloseKeyboard();
       }
     }
