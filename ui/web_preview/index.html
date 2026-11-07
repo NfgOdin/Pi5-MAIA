@@ -343,100 +343,236 @@
     </div>
 
     <!-- 3. MEDIA & ENTERTAINMENT SCREEN -->
-    <div class="screen-view" id="screenMedia" style="flex-direction:row; gap:14px; height:100%; overflow:hidden; padding:12px 16px;">
-      <!-- LEFT COLUMN: IN-DASH MUSIC PLAYER -->
-      <div class="media-player-card" style="flex:1; max-width:440px; display:flex; flex-direction:column; justify-content:space-between; height:100%; padding:18px 20px; box-sizing:border-box;">
-        <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
-          <span style="font-size:11px; font-weight:800; color:var(--accent-blue); letter-spacing:0.5px;">IN-DASH AUDIO PLAYER</span>
-          <span style="font-size:10px; font-weight:800; color:var(--accent-green); background:rgba(0,230,118,0.12); padding:2px 8px; border-radius:6px; border:1px solid rgba(0,230,118,0.3);">● ACTIVE</span>
-        </div>
-
-        <!-- Album Art Box -->
-        <div class="album-art-box" style="width:130px; height:130px; margin:8px auto; font-size:46px; border-radius:18px; box-shadow:0 8px 24px rgba(0,176,255,0.25);">🎵</div>
-
-        <!-- Track Title & Artist -->
-        <div class="track-info" style="text-align:center;">
-          <div class="track-title" id="trackTitle" style="font-size:16px; font-weight:900; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Select a Track</div>
-          <div class="track-artist" id="trackArtist" style="font-size:12px; color:var(--text-secondary); margin-top:3px;">Local In-Dash Audio</div>
-        </div>
-
-        <!-- Scrubber Progress Bar -->
-        <div style="width:100%; margin:4px 0;">
-          <input type="range" id="mediaTrackBar" min="0" max="100" value="0" style="width:100%; accent-color:var(--accent-blue); cursor:pointer;">
-          <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--text-secondary); font-family:var(--font-mono); margin-top:2px;">
-            <span id="trackElapsed">0:00</span>
-            <span id="trackDuration">0:00</span>
+        <!-- 3. ENTERTAINMENT & MEDIA HUB (SELECTION SCREEN) -->
+    <div class="screen-view" id="screenMedia" style="flex-direction:column; gap:14px; height:100%; overflow-y:auto; padding:14px 18px; box-sizing:border-box;">
+      <!-- Hub Header Bar -->
+      <div style="display:flex; justify-content:space-between; align-items:center; background:#10151f; border:1px solid #1c2636; border-radius:12px; padding:12px 18px; flex-shrink:0;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <div style="font-size:26px; width:44px; height:44px; border-radius:10px; background:rgba(0,176,255,0.12); border:1px solid rgba(0,176,255,0.3); display:flex; align-items:center; justify-content:center;">🎛️</div>
+          <div>
+            <h1 style="font-size:16px; font-weight:900; color:#fff; letter-spacing:0.5px; margin:0;">ENTERTAINMENT & MEDIA HUB</h1>
+            <p style="font-size:11px; color:var(--text-secondary); margin:2px 0 0 0;">High-fidelity in-dash audio studio, streaming cinema, and video players</p>
           </div>
         </div>
-
-        <!-- Transport Controls (Prev, Play/Pause, Next) -->
-        <div class="media-controls-row" style="justify-content:center; gap:16px; margin:4px 0;">
-          <button class="media-btn" onclick="prevTrack()" title="Previous Track">⏮️</button>
-          <button class="media-btn play" id="playPauseBtn" onclick="togglePlayPause()" title="Play / Pause" style="width:52px; height:52px; font-size:22px;">▶️</button>
-          <button class="media-btn" onclick="nextTrack()" title="Next Track">⏭️</button>
-        </div>
-
-        <!-- Sound Controls: Master Radio Volume & Studio Equalizer -->
-        <div style="display:flex; align-items:center; gap:8px; width:100%;">
-          <div style="flex:1; display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.25); padding:6px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.06);">
-            <span style="font-size:14px; cursor:pointer;" onclick="toggleAudioMute()" title="Click to Mute / Unmute">🔊</span>
-            <input type="range" id="mediaVolBar" min="0" max="120" value="80" style="flex:1; accent-color:var(--accent-blue); cursor:pointer;">
-            <span style="font-size:11px; font-family:var(--font-mono); font-weight:800; color:var(--text-secondary); min-width:30px; text-align:right;" id="volLabel">80%</span>
-          </div>
-          <button class="cluster-action-btn" onclick="openEqualizerModal()" style="padding:6px 12px; font-size:11px; font-weight:800; background:rgba(168,85,247,0.18); border:1px solid #a855f7; color:#c084fc; border-radius:10px; display:flex; align-items:center; gap:5px; white-space:nowrap;" title="10-Band Studio Graphic Equalizer & Sound Control">
-            <span>🎛️</span><span>AUDIO SUITE</span>
-          </button>
-        </div>
-
-        <!-- Digital Subwoofer Gain Controller & Amp Monitor HUD -->
-        <div class="sub-controller-card" style="display:flex; align-items:center; justify-content:space-between; background:linear-gradient(135deg, rgba(20,20,30,0.85), rgba(10,10,15,0.95)); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:6px 10px; width:100%; box-sizing:border-box; gap:8px;">
-          <!-- Left: Sub Gain Slider -->
-          <div style="flex:1; display:flex; flex-direction:column; gap:2px; min-width:0;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <span style="font-size:10px; font-weight:800; color:#c084fc; letter-spacing:0.5px;">🔊 SUB GAIN</span>
-              <span id="subGainVal" style="font-size:10px; font-family:var(--font-mono); font-weight:800; color:#fff;">+0 dB</span>
-            </div>
-            <input type="range" id="subGainSlider" min="-24" max="12" step="0.5" value="0" style="width:100%; accent-color:#c084fc; cursor:pointer; height:4px;" oninput="onSubGainChange(this.value)">
-          </div>
-
-          <!-- Middle: Live Amp / Car Battery Voltage -->
-          <div style="display:flex; flex-direction:column; align-items:center; padding:0 8px; border-left:1px solid rgba(255,255,255,0.08); border-right:1px solid rgba(255,255,255,0.08); min-width:48px;">
-            <span style="font-size:8px; font-weight:800; color:var(--text-secondary); letter-spacing:0.5px;">BATT</span>
-            <span id="subVoltVal" style="font-size:11px; font-family:var(--font-mono); font-weight:900; color:var(--accent-green);">14.2V</span>
-          </div>
-
-          <!-- Right: Real-Time Audio Peak Clipping Indicator -->
-          <div style="display:flex; flex-direction:column; align-items:center; min-width:52px;">
-            <span style="font-size:8px; font-weight:800; color:var(--text-secondary); letter-spacing:0.5px;">OUTPUT</span>
-            <div id="subClipBadge" style="font-size:9px; font-weight:900; padding:2px 6px; border-radius:4px; background:rgba(0,230,118,0.15); color:var(--accent-green); border:1px solid rgba(0,230,118,0.3); letter-spacing:0.5px; transition:all 0.08s ease;">CLEAN</div>
-          </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:10px; font-weight:800; color:var(--accent-green); background:rgba(0,230,118,0.12); padding:4px 10px; border-radius:8px; border:1px solid rgba(0,230,118,0.3);">
+            ● UCONNECT SYNC ACTIVE
+          </span>
+          <span style="font-size:10px; font-weight:800; color:var(--accent-blue); background:rgba(0,176,255,0.12); padding:4px 10px; border-radius:8px; border:1px solid rgba(0,176,255,0.3);">
+            PCM 96kHz HI-FI
+          </span>
         </div>
       </div>
 
-      <!-- RIGHT COLUMN: VLC & KODI ICON BUTTONS ON TOP + FULL PLAYLIST / SONG LIST BELOW -->
-      <div style="flex:1.2; display:flex; flex-direction:column; gap:10px; height:100%; min-width:0;">
-        
-        <!-- Top 2 Buttons Side-by-Side: VLC & Kodi (Icon only, no text!) -->
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; flex-shrink:0;">
-          <!-- VLC Button (Icon Only: 🎬) -->
-          <button class="media-app-icon-btn vlc" onclick="launchVlc()" title="Launch VLC Video Player">
-            <span style="font-size:26px;">🎬</span>
-          </button>
-
-          <!-- Kodi Button (Icon Only: 📺) -->
-          <button class="media-app-icon-btn kodi" onclick="launchKodi()" title="Launch Kodi Entertainment Center">
-            <span style="font-size:26px;">📺</span>
-          </button>
+      <!-- 2x2 App Launcher Grid -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; flex:1;">
+        <!-- Card 1: Badass Music Player -->
+        <div class="media-hub-card card-audio" onclick="navigateTo('music')" style="background:linear-gradient(135deg, rgba(16,24,38,0.95), rgba(10,14,22,0.98)); border:1px solid rgba(0,176,255,0.35); border-radius:14px; padding:18px; display:flex; flex-direction:column; justify-content:space-between; cursor:pointer; position:relative; overflow:hidden; box-shadow:0 8px 28px rgba(0,176,255,0.12); transition:transform 0.16s ease, border-color 0.16s ease;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div style="width:52px; height:52px; border-radius:12px; background:rgba(0,176,255,0.15); border:1px solid rgba(0,176,255,0.4); display:flex; align-items:center; justify-content:center; font-size:28px;">🎵</div>
+            <span style="font-size:10px; font-weight:800; color:var(--accent-blue); background:rgba(0,176,255,0.15); padding:3px 10px; border-radius:10px; border:1px solid rgba(0,176,255,0.35);">BUILT-IN HI-FI</span>
+          </div>
+          <div style="margin:14px 0 10px 0;">
+            <div style="font-size:18px; font-weight:900; color:#fff; letter-spacing:0.5px;">CARPI5 AUDIO STUDIO</div>
+            <div style="font-size:11px; color:var(--text-secondary); line-height:1.5; margin-top:4px;">
+              Studio music deck with real-time spectrum visualizer, 10-band graphic equalizer, DSP sub bass boost, tape pitch, and rolling playlist.
+            </div>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; padding-top:12px; border-top:1px solid rgba(255,255,255,0.06);">
+            <span style="font-size:11px; font-weight:800; color:var(--accent-green); display:flex; align-items:center; gap:6px;">
+              <span style="width:8px; height:8px; border-radius:50%; background:var(--accent-green); display:inline-block; animation:pulse 1.2s infinite;"></span>
+              READY TO PLAY
+            </span>
+            <button class="cluster-action-btn" style="padding:6px 14px; font-size:11px; border-color:var(--accent-blue); color:var(--accent-blue); font-weight:800;">OPEN STUDIO ➔</button>
+          </div>
         </div>
 
-        <!-- Song List / Playlist Panel (Full Remaining Height) -->
-        <div class="media-playlist-panel" style="flex:1; display:flex; flex-direction:column; background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:14px; padding:12px 16px; overflow:hidden; min-height:0;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.06); flex-shrink:0;">
-            <div style="display:flex; align-items:center; gap:8px;">
-              <span style="font-size:15px;">📜</span>
-              <span style="font-size:12px; font-weight:800; color:#fff; letter-spacing:0.5px;">PLAYLIST / MUSIC LIBRARY</span>
+        <!-- Card 2: VLC Media Suite -->
+        <div class="media-hub-card card-vlc" onclick="launchVlc()" style="background:linear-gradient(135deg, rgba(32,20,16,0.95), rgba(18,12,10,0.98)); border:1px solid rgba(255,107,0,0.35); border-radius:14px; padding:18px; display:flex; flex-direction:column; justify-content:space-between; cursor:pointer; position:relative; overflow:hidden; box-shadow:0 8px 28px rgba(255,107,0,0.12); transition:transform 0.16s ease, border-color 0.16s ease;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div style="width:52px; height:52px; border-radius:12px; background:rgba(255,107,0,0.15); border:1px solid rgba(255,107,0,0.4); display:flex; align-items:center; justify-content:center; font-size:28px;">🎬</div>
+            <span style="font-size:10px; font-weight:800; color:var(--accent-orange); background:rgba(255,107,0,0.15); padding:3px 10px; border-radius:10px; border:1px solid rgba(255,107,0,0.35);">STANDALONE APP</span>
+          </div>
+          <div style="margin:14px 0 10px 0;">
+            <div style="font-size:18px; font-weight:900; color:#fff; letter-spacing:0.5px;">VLC MEDIA PLAYER</div>
+            <div style="font-size:11px; color:var(--text-secondary); line-height:1.5; margin-top:4px;">
+              Universal hardware-accelerated video decoder. Play dashcam footage, recorded trip videos, USB movie drives, and music videos in fullscreen.
             </div>
-            <span id="tracklistCount" style="font-size:11px; font-weight:800; color:var(--accent-blue); background:rgba(0,176,255,0.12); padding:2px 8px; border-radius:12px; border:1px solid rgba(0,176,255,0.3);">0 Tracks</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; padding-top:12px; border-top:1px solid rgba(255,255,255,0.06);">
+            <span style="font-size:11px; font-weight:800; color:var(--text-secondary);">ALL VIDEO CODECS</span>
+            <button class="cluster-action-btn" style="padding:6px 14px; font-size:11px; border-color:var(--accent-orange); color:var(--accent-orange); font-weight:800;">LAUNCH VLC ➔</button>
+          </div>
+        </div>
+
+        <!-- Card 3: Kodi Home Theatre -->
+        <div class="media-hub-card card-kodi" onclick="launchKodi()" style="background:linear-gradient(135deg, rgba(16,28,38,0.95), rgba(10,18,24,0.98)); border:1px solid rgba(0,230,118,0.35); border-radius:14px; padding:18px; display:flex; flex-direction:column; justify-content:space-between; cursor:pointer; position:relative; overflow:hidden; box-shadow:0 8px 28px rgba(0,230,118,0.12); transition:transform 0.16s ease, border-color 0.16s ease;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div style="width:52px; height:52px; border-radius:12px; background:rgba(0,230,118,0.15); border:1px solid rgba(0,230,118,0.4); display:flex; align-items:center; justify-content:center; font-size:28px;">📺</div>
+            <span style="font-size:10px; font-weight:800; color:var(--accent-green); background:rgba(0,230,118,0.15); padding:3px 10px; border-radius:10px; border:1px solid rgba(0,230,118,0.35);">10-FOOT CINEMA UI</span>
+          </div>
+          <div style="margin:14px 0 10px 0;">
+            <div style="font-size:18px; font-weight:900; color:#fff; letter-spacing:0.5px;">KODI ENTERTAINMENT CENTER</div>
+            <div style="font-size:11px; color:var(--text-secondary); line-height:1.5; margin-top:4px;">
+              Full 10-foot television interface with comprehensive media library scraping, streaming addons, live radio stations, and UPnP home sharing.
+            </div>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; padding-top:12px; border-top:1px solid rgba(255,255,255,0.06);">
+            <span style="font-size:11px; font-weight:800; color:var(--text-secondary);">STANDALONE KIOSK</span>
+            <button class="cluster-action-btn" style="padding:6px 14px; font-size:11px; border-color:var(--accent-green); color:var(--accent-green); font-weight:800;">LAUNCH KODI ➔</button>
+          </div>
+        </div>
+
+        <!-- Card 4: Stremio Cinema -->
+        <div class="media-hub-card card-stremio" onclick="launchStremio()" style="background:linear-gradient(135deg, rgba(28,16,36,0.95), rgba(16,10,22,0.98)); border:1px solid rgba(168,85,247,0.35); border-radius:14px; padding:18px; display:flex; flex-direction:column; justify-content:space-between; cursor:pointer; position:relative; overflow:hidden; box-shadow:0 8px 28px rgba(168,85,247,0.12); transition:transform 0.16s ease, border-color 0.16s ease;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div style="width:52px; height:52px; border-radius:12px; background:rgba(168,85,247,0.15); border:1px solid rgba(168,85,247,0.4); display:flex; align-items:center; justify-content:center; font-size:28px;">🍿</div>
+            <span style="font-size:10px; font-weight:800; color:#c084fc; background:rgba(168,85,247,0.15); padding:3px 10px; border-radius:10px; border:1px solid rgba(168,85,247,0.35);">ARM64 NATIVE</span>
+          </div>
+          <div style="margin:14px 0 10px 0;">
+            <div style="font-size:18px; font-weight:900; color:#fff; letter-spacing:0.5px;">STREMIO CINEMA</div>
+            <div style="font-size:11px; color:var(--text-secondary); line-height:1.5; margin-top:4px;">
+              Freedom to stream movies, television series, anime, and YouTube channels. Native hardware playback with community addons and Trakt syncing.
+            </div>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; padding-top:12px; border-top:1px solid rgba(255,255,255,0.06);">
+            <span style="font-size:11px; font-weight:800; color:var(--text-secondary);">FREEDOM TO STREAM</span>
+            <button class="cluster-action-btn" style="padding:6px 14px; font-size:11px; border-color:#a855f7; color:#c084fc; font-weight:800;">LAUNCH STREMIO ➔</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. DEDICATED IN-DASH AUDIO STUDIO (BADASS MUSIC PLAYER) -->
+    <div class="screen-view" id="screenMusic" style="flex-direction:column; gap:10px; height:100%; overflow:hidden; padding:10px 16px; box-sizing:border-box;">
+      <!-- Top Navigation Header -->
+      <div style="display:flex; justify-content:space-between; align-items:center; background:#0f1520; border:1px solid #1c2636; border-radius:12px; padding:8px 14px; flex-shrink:0;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <button class="cluster-action-btn" onclick="navigateTo('media')" style="padding:5px 12px; font-size:11px; font-weight:800; border-color:var(--accent-blue); color:var(--accent-blue);" title="Back to Entertainment & Media Hub">
+            ◀ MEDIA HUB
+          </button>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:14px; color:var(--accent-blue);">🎵</span>
+            <span style="font-size:12px; font-weight:900; color:#fff; letter-spacing:0.5px;">CARPI5 AUDIO STUDIO</span>
+          </div>
+        </div>
+
+        <!-- Center Now Playing Marquee -->
+        <div style="display:flex; align-items:center; gap:8px; max-width:400px; overflow:hidden;">
+          <div style="display:flex; align-items:center; gap:6px; background:rgba(0,176,255,0.1); border:1px solid rgba(0,176,255,0.25); padding:3px 10px; border-radius:12px;">
+            <span style="width:6px; height:6px; border-radius:50%; background:var(--accent-blue); display:inline-block; animation:pulse 1s infinite;"></span>
+            <span id="musicTopMarquee" style="font-size:11px; font-weight:800; color:#fff; font-family:var(--font-mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Select a Track</span>
+          </div>
+        </div>
+
+        <!-- Right Side: Audio Suite & Bluetooth Sync Badge -->
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button class="cluster-action-btn" onclick="openEqualizerModal()" style="padding:5px 12px; font-size:11px; font-weight:800; background:rgba(168,85,247,0.18); border:1px solid #a855f7; color:#c084fc; border-radius:10px; display:flex; align-items:center; gap:5px;" title="10-Band Studio Graphic Equalizer, Bass Boost & Tape Pitch">
+            <span>🎛️</span><span>AUDIO SUITE</span>
+          </button>
+          <span style="font-size:10px; font-weight:800; color:var(--accent-green); background:rgba(0,230,118,0.12); padding:3px 8px; border-radius:6px; border:1px solid rgba(0,230,118,0.3);" title="Broadcasting track metadata to Dodge Dart instrument cluster & Uconnect radio">
+            📻 UCONNECT GAP
+          </span>
+        </div>
+      </div>
+
+      <!-- Main 2-Column Deck -->
+      <div style="display:grid; grid-template-columns: 440px 1fr; gap:12px; flex:1; min-height:0; overflow:hidden;">
+        <!-- LEFT COLUMN: PLAYER DECK, VISUALIZER & CONTROLS -->
+        <div style="background:linear-gradient(135deg, rgba(14,20,30,0.95), rgba(8,12,18,0.98)); border:1px solid #1c2636; border-radius:14px; padding:14px 18px; display:flex; flex-direction:column; justify-content:space-between; height:100%; box-sizing:border-box; overflow:hidden;">
+          <!-- Top Art & Spectrum Visualizer Row -->
+          <div style="display:flex; align-items:center; gap:14px;">
+            <!-- Glowing Album Art -->
+            <div style="position:relative; width:95px; height:95px; flex-shrink:0;">
+              <div class="album-art-box" id="musicAlbumArtBox" style="width:100%; height:100%; font-size:40px; border-radius:14px; box-shadow:0 8px 24px rgba(0,176,255,0.3); border:2px solid rgba(0,176,255,0.4); display:flex; align-items:center; justify-content:center; background:radial-gradient(circle, #1a2332 0%, #0a0f16 100%);">
+                🎵
+              </div>
+              <!-- Vinyl record overlay indicator -->
+              <div style="position:absolute; bottom:-4px; right:-4px; width:26px; height:26px; border-radius:50%; background:#000; border:2px solid var(--accent-blue); display:flex; align-items:center; justify-content:center; font-size:12px;" title="Hi-Res Studio Stream">
+                💿
+              </div>
+            </div>
+
+            <!-- Track Info & Live Visualizer Canvas -->
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:4px;">
+              <div class="track-title" id="trackTitle" style="font-size:16px; font-weight:900; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Select a Track</div>
+              <div class="track-artist" id="trackArtist" style="font-size:12px; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Local In-Dash Audio</div>
+              
+              <!-- Real-Time Spectrum Visualizer Canvas -->
+              <div style="background:rgba(0,0,0,0.4); border:1px solid rgba(0,176,255,0.25); border-radius:8px; padding:3px 6px; height:34px; margin-top:2px; display:flex; align-items:center;">
+                <canvas id="musicSpectrumCanvas" width="300" height="30" style="width:100%; height:100%; display:block;"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- Scrubber Progress Bar -->
+          <div style="width:100%; margin:4px 0;">
+            <input type="range" id="mediaTrackBar" min="0" max="100" value="0" style="width:100%; accent-color:var(--accent-blue); cursor:pointer;">
+            <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--text-secondary); font-family:var(--font-mono); margin-top:2px;">
+              <span id="trackElapsed">0:00</span>
+              <span id="trackDuration">0:00</span>
+            </div>
+          </div>
+
+          <!-- Transport Controls -->
+          <div class="media-controls-row" style="display:flex; justify-content:center; align-items:center; gap:16px; margin:2px 0;">
+            <button class="media-btn" id="btnShuffleToggle" onclick="toggleShuffle()" style="font-size:16px; width:38px; height:38px; opacity:0.75;" title="Toggle Shuffle Mode">🔀</button>
+            <button class="media-btn" onclick="prevTrack()" title="Previous Track" style="width:44px; height:44px; font-size:18px;">⏮️</button>
+            <button class="media-btn play" id="playPauseBtn" onclick="togglePlayPause()" title="Play / Pause" style="width:56px; height:56px; font-size:24px; box-shadow:0 0 20px rgba(0,176,255,0.4);">▶️</button>
+            <button class="media-btn" onclick="nextTrack()" title="Next Track" style="width:44px; height:44px; font-size:18px;">⏭️</button>
+            <button class="media-btn" id="btnRepeatToggle" onclick="toggleRepeat()" style="font-size:16px; width:38px; height:38px; opacity:0.75;" title="Toggle Repeat Mode">🔁</button>
+          </div>
+
+          <!-- Volume Bar & Mute -->
+          <div style="display:flex; align-items:center; gap:8px; width:100%; background:rgba(0,0,0,0.25); padding:6px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.06);">
+            <span style="font-size:14px; cursor:pointer;" onclick="toggleAudioMute()" title="Click to Mute / Unmute">🔊</span>
+            <input type="range" id="mediaVolBar" min="0" max="120" value="80" style="flex:1; accent-color:var(--accent-blue); cursor:pointer;">
+            <span style="font-size:11px; font-family:var(--font-mono); font-weight:800; color:var(--text-secondary); min-width:32px; text-align:right;" id="volLabel">80%</span>
+          </div>
+
+          <!-- Digital Subwoofer Gain Controller & Amp Monitor HUD -->
+          <div class="sub-controller-card" style="display:flex; align-items:center; justify-content:space-between; background:linear-gradient(135deg, rgba(20,20,30,0.85), rgba(10,10,15,0.95)); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:6px 10px; width:100%; box-sizing:border-box; gap:8px;">
+            <!-- Left: Sub Gain Slider -->
+            <div style="flex:1; display:flex; flex-direction:column; gap:2px; min-width:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:10px; font-weight:800; color:#c084fc; letter-spacing:0.5px;">🔊 SUB GAIN</span>
+                <span id="subGainVal" style="font-size:10px; font-family:var(--font-mono); font-weight:800; color:#fff;">+0 dB</span>
+              </div>
+              <input type="range" id="subGainSlider" min="-24" max="12" step="0.5" value="0" style="width:100%; accent-color:#c084fc; cursor:pointer; height:4px;" oninput="onSubGainChange(this.value)">
+            </div>
+
+            <!-- Middle: Live Amp / Car Battery Voltage -->
+            <div style="display:flex; flex-direction:column; align-items:center; padding:0 8px; border-left:1px solid rgba(255,255,255,0.08); border-right:1px solid rgba(255,255,255,0.08); min-width:48px;">
+              <span style="font-size:8px; font-weight:800; color:var(--text-secondary); letter-spacing:0.5px;">BATT</span>
+              <span id="subVoltVal" style="font-size:11px; font-family:var(--font-mono); font-weight:900; color:var(--accent-green);">14.2V</span>
+            </div>
+
+            <!-- Right: Real-Time Audio Peak Clipping Indicator -->
+            <div style="display:flex; flex-direction:column; align-items:center; min-width:52px;">
+              <span style="font-size:8px; font-weight:800; color:var(--text-secondary); letter-spacing:0.5px;">OUTPUT</span>
+              <div id="subClipBadge" style="font-size:9px; font-weight:900; padding:2px 6px; border-radius:4px; background:rgba(0,230,118,0.15); color:var(--accent-green); border:1px solid rgba(0,230,118,0.3); letter-spacing:0.5px; transition:all 0.08s ease;">CLEAN</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT COLUMN: MUSIC LIBRARY & PLAYLIST (ZERO KODI/VLC BUTTONS) -->
+        <div class="media-playlist-panel" style="display:flex; flex-direction:column; background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:14px; padding:12px 16px; overflow:hidden; min-height:0; height:100%; box-sizing:border-box;">
+          <!-- Playlist Header with Search & Count -->
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.06); flex-shrink:0; gap:8px;">
+            <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+              <span style="font-size:15px;">📜</span>
+              <span style="font-size:12px; font-weight:800; color:#fff; letter-spacing:0.5px;">PLAYLIST / LIBRARY</span>
+            </div>
+            
+            <!-- Quick Playlist Search Input -->
+            <div style="flex:1; max-width:240px; position:relative;">
+              <input type="text" id="playlistSearchInput" oninput="filterPlaylistTracks(this.value)" placeholder="Search songs / artists..." style="width:100%; background:rgba(0,0,0,0.3); border:1px solid #1c2636; border-radius:8px; padding:4px 8px; font-size:11px; color:#fff; outline:none; box-sizing:border-box;">
+            </div>
+
+            <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+              <span id="tracklistCount" style="font-size:11px; font-weight:800; color:var(--accent-blue); background:rgba(0,176,255,0.12); padding:2px 8px; border-radius:12px; border:1px solid rgba(0,176,255,0.3);">0 Tracks</span>
+              <button class="cluster-action-btn" onclick="rescanMusicLibrary()" style="font-size:10px; padding:3px 8px; border-color:#2a374a;" title="Rescan local audio files">🔄 RESCAN</button>
+            </div>
           </div>
 
           <!-- Dynamic Track List Scroll Area -->

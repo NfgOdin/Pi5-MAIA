@@ -3334,3 +3334,79 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
   background: var(--accent-yellow);
   color: #000;
 }
+
+/* ==========================================================================
+   CARPI5 ENTERTAINMENT & MEDIA HUB + BADASS AUDIO STUDIO
+   ========================================================================== */
+
+.media-hub-card {
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s ease, border-color 0.18s ease;
+  user-select: none;
+}
+
+.media-hub-card:hover {
+  transform: translateY(-3px);
+}
+
+.media-hub-card:active {
+  transform: scale(0.98);
+}
+
+.media-hub-card.card-audio:hover {
+  border-color: var(--accent-blue) !important;
+  box-shadow: 0 12px 36px rgba(0, 176, 255, 0.28) !important;
+}
+
+.media-hub-card.card-vlc:hover {
+  border-color: var(--accent-orange) !important;
+  box-shadow: 0 12px 36px rgba(255, 107, 0, 0.28) !important;
+}
+
+.media-hub-card.card-kodi:hover {
+  border-color: var(--accent-green) !important;
+  box-shadow: 0 12px 36px rgba(0, 230, 118, 0.28) !important;
+}
+
+.media-hub-card.card-stremio:hover {
+  border-color: #c084fc !important;
+  box-shadow: 0 12px 36px rgba(168, 85, 247, 0.28) !important;
+}
+
+/* Audio Player Spinning Vinyl Record Effect when playing */
+@keyframes spinVinyl {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.vinyl-spinning {
+  animation: spinVinyl 3.5s linear infinite;
+}
+
+/* Track item active highlight in badass music player */
+.music-track-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, transform 0.12s ease;
+}
+
+.music-track-item:hover {
+  background: rgba(0, 176, 255, 0.08);
+  border-color: rgba(0, 176, 255, 0.3);
+  transform: translateX(3px);
+}
+
+.music-track-item.active-track {
+  background: linear-gradient(90deg, rgba(0, 176, 255, 0.2), rgba(0, 176, 255, 0.05));
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 16px rgba(0, 176, 255, 0.2);
+}
+
+.music-track-item.active-track .track-name-bold {
+  color: var(--accent-blue) !important;
+}

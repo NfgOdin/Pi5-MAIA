@@ -830,6 +830,15 @@ class AudioPlayer:
 
             return
 
+        # Keep a copy of the latest speech audio for remote web clients (PC / phone)
+        try:
+            target_web = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "ui", "web_preview", "last_speech.wav")
+            import shutil
+            shutil.copy2(file_path, target_web)
+        except Exception:
+            pass
+
+
 
 
         def mark_speaking():

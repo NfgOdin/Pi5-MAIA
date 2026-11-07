@@ -3770,6 +3770,31 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
 
 
+        elif parsed.path == "/api/media/launch_stremio":
+            try:
+                env = os.environ.copy()
+                env["DISPLAY"] = ":0"
+                env["WAYLAND_DISPLAY"] = "wayland-0"
+                if hasattr(os, "getuid"):
+                    env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
+                else:
+                    env["XDG_RUNTIME_DIR"] = "/run/user/1000"
+                
+                cmd = ["stremio"]
+                proc = subprocess.Popen(cmd, env=env)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok", "message": "Stremio Launched", "pid": proc.pid}).encode("utf-8"))
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode("utf-8"))
+            return
+
         elif parsed.path == "/api/media/launch_vlc":
 
             try:

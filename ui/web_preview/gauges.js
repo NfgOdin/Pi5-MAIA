@@ -702,6 +702,7 @@ function navigateTo(screenId) {
     ai: document.getElementById('screenAI'),
 
     media: document.getElementById('screenMedia'),
+    music: document.getElementById('screenMusic'),
 
     games: document.getElementById('screenGames'),
 
@@ -765,7 +766,7 @@ function navigateTo(screenId) {
 
     if (buttons[key]) {
 
-      if (key === screenId) {
+      if (key === screenId || (screenId === 'music' && key === 'media')) {
 
         buttons[key].classList.add('active');
 
@@ -3541,6 +3542,12 @@ function sendChatMessage(userText, isVoice = false) {
 
 
 
+      // Remote Client Audio Playback (Plays R.U.M. speech on PC / phone if viewing remotely)
+      if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        const remoteVoice = new Audio('/last_speech.wav?t=' + Date.now());
+        remoteVoice.play().catch(e => console.log('[AUDIO] Browser autoplay blocked:', e));
+      }
+
       // Update home banner quote
 
       const homeQuote = document.getElementById('homeBannerAiQuote');
@@ -5262,7 +5269,7 @@ function renderRealTracklist() {
 
       </div>
 
-      <button class="cluster-action-btn" style="padding:2px 8px; font-size:9px; background:${idx === realTrackIdx && !realAudio.paused ? 'var(--accent-blue)' : '#222'}; color:#fff;">${idx === realTrackIdx && !realAudio.paused ? 'PLAYING' : 'PLAY'}</button>
+      <button class="cluster-action-btn" style="padding:4px 10px; font-size:10px; font-weight:800; border-color:${idx === realTrackIdx && !realAudio.paused ? 'var(--accent-blue)' : '#222'}; background:${idx === realTrackIdx && !realAudio.paused ? 'rgba(0,176,255,0.2)' : 'transparent'}; color:#fff;">${idx === realTrackIdx && !realAudio.paused ? '🔊 NOW PLAYING' : '▶ PLAY'}</button>
 
     </div>
 
@@ -17971,3 +17978,164 @@ function updateGpsAndDragyUI(gps) {
     if (peakG) peakG.textContent = `${(d.peak_g || 0.0).toFixed(2)} G`;
   }
 }
+
+
+// ========================================================
+// CARPI5 MEDIA HUB & BADASS IN-DASH AUDIO STUDIO EXTENSION
+// ========================================================
+
+let isShuffleActive = false;
+let isRepeatActive = false;
+let visualizerAnimationId = null;
+
+function openMusicPlayer() {
+  navigateTo('music');
+  startMusicVisualizer();
+}
+
+function launchStremio() {
+  showAiSpeechToast("Launching Stremio Cinema...");
+  fetch('/api/media/launch_stremio', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      console.log("[STREMIO] Launch response:", data);
+    })
+    .catch(err => {
+      console.warn("[STREMIO] Launch error, opening web fallback:", err);
+      window.open('https://web.stremio.com', '_blank');
+    });
+}
+
+function toggleShuffle() {
+  isShuffleActive = !isShuffleActive;
+  const btn = document.getElementById('btnShuffleToggle');
+  if (btn) {
+    btn.style.opacity = isShuffleActive ? '1' : '0.65';
+    btn.style.color = isShuffleActive ? 'var(--accent-blue)' : '#fff';
+  }
+  showAiSpeechToast(isShuffleActive ? "Shuffle: ON" : "Shuffle: OFF");
+}
+
+function toggleRepeat() {
+  isRepeatActive = !isRepeatActive;
+  const btn = document.getElementById('btnRepeatToggle');
+  if (btn) {
+    btn.style.opacity = isRepeatActive ? '1' : '0.65';
+    btn.style.color = isRepeatActive ? 'var(--accent-blue)' : '#fff';
+  }
+  showAiSpeechToast(isRepeatActive ? "Repeat: ON" : "Repeat: OFF");
+}
+
+function filterPlaylistTracks(query) {
+  const q = (query || '').toLowerCase().trim();
+  const listEl = document.getElementById('mediaTrackList');
+  if (!listEl) return;
+  const items = listEl.querySelectorAll('.music-track-item');
+  items.forEach(item => {
+    const text = item.innerText.toLowerCase();
+    item.style.display = (!q || text.includes(q)) ? 'flex' : 'none';
+  });
+}
+
+function rescanMusicLibrary() {
+  showAiSpeechToast("Scanning audio files...");
+  fetch('/api/media/tracks')
+    .then(r => r.json())
+    .then(data => {
+      if (data && data.tracks) {
+        realPlaylist = data.tracks;
+        renderRealTracklist();
+        showAiSpeechToast(`Found ${realPlaylist.length} tracks`);
+      }
+    })
+    .catch(e => console.error("Error rescanning tracks:", e));
+}
+
+// Hook realAudio events for vinyl spin and visualizer
+realAudio.addEventListener('play', () => {
+  const art = document.getElementById('musicAlbumArtBox');
+  if (art) art.classList.add('vinyl-spinning');
+  startMusicVisualizer();
+});
+
+realAudio.addEventListener('pause', () => {
+  const art = document.getElementById('musicAlbumArtBox');
+  if (art) art.classList.remove('vinyl-spinning');
+});
+
+realAudio.addEventListener('ended', () => {
+  const art = document.getElementById('musicAlbumArtBox');
+  if (art) art.classList.remove('vinyl-spinning');
+  if (isRepeatActive) {
+    realAudio.currentTime = 0;
+    realAudio.play().catch(() => {});
+  } else if (isShuffleActive && realPlaylist.length > 1) {
+    let nextIdx = Math.floor(Math.random() * realPlaylist.length);
+    if (nextIdx === realTrackIdx) nextIdx = (nextIdx + 1) % realPlaylist.length;
+    loadTrack(nextIdx, true);
+  } else {
+    nextTrack();
+  }
+});
+
+// Canvas Spectrum Equalizer Visualizer
+function startMusicVisualizer() {
+  if (visualizerAnimationId) return;
+
+  const canvas = document.getElementById('musicSpectrumCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+
+  const barCount = 28;
+  const barWidth = 7;
+  const gap = 3;
+  let phases = Array(barCount).fill(0).map(() => Math.random() * Math.PI * 2);
+
+  function renderFrame() {
+    if (currentScreen !== 'music') {
+      visualizerAnimationId = null;
+      return;
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const isPlaying = !realAudio.paused && realAudio.currentTime > 0;
+
+    for (let i = 0; i < barCount; i++) {
+      let height = 3;
+      if (isPlaying) {
+        phases[i] += 0.08 + (i * 0.005);
+        const wave = Math.sin(phases[i]) * 0.5 + 0.5;
+        const bassBoost = (i < 8) ? 1.4 : 1.0;
+        height = Math.max(3, wave * (canvas.height - 4) * bassBoost);
+      }
+
+      const x = i * (barWidth + gap);
+      const y = canvas.height - height;
+
+      // Color gradient: cyan to purple/pink
+      const grad = ctx.createLinearGradient(0, canvas.height, 0, 0);
+      grad.addColorStop(0, '#00b0ff');
+      grad.addColorStop(0.7, '#00e676');
+      grad.addColorStop(1, '#ff4081');
+
+      ctx.fillStyle = grad;
+      ctx.fillRect(x, y, barWidth, height);
+    }
+
+    visualizerAnimationId = requestAnimationFrame(renderFrame);
+  }
+
+  visualizerAnimationId = requestAnimationFrame(renderFrame);
+}
+
+// Update top marquee when track loads
+const origLoadTrack = window.loadTrack;
+window.loadTrack = function(idx, autoPlay = true) {
+  if (origLoadTrack) origLoadTrack(idx, autoPlay);
+  if (realPlaylist && realPlaylist[idx]) {
+    const t = realPlaylist[idx];
+    const marquee = document.getElementById('musicTopMarquee');
+    if (marquee) marquee.innerText = `${t.title || 'Track'} — ${t.artist || 'CarPi5'}`;
+  }
+};
