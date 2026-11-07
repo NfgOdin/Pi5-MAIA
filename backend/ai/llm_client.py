@@ -1219,27 +1219,36 @@ class LLMClient:
         # Home launcher
 
         elif any(k in t for k in ["home", "main menu", "launcher", "dashboard"]):
-
             return {"type": "navigate", "target": "home"}
 
+        # Dashcam / Camera View
+        elif any(k in t for k in ["dashcam", "camera", "live cam", "rear cam", "video archive", "recording"]):
+            return {"type": "navigate", "target": "dashcam"}
+
         # Diagnostics
-
         elif any(k in t for k in ["diagnostic", "dtc", "trouble code", "check engine", "scan ecu"]):
-
             return {"type": "action", "target": "diagnostics"}
 
+        # Cooling Fan Control (Delta AFB0812SH)
+        elif any(k in t for k in ["fan to 100", "fan 100", "max fan", "full cooling", "blast fan", "fan full"]):
+            return {"type": "fan", "action": "set", "duty": 100}
+        elif any(k in t for k in ["fan to auto", "auto fan", "fan auto", "automatic fan"]):
+            return {"type": "fan", "action": "auto"}
+        elif any(k in t for k in ["fan off", "turn off fan", "stop fan"]):
+            return {"type": "fan", "action": "set", "duty": 0}
+        elif "fan speed" in t or "fan to" in t:
+            for pct in (10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90, 100):
+                if f"{pct}" in t:
+                    return {"type": "fan", "action": "set", "duty": pct}
+
         # Direct App Launchers
-
         if "launch retroarch" in t or "open retroarch" in t:
-
             return {"type": "launch", "target": "retroarch"}
-
+        elif "stremio" in t:
+            return {"type": "launch", "target": "stremio"}
         elif "kodi" in t:
-
             return {"type": "launch", "target": "kodi"}
-
         elif "vlc" in t:
-
             return {"type": "launch", "target": "vlc"}
 
         return None

@@ -2301,6 +2301,41 @@
         </div>
       </div>
 
+      <!-- Delta AFB0812SH 4-Wire PWM Fan Section -->
+      <div style="background:#0c141f; border:1px solid #1a2a3e; padding:12px 14px; border-radius:8px; margin-bottom:14px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <div>
+            <div style="font-size:10px; color:var(--accent-cyan, #00e5ff); font-weight:900; letter-spacing:0.5px;">COOLING FAN: DELTA AFB0812SH (4-WIRE PWM)</div>
+            <div style="font-size:10px; color:var(--text-secondary);">PWM: GPIO 12 (Pin 32) • Tachometer: GPIO 24 (Pin 18)</div>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <button id="fanModeAutoBtn" onclick="setFanMode('AUTO')" class="cluster-action-btn" style="padding:3px 10px; font-size:10px; font-weight:800; background:var(--accent-cyan, #00e5ff); color:#000;">AUTO</button>
+            <button id="fanModeManualBtn" onclick="setFanMode('MANUAL')" class="cluster-action-btn" style="padding:3px 10px; font-size:10px; font-weight:800; background:transparent; color:#8a9ba8; border-color:#2a3a4e;">MANUAL</button>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:8px;">
+          <div style="background:#090d14; padding:8px 10px; border-radius:6px; border:1px solid #162232;">
+            <div style="font-size:9px; color:var(--text-secondary);">TACHOMETER SPEED</div>
+            <div style="font-size:18px; font-weight:900; color:#fff;" id="modalFanRpm">-- RPM</div>
+            <div style="font-size:9px; color:var(--accent-green);" id="modalFanSpeedDesc">Normal Idle</div>
+          </div>
+          <div style="background:#090d14; padding:8px 10px; border-radius:6px; border:1px solid #162232;">
+            <div style="font-size:9px; color:var(--text-secondary);">PWM DUTY CYCLE (25 kHz)</div>
+            <div style="font-size:18px; font-weight:900; color:var(--accent-cyan, #00e5ff);" id="modalFanDuty">-- %</div>
+            <div style="font-size:9px; color:var(--text-secondary);" id="modalFanModeDesc">Auto Thermal Curve</div>
+          </div>
+        </div>
+
+        <div id="fanManualControlBox" style="display:none; margin-top:8px;">
+          <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--text-secondary); margin-bottom:4px;">
+            <span>MANUAL FAN SPEED</span>
+            <span id="fanManualSliderVal" style="color:var(--accent-cyan, #00e5ff); font-weight:800;">50%</span>
+          </div>
+          <input type="range" id="fanManualSlider" min="0" max="100" value="50" step="5" style="width:100%; accent-color:var(--accent-cyan, #00e5ff);" oninput="onFanSliderInput(this.value)" onchange="applyManualFanSpeed(this.value)">
+        </div>
+      </div>
+
       <div style="display:flex; justify-content:flex-end;">
         <button class="graph-close-btn" onclick="closeSystemHealthModal()">CLOSE</button>
       </div>

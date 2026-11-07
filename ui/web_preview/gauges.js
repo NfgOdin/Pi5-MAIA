@@ -3109,29 +3109,23 @@ function handleAiAction(action) {
   
 
   if (action.type === 'navigate') {
-
-    const validScreens = ['home', 'gauges', 'ai', 'media', 'games', 'settings'];
-
+    const validScreens = ['home', 'gauges', 'ai', 'media', 'music', 'games', 'settings', 'dashcam'];
     if (validScreens.includes(action.target)) {
-
-      navigateTo(action.target);
-
+      if (action.target === 'music') {
+        openMusicPlayer();
+      } else {
+        navigateTo(action.target);
+      }
     }
-
   } else if (action.type === 'launch') {
-
     if (action.target === 'kodi') {
-
       launchKodi();
-
     } else if (action.target === 'vlc') {
-
       launchVlc();
-
+    } else if (action.target === 'stremio') {
+      launchStremio();
     } else if (action.target === 'retroarch') {
-
       launchRetroArch();
-
     }
 
   } else if (action.type === 'action') {
@@ -8408,11 +8402,49 @@ function fetchSystemHealth() {
       if (mUptime) mUptime.innerText = data.uptime_str;
 
       if (mThrottle) {
-
         mThrottle.innerText = data.throttle_message;
-
         mThrottle.style.color = data.throttled ? "var(--accent-red)" : (data.under_voltage ? "var(--accent-yellow)" : "var(--accent-green)");
+      }
 
+      // Update Delta Fan Telemetry if present
+      if (data.fan) {
+        const mRpm = document.getElementById('modalFanRpm');
+        const mDuty = document.getElementById('modalFanDuty');
+        const mDesc = document.getElementById('modalFanSpeedDesc');
+        const mModeDesc = document.getElementById('modalFanModeDesc');
+        const autoBtn = document.getElementById('fanModeAutoBtn');
+        const manBtn = document.getElementById('fanModeManualBtn');
+        const box = document.getElementById('fanManualControlBox');
+
+        if (mRpm) mRpm.innerText = `${data.fan.actual_rpm || 0} RPM`;
+        if (mDuty) mDuty.innerText = `${Math.round(data.fan.duty_cycle_pct || 0)}%`;
+        
+        if (mDesc) {
+          const rpm = data.fan.actual_rpm || 0;
+          if (rpm === 0) mDesc.innerText = "Fan Off / Stalled";
+          else if (rpm < 1500) mDesc.innerText = "Quiet Idle";
+          else if (rpm < 3000) mDesc.innerText = "Active Cooling";
+          else mDesc.innerText = "High-Velocity Cooling";
+        }
+
+        if (mModeDesc) {
+          mModeDesc.innerText = data.fan.mode === "AUTO" ? "Auto Thermal Curve" : "Manual Override";
+        }
+
+        if (autoBtn && manBtn) {
+          const isAuto = data.fan.mode === "AUTO";
+          autoBtn.style.background = isAuto ? "var(--accent-cyan, #00e5ff)" : "transparent";
+          autoBtn.style.color = isAuto ? "#000" : "#8a9ba8";
+          autoBtn.style.borderColor = isAuto ? "var(--accent-cyan, #00e5ff)" : "#2a3a4e";
+
+          manBtn.style.background = !isAuto ? "var(--accent-cyan, #00e5ff)" : "transparent";
+          manBtn.style.color = !isAuto ? "#000" : "#8a9ba8";
+          manBtn.style.borderColor = !isAuto ? "var(--accent-cyan, #00e5ff)" : "#2a3a4e";
+        }
+
+        if (box) {
+          box.style.display = data.fan.mode === "MANUAL" ? "block" : "none";
+        }
       }
 
     })
@@ -8443,17 +8475,44 @@ function openSystemHealthModal() {
 
 
 function closeSystemHealthModal() {
-
   const m = document.getElementById('sbcHealthModal');
-
   if (m) {
-
     m.style.display = 'none';
-
     m.classList.remove('open');
-
   }
+}
 
+function setFanMode(mode) {
+  fetch('/api/system/fan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: mode })
+  })
+    .then(r => r.json())
+    .then(d => {
+      fetchSystemHealth();
+      showAiSpeechToast(`Cooling fan set to ${mode} mode`);
+    })
+    .catch(e => console.error("Error setting fan mode:", e));
+}
+
+function onFanSliderInput(val) {
+  const lbl = document.getElementById('fanManualSliderVal');
+  if (lbl) lbl.innerText = `${val}%`;
+}
+
+function applyManualFanSpeed(val) {
+  fetch('/api/system/fan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: 'MANUAL', duty_cycle: parseFloat(val) })
+  })
+    .then(r => r.json())
+    .then(d => {
+      fetchSystemHealth();
+      showAiSpeechToast(`Fan speed set to ${val}%`);
+    })
+    .catch(e => console.error("Error setting fan speed:", e));
 }
 
 
@@ -18042,10 +18101,18 @@ function rescanMusicLibrary() {
   fetch('/api/media/tracks')
     .then(r => r.json())
     .then(data => {
-      if (data && data.tracks) {
-        realPlaylist = data.tracks;
+      let list = [];
+      if (Array.isArray(data)) {
+        list = data;
+      } else if (data && Array.isArray(data.tracks)) {
+        list = data.tracks;
+      }
+      if (list.length > 0) {
+        realPlaylist = list;
         renderRealTracklist();
         showAiSpeechToast(`Found ${realPlaylist.length} tracks`);
+      } else {
+        showAiSpeechToast("No tracks found");
       }
     })
     .catch(e => console.error("Error rescanning tracks:", e));

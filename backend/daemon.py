@@ -81,6 +81,7 @@ from bluetooth_manager import BluetoothManager
 from hardware.system_monitor import SystemMonitor
 
 from hardware.gpio_controller import GpioController
+from hardware.fan_controller import FanController
 
 from hardware.audio_player import AudioPlayer
 from hardware.pedal_commander import PedalCommanderController
@@ -340,6 +341,7 @@ class CarPi5ServerState:
         self.sys_monitor = SystemMonitor()
 
         self.gpio = GpioController()
+        self.fan = FanController(pwm_pin=12, tach_pin=24)
 
         self.rom_mgr = RomManager()
 
@@ -1726,8 +1728,12 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             # Proxy dashcam requests from Pi 5 to Pi 3 over direct Ethernet (10.0.0.2:8000)
             pi3_host = "http://10.0.0.2:8000"
             subpath = parsed.path
-            if subpath.startswith("/dashcam/"):
+            if subpath.startswith("/api/dashcam/"):
+                subpath = subpath[len("/api/dashcam/"):]
+            elif subpath.startswith("/dashcam/"):
                 subpath = subpath[len("/dashcam"):]
+            if not subpath.startswith("/"):
+                subpath = "/" + subpath
             target_url = f"{pi3_host}{subpath}"
             if parsed.query:
                 target_url += f"?{parsed.query}"
@@ -1820,7 +1826,7 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             return
 
-        elif parsed.path == "/api/bluetooth/status":
+        elif parsed.path in ("/api/bluetooth/status", "/api/bluetooth/devices"):
             status = state.bluetooth.get_status()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -2039,19 +2045,22 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
 
         elif parsed.path == "/api/system/health":
-
             health = state.sys_monitor.get_system_health()
-
+            health["fan"] = state.fan.get_status()
             self.send_response(200)
-
             self.send_header("Content-Type", "application/json")
-
             self.send_header("Access-Control-Allow-Origin", "*")
-
             self.end_headers()
-
             self.wfile.write(json.dumps(health).encode("utf-8"))
+            return
 
+        elif parsed.path == "/api/system/fan":
+            fan_status = state.fan.get_status()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(fan_status).encode("utf-8"))
             return
 
 
@@ -2295,20 +2304,16 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
 
 
-        elif parsed.path == "/api/media/playlist":
-
+        elif parsed.path in ("/api/media/playlist", "/api/media/tracks"):
             tracks = get_media_playlist()
-
             self.send_response(200)
-
             self.send_header("Content-Type", "application/json")
-
             self.send_header("Access-Control-Allow-Origin", "*")
-
             self.end_headers()
-
-            self.wfile.write(json.dumps(tracks).encode("utf-8"))
-
+            if parsed.path == "/api/media/tracks":
+                self.wfile.write(json.dumps({"status": "ok", "tracks": tracks, "count": len(tracks)}).encode("utf-8"))
+            else:
+                self.wfile.write(json.dumps(tracks).encode("utf-8"))
             return
 
 
@@ -2977,11 +2982,14 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             # Query LLM with automated voice action extraction
 
             res = state.llm.chat_with_action(user_msg, live_telemetry=frame_dict)
-
             if res.get("action"):
-
+                act = res["action"]
+                if act.get("type") == "fan":
+                    if act.get("action") == "auto":
+                        state.fan.set_mode("AUTO")
+                    elif act.get("action") == "set":
+                        state.fan.set_mode("MANUAL", manual_pct=float(act.get("duty", 50)))
                 with state.lock:
-
                     state.latest_ui_action = res["action"]
 
             
@@ -3611,6 +3619,22 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             return
 
 
+
+        elif parsed.path == "/api/system/fan":
+            mode = req_data.get("mode", "AUTO")
+            duty = req_data.get("duty_cycle")
+            if duty is not None:
+                try:
+                    duty = float(duty)
+                except (ValueError, TypeError):
+                    duty = None
+            res = state.fan.set_mode(mode, manual_pct=duty)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "fan": res}).encode("utf-8"))
+            return
 
         elif parsed.path == "/api/gpio/toggle":
 
