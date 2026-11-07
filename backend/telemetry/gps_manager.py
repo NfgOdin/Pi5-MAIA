@@ -7,6 +7,8 @@ Thread-safe.
 """
 
 import sys
+import os
+import subprocess
 import time
 import math
 import threading
@@ -45,6 +47,7 @@ class GpsManager:
         }
         
         # Dragy / Performance Timer Engine
+        self._last_time_sync = 0.0
         self.dragy: Dict[str, Any] = {
             "state": "IDLE",  # IDLE, STAGED, ACCELERATING, FINISHED
             "time_0_60": None,
@@ -217,6 +220,27 @@ class GpsManager:
                                 self.data["lon"] = lon
 
                         # RMC
+                        
+                        # ZDA - Time & Date: $GNZDA,hhmmss.ss,dd,mm,yyyy,xx,xx*hh
+                        elif tag.endswith('ZDA') and len(parts) > 4:
+                            utc_time = parts[1]
+                            day = parts[2]
+                            month = parts[3]
+                            year = parts[4]
+                            if utc_time and day and month and year and (now - self._last_time_sync > 300.0):
+                                try:
+                                    # Format: YYYY-MM-DD HH:MM:SS
+                                    hh = utc_time[:2]
+                                    mm = utc_time[2:4]
+                                    ss = utc_time[4:6]
+                                    dt_str = f"{year}-{month}-{day} {hh}:{mm}:{ss}"
+                                    if sys.platform.startswith("linux"):
+                                        subprocess.run(["sudo", "date", "-u", "-s", dt_str], timeout=2)
+                                        print(f"[GPS] Synchronized system clock to satellite UTC: {dt_str}")
+                                        self._last_time_sync = now
+                                except Exception as e:
+                                    pass
+
                         elif tag.endswith('RMC') and len(parts) > 8:
                             status = parts[2]
                             lat = self._parse_coord(parts[3], parts[4], False)
