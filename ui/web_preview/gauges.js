@@ -766,7 +766,8 @@ function navigateTo(screenId) {
     diagnostics: document.getElementById('screenDiagnostics'),
     trip: document.getElementById('screenTripLogger'),
 
-    settings: document.getElementById('screenSettings')
+    settings: document.getElementById('screenSettings'),
+    library: document.getElementById('screenLibrary')
 
   };
 
@@ -2802,7 +2803,7 @@ function updatePersonaUI(personaKey) {
 
   let statusBadgeText = "R.U.M. ACTIVE";
 
-  let cardTitleText = "R.U.M. COMPANION";
+  let cardTitleText = "R.U.M.";
 
   let bannerQuote = "Master! Rum is right here riding shotgun with you!";
 
@@ -19999,4 +20000,79 @@ function syncWin11SidebarActive(path) {
     const el = document.getElementById('win11NavRoot');
     if (el) el.classList.add('active');
   }
+}
+
+
+// ============================================================================
+// --- IN-DASH AUTOMOTIVE LIBRARY & DOCUMENT VIEWER ---
+// ============================================================================
+function openLibraryBook(bookKey) {
+  const shelf = document.getElementById('libraryShelfView');
+  const reader = document.getElementById('libraryReaderView');
+  const mdContainer = document.getElementById('libraryMarkdownContainer');
+  const pdfContainer = document.getElementById('libraryPdfContainer');
+  const titleEl = document.getElementById('libraryBookTitle');
+  const mdContent = document.getElementById('libraryMarkdownContent');
+  const pdfFrame = document.getElementById('libraryPdfFrame');
+
+  if (!shelf || !reader) return;
+
+  shelf.style.display = 'none';
+  reader.style.display = 'flex';
+
+  if (bookKey === 'carpi5_manual') {
+    if (titleEl) titleEl.innerText = "📖 CARPI5: COMPLETE SYSTEM & ENGINEERING MANUAL";
+    if (mdContainer) mdContainer.style.display = 'block';
+    if (pdfContainer) pdfContainer.style.display = 'none';
+
+    if (mdContent) {
+      mdContent.innerHTML = '<div style="color:var(--text-secondary); padding:40px; text-align:center;">Loading CarPi5 System Manual...</div>';
+      fetch('/storage/manuals/CarPi5_Complete_System_Manual.md')
+        .then(r => r.text())
+        .then(md => {
+          if (typeof marked !== 'undefined') {
+            mdContent.innerHTML = marked.parse(md);
+          } else {
+            let html = md
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/^### (.*$)/gim, '<h3 style="color:#00e5ff; margin-top:16px;">$1</h3>')
+              .replace(/^## (.*$)/gim, '<h2 style="color:#ff4081; border-bottom:1px solid #1c2636; padding-bottom:6px; margin-top:24px;">$1</h2>')
+              .replace(/^# (.*$)/gim, '<h1 style="color:#fff; border-bottom:2px solid #00e5ff; padding-bottom:8px;">$1</h1>')
+              .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
+              .replace(/\*(.*?)\*/gim, '<em>$1</em>')
+              .replace(/```([\s\S]*?)```/gim, '<pre style="background:#090d14; border:1px solid #1c2636; padding:12px; border-radius:8px; overflow-x:auto; font-family:monospace; color:#00e676;"><code>$1</code></pre>')
+              .replace(/`([^`]+)`/gim, '<code style="background:#161f2e; color:#00e5ff; padding:2px 6px; border-radius:4px;">$1</code>')
+              .replace(/\n\n/gim, '<p style="margin-bottom:12px;"></p>');
+            mdContent.innerHTML = html;
+          }
+          if (typeof initTouchScrollEngine === 'function') {
+            setTimeout(initTouchScrollEngine, 100);
+          }
+        })
+        .catch(err => {
+          mdContent.innerHTML = `<div style="color:var(--accent-red); padding:20px;">Failed to load system manual: ${err}</div>`;
+        });
+    }
+  } else if (bookKey === 'dart_owner') {
+    if (titleEl) titleEl.innerText = "📕 2013 DODGE DART OWNER'S MANUAL (1.4L TURBO MULTIAIR)";
+    if (mdContainer) mdContainer.style.display = 'none';
+    if (pdfContainer) pdfContainer.style.display = 'block';
+    if (pdfFrame) pdfFrame.src = "/storage/manuals/2013-Dodge-Dart-OM.pdf#toolbar=1&navpanes=1";
+  } else if (bookKey === 'dart_repair') {
+    if (titleEl) titleEl.innerText = "📙 DODGE DART COLLISION & BODY SERVICE MANUAL (2012-2016)";
+    if (mdContainer) mdContainer.style.display = 'none';
+    if (pdfContainer) pdfContainer.style.display = 'block';
+    if (pdfFrame) pdfFrame.src = "/storage/manuals/Collision_Body_Repair_Manual_Dodge_Dart_2012-2016_253-document.pdf#toolbar=1&navpanes=1";
+  }
+}
+
+function closeLibraryReader() {
+  const shelf = document.getElementById('libraryShelfView');
+  const reader = document.getElementById('libraryReaderView');
+  const pdfFrame = document.getElementById('libraryPdfFrame');
+  if (shelf) shelf.style.display = 'grid';
+  if (reader) reader.style.display = 'none';
+  if (pdfFrame) pdfFrame.src = 'about:blank';
 }

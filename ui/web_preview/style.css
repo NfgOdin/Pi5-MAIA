@@ -318,9 +318,18 @@ body {
 .home-cards-grid {
   flex: 1;
   display: grid;
-  grid-template-columns: repeat(4, 1fr) !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  grid-template-rows: repeat(3, 1fr) !important;
+  gap: 8px !important;
+  min-height: 0;
+}
+
+.subhub-cards-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr) !important;
   grid-template-rows: repeat(2, 1fr) !important;
-  gap: 10px !important;
+  gap: 12px !important;
   min-height: 0;
 }
 
@@ -380,6 +389,9 @@ body {
 .card-games { border-left: 4px solid var(--accent-purple); }
 .card-cams { border-left: 4px solid var(--accent-orange); }
 .card-settings { border-left: 4px solid var(--text-secondary); }
+.card-library { border-left: 4px solid var(--accent-yellow); }
+.card-storage { border-left: 4px solid var(--accent-green); }
+.card-maps { border-left: 4px solid var(--accent-blue); }
 
 /* --- 2. M.A.I.A. (AI COMPANION TERMINAL) SCREEN --- */
 #screenAI {

@@ -2775,8 +2775,36 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
 
 
-        # Default static file serving (index.html, js, css)
+        # Direct Storage Static Files Handler (Manuals, PDFs, Dashcam clips, custom models)
+        if parsed.path.startswith("/storage/"):
+            rel = parsed.path.replace("/storage/", "", 1)
+            target_file = (BASE_DIR / "storage" / rel).resolve()
+            if target_file.exists() and target_file.is_file() and str(target_file).startswith(str(BASE_DIR / "storage")):
+                ctype = "application/octet-stream"
+                if target_file.suffix == ".pdf":
+                    ctype = "application/pdf"
+                elif target_file.suffix in [".md", ".txt"]:
+                    ctype = "text/plain; charset=utf-8"
+                elif target_file.suffix in [".jpg", ".jpeg"]:
+                    ctype = "image/jpeg"
+                elif target_file.suffix == ".png":
+                    ctype = "image/png"
+                elif target_file.suffix in [".mp4", ".mkv"]:
+                    ctype = "video/mp4"
+                
+                try:
+                    data = target_file.read_bytes()
+                    self.send_response(200)
+                    self.send_header("Content-Type", ctype)
+                    self.send_header("Content-Length", str(len(data)))
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+                except Exception as e:
+                    logger.error(f"Error serving storage file {target_file}: {e}")
 
+        # Default static file serving (index.html, js, css)
         super().do_GET()
 
 
