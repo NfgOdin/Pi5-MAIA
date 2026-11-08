@@ -3604,7 +3604,7 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             else:
                 stats = state.audio.set_cache_limit(limit_mb)
                 state.settings["tts_cache_limit_mb"] = limit_mb
-                state._save_settings(state.settings)
+                state.save_settings(state.settings)
                 res = {"status": "ok", "cache": stats}
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
