@@ -1008,59 +1008,7 @@
         </div>
       </div>
 
-      <!-- PERSONA AVATAR & BOOT SPLASH CUSTOMIZATION -->
-      
-        </div>
-      </div>
-
-
-      <!-- ACCORDION 2: POWERTRAIN, OBD-II & TELEMETRY -->
-      <div class="settings-accordion-group" id="accPowertrainGroup">
-        <div class="accordion-header" onclick="toggleAccordion('accPowertrainGroup')">
-          <div class="accordion-header-left">
-            <span class="accordion-icon">🏎️</span>
-            <div>
-              <div class="accordion-title">POWERTRAIN, OBD-II & TELEMETRY</div>
-              <div class="accordion-desc">Marelli 8GM CAN bus, Real vs Sim mode, warning thresholds, GPIO relays & trip logs</div>
-            </div>
-          </div>
-          <div class="accordion-header-right">
-            <span class="accordion-badge" id="accPowertrainBadge">CAN BUS: 500 KBPS</span>
-            <span class="accordion-chevron">▼</span>
-          </div>
-        </div>
-        <div class="accordion-body">
-          <div class="settings-card" id="telemetryModeCard" style="border-color:var(--accent-green);">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <div class="settings-title" style="color:var(--accent-green); margin-bottom:0;">
-            <span>🚗</span> VEHICLE OBD-II / CAN TELEMETRY
-          </div>
-          <div id="telemetryModeBadge" class="pill" style="background:rgba(0,230,118,0.15); color:var(--accent-green); font-size:11px;">
-            ● LIVE VEHICLE OBD-II
-          </div>
-        </div>
-        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">
-          Primary telemetry link communicates directly with the Dodge Dart Magneti Marelli 8GM ECU via OBD-II (USB/CAN).
-        </p>
-
-        <!-- Subtle Connection Banner & Small Test Checkbox -->
-        <div style="display:flex; align-items:center; justify-content:space-between; background:#0c1219; border:1px solid #212b38; padding:12px 16px; border-radius:8px;">
-          <div>
-            <div style="font-size:10px; color:var(--text-secondary); font-weight:800; letter-spacing:0.5px;">INTERFACE STATUS:</div>
-            <div style="font-size:13px; font-weight:800; color:#fff; margin-top:2px;" id="telemStatusMsg">
-              Direct OBD-II vehicle interface active (Resting / Disconnected).
-            </div>
-          </div>
-          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:11px; color:var(--text-secondary); font-weight:700; user-select:none; background:#161c24; border:1px solid #283340; padding:6px 12px; border-radius:6px;">
-            <input type="checkbox" id="chkTestMode" onchange="toggleTestModeCheckbox(this.checked)" style="accent-color:var(--accent-yellow); transform:scale(1.15); cursor:pointer;">
-            <span style="color:#e0e6ed;">Bench Simulation Mode</span>
-          </label>
-        </div>
-      </div>
-
-      <!-- SCREENSAVER & AMBIENT VIDEO SETTINGS -->
-      
-          <div class="settings-card" id="copilotSettingsCard" style="border-color:var(--accent-orange);">
+      <div class="settings-card" id="copilotSettingsCard" style="border-color:var(--accent-orange);">
         <div class="settings-title" style="color:var(--accent-orange);">
           <span>🗣️</span> COPILOT SPEECH & SPOKEN CHATTER CONTROLS
         </div>
@@ -1194,6 +1142,54 @@
             </div>
           </div>
         <!-- end tts engine block -->
+        </div>
+      </div>
+
+        </div>
+      </div>
+
+
+      <!-- ACCORDION 2: POWERTRAIN, OBD-II & TELEMETRY -->
+      <div class="settings-accordion-group" id="accPowertrainGroup">
+        <div class="accordion-header" onclick="toggleAccordion('accPowertrainGroup')">
+          <div class="accordion-header-left">
+            <span class="accordion-icon">🏎️</span>
+            <div>
+              <div class="accordion-title">POWERTRAIN, OBD-II & TELEMETRY</div>
+              <div class="accordion-desc">Marelli 8GM CAN bus, Real vs Sim mode, warning thresholds, GPIO relays & trip logs</div>
+            </div>
+          </div>
+          <div class="accordion-header-right">
+            <span class="accordion-badge" id="accPowertrainBadge">CAN BUS: 500 KBPS</span>
+            <span class="accordion-chevron">▼</span>
+          </div>
+        </div>
+        <div class="accordion-body">
+          <div class="settings-card" id="telemetryModeCard" style="border-color:var(--accent-green);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div class="settings-title" style="color:var(--accent-green); margin-bottom:0;">
+            <span>🚗</span> VEHICLE OBD-II / CAN TELEMETRY
+          </div>
+          <div id="telemetryModeBadge" class="pill" style="background:rgba(0,230,118,0.15); color:var(--accent-green); font-size:11px;">
+            ● LIVE VEHICLE OBD-II
+          </div>
+        </div>
+        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">
+          Primary telemetry link communicates directly with the Dodge Dart Magneti Marelli 8GM ECU via OBD-II (USB/CAN).
+        </p>
+
+        <!-- Subtle Connection Banner & Small Test Checkbox -->
+        <div style="display:flex; align-items:center; justify-content:space-between; background:#0c1219; border:1px solid #212b38; padding:12px 16px; border-radius:8px;">
+          <div>
+            <div style="font-size:10px; color:var(--text-secondary); font-weight:800; letter-spacing:0.5px;">INTERFACE STATUS:</div>
+            <div style="font-size:13px; font-weight:800; color:#fff; margin-top:2px;" id="telemStatusMsg">
+              Direct OBD-II vehicle interface active (Resting / Disconnected).
+            </div>
+          </div>
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:11px; color:var(--text-secondary); font-weight:700; user-select:none; background:#161c24; border:1px solid #283340; padding:6px 12px; border-radius:6px;">
+            <input type="checkbox" id="chkTestMode" onchange="toggleTestModeCheckbox(this.checked)" style="accent-color:var(--accent-yellow); transform:scale(1.15); cursor:pointer;">
+            <span style="color:#e0e6ed;">Bench Simulation Mode</span>
+          </label>
         </div>
       </div>
 
