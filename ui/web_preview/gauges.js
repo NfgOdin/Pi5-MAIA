@@ -1789,23 +1789,21 @@ function connectTelemetryStream() {
       isHardwareSpeaking = data.is_speaking;
 
       const stage = document.getElementById('waifuStage');
-
       if (stage) {
-
         if (isWaifuSpeaking) stage.classList.add('speaking');
-
         else stage.classList.remove('speaking');
-
       }
 
-      if (data.is_speaking && currentScreen !== 'ai') {
+      const rumPill = document.getElementById('rumMinHudPill');
+      if (rumPill) {
+        if (isWaifuSpeaking) rumPill.classList.add('speaking');
+        else rumPill.classList.remove('speaking');
+      }
 
+      if (data.is_speaking && currentScreen !== 'ai' && !window.isCompanionMinimizedByUser) {
         handleSpeechAutoShotgun(null, 4500);
-
       } else if (wasSpeaking && !data.is_speaking) {
-
         scheduleShotgunAutoDismiss(2800);
-
       }
 
     }
@@ -13974,13 +13972,16 @@ function updateCameraDirector(delta, isSpeaking, isReacting) {
   const isDoingAction = (Date.now() < vrmActionEndTime);
 
   if (isCompanionFloating) {
-
-    // Shotgun HUD: close-up on Rum's expressive face
-
-    targetCamPos.set(0.0, headY + 0.05, 1.35);
-
-    targetLookAt.set(0.0, headY, 0.0);
-
+    if (vrmFramingMode === 'PORTRAIT' || vrmFramingMode === 'AUTO') {
+      targetCamPos.set(0.0, headY + 0.02, 1.35);
+      targetLookAt.set(0.0, headY, 0.0);
+    } else if (vrmFramingMode === 'FULL_BODY') {
+      targetCamPos.set(0.0, vrmBaseY + 0.82, 3.10);
+      targetLookAt.set(0.0, vrmBaseY + 0.70, 0.0);
+    } else if (vrmFramingMode === 'ROOM') {
+      targetCamPos.set(1.2, vrmBaseY + 1.10, 3.50);
+      targetLookAt.set(0.0, vrmBaseY + 0.60, 0.0);
+    }
   } else if (vrmFramingMode === 'ROOM') {
 
     // Room View: wide diorama view of Rum, Yoshi plush, table, plant, and sunlit window
@@ -18821,15 +18822,29 @@ function onSelectAudioInputSource(sourceId) {
     });
 }
 
+function minimizeFloatingCompanion() {
+  window.isCompanionMinimizedByUser = true;
+  const pill = document.getElementById('rumMinHudPill');
+  if (pill) {
+    pill.classList.add('glow-pulse');
+    setTimeout(() => pill.classList.remove('glow-pulse'), 1500);
+  }
+  dismissFloatingHud();
+  if (typeof showAiSpeechToast === 'function') {
+    showAiSpeechToast("R.U.M. minimized to top bar pill. Tap 💜 RUM to expand!");
+  }
+}
+
 function toggleRumHudFromPill() {
   const hud = document.getElementById('vrmFloatingHud');
   if (!hud) return;
   if (hud.style.display === 'none') {
+    window.isCompanionMinimizedByUser = false;
     if (currentScreen === 'ai') {
       navigateTo('home');
     }
     floatCompanionShotgun();
   } else {
-    dismissFloatingHud();
+    minimizeFloatingCompanion();
   }
 }
