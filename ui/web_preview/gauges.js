@@ -12797,7 +12797,8 @@ function preloadVrmaMotionPack() {
 
     const keys = fileToKeys[fileName];
 
-    const url = `/api/models/vrma?name=${encodeURIComponent(fileName)}`;
+    const isLocalFile = window.location.protocol === 'file:';
+    const url = isLocalFile ? `../../models/vrma/${fileName}` : `/api/models/vrma?name=${encodeURIComponent(fileName)}`;
 
     loader.load(
 
@@ -14200,7 +14201,8 @@ function loadRumVrmModel(modelName = (currentVrmModelName || 'Rum.vrm')) {
 
   const loader = new THREE.GLTFLoader();
 
-  const vrmUrl = `/api/models/vrm?name=${encodeURIComponent(modelName)}`;
+  const isLocalFile = window.location.protocol === 'file:';
+  const vrmUrl = isLocalFile ? `../../models/avatars/${modelName}` : `/api/models/vrm?name=${encodeURIComponent(modelName)}`;
 
 
 

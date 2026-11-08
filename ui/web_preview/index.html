@@ -3,6 +3,33 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>
+    // Universal API Router: Enables instantaneous boot via file:/// while transparently proxying daemon endpoints
+    if (window.location.protocol === 'file:') {
+      const DAEMON_ORIGIN = 'http://127.0.0.1:8080';
+      const origFetch = window.fetch;
+      window.fetch = function(url, init) {
+        if (typeof url === 'string' && url.startsWith('/')) {
+          url = DAEMON_ORIGIN + url;
+        }
+        return origFetch(url, init);
+      };
+      const origXHROpen = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+        if (typeof url === 'string' && url.startsWith('/')) {
+          url = DAEMON_ORIGIN + url;
+        }
+        return origXHROpen.call(this, method, url, ...rest);
+      };
+      const OrigEventSource = window.EventSource;
+      window.EventSource = function(url, init) {
+        if (typeof url === 'string' && url.startsWith('/')) {
+          url = DAEMON_ORIGIN + url;
+        }
+        return new OrigEventSource(url, init);
+      };
+    }
+  </script>
   <title>Dodge Dart CarPi5 - MultiAir OS & Cockpit</title>
   <link rel="stylesheet" href="style.css?v=18">
   <script src="assets/vendor/three.min.js"></script>
