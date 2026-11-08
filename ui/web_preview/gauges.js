@@ -13998,56 +13998,57 @@ function updateCameraDirector(delta, isSpeaking, isReacting) {
 
   if (!vrmCamera || !targetCamPos || !targetLookAt || !currentLookAt) return;
 
-
-
-  // Head Y in stage coordinates (feet anchored at -0.68, head near -0.68 + vrmSize.y * 0.85)
-
-  const headY = vrmBaseY + (vrmSize.y * 0.82);
-
-  const fullBodyDist = isCompanionFloating ? 2.85 : 3.12;
-
-  const portraitDist = isCompanionFloating ? 1.05 : 1.15;
-
-
-
   const isDoingAction = (Date.now() < vrmActionEndTime);
+  const isGazeRetained = (Date.now() < rumGazeRetentionUntil);
+  const isVocal = isSpeaking || isReacting || isGazeRetained;
+
+  // Rum's live dynamic coordinates on the stage floor
+  const rx = vrmRoamCurrentPos.x;
+  const rz = vrmRoamCurrentPos.z;
+  const ry = vrmBaseY + vrmCurrentElevation;
+
+  // Precise anatomical landmarks
+  const yCenter = ry + 0.70;             // Torso center (for 3rd person full body tracking)
+  const yBust   = ry + (vrmSize.y * 0.70); // Chest / bust level
+  const yHead   = ry + (vrmSize.y * 0.82); // Eye / head level
 
   if (isCompanionFloating) {
-    if (vrmFramingMode === 'PORTRAIT' || vrmFramingMode === 'AUTO') {
-      targetCamPos.set(0.0, headY + 0.02, 1.35);
-      targetLookAt.set(0.0, headY, 0.0);
+    if (vrmFramingMode === 'PORTRAIT' || (vrmFramingMode === 'AUTO' && isVocal)) {
+      targetCamPos.set(0.0, yHead + 0.02, 1.30);
+      targetLookAt.set(0.0, yBust + 0.05, 0.0);
     } else if (vrmFramingMode === 'FULL_BODY') {
-      targetCamPos.set(0.0, vrmBaseY + 0.82, 3.10);
-      targetLookAt.set(0.0, vrmBaseY + 0.70, 0.0);
+      targetCamPos.set(0.0, ry + 0.82, 3.10);
+      targetLookAt.set(0.0, ry + 0.70, 0.0);
     } else if (vrmFramingMode === 'ROOM') {
-      targetCamPos.set(1.2, vrmBaseY + 1.10, 3.50);
-      targetLookAt.set(0.0, vrmBaseY + 0.60, 0.0);
+      targetCamPos.set(0.0, ry + 1.20, 3.80);
+      targetLookAt.set(0.0, ry + 0.60, 0.0);
+    } else {
+      targetCamPos.set(0.0, ry + 0.82, 3.10);
+      targetLookAt.set(0.0, ry + 0.70, 0.0);
     }
   } else if (vrmFramingMode === 'ROOM') {
-
-    // Room View: wide diorama view of Rum, Yoshi plush, table, plant, and sunlit window
-
-    targetCamPos.set(2.5, vrmBaseY + 1.50, 3.80 * vrmZoomMultiplier);
-
-    targetLookAt.set(0.1, vrmBaseY + 0.60, -0.1);
-
-  } else if (!isDoingAction && (vrmFramingMode === 'PORTRAIT' || (vrmFramingMode === 'AUTO' && (isSpeaking || isReacting)))) {
-
-    // Portrait / Speaking Zoom: close-up on Rum's face and upper body
-
-    targetCamPos.set(0.0, headY + 0.05, 1.65 * vrmZoomMultiplier);
-
-    targetLookAt.set(0.0, headY, 0.0);
-
+    // 1. FULL ROOM VIEW: Wide architectural diorama view showing the ENTIRE room (Door on left, plant on right, Rum wandering freely inside)
+    targetCamPos.set(0.0, ry + 1.85, 5.50 * vrmZoomMultiplier);
+    targetLookAt.set(0.0, ry + 0.60, -0.2);
+  } else if (vrmFramingMode === 'PORTRAIT') {
+    // 2. PORTRAIT / BUST VIEW: Camera follows Rum continuously, locked at bust view (shoulders to hair) wherever she wanders
+    targetCamPos.set(rx, yHead + 0.04, rz + 1.40 * vrmZoomMultiplier);
+    targetLookAt.set(rx, yBust + 0.04, rz);
+  } else if (vrmFramingMode === 'AUTO') {
+    // 3. AUTO ZOOM: Full body 3rd person tracking while idle/walking -> zooms straight into shoulders/head close-up when speaking!
+    if (isVocal && !isDoingAction) {
+      // Zooms in straight to head/mouth close-up so lips, speech sync, and facial reactions are prominent!
+      targetCamPos.set(rx, yHead + 0.03, rz + 1.15 * vrmZoomMultiplier);
+      targetLookAt.set(rx, yHead - 0.02, rz);
+    } else {
+      // Natural 3rd person game character full body follow
+      targetCamPos.set(rx, yCenter + 0.16, rz + 3.25 * vrmZoomMultiplier);
+      targetLookAt.set(rx, yCenter, rz);
+    }
   } else {
-
-    // Full Body: Zoomed out so entire body (hair to shoes) is completely in view without any part cut off
-
-    targetCamPos.set(0.0, vrmBaseY + 0.82, 4.05 * vrmZoomMultiplier);
-
-    // Smoothly track Rem's horizontal wandering position and elevation on the stage
-    targetLookAt.set(vrmRoamCurrentPos.x * 0.40, vrmBaseY + vrmCurrentElevation + 0.68, vrmRoamCurrentPos.z * 0.40);
-
+    // 4. FULL BODY (Default): 3rd Person Game Character Tracking - Camera follows Rum's X/Z position continuously, always dead-center in view from head to toe!
+    targetCamPos.set(rx, yCenter + 0.16, rz + 3.25 * vrmZoomMultiplier);
+    targetLookAt.set(rx, yCenter, rz);
   }
 
 
@@ -14099,13 +14100,14 @@ function setAiLayoutMode(mode = 'SPLIT') {
 
   container.classList.remove('ai-layout-chat', 'ai-layout-split', 'ai-layout-room');
 
-  const btnChat = document.getElementById('btnSplitChat');
-  const btnSplit = document.getElementById('btnSplitBalanced');
-  const btnRoom = document.getElementById('btnSplitRoom');
-
-  if (btnChat) btnChat.classList.toggle('active', mode === 'CHAT');
-  if (btnSplit) btnSplit.classList.toggle('active', mode === 'SPLIT');
-  if (btnRoom) btnRoom.classList.toggle('active', mode === 'ROOM');
+  document.querySelectorAll('.ai-split-btn').forEach((b) => {
+    const isChat = b.id.includes('Chat') || (b.innerText && b.innerText.includes('CHAT'));
+    const isSplit = b.id.includes('Balanced') || b.id.includes('Split') || (b.innerText && b.innerText.includes('SPLIT'));
+    const isRoom = b.id.includes('Room') || (b.innerText && b.innerText.includes('ROOM'));
+    if (mode === 'CHAT') b.classList.toggle('active', isChat);
+    else if (mode === 'ROOM') b.classList.toggle('active', isRoom);
+    else b.classList.toggle('active', isSplit);
+  });
 
   if (mode === 'CHAT') {
     container.classList.add('ai-layout-chat');
@@ -14407,13 +14409,13 @@ function updateFramingButtonLabel() {
 
   const labels = {
 
-    'FULL_BODY': '🔍 FULL BODY',
+    'FULL_BODY': '🔍 FULL BODY (FOLLOW)',
 
-    'ROOM': '🏠 ROOM VIEW',
+    'ROOM': '🏠 FULL ROOM',
 
-    'AUTO': '🤖 AUTO ZOOM',
+    'PORTRAIT': '👤 BUST (FOLLOW)',
 
-    'PORTRAIT': '👤 PORTRAIT'
+    'AUTO': '🤖 AUTO ZOOM (SPEAK)'
 
   };
 
@@ -14578,6 +14580,11 @@ function dockCompanionToAi() {
 
   isCompanionFloating = false;
 
+  // If currently in CHAT focus mode, docking restores SPLIT layout so Rum is immediately visible on screen!
+  if (currentAiLayoutMode === 'CHAT') {
+    setAiLayoutMode('SPLIT');
+  }
+
 
 
   resizeVrmToStage();
@@ -14589,7 +14596,12 @@ function dockCompanionToAi() {
 function dismissFloatingHud() {
 
   isShotgunAutoPopped = false;
-
+  window.isCompanionMinimizedByUser = false;
+  const mini = document.getElementById('vrmMiniBubble');
+  if (mini) mini.style.display = 'none';
+  if (currentAiLayoutMode === 'CHAT') {
+    setAiLayoutMode('SPLIT');
+  }
   dockCompanionToAi();
 
 }

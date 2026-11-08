@@ -305,6 +305,18 @@
     <div class="screen-view" id="screenAI">
       <!-- Left Column: Interactive Chat & Spoken Events Stream -->
       <div class="ai-chat-column">
+        <!-- Persistent Header Bar with Title & 3-Way Layout Splitter (Accessible in ALL views) -->
+        <div class="ai-chat-top-header">
+          <div class="ai-chat-header-info" onclick="setAiLayoutMode('SPLIT')" style="cursor:pointer;" title="Click to view Rum on stage">
+            <span style="font-size:13px; font-weight:900; color:var(--accent-purple, #c084fc); letter-spacing:0.5px;">💜 R.U.M. COPILOT</span>
+            <span style="font-size:11px; color:var(--text-secondary); margin-left:6px;">• SHOTGUN AI</span>
+          </div>
+          <div class="ai-layout-splitter-pill" id="aiLayoutSplitterChat">
+            <button type="button" class="ai-split-btn" id="btnSplitChatTop" onclick="setAiLayoutMode('CHAT')" title="100% Full Width Chat Focus">💬 CHAT</button>
+            <button type="button" class="ai-split-btn active" id="btnSplitBalancedTop" onclick="setAiLayoutMode('SPLIT')" title="Balanced 50/50 Split View">⚖️ SPLIT</button>
+            <button type="button" class="ai-split-btn" id="btnSplitRoomTop" onclick="setAiLayoutMode('ROOM')" title="Full Screen 3D Room Focus">🛋️ ROOM</button>
+          </div>
+        </div>
         <!-- Chat Messages Stream (Unifies User Chat + Copilot/Rum Events) -->
         <div class="ai-chat-messages" id="aiChatMessages">
           <!-- Populated dynamically -->

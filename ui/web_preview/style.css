@@ -4257,3 +4257,20 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
 #screenAI.ai-layout-room .quick-prompts-bar {
   display: none !important;
 }
+
+
+.ai-chat-top-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  background: rgba(16, 21, 31, 0.85);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px 12px 0 0;
+  flex-shrink: 0;
+  min-height: 40px;
+}
+.ai-chat-header-info {
+  display: flex;
+  align-items: center;
+}
