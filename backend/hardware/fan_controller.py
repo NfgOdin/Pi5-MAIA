@@ -42,7 +42,7 @@ except ImportError:
 class FanController:
     """Controls a 4-wire PWM fan (Delta AFB0812SH or compatible) on Raspberry Pi 5."""
 
-    def __init__(self, pwm_pin: int = 12, tach_pin: int = 24, pwm_freq_hz: int = 25000):
+    def __init__(self, pwm_pin: int = 12, tach_pin: int = 24, pwm_freq_hz: int = 8000):
         self.is_linux = sys.platform.startswith("linux")
         self.pwm_pin = pwm_pin
         self.tach_pin = tach_pin
@@ -83,12 +83,21 @@ class FanController:
             return
 
         try:
-            # Standard PC 4-wire fans require 25 kHz PWM frequency
-            self.pwm_device = PWMOutputDevice(
-                pin=self.pwm_pin,
-                frequency=self.pwm_freq_hz,
-                initial_value=self.duty_cycle_pct / 100.0
-            )
+            # lgpio supports up to 10kHz for software/timed PWM. Fall back gracefully if needed.
+            for candidate_freq in [self.pwm_freq_hz, 8000, 1000, 100]:
+                try:
+                    self.pwm_device = PWMOutputDevice(
+                        pin=self.pwm_pin,
+                        frequency=candidate_freq,
+                        initial_value=self.duty_cycle_pct / 100.0
+                    )
+                    self.pwm_freq_hz = candidate_freq
+                    break
+                except Exception:
+                    continue
+
+            if not self.pwm_device:
+                raise RuntimeError(f"Could not bind PWMOutputDevice on GPIO {self.pwm_pin}")
 
             # Tachometer: open-collector output pulling to GND. Use internal pull-up resistor.
             self.tach_device = Button(
@@ -102,6 +111,12 @@ class FanController:
             print(f"[FAN] Delta AFB0812SH initialized: PWM=GPIO{self.pwm_pin} ({self.pwm_freq_hz}Hz), Tach=GPIO{self.tach_pin}")
         except Exception as e:
             print(f"[FAN] Failed initializing hardware on GPIO {self.pwm_pin}/{self.tach_pin}: {e}")
+            if self.pwm_device:
+                try:
+                    self.pwm_device.close()
+                except Exception:
+                    pass
+                self.pwm_device = None
             self.hardware_active = False
 
     def _on_tach_pulse(self):
