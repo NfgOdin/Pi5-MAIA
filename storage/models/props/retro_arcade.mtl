@@ -1,0 +1,21 @@
+# Retro Arcade Material Library
+newmtl Cabinet_Body
+Kd 0.14 0.16 0.22
+Ks 0.2 0.2 0.2
+Ns 20
+
+newmtl CRT_Screen
+Kd 0.02 0.15 0.25
+Ks 0.8 0.8 0.8
+Ke 0.1 0.5 0.9
+Ns 80
+
+newmtl Control_Panel
+Kd 0.85 0.20 0.20
+Ks 0.3 0.3 0.3
+Ns 30
+
+newmtl Marquee_Sign
+Kd 0.4 0.1 0.6
+Ke 0.7 0.2 0.9
+Ns 50

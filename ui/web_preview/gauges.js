@@ -16504,6 +16504,7 @@ function loadCustomRoomLayout() {
 
       const props = layout.props || [];
       props.forEach(p => {
+        if (p.id === 'prop_yoshi_default' && yoshiModel) return;
         spawnCustomProp(p, false);
       });
       updatePlacedPropsUI();
@@ -16567,11 +16568,11 @@ function spawnCustomProp(propDef, isNew = false) {
         node.castShadow = true;
         node.receiveShadow = true;
         node.frustumCulled = false;
-        if (!node.material || node.material.type === 'MeshBasicMaterial') {
+        if (!node.material || node.material.type === 'MeshBasicMaterial' || (node.material.color && node.material.color.getHex() === 0xffffff && !node.material.map)) {
           node.material = new THREE.MeshStandardMaterial({
-            color: node.material ? node.material.color : 0xcccccc,
-            roughness: 0.4,
-            metalness: 0.3
+            color: (node.material && node.material.color && node.material.color.getHex() !== 0xffffff) ? node.material.color : 0x2e384d,
+            roughness: 0.45,
+            metalness: 0.35
           });
         }
       }
@@ -16592,13 +16593,32 @@ function spawnCustomProp(propDef, isNew = false) {
 
   // Load based on format
   if (format === 'obj' && typeof THREE.OBJLoader !== 'undefined') {
-    const loader = new THREE.OBJLoader();
-    loader.load(
-      url,
-      onModelLoaded,
-      undefined,
-      err => console.error('[OBJLoader] Error loading prop:', url, err)
-    );
+    const mtlUrl = url.replace(/\.obj$/i, '.mtl');
+    if (typeof THREE.MTLLoader !== 'undefined') {
+      const mtlLoader = new THREE.MTLLoader();
+      mtlLoader.load(
+        mtlUrl,
+        (materials) => {
+          materials.preload();
+          const objLoader = new THREE.OBJLoader();
+          objLoader.setMaterials(materials);
+          objLoader.load(url, onModelLoaded, undefined, (err) => {
+            console.warn('[OBJLoader] Fallback without materials:', err);
+            const fbLoader = new THREE.OBJLoader();
+            fbLoader.load(url, onModelLoaded);
+          });
+        },
+        undefined,
+        (err) => {
+          // No MTL file, load OBJ with standard shader
+          const objLoader = new THREE.OBJLoader();
+          objLoader.load(url, onModelLoaded);
+        }
+      );
+    } else {
+      const loader = new THREE.OBJLoader();
+      loader.load(url, onModelLoaded);
+    }
   } else if ((format === 'gltf' || format === 'glb') && typeof THREE.GLTFLoader !== 'undefined') {
     const loader = new THREE.GLTFLoader();
     loader.load(

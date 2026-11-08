@@ -1,26 +1,47 @@
 {
   "version": 1,
-  "last_updated": "2026-11-08T03:16:00",
+  "last_updated": "2026-11-08T03:28:00",
   "props": [
     {
-      "id": "prop_yoshi_default",
-      "name": "Yoshi Plushie",
-      "modelUrl": "models/environment/props/yoshi/scene.gltf",
-      "format": "gltf",
+      "id": "prop_retro_arcade",
+      "name": "Retro Arcade",
+      "modelUrl": "/storage/models/props/retro_arcade.obj",
+      "format": "obj",
       "position": [
-        0.66,
-        0.2,
-        0.16
+        1.45,
+        -0.68,
+        -0.4
       ],
       "rotation": [
         0.0,
-        3.0,
+        -0.52,
         0.0
       ],
       "scale": [
-        1.35,
-        1.35,
-        1.35
+        1.05,
+        1.05,
+        1.05
+      ]
+    },
+    {
+      "id": "prop_coffee_table",
+      "name": "Coffee Table",
+      "modelUrl": "/storage/models/props/coffee_table.obj",
+      "format": "obj",
+      "position": [
+        -0.65,
+        -0.68,
+        -1.05
+      ],
+      "rotation": [
+        0.0,
+        0.25,
+        0.0
+      ],
+      "scale": [
+        0.95,
+        0.95,
+        0.95
       ]
     }
   ]
