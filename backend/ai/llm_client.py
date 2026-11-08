@@ -245,20 +245,46 @@ class LLMClient:
         print(f"[LOREBOOK] Loaded {len(self.lorebooks)} modular knowledge lorebooks.")
 
     def get_lorebook_injection(self, query: str) -> str:
-        """Fast sub-millisecond keyword scanner for relevant domain knowledge injection."""
+        """Fast sub-millisecond scored knowledge scanner for grounded domain knowledge and in-dash library injection."""
         q_lower = query.lower()
-        snippets = []
+        q_clean = q_lower.replace("?", " ").replace(".", " ").replace(",", " ").replace("!", " ")
+        q_words = set(q_clean.split())
+        scored_snippets = []
+
         for book_id, book in self.lorebooks.items():
-            keywords = book.get("keywords", [])
-            if any(k in q_lower for k in keywords):
-                facts = book.get("factual_data", {})
-                for k, v in facts.items():
-                    snippets.append(f"- {k}: {v}")
-                if "learned_facts" in book:
-                    for fact_obj in book.get("learned_facts", []):
-                        if any(k in q_lower for k in fact_obj.get("keywords", [])):
-                            snippets.append(f"- [LEARNED]: {fact_obj.get('fact')}")
-        return "\n".join(snippets[:5]) if snippets else ""
+            book_keywords = book.get("keywords", [])
+            book_match = any(k in q_lower for k in book_keywords)
+
+            facts = book.get("factual_data", {})
+            for k, v in facts.items():
+                key_words = set(k.lower().replace("_", " ").split())
+                overlap = len(q_words.intersection(key_words))
+                v_lower = v.lower()
+                text_hits = sum(1 for w in q_words if len(w) > 3 and w in v_lower)
+
+                score = 0
+                if overlap > 0:
+                    score += overlap * 6
+                if text_hits > 0:
+                    score += text_hits * 2
+                if book_match and score > 0:
+                    score += 4
+                elif book_match and any(w in k.lower() for w in ["engine", "general", "guide", "spec"]):
+                    score += 1
+
+                if score > 0:
+                    source_title = book.get("title", book_id)
+                    scored_snippets.append((score, f"[{source_title} - {k}]: {v}"))
+
+            if "learned_facts" in book:
+                for fact_obj in book.get("learned_facts", []):
+                    fkws = fact_obj.get("keywords", [])
+                    if any(k in q_lower for k in fkws):
+                        scored_snippets.append((8, f"[LEARNED KNOWLEDGE]: {fact_obj.get('fact', '')}"))
+
+        scored_snippets.sort(key=lambda x: x[0], reverse=True)
+        top = [s[1] for s in scored_snippets[:3]]
+        return "\n".join(top) if top else ""
 
     def save_learned_fact(self, keyword: str, fact: str, source: str = "web") -> bool:
         """Saves newly learned verified facts upon user confirmation into learned_web_knowledge.json."""
@@ -1839,6 +1865,24 @@ class LLMClient:
             return f"Cockpit interface functioning within optimal operational parameters, {address}."
 
 
+
+        # --- INTENT: Library / Grounded Technical Manual / Dodge Dart Specifications ---
+        lore_snippet = self.get_lorebook_injection(msg)
+        if lore_snippet:
+            lines = [l.strip() for l in lore_snippet.splitlines() if l.strip()]
+            first_fact = lines[0]
+            if "]: " in first_fact:
+                first_fact = first_fact.split("]: ", 1)[1]
+            if is_rum:
+                return (
+                    f"I checked our in-dash library for you, Master! {first_fact} "
+                    f"Let me know if you want me to look up any other section of our manuals!"
+                )
+            elif is_maia:
+                return (
+                    f"Checking our vehicle library records for you, {address}: {first_fact}"
+                )
+            return f"Library Specification: {first_fact}"
 
         # --- GENERIC RESPONSIVE DIALOGUE ---
 

@@ -13632,6 +13632,7 @@ function initVrmEngine() {
   vrmScene.add(vrmEnvironmentGroup);
 
   initCustomPropsGroup();
+  initConnectomeFly();
 
   loadRumVrmModel(currentVrmModelName);
 
@@ -13769,6 +13770,27 @@ function initVrmEngine() {
           vrmBones.head.rotation.x = THREE.MathUtils.clamp(vrmBones.head.rotation.x, -0.45, 0.45);
 
           vrmBones.head.rotation.z = THREE.MathUtils.clamp(vrmBones.head.rotation.z, -0.35, 0.35);
+
+          // R.U.M. head tracking towards the fruit fly when nearby
+          if (connectomeFlyEnabled && connectomeFlyGroup && !isSpeaking && !isReacting) {
+            const rx = vrmRoamCurrentPos.x;
+            const ry = vrmBaseY + 1.2;
+            const rz = vrmRoamCurrentPos.z;
+            const flyDist = Math.hypot(connectomeFlyGroup.position.x - rx, connectomeFlyGroup.position.z - rz);
+            if (flyDist < 2.4 && connectomeFlyGroup.position.z > -2.2) {
+              const dx = connectomeFlyGroup.position.x - rx;
+              const dy = connectomeFlyGroup.position.y - ry;
+              const dz = connectomeFlyGroup.position.z - rz;
+              const angleToFly = Math.atan2(-dx, -dz);
+              let diffYaw = THREE.MathUtils.euclideanModulo(angleToFly - vrmRoamCurrentRotY + Math.PI, Math.PI * 2) - Math.PI;
+              if (Math.abs(diffYaw) < 1.1) {
+                const targetYaw = THREE.MathUtils.clamp(diffYaw, -0.45, 0.45);
+                const targetPitch = THREE.MathUtils.clamp(dy * 0.4, -0.30, 0.30);
+                vrmBones.head.rotation.y = THREE.MathUtils.lerp(vrmBones.head.rotation.y, targetYaw, Math.min(1.0, delta * 4.5));
+                vrmBones.head.rotation.x = THREE.MathUtils.lerp(vrmBones.head.rotation.x, -targetPitch, Math.min(1.0, delta * 4.5));
+              }
+            }
+          }
 
         }
 
@@ -14013,6 +14035,11 @@ function initVrmEngine() {
     // 5b. 3D Basketball Physics & Dribbling Simulation
     if (typeof updateBasketballPhysics === 'function') {
       updateBasketballPhysics(delta);
+    }
+
+    // 5d. Biological Connectome Fruit Fly Simulation
+    if (typeof updateConnectomeFly === 'function') {
+      updateConnectomeFly(delta, time);
     }
 
     // 6. Render
@@ -16377,6 +16404,218 @@ let vrmSelectedProp = null;
 let vrmSelectionRing = null;
 let availableCustomProps = [];
 
+
+// ============================================================================
+// PHASE 6: BIOLOGICAL CONNECTOME FRUIT FLY (Drosophila Melanogaster Simulation)
+// Based on FlyWire 2024 Adult Brain Connectome (139,255 Neurons / 54.5M Synapses)
+// Architecture:
+// 1. Optic Lobe / EMD (T4/T5 Neurons): Wall / obstacle proximity detection
+// 2. Giant Fiber (GF) Circuit: High-acceleration escape reflex
+// 3. Central Complex (CX) Heading: Saccadic steering & vector navigation
+// 4. Perching & Haltere Mechanics: 200 Hz wingbeat oscillation, perching & grooming
+// ============================================================================
+let connectomeFlyGroup = null;
+let connectomeFlyEnabled = true;
+let flyLeftWing = null;
+let flyRightWing = null;
+let flyState = 'FLYING'; // 'FLYING', 'SACCADE', 'PERCHED', 'GROOMING', 'ESCAPE'
+let flyStateTimer = 0;
+let flyHeading = 0.0;
+let flyPitch = 0.0;
+let flySpeed = 1.15;
+let flyTargetPerch = null;
+let flyGroomPhase = 0;
+let flyPerchTimer = 0;
+
+function initConnectomeFly() {
+  if (connectomeFlyGroup || !vrmScene) return;
+
+  connectomeFlyGroup = new THREE.Group();
+  connectomeFlyGroup.name = "ConnectomeFruitFly";
+
+  // Scale: 1.0 (approx 4.5cm visual diorama size so it is visible and lifelike on 1024x600)
+  connectomeFlyGroup.scale.set(1.2, 1.2, 1.2);
+
+  // Thorax (chitin dark slate)
+  const thoraxGeo = new THREE.SphereGeometry(0.024, 8, 8);
+  thoraxGeo.scale(1.0, 0.85, 1.25);
+  const thoraxMat = new THREE.MeshStandardMaterial({
+    color: 0x22272e,
+    roughness: 0.35,
+    metalness: 0.65
+  });
+  const thorax = new THREE.Mesh(thoraxGeo, thoraxMat);
+  connectomeFlyGroup.add(thorax);
+
+  // Compound Eyes (bright ruby red)
+  const eyeGeo = new THREE.SphereGeometry(0.011, 8, 8);
+  const eyeMat = new THREE.MeshStandardMaterial({
+    color: 0xef4444,
+    roughness: 0.15,
+    metalness: 0.85,
+    emissive: 0x7f1d1d
+  });
+  const lEye = new THREE.Mesh(eyeGeo, eyeMat);
+  lEye.position.set(-0.015, 0.009, 0.020);
+  const rEye = new THREE.Mesh(eyeGeo, eyeMat);
+  rEye.position.set(0.015, 0.009, 0.020);
+  connectomeFlyGroup.add(lEye, rEye);
+
+  // Abdomen (striped golden-amber/dark segments)
+  const abdGeo = new THREE.CylinderGeometry(0.020, 0.009, 0.052, 8);
+  abdGeo.rotateX(Math.PI / 2);
+  const abdMat = new THREE.MeshStandardMaterial({
+    color: 0xd97706,
+    roughness: 0.45,
+    metalness: 0.25
+  });
+  const abdomen = new THREE.Mesh(abdGeo, abdMat);
+  abdomen.position.set(0, -0.006, -0.038);
+  connectomeFlyGroup.add(abdomen);
+
+  // Wings (delicate translucent wings with iridescent shimmer)
+  const wingGeo = new THREE.PlaneGeometry(0.032, 0.064);
+  wingGeo.translate(0, 0.030, 0);
+  wingGeo.rotateX(Math.PI / 2);
+  const wingMat = new THREE.MeshPhysicalMaterial({
+    color: 0xf0f9ff,
+    transparent: true,
+    opacity: 0.70,
+    roughness: 0.1,
+    transmission: 0.9,
+    side: THREE.DoubleSide
+  });
+
+  flyLeftWing = new THREE.Mesh(wingGeo, wingMat);
+  flyLeftWing.position.set(-0.012, 0.018, -0.008);
+  flyRightWing = new THREE.Mesh(wingGeo, wingMat);
+  flyRightWing.position.set(0.012, 0.018, -0.008);
+  connectomeFlyGroup.add(flyLeftWing, flyRightWing);
+
+  // Initial Position: hovering in room near center-right
+  connectomeFlyGroup.position.set(0.65, vrmBaseY + 1.25, -0.40);
+  flyHeading = Math.PI * 0.8;
+  vrmScene.add(connectomeFlyGroup);
+  console.log("[CONNECTOME] Biologically simulated fruit fly initialized.");
+}
+
+function updateConnectomeFly(delta, time) {
+  if (!connectomeFlyEnabled || !connectomeFlyGroup) return;
+
+  const flyPos = connectomeFlyGroup.position;
+
+  if (flyState === 'FLYING' || flyState === 'ESCAPE' || flyState === 'SACCADE') {
+    // 1. High-frequency biological wingbeat oscillation (~200 Hz illusion)
+    const flapAngle = Math.sin(time * 165) * 0.85;
+    if (flyLeftWing) flyLeftWing.rotation.z = flapAngle;
+    if (flyRightWing) flyRightWing.rotation.z = -flapAngle;
+
+    // 2. Flight Kinematics
+    const curSpeed = (flyState === 'ESCAPE') ? flySpeed * 2.2 : flySpeed;
+    const fwdX = -Math.sin(flyHeading) * Math.cos(flyPitch);
+    const fwdZ = -Math.cos(flyHeading) * Math.cos(flyPitch);
+    const fwdY = Math.sin(flyPitch);
+
+    flyPos.x += fwdX * curSpeed * delta;
+    flyPos.y += fwdY * curSpeed * delta;
+    flyPos.z += fwdZ * curSpeed * delta;
+
+    connectomeFlyGroup.rotation.y = flyHeading;
+    connectomeFlyGroup.rotation.x = -flyPitch;
+
+    // 3. Optomotor Reflex (EMD / T4/T5): Boundary avoidance
+    const atWall = (flyPos.x < -2.9 || flyPos.x > 2.4 || flyPos.z < -3.1 || flyPos.z > 1.7 || flyPos.y < vrmBaseY + 0.35 || flyPos.y > vrmBaseY + 2.3);
+    if (atWall) {
+      // Rapid optomotor torque saccade away from obstruction
+      flyHeading += (Math.random() > 0.5 ? 1 : -1) * (Math.PI * 0.55 + Math.random() * 0.4);
+      flyPitch = (Math.random() - 0.5) * 0.4;
+      flyState = 'SACCADE';
+      flyStateTimer = 0.12;
+    }
+
+    // 4. Central Complex (CX) Stochastic Heading Saccades
+    flyStateTimer -= delta;
+    if (flyStateTimer <= 0) {
+      if (flyState === 'ESCAPE' || flyState === 'SACCADE') {
+        flyState = 'FLYING';
+      }
+      // Sudden sharp heading shift
+      flyHeading += (Math.random() - 0.5) * 1.5;
+      flyPitch = (Math.random() - 0.5) * 0.5;
+      flyStateTimer = 0.6 + Math.random() * 1.2;
+    }
+
+    // 5. Giant Fiber (GF) Proximity Escape Trigger (if near Rum or moving hand)
+    const dToRum = Math.hypot(flyPos.x - vrmRoamCurrentPos.x, flyPos.z - vrmRoamCurrentPos.z);
+    if (dToRum < 0.38 && Math.abs(flyPos.y - (vrmBaseY + 1.2)) < 0.45) {
+      flyHeading += Math.PI * (0.8 + Math.random() * 0.4);
+      flyPitch = 0.6;
+      flyState = 'ESCAPE';
+      flyStateTimer = 0.7;
+    }
+
+    // 6. Natural Perching Chance (seeking landing surface)
+    if (time > flyPerchTimer) {
+      // Choose a perch target (coffee table, railing, or mat)
+      let perchTarget = { x: 0.0, y: vrmBaseY + 0.05, z: -1.75 }; // balcony rail
+      if (vrmCustomPropsGroup && vrmCustomPropsGroup.children.length > 0) {
+        const randProp = vrmCustomPropsGroup.children[Math.floor(Math.random() * vrmCustomPropsGroup.children.length)];
+        if (randProp.visible) {
+          perchTarget = {
+            x: randProp.position.x,
+            y: randProp.position.y + 0.45 * randProp.scale.y,
+            z: randProp.position.z
+          };
+        }
+      }
+      flyTargetPerch = perchTarget;
+      flyPerchTimer = time + 22.0 + Math.random() * 15.0;
+    }
+
+    if (flyTargetPerch) {
+      const dPerch = flyPos.distanceTo(new THREE.Vector3(flyTargetPerch.x, flyTargetPerch.y, flyTargetPerch.z));
+      if (dPerch < 0.12) {
+        // Touch down!
+        flyPos.set(flyTargetPerch.x, flyTargetPerch.y, flyTargetPerch.z);
+        flyState = 'PERCHED';
+        flyStateTimer = 4.5 + Math.random() * 5.0;
+        flyTargetPerch = null;
+      }
+    }
+  } else if (flyState === 'PERCHED' || flyState === 'GROOMING') {
+    // Fold wings back flat along abdomen
+    if (flyLeftWing) flyLeftWing.rotation.set(0.08, 0.14, 0.06);
+    if (flyRightWing) flyRightWing.rotation.set(0.08, -0.14, -0.06);
+
+    // Micro leg/head grooming twitches
+    flyGroomPhase += delta * 7.5;
+    connectomeFlyGroup.rotation.y += Math.sin(flyGroomPhase) * 0.02;
+
+    flyStateTimer -= delta;
+    if (flyStateTimer <= 0) {
+      // Take off again!
+      flyPitch = 0.55;
+      flyHeading = Math.random() * Math.PI * 2;
+      flyState = 'FLYING';
+      flyStateTimer = 1.0;
+    }
+  }
+}
+
+function toggleConnectomeFly() {
+  connectomeFlyEnabled = !connectomeFlyEnabled;
+  if (connectomeFlyGroup) {
+    connectomeFlyGroup.visible = connectomeFlyEnabled;
+  }
+  const btn = document.getElementById('btnConnectomeFlyToggle');
+  if (btn) {
+    btn.innerHTML = connectomeFlyEnabled ? '🪰 FLY: ON' : '🪰 FLY: OFF';
+    btn.style.borderColor = connectomeFlyEnabled ? '#38bdf8' : 'rgba(255,255,255,0.2)';
+    btn.style.color = connectomeFlyEnabled ? '#38bdf8' : 'var(--text-secondary)';
+  }
+  showAiSpeechToast(connectomeFlyEnabled ? '🪰 Connectome Fruit Fly active' : 'Fruit fly dismissed');
+}
+
 function initCustomPropsGroup() {
   if (!vrmScene) return;
   if (!vrmCustomPropsGroup) {
@@ -16676,21 +16915,24 @@ function moveSelectedProp(dx, dz) {
     vrmSelectionRing.position.z = vrmSelectedProp.position.z;
   }
   const coords = document.getElementById('inspectorPropCoords');
-  if (coords) coords.innerText = `Pos: (${vrmSelectedProp.position.x.toFixed(2)}, ${vrmSelectedProp.position.y.toFixed(2)}, ${vrmSelectedProp.position.z.toFixed(2)}) • Scale: ${vrmSelectedProp.scale.x.toFixed(2)}x`;
+  if (coords) onRoomEnvironmentChanged(vrmSelectedProp, 'moved');
+  coords.innerText = `Pos: (${vrmSelectedProp.position.x.toFixed(2)}, ${vrmSelectedProp.position.y.toFixed(2)}, ${vrmSelectedProp.position.z.toFixed(2)}) • Scale: ${vrmSelectedProp.scale.x.toFixed(2)}x`;
 }
 
 function elevateSelectedProp(dy) {
   if (!vrmSelectedProp) return;
   vrmSelectedProp.position.y = Math.max(vrmBaseY, Math.min(vrmBaseY + 2.5, vrmSelectedProp.position.y + dy));
   const coords = document.getElementById('inspectorPropCoords');
-  if (coords) coords.innerText = `Pos: (${vrmSelectedProp.position.x.toFixed(2)}, ${vrmSelectedProp.position.y.toFixed(2)}, ${vrmSelectedProp.position.z.toFixed(2)}) • Scale: ${vrmSelectedProp.scale.x.toFixed(2)}x`;
+  if (coords) onRoomEnvironmentChanged(vrmSelectedProp, 'moved');
+  coords.innerText = `Pos: (${vrmSelectedProp.position.x.toFixed(2)}, ${vrmSelectedProp.position.y.toFixed(2)}, ${vrmSelectedProp.position.z.toFixed(2)}) • Scale: ${vrmSelectedProp.scale.x.toFixed(2)}x`;
 }
 
 function snapSelectedPropToFloor() {
   if (!vrmSelectedProp) return;
   vrmSelectedProp.position.y = vrmBaseY;
   const coords = document.getElementById('inspectorPropCoords');
-  if (coords) coords.innerText = `Pos: (${vrmSelectedProp.position.x.toFixed(2)}, ${vrmSelectedProp.position.y.toFixed(2)}, ${vrmSelectedProp.position.z.toFixed(2)}) • Scale: ${vrmSelectedProp.scale.x.toFixed(2)}x`;
+  if (coords) onRoomEnvironmentChanged(vrmSelectedProp, 'moved');
+  coords.innerText = `Pos: (${vrmSelectedProp.position.x.toFixed(2)}, ${vrmSelectedProp.position.y.toFixed(2)}, ${vrmSelectedProp.position.z.toFixed(2)}) • Scale: ${vrmSelectedProp.scale.x.toFixed(2)}x`;
 }
 
 function rotateSelectedProp(deg) {
@@ -16706,7 +16948,8 @@ function scaleSelectedProp(factor) {
     vrmSelectionRing.scale.set(newScale, newScale, 1.0);
   }
   const coords = document.getElementById('inspectorPropCoords');
-  if (coords) coords.innerText = `Pos: (${vrmSelectedProp.position.x.toFixed(2)}, ${vrmSelectedProp.position.y.toFixed(2)}, ${vrmSelectedProp.position.z.toFixed(2)}) • Scale: ${vrmSelectedProp.scale.x.toFixed(2)}x`;
+  if (coords) onRoomEnvironmentChanged(vrmSelectedProp, 'moved');
+  coords.innerText = `Pos: (${vrmSelectedProp.position.x.toFixed(2)}, ${vrmSelectedProp.position.y.toFixed(2)}, ${vrmSelectedProp.position.z.toFixed(2)}) • Scale: ${vrmSelectedProp.scale.x.toFixed(2)}x`;
 }
 
 function deleteSelectedProp() {
@@ -16731,12 +16974,15 @@ function clearAllCustomProps() {
 function callRumToSelectedProp() {
   if (!vrmSelectedProp) return;
   const name = (vrmSelectedProp.userData && vrmSelectedProp.userData.name) || 'this';
-  const targetX = vrmSelectedProp.position.x;
-  const targetZ = vrmSelectedProp.position.z + 0.65;
+  const targetX = THREE.MathUtils.clamp(vrmSelectedProp.position.x, -2.8, 2.3);
+  const targetZ = THREE.MathUtils.clamp(vrmSelectedProp.position.z + 0.65, -3.0, 1.6);
 
-  vrmTargetPos.set(targetX, vrmBaseY, targetZ);
-  vrmCurrentState = 'WALK';
-  vrmWalkCycleTime = 0.0;
+  vrmRoamTargetPos = { x: targetX, z: targetZ };
+  const dx = vrmRoamTargetPos.x - vrmRoamCurrentPos.x;
+  const dz = vrmRoamTargetPos.z - vrmRoamCurrentPos.z;
+  vrmRoamTargetRotY = Math.atan2(-dx, -dz);
+  vrmRoamState = 'TURNING';
+  vrmRoamEnabled = true;
 
   if (typeof speakUtterance === 'function') {
     speakUtterance(`Coming right over to inspect ${name}, Master!`);
@@ -17011,6 +17257,80 @@ function stopRoamWalkAnimation() {
   }
 }
 
+
+// ============================================================================
+// PHASE 6: R.U.M. SPATIAL MEMORY & ENVIRONMENTAL CHANGE DETECTION
+// ============================================================================
+let rumSpatialMemory = {
+  knownProps: {},
+  lastNoticeTime: 0
+};
+
+function onRoomEnvironmentChanged(prop, changeType) {
+  const now = Date.now();
+  if (now - rumSpatialMemory.lastNoticeTime < 4500) return; // Debounce notices
+  rumSpatialMemory.lastNoticeTime = now;
+
+  const propName = (prop && prop.userData && prop.userData.name) || 'the furniture';
+  const actionMessages = {
+    'placed': `Master! You added the ${propName} to my room! Let me go check it out!`,
+    'moved': `Ooh! You moved the ${propName}! It looks so nice over there!`,
+    'rotated': `Adjusting the ${propName}? The layout looks fantastic!`,
+    'scaled': `I like the new size of the ${propName}!`,
+    'deleted': `Opening up more floor space! I love how spacious the room feels!`,
+    'saved': `Room layout saved! I love how you've styled my space, Master!`
+  };
+
+  const speechText = actionMessages[changeType] || `I noticed the room changed, Master!`;
+  showAiSpeechToast(`R.U.M. noticed: ${propName} ${changeType}!`);
+
+  if (typeof speakUtterance === 'function' && currentAiPersona === 'RUM') {
+    speakUtterance(speechText);
+  }
+
+  // Walk over to inspect newly placed or moved furniture
+  if (prop && (changeType === 'placed' || changeType === 'moved')) {
+    setTimeout(() => {
+      if (typeof vrmRoamTargetPos !== 'undefined') {
+        vrmRoamTargetPos = {
+          x: THREE.MathUtils.clamp(prop.position.x, -2.8, 2.3),
+          z: THREE.MathUtils.clamp(prop.position.z + 0.65, -3.0, 1.6)
+        };
+        const dx = vrmRoamTargetPos.x - vrmRoamCurrentPos.x;
+        const dz = vrmRoamTargetPos.z - vrmRoamCurrentPos.z;
+        vrmRoamTargetRotY = Math.atan2(-dx, -dz);
+        vrmRoamState = 'TURNING';
+        vrmRoamEnabled = true;
+      }
+    }, 1500);
+  }
+}
+
+function checkRumCollisionObstacle(nextX, nextZ) {
+  // 1. Room boundary walls: room bounds approx X: [-3.15, 2.55], Z: [-3.35, 1.85]
+  if (currentEnvironmentName === 'ROOM' || currentEnvironmentName === 'BEDROOM') {
+    if (nextX < -3.15 || nextX > 2.55 || nextZ < -3.35 || nextZ > 1.85) {
+      return { name: 'Room Wall Boundary' };
+    }
+  }
+
+  // 2. Placed custom props collision check
+  if (vrmCustomPropsGroup && vrmCustomPropsGroup.children.length > 0) {
+    for (let i = 0; i < vrmCustomPropsGroup.children.length; i++) {
+      const p = vrmCustomPropsGroup.children[i];
+      if (!p.visible) continue;
+      const pScale = Math.max(p.scale.x, p.scale.z, 0.35);
+      const safeRadius = Math.max(0.40, pScale * 0.42);
+      const d = Math.hypot(nextX - p.position.x, nextZ - p.position.z);
+      if (d < safeRadius) {
+        return { name: (p.userData && p.userData.name) || 'Furniture Item' };
+      }
+    }
+  }
+
+  return null;
+}
+
 function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, dancing, isSpeedPanic) {
   const isDriverInteracting = isSpeaking || isReacting || isSpeedPanic || dancing;
   const isGazeRetained = (Date.now() < rumGazeRetentionUntil);
@@ -17087,9 +17407,23 @@ function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, 
 
       const walkSpeed = 0.32;
       const step = Math.min(dist, walkSpeed * delta);
-      // Advance forward directly along destination vector (zero sliding, zero moonwalking)
-      vrmRoamCurrentPos.x += (dx / dist) * step;
-      vrmRoamCurrentPos.z += (dz / dist) * step;
+      const nextX = vrmRoamCurrentPos.x + (dx / dist) * step;
+      const nextZ = vrmRoamCurrentPos.z + (dz / dist) * step;
+
+      const obstacle = (typeof checkRumCollisionObstacle === 'function') ? checkRumCollisionObstacle(nextX, nextZ) : null;
+      if (obstacle) {
+        stopRoamWalkAnimation();
+        vrmRoamState = 'ARRIVED';
+        vrmNextRoamTime = Date.now() + 2500;
+        vrmRoamTargetRotY = Math.PI;
+        if (vrmaClips['pose_shy_wave']) {
+          playVrmAction('pose_shy_wave', 2200, true);
+        }
+        showAiSpeechToast(`R.U.M. sensed edge: ${obstacle.name}`);
+      } else {
+        vrmRoamCurrentPos.x = nextX;
+        vrmRoamCurrentPos.z = nextZ;
+      }
     } else {
       vrmRoamCurrentPos.x = vrmRoamTargetPos.x;
       vrmRoamCurrentPos.z = vrmRoamTargetPos.z;

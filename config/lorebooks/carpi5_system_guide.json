@@ -1,0 +1,35 @@
+{
+  "id": "carpi5_system_guide",
+  "title": "CarPi5 In-Dash Infotainment & Companion Operating Guide",
+  "keywords": [
+    "carpi5",
+    "system",
+    "guide",
+    "help",
+    "status bar",
+    "clock",
+    "bluetooth",
+    "wifi",
+    "keyboard",
+    "room customizer",
+    "prop",
+    "props",
+    "models",
+    "obj",
+    "customizer",
+    "library",
+    "stremio",
+    "youtube",
+    "vehicle hub",
+    "shotgun",
+    "autozoom"
+  ],
+  "factual_data": {
+    "status_bar_layout": "Top Status Bar: From left to right: Centered cabin/outdoor temperature badge, gear shift & coast indicator (flashes ⟲ shifting or shows ≋ coasting when clutch is in / in neutral at speed), Home button, on-screen keyboard toggle button, Wi-Fi status button (touch for connection strength and IP stats popup), Bluetooth button (touch for device pairing popup), and live system clock (HH:MM AM/PM sync with Pi RTC and NTP).",
+    "touch_room_customizer": "3D Room Customizer: Accessed in R.U.M. Room mode via the 🛋️ CUSTOMIZE ROOM button. Allows placing any .OBJ, .GLTF, or .GLB 3D models stored in /storage/models/props/ or on plugged-in USB drives. Controls include 4-way floor D-Pad (Up/Down/Left/Right), Elevation (Raise, Lower, Snap to Floor), Rotation (±20°), Scale (±15%), Call R.U.M. to Prop, and Remove Prop. Layouts persist to config/custom_room_layout.json.",
+    "camera_tracking_modes": "R.U.M. Camera Controls: ROOM (panoramic view of the entire room), FULL BODY (centers full body and follows walking roam), BUST / PORTRAIT (chest-up focus following movement), and AUTOZOOM (automatically frames bust/face when R.U.M. speaks or interacts, then pulls back to body view when idle).",
+    "in_dash_library": "In-Dash Library: Accessed via the 📚 Library card on the Home screen. Contains 3 full books: 1. CarPi5 System Architecture & Operations Manual, 2. 2013 Dodge Dart OEM Owner's Manual (610-page searchable document), 3. Dodge Dart Service & Repair Guide. Includes page flip controls, jump-to-chapter, and full in-dash PDF viewing.",
+    "media_hub": "Media & Entertainment: Dedicated cards for Audio Studio (local FLAC/MP3 player with responsive spectrum visualizer), YouTube Cinema & YouTube Music (fullscreen touch streaming), and Stremio Cinema (ARM64 native streaming with Torrentio, AnimeStream, and ThePirateBay+ add-ons)."
+  },
+  "guidelines": "When the driver asks about CarPi5 controls, room customization, status bar buttons, or entertainment cards, cite these exact instructions."
+}
