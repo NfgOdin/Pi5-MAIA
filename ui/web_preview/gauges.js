@@ -7287,6 +7287,30 @@ function launchKodi() {
 }
 
 
+function launchYouTube(mode = 'video') {
+  const isMusic = (mode === 'music');
+  const title = isMusic ? 'YouTube Music' : 'YouTube Cinema';
+  showAiSpeechToast(`Launching ${title}...`);
+  if (typeof speakUtterance === 'function') {
+    speakUtterance(`Launching ${title} for you, Master!`);
+  }
+  fetch('/api/media/launch_youtube', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: mode })
+  })
+    .then(r => r.json())
+    .then(data => {
+      console.log('[YOUTUBE] Launch response:', data);
+    })
+    .catch(err => {
+      console.warn('[YOUTUBE] Launch error, opening web fallback:', err);
+      const url = isMusic ? 'https://music.youtube.com' : 'https://www.youtube.com';
+      window.open(url, '_blank');
+    });
+}
+
+
 
 function launchVlc(targetPath) {
 
@@ -13543,24 +13567,26 @@ function initVrmEngine() {
 
 
   try {
-
     vrmRenderer = new THREE.WebGLRenderer({
-
       canvas: canvas,
-
       alpha: true,
-
       antialias: true,
-
       powerPreference: 'high-performance'
-
     });
-
-    vrmRenderer.setSize(width, height);
-
-    vrmRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-
+    const initDpr = Math.min(window.devicePixelRatio || 1, 2);
+    vrmRenderer.setPixelRatio(initDpr);
+    vrmRenderer.setSize(width, height, false);
     vrmRenderer.outputEncoding = THREE.sRGBEncoding;
+
+    if (window.ResizeObserver) {
+      const ro = new ResizeObserver(() => {
+        requestAnimationFrame(() => resizeVrmToStage());
+      });
+      const stage = document.getElementById('vrmStageContainer');
+      if (stage) ro.observe(stage);
+      const floatBody = document.getElementById('vrmFloatingBody');
+      if (floatBody) ro.observe(floatBody);
+    }
 
   } catch (err) {
 
@@ -13604,6 +13630,8 @@ function initVrmEngine() {
 
   vrmEnvironmentGroup = new THREE.Group();
   vrmScene.add(vrmEnvironmentGroup);
+
+  initCustomPropsGroup();
 
   loadRumVrmModel(currentVrmModelName);
 
@@ -14037,9 +14065,9 @@ function updateCameraDirector(delta, isSpeaking, isReacting) {
       targetLookAt.set(rx, yCenter, rz);
     }
   } else if (vrmFramingMode === 'ROOM') {
-    // 1. FULL ROOM VIEW: Wide architectural diorama view showing the ENTIRE room (Door on left, plant on right, Rum wandering freely inside)
-    targetCamPos.set(0.0, ry + 1.85, 5.50 * vrmZoomMultiplier);
-    targetLookAt.set(0.0, ry + 0.60, -0.2);
+    // 1. FULL ROOM VIEW: Crisp diorama framing bringing the full room and props into high-density focus
+    targetCamPos.set(0.0, ry + 1.65, 4.35 * vrmZoomMultiplier);
+    targetLookAt.set(0.0, ry + 0.65, -0.15);
   } else if (vrmFramingMode === 'PORTRAIT') {
     // 2. PORTRAIT / BUST VIEW: Camera follows Rum continuously, locked at bust view (shoulders to hair) wherever she wanders
     targetCamPos.set(rx, yHead + 0.04, rz + 1.40 * vrmZoomMultiplier);
@@ -14131,9 +14159,10 @@ function setAiLayoutMode(mode = 'SPLIT') {
     if (typeof dockCompanionToAi === 'function') dockCompanionToAi();
   }
 
-  setTimeout(() => {
-    resizeVrmToStage();
-  }, 60);
+  resizeVrmToStage();
+  requestAnimationFrame(resizeVrmToStage);
+  setTimeout(resizeVrmToStage, 100);
+  setTimeout(resizeVrmToStage, 300);
 }
 
 function initAiLayoutMode() {
@@ -14227,6 +14256,7 @@ function loadRumVrmModel(modelName = (currentVrmModelName || 'Rum.vrm')) {
 
 
       vrmModel = gltf.scene;
+      applyHighQualityTextureFiltering(vrmModel);
 
       vrmaIdleAction = null;
 
@@ -14392,23 +14422,41 @@ function loadRumVrmModel(modelName = (currentVrmModelName || 'Rum.vrm')) {
 
 
 function resizeVrmToStage() {
-
   if (!vrmRenderer || !vrmCamera) return;
-
   const targetContainer = isCompanionFloating ? document.getElementById('vrmFloatingBody') : document.getElementById('vrmStageContainer');
-
   if (!targetContainer) return;
 
-  const w = targetContainer.clientWidth || 360;
+  const rect = targetContainer.getBoundingClientRect();
+  const w = Math.round(rect.width || targetContainer.clientWidth || 360);
+  const h = Math.round(rect.height || targetContainer.clientHeight || 460);
+  if (w <= 0 || h <= 0) return;
 
-  const h = targetContainer.clientHeight || 460;
-
-  vrmRenderer.setSize(w, h);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  vrmRenderer.setPixelRatio(dpr);
+  vrmRenderer.setSize(w, h, false);
 
   vrmCamera.aspect = w / h;
-
   vrmCamera.updateProjectionMatrix();
+}
 
+function applyHighQualityTextureFiltering(rootObj) {
+  if (!vrmRenderer || !rootObj) return;
+  const maxAniso = (vrmRenderer.capabilities && typeof vrmRenderer.capabilities.getMaxAnisotropy === 'function')
+    ? vrmRenderer.capabilities.getMaxAnisotropy()
+    : 4;
+  rootObj.traverse((node) => {
+    if (node.isMesh && node.material) {
+      const mats = Array.isArray(node.material) ? node.material : [node.material];
+      mats.forEach((m) => {
+        if (m.map) {
+          m.map.anisotropy = maxAniso;
+          m.map.minFilter = THREE.LinearMipmapLinearFilter;
+          m.map.magFilter = THREE.LinearFilter;
+          m.map.needsUpdate = true;
+        }
+      });
+    }
+  });
 }
 
 
@@ -16321,6 +16369,429 @@ function applyRoomDecorations() {
   syncRoomCustomizerUI(cfg);
 }
 
+// ============================================================================
+// --- PHASE 5: 3D ROOM CUSTOMIZER & DYNAMIC PROP LOADER ENGINE ---
+// ============================================================================
+let vrmCustomPropsGroup = null;
+let vrmSelectedProp = null;
+let vrmSelectionRing = null;
+let availableCustomProps = [];
+
+function initCustomPropsGroup() {
+  if (!vrmScene) return;
+  if (!vrmCustomPropsGroup) {
+    vrmCustomPropsGroup = new THREE.Group();
+    vrmScene.add(vrmCustomPropsGroup);
+  }
+
+  // Neon glowing selection ring flat on the floor
+  if (!vrmSelectionRing) {
+    const ringGeo = new THREE.RingGeometry(0.35, 0.42, 32);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xc084fc,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.85
+    });
+    vrmSelectionRing = new THREE.Mesh(ringGeo, ringMat);
+    vrmSelectionRing.rotation.x = -Math.PI / 2;
+    vrmSelectionRing.position.y = vrmBaseY + 0.005;
+    vrmSelectionRing.visible = false;
+    vrmScene.add(vrmSelectionRing);
+  }
+
+  loadCustomRoomLayout();
+}
+
+function switchRoomEditorTab(tab) {
+  const propsTab = document.getElementById('roomEditorPropsTab');
+  const fixturesTab = document.getElementById('roomEditorFixturesTab');
+  const btnProps = document.getElementById('tabBtnCustomProps');
+  const btnFixtures = document.getElementById('tabBtnFixtures');
+
+  if (tab === 'PROPS') {
+    if (propsTab) propsTab.style.display = 'flex';
+    if (fixturesTab) fixturesTab.style.display = 'none';
+    if (btnProps) {
+      btnProps.style.background = 'rgba(168,85,247,0.18)';
+      btnProps.style.borderBottom = '2px solid var(--accent-purple)';
+      btnProps.style.color = '#fff';
+    }
+    if (btnFixtures) {
+      btnFixtures.style.background = 'transparent';
+      btnFixtures.style.borderBottom = '2px solid transparent';
+      btnFixtures.style.color = 'var(--text-secondary)';
+    }
+  } else {
+    if (propsTab) propsTab.style.display = 'none';
+    if (fixturesTab) fixturesTab.style.display = 'flex';
+    if (btnProps) {
+      btnProps.style.background = 'transparent';
+      btnProps.style.borderBottom = '2px solid transparent';
+      btnProps.style.color = 'var(--text-secondary)';
+    }
+    if (btnFixtures) {
+      btnFixtures.style.background = 'rgba(168,85,247,0.18)';
+      btnFixtures.style.borderBottom = '2px solid var(--accent-purple)';
+      btnFixtures.style.color = '#fff';
+    }
+  }
+}
+
+function rescanCustomPropsCatalog() {
+  const badge = document.getElementById('roomPropsCountBadge');
+  const grid = document.getElementById('customPropsCatalogGrid');
+  if (badge) badge.innerText = 'SCANNING...';
+
+  fetch('/api/models/custom_props')
+    .then(r => r.json())
+    .then(data => {
+      availableCustomProps = data.props || [];
+      if (badge) badge.innerText = `${availableCustomProps.length} DETECTED`;
+
+      if (!grid) return;
+      grid.innerHTML = '';
+
+      if (availableCustomProps.length === 0) {
+        grid.innerHTML = `<div style="grid-column:1/-1; padding:16px; text-align:center; color:var(--text-secondary); font-size:12px; background:rgba(255,255,255,0.02); border:1px dashed #334155; border-radius:10px;">
+          No 3D models found yet.<br>
+          <span style="color:#a0b8d0;">Drop <b>.obj</b> or <b>.gltf</b> files into <code>/storage/models/props/</code> or onto any USB drive!</span>
+        </div>`;
+        return;
+      }
+
+      availableCustomProps.forEach(prop => {
+        const card = document.createElement('div');
+        card.style.cssText = 'background:rgba(255,255,255,0.04); border:1px solid #334155; border-radius:10px; padding:10px; display:flex; flex-direction:column; justify-content:space-between; gap:8px;';
+        
+        const isObj = (prop.format === 'obj');
+        const badgeColor = isObj ? 'var(--accent-orange)' : 'var(--accent-green)';
+        const badgeBg = isObj ? 'rgba(255,107,0,0.15)' : 'rgba(0,230,118,0.15)';
+
+        card.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div style="font-size:12px; font-weight:800; color:#fff; word-break:break-word;">${prop.name}</div>
+            <span style="font-size:9px; font-weight:800; color:${badgeColor}; background:${badgeBg}; padding:2px 6px; border-radius:6px; border:1px solid ${badgeColor};">${prop.format.toUpperCase()}</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size:10px; color:var(--text-secondary);">${prop.size_formatted || ''}</span>
+            <button class="cluster-action-btn" onclick="spawnCustomProp(${JSON.stringify(prop).replace(/"/g, '&quot;')}, true)" style="padding:4px 10px; font-size:11px; font-weight:800; border-color:var(--accent-purple); color:var(--accent-purple); height:32px;">
+              ➕ PLACE
+            </button>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+    })
+    .catch(err => {
+      console.warn('[PROPS] Error scanning custom props:', err);
+      if (badge) badge.innerText = 'OFFLINE';
+    });
+}
+
+function loadCustomRoomLayout() {
+  if (!vrmCustomPropsGroup) return;
+
+  fetch('/api/models/room_layout')
+    .then(r => r.json())
+    .then(layout => {
+      // Clear existing custom placed props
+      while (vrmCustomPropsGroup.children.length > 0) {
+        vrmCustomPropsGroup.remove(vrmCustomPropsGroup.children[0]);
+      }
+      vrmSelectedProp = null;
+      if (vrmSelectionRing) vrmSelectionRing.visible = false;
+
+      const props = layout.props || [];
+      props.forEach(p => {
+        spawnCustomProp(p, false);
+      });
+      updatePlacedPropsUI();
+    })
+    .catch(err => {
+      console.warn('[PROPS] Error loading room layout:', err);
+    });
+}
+
+function spawnCustomProp(propDef, isNew = false) {
+  if (!vrmScene || !vrmCustomPropsGroup) return;
+
+  const propId = propDef.id || ('prop_' + Date.now());
+  const format = (propDef.format || 'obj').toLowerCase();
+  const url = propDef.url || propDef.modelUrl || propDef.direct_url;
+
+  function onModelLoaded(meshRoot) {
+    meshRoot.userData = {
+      id: propId,
+      name: propDef.name || 'Custom Prop',
+      format: format,
+      url: url,
+      modelUrl: url
+    };
+
+    // Set position
+    if (propDef.position && Array.isArray(propDef.position)) {
+      meshRoot.position.set(propDef.position[0], propDef.position[1], propDef.position[2]);
+    } else {
+      // Default spawn: slight offset in front
+      const offsetCount = vrmCustomPropsGroup.children.length;
+      meshRoot.position.set(-0.8 + (offsetCount * 0.4), vrmBaseY, 0.4);
+    }
+
+    // Set rotation
+    if (propDef.rotation && Array.isArray(propDef.rotation)) {
+      meshRoot.rotation.set(propDef.rotation[0], propDef.rotation[1], propDef.rotation[2]);
+    } else {
+      meshRoot.rotation.set(0, 0, 0);
+    }
+
+    // Set scale
+    if (propDef.scale && Array.isArray(propDef.scale)) {
+      meshRoot.scale.set(propDef.scale[0], propDef.scale[1], propDef.scale[2]);
+    } else {
+      // Auto-normalize bounding size to approx 0.85m if no scale specified
+      const bbox = new THREE.Box3().setFromObject(meshRoot);
+      const size = bbox.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      if (maxDim > 2.5 || maxDim < 0.2) {
+        const targetScale = 0.85 / (maxDim || 1.0);
+        meshRoot.scale.set(targetScale, targetScale, targetScale);
+      } else {
+        meshRoot.scale.set(1.0, 1.0, 1.0);
+      }
+    }
+
+    // Traverse meshes for shadows and nice standard materials
+    meshRoot.traverse(node => {
+      if (node.isMesh) {
+        node.castShadow = true;
+        node.receiveShadow = true;
+        node.frustumCulled = false;
+        if (!node.material || node.material.type === 'MeshBasicMaterial') {
+          node.material = new THREE.MeshStandardMaterial({
+            color: node.material ? node.material.color : 0xcccccc,
+            roughness: 0.4,
+            metalness: 0.3
+          });
+        }
+      }
+    });
+
+    applyHighQualityTextureFiltering(meshRoot);
+    vrmCustomPropsGroup.add(meshRoot);
+    updatePlacedPropsUI();
+
+    if (isNew) {
+      selectCustomProp(meshRoot);
+      if (typeof speakUtterance === 'function') {
+        speakUtterance(`Placed ${propDef.name} into our room, Master!`);
+      }
+      showAiSpeechToast(`Placed ${propDef.name} in Room`);
+    }
+  }
+
+  // Load based on format
+  if (format === 'obj' && typeof THREE.OBJLoader !== 'undefined') {
+    const loader = new THREE.OBJLoader();
+    loader.load(
+      url,
+      onModelLoaded,
+      undefined,
+      err => console.error('[OBJLoader] Error loading prop:', url, err)
+    );
+  } else if ((format === 'gltf' || format === 'glb') && typeof THREE.GLTFLoader !== 'undefined') {
+    const loader = new THREE.GLTFLoader();
+    loader.load(
+      url,
+      gltf => onModelLoaded(gltf.scene || gltf.scenes[0]),
+      undefined,
+      err => console.error('[GLTFLoader] Error loading prop:', url, err)
+    );
+  } else {
+    console.warn('[PROPS] Unknown or unsupported format:', format, url);
+  }
+}
+
+function selectCustomProp(propMesh) {
+  vrmSelectedProp = propMesh;
+  const inspector = document.getElementById('inspectorControlsGroup');
+  const title = document.getElementById('inspectorPropTitle');
+  const coords = document.getElementById('inspectorPropCoords');
+  const btnCall = document.getElementById('btnCallRumToProp');
+  const btnDelete = document.getElementById('btnDeleteSelectedProp');
+
+  if (!propMesh) {
+    if (vrmSelectionRing) vrmSelectionRing.visible = false;
+    if (inspector) inspector.style.display = 'none';
+    if (title) title.innerText = 'SELECTED PROP: NONE';
+    if (coords) coords.innerText = 'Tap any model in the catalog or touch a prop in the room to edit';
+    if (btnCall) btnCall.style.display = 'none';
+    if (btnDelete) btnDelete.style.display = 'none';
+    return;
+  }
+
+  const name = (propMesh.userData && propMesh.userData.name) || 'Custom Prop';
+  if (title) title.innerText = `SELECTED: ${name.toUpperCase()}`;
+  if (coords) coords.innerText = `Pos: (${propMesh.position.x.toFixed(2)}, ${propMesh.position.y.toFixed(2)}, ${propMesh.position.z.toFixed(2)}) • Scale: ${propMesh.scale.x.toFixed(2)}x`;
+  if (inspector) inspector.style.display = 'flex';
+  if (btnCall) btnCall.style.display = 'inline-block';
+  if (btnDelete) btnDelete.style.display = 'inline-block';
+
+  // Position holographic selection ring below prop
+  if (vrmSelectionRing) {
+    vrmSelectionRing.position.set(propMesh.position.x, vrmBaseY + 0.005, propMesh.position.z);
+    vrmSelectionRing.scale.set(propMesh.scale.x, propMesh.scale.z, 1.0);
+    vrmSelectionRing.visible = true;
+  }
+
+  updatePlacedPropsUI();
+}
+
+function moveSelectedProp(dx, dz) {
+  if (!vrmSelectedProp) return;
+  vrmSelectedProp.position.x = Math.max(-3.2, Math.min(3.2, vrmSelectedProp.position.x + dx));
+  vrmSelectedProp.position.z = Math.max(-3.0, Math.min(2.8, vrmSelectedProp.position.z + dz));
+  if (vrmSelectionRing) {
+    vrmSelectionRing.position.x = vrmSelectedProp.position.x;
+    vrmSelectionRing.position.z = vrmSelectedProp.position.z;
+  }
+  const coords = document.getElementById('inspectorPropCoords');
+  if (coords) coords.innerText = `Pos: (${vrmSelectedProp.position.x.toFixed(2)}, ${vrmSelectedProp.position.y.toFixed(2)}, ${vrmSelectedProp.position.z.toFixed(2)}) • Scale: ${vrmSelectedProp.scale.x.toFixed(2)}x`;
+}
+
+function elevateSelectedProp(dy) {
+  if (!vrmSelectedProp) return;
+  vrmSelectedProp.position.y = Math.max(vrmBaseY, Math.min(vrmBaseY + 2.5, vrmSelectedProp.position.y + dy));
+  const coords = document.getElementById('inspectorPropCoords');
+  if (coords) coords.innerText = `Pos: (${vrmSelectedProp.position.x.toFixed(2)}, ${vrmSelectedProp.position.y.toFixed(2)}, ${vrmSelectedProp.position.z.toFixed(2)}) • Scale: ${vrmSelectedProp.scale.x.toFixed(2)}x`;
+}
+
+function snapSelectedPropToFloor() {
+  if (!vrmSelectedProp) return;
+  vrmSelectedProp.position.y = vrmBaseY;
+  const coords = document.getElementById('inspectorPropCoords');
+  if (coords) coords.innerText = `Pos: (${vrmSelectedProp.position.x.toFixed(2)}, ${vrmSelectedProp.position.y.toFixed(2)}, ${vrmSelectedProp.position.z.toFixed(2)}) • Scale: ${vrmSelectedProp.scale.x.toFixed(2)}x`;
+}
+
+function rotateSelectedProp(deg) {
+  if (!vrmSelectedProp) return;
+  vrmSelectedProp.rotation.y += deg * (Math.PI / 180);
+}
+
+function scaleSelectedProp(factor) {
+  if (!vrmSelectedProp) return;
+  const newScale = Math.max(0.2, Math.min(4.5, vrmSelectedProp.scale.x * factor));
+  vrmSelectedProp.scale.set(newScale, newScale, newScale);
+  if (vrmSelectionRing) {
+    vrmSelectionRing.scale.set(newScale, newScale, 1.0);
+  }
+  const coords = document.getElementById('inspectorPropCoords');
+  if (coords) coords.innerText = `Pos: (${vrmSelectedProp.position.x.toFixed(2)}, ${vrmSelectedProp.position.y.toFixed(2)}, ${vrmSelectedProp.position.z.toFixed(2)}) • Scale: ${vrmSelectedProp.scale.x.toFixed(2)}x`;
+}
+
+function deleteSelectedProp() {
+  if (!vrmSelectedProp || !vrmCustomPropsGroup) return;
+  const name = (vrmSelectedProp.userData && vrmSelectedProp.userData.name) || 'Prop';
+  vrmCustomPropsGroup.remove(vrmSelectedProp);
+  selectCustomProp(null);
+  updatePlacedPropsUI();
+  showAiSpeechToast(`Removed ${name} from room`);
+}
+
+function clearAllCustomProps() {
+  if (!vrmCustomPropsGroup) return;
+  while (vrmCustomPropsGroup.children.length > 0) {
+    vrmCustomPropsGroup.remove(vrmCustomPropsGroup.children[0]);
+  }
+  selectCustomProp(null);
+  updatePlacedPropsUI();
+  showAiSpeechToast('Cleared all custom room props');
+}
+
+function callRumToSelectedProp() {
+  if (!vrmSelectedProp) return;
+  const name = (vrmSelectedProp.userData && vrmSelectedProp.userData.name) || 'this';
+  const targetX = vrmSelectedProp.position.x;
+  const targetZ = vrmSelectedProp.position.z + 0.65;
+
+  vrmTargetPos.set(targetX, vrmBaseY, targetZ);
+  vrmCurrentState = 'WALK';
+  vrmWalkCycleTime = 0.0;
+
+  if (typeof speakUtterance === 'function') {
+    speakUtterance(`Coming right over to inspect ${name}, Master!`);
+  }
+  showAiSpeechToast(`R.U.M. walking to ${name}...`);
+  closeRoomCustomizerModal();
+}
+
+function saveRoomLayoutToBackend() {
+  if (!vrmCustomPropsGroup) return;
+
+  const propsToSave = [];
+  vrmCustomPropsGroup.children.forEach((mesh, idx) => {
+    const ud = mesh.userData || {};
+    propsToSave.push({
+      id: ud.id || `prop_${idx}`,
+      name: ud.name || 'Custom Prop',
+      format: ud.format || 'obj',
+      modelUrl: ud.url || ud.modelUrl || '',
+      url: ud.url || ud.modelUrl || '',
+      position: [mesh.position.x, mesh.position.y, mesh.position.z],
+      rotation: [mesh.rotation.x, mesh.rotation.y, mesh.rotation.z],
+      scale: [mesh.scale.x, mesh.scale.y, mesh.scale.z]
+    });
+  });
+
+  const payload = {
+    version: 1,
+    last_updated: new Date().toISOString(),
+    props: propsToSave
+  };
+
+  fetch('/api/models/room_layout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+    .then(r => r.json())
+    .then(data => {
+      showAiSpeechToast('💾 Room layout saved permanently!');
+      if (typeof speakUtterance === 'function') {
+        speakUtterance('Room layout saved, Master! Everything is right where you want it.');
+      }
+    })
+    .catch(err => {
+      console.warn('[PROPS] Error saving room layout:', err);
+      showAiSpeechToast('⚠️ Error saving room layout to backend');
+    });
+}
+
+function updatePlacedPropsUI() {
+  const container = document.getElementById('placedPropsPillsContainer');
+  if (!container || !vrmCustomPropsGroup) return;
+
+  container.innerHTML = '';
+  if (vrmCustomPropsGroup.children.length === 0) {
+    container.innerHTML = '<span style="font-size:11px; color:var(--text-secondary);">No custom props placed yet. Select a model above to spawn!</span>';
+    return;
+  }
+
+  vrmCustomPropsGroup.children.forEach(mesh => {
+    const ud = mesh.userData || {};
+    const name = ud.name || 'Prop';
+    const isSelected = (mesh === vrmSelectedProp);
+
+    const pill = document.createElement('button');
+    pill.className = 'cluster-action-btn';
+    pill.style.cssText = `padding:4px 10px; font-size:11px; font-weight:800; border-radius:12px; ${isSelected ? 'background:var(--accent-purple); color:#fff; border-color:var(--accent-purple);' : 'border-color:#475569; color:#cbd5e1;'}`;
+    pill.innerText = `🎯 ${name}`;
+    pill.onclick = () => selectCustomProp(mesh);
+    container.appendChild(pill);
+  });
+}
+
+
 function syncRoomCustomizerUI(cfg) {
   const items = ['basketball', 'window', 'bed', 'closet', 'mirror', 'plant', 'yoshi'];
   items.forEach(k => {
@@ -16340,6 +16811,8 @@ function openRoomCustomizerModal() {
   const modal = document.getElementById('roomCustomizerModal');
   if (!modal) return;
   syncRoomCustomizerUI(loadRoomDecorationsConfig());
+  rescanCustomPropsCatalog();
+  updatePlacedPropsUI();
   modal.style.display = 'flex';
 }
 

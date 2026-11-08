@@ -34,6 +34,8 @@
   <link rel="stylesheet" href="style.css?v=18">
   <script src="assets/vendor/three.min.js"></script>
   <script src="assets/vendor/GLTFLoader.js"></script>
+  <script src="assets/vendor/MTLLoader.js"></script>
+  <script src="assets/vendor/OBJLoader.js"></script>
   <script src="assets/vendor/qrcode.min.js"></script>
   <style>
     @keyframes authSpin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -508,7 +510,7 @@
                   <button type="button" class="ai-split-btn" id="btnSplitRoom" onclick="setAiLayoutMode('ROOM')" title="Full Screen 3D Room Focus">🛋️ ROOM</button>
                 </div>
                 <button class="vrm-ctrl-btn" id="btnVrmModelToggle" onclick="toggleRemRumAvatar()" title="Switch between Rem and Rum" style="border-color:#c084fc; color:#c084fc;">💜 RUM</button>
-                <button class="vrm-ctrl-btn" id="btnRoomCustomizer" onclick="openRoomCustomizerModal()" title="Customize Rum's Room & Add 3D Props" style="border-color:#f472b6; color:#f472b6; font-weight:800;">🛋️ CUSTOM ROOM</button>
+                <button class="vrm-ctrl-btn" id="btnRoomCustomizer" onclick="openRoomCustomizerModal()" title="Customize Rum's Room, Place .OBJ / .GLTF Models & Edit Layout" style="border-color:#f472b6; color:#f472b6; font-weight:800;">🛠️ ROOM EDITOR</button>
                 <button class="vrm-ctrl-btn" id="btnBasketballAction" onclick="triggerBasketballDribbleAction()" title="Dribble & Play with Basketball" style="border-color:#ff7a00; color:#ff7a00; font-weight:800;">🏀 DRIBBLE</button>
                 <button class="vrm-ctrl-btn" id="btnVrmRoamToggle" onclick="toggleVrmRoaming()" title="Toggle Rum Autonomous Wandering" style="border-color:#22c55e; color:#4ade80;">🚶 ROAM: ON</button>
                 <button class="vrm-ctrl-btn" id="btnVrmViewToggle" onclick="toggleVrmFraming()" title="Toggle Full Body / Auto Zoom / Portrait">👀 FULL BODY</button>
@@ -551,8 +553,8 @@
         </div>
       </div>
 
-      <!-- 2x2 App Launcher Grid -->
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; flex:1;">
+      <!-- Media & Streaming Launcher Grid -->
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(290px, 1fr)); gap:14px; flex:1; padding-bottom:12px;">
         <!-- Card 1: Badass Music Player -->
         <div class="media-hub-card card-audio" onclick="navigateTo('music')" style="background:linear-gradient(135deg, rgba(16,24,38,0.95), rgba(10,14,22,0.98)); border:1px solid rgba(0,176,255,0.35); border-radius:14px; padding:18px; display:flex; flex-direction:column; justify-content:space-between; cursor:pointer; position:relative; overflow:hidden; box-shadow:0 8px 28px rgba(0,176,255,0.12); transition:transform 0.16s ease, border-color 0.16s ease;">
           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
@@ -571,6 +573,24 @@
               READY TO PLAY
             </span>
             <button class="cluster-action-btn" style="padding:6px 14px; font-size:11px; border-color:var(--accent-blue); color:var(--accent-blue); font-weight:800;">OPEN STUDIO ➔</button>
+          </div>
+        </div>
+
+        <!-- Card 2: YouTube Cinema & YouTube Music -->
+        <div class="media-hub-card card-youtube" onclick="launchYouTube('video')" style="background:linear-gradient(135deg, rgba(38,14,14,0.95), rgba(20,8,8,0.98)); border:1px solid rgba(255,50,50,0.35); border-radius:14px; padding:18px; display:flex; flex-direction:column; justify-content:space-between; cursor:pointer; position:relative; overflow:hidden; box-shadow:0 8px 28px rgba(255,0,0,0.14); transition:transform 0.16s ease, border-color 0.16s ease;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div style="width:52px; height:52px; border-radius:12px; background:rgba(255,0,0,0.15); border:1px solid rgba(255,0,0,0.4); display:flex; align-items:center; justify-content:center; font-size:28px;">▶️</div>
+            <span style="font-size:10px; font-weight:800; color:#ff4d4d; background:rgba(255,0,0,0.15); padding:3px 10px; border-radius:10px; border:1px solid rgba(255,0,0,0.35);">HD CINEMA & MUSIC</span>
+          </div>
+          <div style="margin:14px 0 10px 0;">
+            <div style="font-size:18px; font-weight:900; color:#fff; letter-spacing:0.5px;">YOUTUBE & YOUTUBE MUSIC</div>
+            <div style="font-size:11px; color:var(--text-secondary); line-height:1.5; margin-top:4px;">
+              Touch-friendly streaming cinema & music player. Stream automotive channels, music videos, podcasts, and playlists with background playback support.
+            </div>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; padding-top:12px; border-top:1px solid rgba(255,255,255,0.06); gap:8px;">
+            <button class="cluster-action-btn" onclick="event.stopPropagation(); launchYouTube('music')" style="padding:6px 12px; font-size:11px; border-color:var(--accent-pink); color:var(--accent-pink); font-weight:800;" title="Launch YouTube Music Streaming">🎵 YT MUSIC</button>
+            <button class="cluster-action-btn" style="padding:6px 14px; font-size:11px; border-color:#ff4d4d; color:#ff4d4d; font-weight:800;">OPEN YOUTUBE ➔</button>
           </div>
         </div>
 
@@ -3031,94 +3051,214 @@
   <!-- HARDWARE / SCREEN BRIGHTNESS OVERLAY -->
   <div id="screenBrightnessOverlay" class="screen-brightness-overlay"></div>
 
-  <!-- ROOM DECORATIONS & CUSTOMIZER MODAL -->
+  <!-- 3D ROOM CUSTOMIZER & DYNAMIC PROP LOADER STUDIO -->
   <div class="config-modal-overlay" id="roomCustomizerModal" style="display:none;" onclick="if(event.target === this) closeRoomCustomizerModal()">
-    <div class="config-modal-content" style="max-width:540px; width:92%; border-color:var(--accent-purple); box-shadow:0 0 35px rgba(168,85,247,0.35);">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1px solid #212b38; padding-bottom:10px;">
-        <div style="display:flex; align-items:center; gap:10px;">
-          <span style="font-size:24px;">🛋️</span>
+    <div class="config-modal-content" style="max-width:780px; width:95%; max-height:92vh; display:flex; flex-direction:column; overflow:hidden; padding:0; background:rgba(14,19,30,0.97); border:2px solid var(--accent-purple); border-radius:16px; box-shadow:0 0 40px rgba(168,85,247,0.35);">
+      
+      <!-- Studio Header -->
+      <div style="flex-shrink:0; display:flex; justify-content:space-between; align-items:center; padding:12px 18px; border-bottom:1px solid #1f2937; background:rgba(0,0,0,0.35);">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span style="font-size:24px;">🛠️</span>
           <div>
-            <div style="font-size:15px; font-weight:900; color:#fff; letter-spacing:0.5px;">R.U.M.'S ROOM CUSTOMIZER</div>
-            <div style="font-size:11px; color:var(--text-secondary);">ADD OR REMOVE 3D OBJECTS & PROPS IN HER ROOM</div>
+            <div style="font-size:16px; font-weight:900; color:#fff; letter-spacing:0.5px;">R.U.M. 3D ROOM CUSTOMIZER & PROP STUDIO</div>
+            <div style="font-size:11px; color:var(--text-secondary);">Place custom .OBJ / .GLTF models & reposition furniture with touch ergonomics</div>
           </div>
         </div>
-        <button class="cluster-action-btn" onclick="closeRoomCustomizerModal()" style="padding:4px 10px; font-size:12px;">✕</button>
-      </div>
-
-      <!-- Items Grid -->
-      <div class="room-items-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px;">
-        <!-- Basketball -->
-        <div class="room-item-card" id="cardRoomBasketball" onclick="toggleRoomItem('basketball')">
-          <div class="room-item-icon">🏀</div>
-          <div class="room-item-text">
-            <div class="room-item-name">Basketball</div>
-            <div class="room-item-sub">Interactive Physics & Dribble</div>
-          </div>
-          <input type="checkbox" id="chkRoomBasketball" class="room-item-toggle" checked onclick="event.stopPropagation(); toggleRoomItem('basketball');">
-        </div>
-        <!-- Window -->
-        <div class="room-item-card" id="cardRoomWindow" onclick="toggleRoomItem('window')">
-          <div class="room-item-icon">🪟</div>
-          <div class="room-item-text">
-            <div class="room-item-name">Studio Window</div>
-            <div class="room-item-sub">Panoramic Scenic View</div>
-          </div>
-          <input type="checkbox" id="chkRoomWindow" class="room-item-toggle" checked onclick="event.stopPropagation(); toggleRoomItem('window');">
-        </div>
-        <!-- Bed -->
-        <div class="room-item-card" id="cardRoomBed" onclick="toggleRoomItem('bed')">
-          <div class="room-item-icon">🛏️</div>
-          <div class="room-item-text">
-            <div class="room-item-name">Platform Bed</div>
-            <div class="room-item-sub">Cozy Platform with Duvet</div>
-          </div>
-          <input type="checkbox" id="chkRoomBed" class="room-item-toggle" onclick="event.stopPropagation(); toggleRoomItem('bed');">
-        </div>
-        <!-- Closet -->
-        <div class="room-item-card" id="cardRoomCloset" onclick="toggleRoomItem('closet')">
-          <div class="room-item-icon">🚪</div>
-          <div class="room-item-text">
-            <div class="room-item-name">Wardrobe Closet</div>
-            <div class="room-item-sub">Tall Scandinavian Armoire</div>
-          </div>
-          <input type="checkbox" id="chkRoomCloset" class="room-item-toggle" onclick="event.stopPropagation(); toggleRoomItem('closet');">
-        </div>
-        <!-- Mirror -->
-        <div class="room-item-card" id="cardRoomMirror" onclick="toggleRoomItem('mirror')">
-          <div class="room-item-icon">🪞</div>
-          <div class="room-item-text">
-            <div class="room-item-name">Full-Length Mirror</div>
-            <div class="room-item-sub">Floor Dressing Mirror</div>
-          </div>
-          <input type="checkbox" id="chkRoomMirror" class="room-item-toggle" onclick="event.stopPropagation(); toggleRoomItem('mirror');">
-        </div>
-        <!-- Plant -->
-        <div class="room-item-card" id="cardRoomPlant" onclick="toggleRoomItem('plant')">
-          <div class="room-item-icon">🪴</div>
-          <div class="room-item-text">
-            <div class="room-item-name">Potted Plant</div>
-            <div class="room-item-sub">Indoor Ceramic Fiddle Leaf</div>
-          </div>
-          <input type="checkbox" id="chkRoomPlant" class="room-item-toggle" checked onclick="event.stopPropagation(); toggleRoomItem('plant');">
-        </div>
-        <!-- Yoshi -->
-        <div class="room-item-card" id="cardRoomYoshi" onclick="toggleRoomItem('yoshi')">
-          <div class="room-item-icon">🦖</div>
-          <div class="room-item-text">
-            <div class="room-item-name">Yoshi Plush</div>
-            <div class="room-item-sub">Companion Stuffed Animal</div>
-          </div>
-          <input type="checkbox" id="chkRoomYoshi" class="room-item-toggle" checked onclick="event.stopPropagation(); toggleRoomItem('yoshi');">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button class="cluster-action-btn" onclick="saveRoomLayoutToBackend()" style="padding:6px 14px; font-size:12px; font-weight:900; background:var(--accent-green); color:#000; border-color:var(--accent-green);">💾 SAVE ROOM</button>
+          <button class="cluster-action-btn" onclick="closeRoomCustomizerModal()" style="padding:6px 12px; font-size:12px; font-weight:800;">✕ CLOSE</button>
         </div>
       </div>
 
-      <!-- Quick Action Buttons -->
-      <div style="display:flex; gap:10px;">
-        <button class="cluster-action-btn" onclick="clearAllRoomItems()" style="flex:1; border-color:rgba(255,51,68,0.4); color:#ff5263; height:44px; font-weight:800;">
-          🧹 EMPTY ROOM (DOOR ONLY)
+      <!-- Studio Mode Tabs -->
+      <div style="flex-shrink:0; display:flex; border-bottom:1px solid #1f2937; background:rgba(0,0,0,0.2);">
+        <button type="button" id="tabBtnCustomProps" class="editor-tab-btn active" onclick="switchRoomEditorTab('PROPS')" style="flex:1; padding:10px; font-size:12px; font-weight:800; background:rgba(168,85,247,0.18); border:none; border-bottom:2px solid var(--accent-purple); color:#fff; cursor:pointer;">
+          📦 3D PROPS & MODELS (/storage/models/props)
         </button>
-        <button class="cluster-action-btn" onclick="triggerBasketballDribbleAction()" style="flex:1; background:rgba(255,107,0,0.2); border-color:#ff7a00; color:#ff7a00; height:44px; font-weight:800;">
-          🏀 DRIBBLE BALL
+        <button type="button" id="tabBtnFixtures" class="editor-tab-btn" onclick="switchRoomEditorTab('FIXTURES')" style="flex:1; padding:10px; font-size:12px; font-weight:800; background:transparent; border:none; border-bottom:2px solid transparent; color:var(--text-secondary); cursor:pointer;">
+          🏠 BUILT-IN FIXTURES (Window, Bed, Plant, Mirror)
+        </button>
+      </div>
+
+      <!-- Scrollable Tab Content Container -->
+      <div style="flex:1; overflow-y:auto; padding:14px 18px; display:flex; flex-direction:column; gap:16px;">
+        
+        <!-- TAB 1: 3D PROPS & MODELS (/storage/models/props) -->
+        <div id="roomEditorPropsTab" style="display:flex; flex-direction:column; gap:16px;">
+          
+          <!-- Catalog Header & Rescan -->
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:13px; font-weight:800; color:#fff;">AVAILABLE 3D MODELS</span>
+              <span id="roomPropsCountBadge" style="font-size:10px; font-weight:800; color:var(--accent-purple); background:rgba(168,85,247,0.15); padding:2px 8px; border-radius:8px; border:1px solid rgba(168,85,247,0.3);">SCANNING...</span>
+            </div>
+            <button class="cluster-action-btn" onclick="rescanCustomPropsCatalog()" style="padding:4px 12px; font-size:11px; font-weight:800; border-color:var(--accent-blue); color:var(--accent-blue);">
+              🔄 RESCAN STORAGE & USB
+            </button>
+          </div>
+
+          <!-- Discovered Models Catalog Grid -->
+          <div id="customPropsCatalogGrid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); gap:10px; max-height:165px; overflow-y:auto; padding:4px;">
+            <!-- Populated dynamically via fetchAvailableCustomProps() -->
+          </div>
+
+          <!-- Active Selected Prop Transform Inspector -->
+          <div style="background:rgba(10,14,22,0.9); border:1px solid #1f2937; border-radius:12px; padding:14px; display:flex; flex-direction:column; gap:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:8px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:16px;">🎯</span>
+                <div>
+                  <div style="font-size:12px; font-weight:900; color:#fff;" id="inspectorPropTitle">SELECTED PROP: NONE</div>
+                  <div style="font-size:10px; color:var(--text-secondary);" id="inspectorPropCoords">Tap any model in the catalog or touch a prop in the room to edit</div>
+                </div>
+              </div>
+              <div style="display:flex; gap:6px;">
+                <button class="cluster-action-btn" id="btnCallRumToProp" onclick="callRumToSelectedProp()" style="padding:4px 10px; font-size:10px; font-weight:800; border-color:var(--accent-pink); color:var(--accent-pink); display:none;">💜 CALL RUM</button>
+                <button class="cluster-action-btn" id="btnDeleteSelectedProp" onclick="deleteSelectedProp()" style="padding:4px 10px; font-size:10px; font-weight:800; border-color:var(--accent-red); color:var(--accent-red); display:none;">🗑️ REMOVE</button>
+              </div>
+            </div>
+
+            <!-- Touch Ergonomic Transform D-Pad & Sliders -->
+            <div id="inspectorControlsGroup" style="display:none; flex-direction:column; gap:10px;">
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                <!-- Move Floor Plane (X / Z) D-Pad -->
+                <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px;">
+                  <div style="font-size:11px; font-weight:800; color:#a0b8d0; margin-bottom:8px; text-align:center;">FLOOR POSITION (X / Z)</div>
+                  <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+                    <button class="cluster-action-btn" onclick="moveSelectedProp(0, -0.20)" style="width:52px; height:44px; font-size:14px; font-weight:900;">⬆️</button>
+                    <div style="display:flex; gap:10px;">
+                      <button class="cluster-action-btn" onclick="moveSelectedProp(-0.20, 0)" style="width:52px; height:44px; font-size:14px; font-weight:900;">⬅️</button>
+                      <button class="cluster-action-btn" onclick="snapSelectedPropToFloor()" style="width:52px; height:44px; font-size:11px; font-weight:800; border-color:var(--accent-purple); color:var(--accent-purple);">CENTER</button>
+                      <button class="cluster-action-btn" onclick="moveSelectedProp(0.20, 0)" style="width:52px; height:44px; font-size:14px; font-weight:900;">➡️</button>
+                    </div>
+                    <button class="cluster-action-btn" onclick="moveSelectedProp(0, 0.20)" style="width:52px; height:44px; font-size:14px; font-weight:900;">⬇️</button>
+                  </div>
+                </div>
+
+                <!-- Height (Y), Rotation & Scale -->
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                  <!-- Elevation (Y) -->
+                  <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:8px 10px;">
+                    <div style="font-size:10px; font-weight:800; color:#a0b8d0; margin-bottom:6px;">ELEVATION (Y HEIGHT)</div>
+                    <div style="display:flex; gap:6px;">
+                      <button class="cluster-action-btn" onclick="elevateSelectedProp(0.08)" style="flex:1; height:44px; font-size:11px; font-weight:800;">🔼 RAISE (+0.08m)</button>
+                      <button class="cluster-action-btn" onclick="elevateSelectedProp(-0.08)" style="flex:1; height:44px; font-size:11px; font-weight:800;">🔽 LOWER (-0.08m)</button>
+                      <button class="cluster-action-btn" onclick="snapSelectedPropToFloor()" style="height:44px; padding:0 12px; font-size:11px; font-weight:800; border-color:var(--accent-green); color:var(--accent-green);">FLOOR</button>
+                    </div>
+                  </div>
+
+                  <!-- Rotation & Scale -->
+                  <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:8px 10px;">
+                    <div style="font-size:10px; font-weight:800; color:#a0b8d0; margin-bottom:6px;">ROTATION & SCALE</div>
+                    <div style="display:flex; gap:6px;">
+                      <button class="cluster-action-btn" onclick="rotateSelectedProp(-20)" style="flex:1; height:44px; font-size:11px; font-weight:800;">↺ -20°</button>
+                      <button class="cluster-action-btn" onclick="rotateSelectedProp(20)" style="flex:1; height:44px; font-size:11px; font-weight:800;">↻ +20°</button>
+                      <button class="cluster-action-btn" onclick="scaleSelectedProp(0.85)" style="flex:1; height:44px; font-size:11px; font-weight:800;">🔍 -15%</button>
+                      <button class="cluster-action-btn" onclick="scaleSelectedProp(1.15)" style="flex:1; height:44px; font-size:11px; font-weight:800;">🔎 +15%</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Active Placed Props Pills -->
+            <div>
+              <div style="font-size:11px; font-weight:800; color:#a0b8d0; margin-bottom:6px;">PLACED PROPS IN ROOM:</div>
+              <div id="placedPropsPillsContainer" style="display:flex; flex-wrap:wrap; gap:6px;">
+                <span style="font-size:11px; color:var(--text-secondary);">No custom props placed yet. Select a model above to spawn!</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: BUILT-IN FIXTURES -->
+        <div id="roomEditorFixturesTab" style="display:none; flex-direction:column; gap:14px;">
+          <!-- Items Grid -->
+          <div class="room-items-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <!-- Basketball -->
+            <div class="room-item-card" id="cardRoomBasketball" onclick="toggleRoomItem('basketball')">
+              <div class="room-item-icon">🏀</div>
+              <div class="room-item-text">
+                <div class="room-item-name">Basketball</div>
+                <div class="room-item-sub">Interactive Physics & Dribble</div>
+              </div>
+              <input type="checkbox" id="chkRoomBasketball" class="room-item-toggle" checked onclick="event.stopPropagation(); toggleRoomItem('basketball');">
+            </div>
+            <!-- Window -->
+            <div class="room-item-card" id="cardRoomWindow" onclick="toggleRoomItem('window')">
+              <div class="room-item-icon">🪟</div>
+              <div class="room-item-text">
+                <div class="room-item-name">Studio Window</div>
+                <div class="room-item-sub">Panoramic Scenic View</div>
+              </div>
+              <input type="checkbox" id="chkRoomWindow" class="room-item-toggle" checked onclick="event.stopPropagation(); toggleRoomItem('window');">
+            </div>
+            <!-- Bed -->
+            <div class="room-item-card" id="cardRoomBed" onclick="toggleRoomItem('bed')">
+              <div class="room-item-icon">🛏️</div>
+              <div class="room-item-text">
+                <div class="room-item-name">Platform Bed</div>
+                <div class="room-item-sub">Cozy Platform with Duvet</div>
+              </div>
+              <input type="checkbox" id="chkRoomBed" class="room-item-toggle" onclick="event.stopPropagation(); toggleRoomItem('bed');">
+            </div>
+            <!-- Closet -->
+            <div class="room-item-card" id="cardRoomCloset" onclick="toggleRoomItem('closet')">
+              <div class="room-item-icon">🚪</div>
+              <div class="room-item-text">
+                <div class="room-item-name">Wardrobe Closet</div>
+                <div class="room-item-sub">Tall Scandinavian Armoire</div>
+              </div>
+              <input type="checkbox" id="chkRoomCloset" class="room-item-toggle" onclick="event.stopPropagation(); toggleRoomItem('closet');">
+            </div>
+            <!-- Mirror -->
+            <div class="room-item-card" id="cardRoomMirror" onclick="toggleRoomItem('mirror')">
+              <div class="room-item-icon">🪞</div>
+              <div class="room-item-text">
+                <div class="room-item-name">Full-Length Mirror</div>
+                <div class="room-item-sub">Floor Dressing Mirror</div>
+              </div>
+              <input type="checkbox" id="chkRoomMirror" class="room-item-toggle" onclick="event.stopPropagation(); toggleRoomItem('mirror');">
+            </div>
+            <!-- Plant -->
+            <div class="room-item-card" id="cardRoomPlant" onclick="toggleRoomItem('plant')">
+              <div class="room-item-icon">🪴</div>
+              <div class="room-item-text">
+                <div class="room-item-name">Potted Plant</div>
+                <div class="room-item-sub">Indoor Ceramic Fiddle Leaf</div>
+              </div>
+              <input type="checkbox" id="chkRoomPlant" class="room-item-toggle" checked onclick="event.stopPropagation(); toggleRoomItem('plant');">
+            </div>
+            <!-- Yoshi -->
+            <div class="room-item-card" id="cardRoomYoshi" onclick="toggleRoomItem('yoshi')">
+              <div class="room-item-icon">🦖</div>
+              <div class="room-item-text">
+                <div class="room-item-name">Yoshi Plush</div>
+                <div class="room-item-sub">Companion Stuffed Animal</div>
+              </div>
+              <input type="checkbox" id="chkRoomYoshi" class="room-item-toggle" checked onclick="event.stopPropagation(); toggleRoomItem('yoshi');">
+            </div>
+          </div>
+
+          <div style="display:flex; gap:10px;">
+            <button class="cluster-action-btn" onclick="clearAllRoomItems()" style="flex:1; border-color:rgba(255,51,68,0.4); color:#ff5263; height:44px; font-weight:800;">
+              🧹 EMPTY ROOM (DOOR ONLY)
+            </button>
+            <button class="cluster-action-btn" onclick="triggerBasketballDribbleAction()" style="flex:1; background:rgba(255,107,0,0.2); border-color:#ff7a00; color:#ff7a00; height:44px; font-weight:800;">
+              🏀 DRIBBLE BALL
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Quick Action Bottom Bar -->
+      <div style="flex-shrink:0; display:flex; gap:10px; padding:12px 18px; border-top:1px solid #1f2937; background:rgba(0,0,0,0.3);">
+        <button class="cluster-action-btn" onclick="clearAllCustomProps()" style="flex:1; border-color:rgba(255,51,68,0.4); color:#ff5263; height:44px; font-weight:800;">
+          🧹 CLEAR CUSTOM PROPS
+        </button>
+        <button class="cluster-action-btn" onclick="saveRoomLayoutToBackend()" style="flex:1; background:var(--accent-green); color:#000; height:44px; font-weight:900; border-color:var(--accent-green);">
+          💾 SAVE ROOM LAYOUT
         </button>
         <button class="cluster-action-btn" onclick="closeRoomCustomizerModal()" style="flex:1; background:var(--accent-purple); color:#fff; height:44px; font-weight:900;">
           ✓ DONE

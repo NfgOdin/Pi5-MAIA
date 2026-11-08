@@ -2775,6 +2775,124 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
 
 
+        elif parsed.path == "/api/models/custom_props":
+            props = []
+            seen_names = set()
+            valid_exts = {".obj", ".gltf", ".glb", ".vrm"}
+
+            # 1. User storage directory (/storage/models/props)
+            storage_props_dir = BASE_DIR / "storage" / "models" / "props"
+            if storage_props_dir.exists():
+                for p in sorted(storage_props_dir.rglob("*")):
+                    if p.is_file() and p.suffix.lower() in valid_exts:
+                        name = p.stem.replace("_", " ").title()
+                        rel_path = str(p.relative_to(BASE_DIR)).replace("\\", "/")
+                        props.append({
+                            "id": f"prop_storage_{p.stem.lower()}",
+                            "name": name,
+                            "filename": p.name,
+                            "format": p.suffix.lower().replace(".", ""),
+                            "source": "storage",
+                            "size_bytes": p.stat().st_size,
+                            "size_formatted": f"{p.stat().st_size / 1024:.1f} KB" if p.stat().st_size < 1024*1024 else f"{p.stat().st_size / (1024*1024):.2f} MB",
+                            "url": f"/{rel_path}"
+                        })
+                        seen_names.add(p.name)
+
+            # 2. Built-in environment props
+            env_props_dir = BASE_DIR / "ui" / "web_preview" / "models" / "environment" / "props"
+            if env_props_dir.exists():
+                for p in sorted(env_props_dir.rglob("*")):
+                    if p.is_file() and p.suffix.lower() in valid_exts and p.name not in seen_names:
+                        name = p.parent.name.replace("_", " ").title() if p.name.startswith("scene") else p.stem.replace("_", " ").title()
+                        rel_path = str(p.relative_to(BASE_DIR / "ui" / "web_preview")).replace("\\", "/")
+                        props.append({
+                            "id": f"prop_builtin_{p.parent.name.lower()}_{p.stem.lower()}",
+                            "name": name,
+                            "filename": p.name,
+                            "format": p.suffix.lower().replace(".", ""),
+                            "source": "builtin",
+                            "size_bytes": p.stat().st_size,
+                            "size_formatted": f"{p.stat().st_size / 1024:.1f} KB" if p.stat().st_size < 1024*1024 else f"{p.stat().st_size / (1024*1024):.2f} MB",
+                            "url": rel_path
+                        })
+                        seen_names.add(p.name)
+
+            # 3. USB Drives
+            usb_roots = ["/media/nfgodin", "/media", "/mnt", "storage/usb_drive"]
+            for uroot in usb_roots:
+                upath = (BASE_DIR / uroot).resolve() if not os.path.isabs(uroot) else Path(uroot)
+                if upath.exists():
+                    try:
+                        for p in upath.rglob("*"):
+                            if p.is_file() and p.suffix.lower() in valid_exts and p.name not in seen_names:
+                                name = p.stem.replace("_", " ").title()
+                                props.append({
+                                    "id": f"prop_usb_{p.stem.lower()}",
+                                    "name": f"{name} (USB)",
+                                    "filename": p.name,
+                                    "format": p.suffix.lower().replace(".", ""),
+                                    "source": "usb",
+                                    "size_bytes": p.stat().st_size,
+                                    "size_formatted": f"{p.stat().st_size / 1024:.1f} KB" if p.stat().st_size < 1024*1024 else f"{p.stat().st_size / (1024*1024):.2f} MB",
+                                    "url": f"/api/models/usb_file?path={urllib.parse.quote(str(p))}"
+                                })
+                                seen_names.add(p.name)
+                    except Exception:
+                        pass
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "props": props}).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/models/room_layout":
+            cfg_path = BASE_DIR / "config" / "custom_room_layout.json"
+            layout_data = {"version": 1, "props": []}
+            if cfg_path.exists():
+                try:
+                    with open(cfg_path, "r", encoding="utf-8") as f:
+                        layout_data = json.load(f)
+                except Exception as e:
+                    logger.error(f"Error loading custom_room_layout: {e}")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(layout_data).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/models/usb_file":
+            params = parse_qs(parsed.query)
+            file_path = params.get("path", [""])[0]
+            target = Path(file_path).resolve()
+            if target.exists() and target.is_file():
+                ctype = "application/octet-stream"
+                if target.suffix == ".obj":
+                    ctype = "text/plain; charset=utf-8"
+                elif target.suffix == ".gltf":
+                    ctype = "model/gltf+json"
+                elif target.suffix == ".glb":
+                    ctype = "model/gltf-binary"
+                elif target.suffix in [".png", ".jpg", ".jpeg"]:
+                    ctype = "image/png" if target.suffix == ".png" else "image/jpeg"
+                try:
+                    data = target.read_bytes()
+                    self.send_response(200)
+                    self.send_header("Content-Type", ctype)
+                    self.send_header("Content-Length", str(len(data)))
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+                except Exception as e:
+                    logger.error(f"Error serving USB model file: {e}")
+            self.send_response(404)
+            self.end_headers()
+            return
+
         # Direct Storage Static Files Handler (Manuals, PDFs, Dashcam clips, custom models)
         if parsed.path.startswith("/storage/"):
             rel = parsed.path.replace("/storage/", "", 1)
@@ -2783,8 +2901,14 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                 ctype = "application/octet-stream"
                 if target_file.suffix == ".pdf":
                     ctype = "application/pdf"
-                elif target_file.suffix in [".md", ".txt"]:
+                elif target_file.suffix in [".md", ".txt", ".obj", ".mtl"]:
                     ctype = "text/plain; charset=utf-8"
+                elif target_file.suffix == ".gltf":
+                    ctype = "model/gltf+json"
+                elif target_file.suffix == ".glb":
+                    ctype = "model/gltf-binary"
+                elif target_file.suffix == ".bin":
+                    ctype = "application/octet-stream"
                 elif target_file.suffix in [".jpg", ".jpeg"]:
                     ctype = "image/jpeg"
                 elif target_file.suffix == ".png":
@@ -4043,6 +4167,58 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
                 self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode("utf-8"))
 
+            return
+
+        elif parsed.path == "/api/media/launch_youtube":
+            try:
+                mode = req_data.get("mode", "video")
+                if mode == "music":
+                    target_url = "https://music.youtube.com"
+                elif mode == "tv":
+                    target_url = "https://youtube.com/tv"
+                else:
+                    target_url = "https://www.youtube.com"
+
+                env = os.environ.copy()
+                env["DISPLAY"] = ":0"
+                env["WAYLAND_DISPLAY"] = "wayland-0"
+                if hasattr(os, "getuid"):
+                    env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
+                else:
+                    env["XDG_RUNTIME_DIR"] = "/run/user/1000"
+
+                cmd = ["chromium", f"--app={target_url}", "--start-maximized", "--no-first-run", "--disable-notifications"]
+                proc = subprocess.Popen(cmd, env=env)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok", "message": f"YouTube ({mode}) Launched", "pid": proc.pid, "url": target_url}).encode("utf-8"))
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/models/room_layout":
+            cfg_path = BASE_DIR / "config" / "custom_room_layout.json"
+            try:
+                new_layout = json.loads(self.rfile.read(content_length).decode('utf-8'))
+                with open(cfg_path, "w", encoding="utf-8") as f:
+                    json.dump(new_layout, f, indent=2)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok", "message": "Room layout saved", "count": len(new_layout.get("props", []))}).encode("utf-8"))
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode("utf-8"))
             return
 
 

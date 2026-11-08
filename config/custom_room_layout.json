@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "last_updated": "2026-11-08T03:16:00",
+  "props": [
+    {
+      "id": "prop_yoshi_default",
+      "name": "Yoshi Plushie",
+      "modelUrl": "models/environment/props/yoshi/scene.gltf",
+      "format": "gltf",
+      "position": [
+        0.66,
+        0.2,
+        0.16
+      ],
+      "rotation": [
+        0.0,
+        3.0,
+        0.0
+      ],
+      "scale": [
+        1.35,
+        1.35,
+        1.35
+      ]
+    }
+  ]
+}
