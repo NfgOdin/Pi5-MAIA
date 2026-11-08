@@ -733,6 +733,7 @@ let mediaPlayInterval = null;
 
 
 function navigateTo(screenId) {
+  if (screenId === 'files') screenId = 'explorer';
   if (screenId !== "gauges" && isGaugeFullscreen) {
     exitFullscreenGauges();
   }
@@ -754,6 +755,7 @@ function navigateTo(screenId) {
     media: document.getElementById('screenMedia'),
     music: document.getElementById('screenMusic'),
     audiosuite: document.getElementById('screenAudioSuite'),
+    explorer: document.getElementById('screenExplorer'),
 
     games: document.getElementById('screenGames'),
 
@@ -847,6 +849,9 @@ function navigateTo(screenId) {
     }
   }
 
+  if (screenId === "explorer" || screenId === "files") {
+    if (typeof openFileExplorer === "function") openFileExplorer();
+  }
   if (screenId === "audiosuite") {
 
     if (typeof renderFullAudioSuiteEqGrid === "function") renderFullAudioSuiteEqGrid();
@@ -6791,25 +6796,21 @@ let explorerSortAsc = true;
 let explorerSearchQuery = '';
 
 function openFileExplorer(targetPath) {
-  const modal = document.getElementById('fileExplorerModal');
-  if (modal) modal.style.display = 'flex';
-
-  renderExplorerDeviceTabs();
-
-  if (targetPath) {
-    currentExplorerPath = targetPath;
-  } else if (!currentExplorerPath) {
-    // Default to Home if detected, otherwise first device
-    const homeDev = detectedDevices.find(d => d.id === 'loc_home');
-    currentExplorerPath = homeDev ? homeDev.path : ((detectedDevices[0] && detectedDevices[0].path) || "");
+  const expScreen = document.getElementById('screenExplorer');
+  if (!expScreen || !expScreen.classList.contains('active')) {
+    navigateTo('explorer');
+    if (!targetPath) return;
   }
 
-  loadExplorerDirectory(currentExplorerPath);
+  if (targetPath && targetPath !== 'thispc') {
+    loadExplorerDirectory(targetPath);
+  } else {
+    renderWin11ThisPcView();
+  }
 }
 
 function closeFileExplorer() {
-  const modal = document.getElementById('fileExplorerModal');
-  if (modal) modal.style.display = 'none';
+  navigateTo('home');
 }
 
 function renderExplorerDeviceTabs() {
@@ -6865,6 +6866,8 @@ function renderExplorerBreadcrumbs(breadcrumbs, currentPath) {
 }
 
 function loadExplorerDirectory(dirPath) {
+  if (typeof syncWin11SidebarActive === 'function') syncWin11SidebarActive(dirPath);
+
   currentExplorerPath = dirPath || "";
   const fileList = document.getElementById('explorerFileList');
   const footerStatus = document.getElementById('explorerFooterStatus');
@@ -14022,18 +14025,14 @@ function updateCameraDirector(delta, isSpeaking, isReacting) {
   const yHead   = ry + (vrmSize.y * 0.82); // Eye / head level
 
   if (isCompanionFloating) {
+    // Continuous dynamic tracking in Shotgun mode: Follow Rum's exact rx/rz coordinates so she NEVER walks off screen!
     if (vrmFramingMode === 'PORTRAIT' || (vrmFramingMode === 'AUTO' && isVocal)) {
-      targetCamPos.set(0.0, yHead + 0.02, 1.30);
-      targetLookAt.set(0.0, yBust + 0.05, 0.0);
-    } else if (vrmFramingMode === 'FULL_BODY') {
-      targetCamPos.set(0.0, ry + 0.82, 3.10);
-      targetLookAt.set(0.0, ry + 0.70, 0.0);
-    } else if (vrmFramingMode === 'ROOM') {
-      targetCamPos.set(0.0, ry + 1.20, 3.80);
-      targetLookAt.set(0.0, ry + 0.60, 0.0);
+      targetCamPos.set(rx, yHead + 0.02, rz + 1.15);
+      targetLookAt.set(rx, yBust + 0.04, rz);
     } else {
-      targetCamPos.set(0.0, ry + 0.82, 3.10);
-      targetLookAt.set(0.0, ry + 0.70, 0.0);
+      // Third-person centered tracking head-to-toe in small floating shotgun HUD
+      targetCamPos.set(rx, yCenter + 0.10, rz + 2.35);
+      targetLookAt.set(rx, yCenter, rz);
     }
   } else if (vrmFramingMode === 'ROOM') {
     // 1. FULL ROOM VIEW: Wide architectural diorama view showing the ENTIRE room (Door on left, plant on right, Rum wandering freely inside)
@@ -14062,7 +14061,8 @@ function updateCameraDirector(delta, isSpeaking, isReacting) {
 
 
 
-  const lerpFactor = Math.min(1.0, delta * 4.2);
+  const isFastSnap = (typeof vrmCameraFastTransitionUntil !== 'undefined' && Date.now() < vrmCameraFastTransitionUntil);
+  const lerpFactor = isFastSnap ? Math.min(1.0, delta * 18.0) : Math.min(1.0, delta * 4.2);
 
   vrmCamera.position.lerp(targetCamPos, lerpFactor);
 
@@ -14173,7 +14173,7 @@ function initRoomTouchOrbitLookAround(canvas) {
     if (orbitIdleTimer) clearTimeout(orbitIdleTimer);
     orbitIdleTimer = setTimeout(() => {
       orbitReturnToCenter = true;
-    }, 7000);
+    }, 3000);
   }
 
   canvas.addEventListener('mousedown', onPointerDown);
@@ -14438,6 +14438,17 @@ function updateFramingButtonLabel() {
 
 
 
+let vrmCameraFastTransitionUntil = 0;
+
+function snapCameraToCurrentFraming() {
+  orbitTargetYaw = 0.0;
+  orbitTargetPitch = 0.0;
+  orbitUserYaw = 0.0;
+  orbitUserPitch = 0.0;
+  orbitReturnToCenter = true;
+  vrmCameraFastTransitionUntil = Date.now() + 450;
+}
+
 function toggleVrmFraming() {
 
   if (vrmFramingMode === 'FULL_BODY') vrmFramingMode = 'ROOM';
@@ -14448,6 +14459,7 @@ function toggleVrmFraming() {
 
   else vrmFramingMode = 'FULL_BODY';
 
+  snapCameraToCurrentFraming();
   updateFramingButtonLabel();
 
 }
@@ -14526,6 +14538,9 @@ function showVrmSpeech(text, durationMs = 5000) {
 // Floating Shotgun Companion Mode (Rum Riding Shotgun Anywhere on Screen)
 
 function popOutFloatingCompanion(isAuto = false) {
+  if (!vrmInitialized && typeof initVrmEngine === 'function') {
+    initVrmEngine();
+  }
 
   const canvas = document.getElementById('vrmCanvas');
 
@@ -14561,32 +14576,20 @@ function popOutFloatingCompanion(isAuto = false) {
 
 
 
-function dockCompanionToAi() {
-
+function dockCompanionToAi(goToAi = true) {
   const canvas = document.getElementById('vrmCanvas');
-
   const stageContainer = document.getElementById('vrmStageContainer');
-
   const floatingHud = document.getElementById('vrmFloatingHud');
 
   if (shotgunAutoDismissTimer) {
-
     clearTimeout(shotgunAutoDismissTimer);
-
     shotgunAutoDismissTimer = null;
-
   }
-
   isShotgunAutoPopped = false;
-
   if (!canvas || !stageContainer || !floatingHud) return;
 
-
-
   floatingHud.style.display = 'none';
-
   stageContainer.appendChild(canvas);
-
   isCompanionFloating = false;
 
   // If currently in CHAT focus mode, docking restores SPLIT layout so Rum is immediately visible on screen!
@@ -14594,16 +14597,14 @@ function dockCompanionToAi() {
     setAiLayoutMode('SPLIT');
   }
 
-
+  if (goToAi) {
+    navigateTo('ai');
+  }
 
   resizeVrmToStage();
-
 }
 
-
-
 function dismissFloatingHud() {
-
   isShotgunAutoPopped = false;
   window.isCompanionMinimizedByUser = false;
   const mini = document.getElementById('vrmMiniBubble');
@@ -14611,8 +14612,7 @@ function dismissFloatingHud() {
   if (currentAiLayoutMode === 'CHAT') {
     setAiLayoutMode('SPLIT');
   }
-  dockCompanionToAi();
-
+  dockCompanionToAi(false);
 }
 
 
@@ -19738,8 +19738,9 @@ function setFullEqBandGain(idx, val) {
 
 // --- PHASE 3: WINDOWS 11 "THIS PC" DRIVES OVERVIEW ---
 function renderWin11ThisPcView() {
-  const modal = document.getElementById('fileExplorerModal');
-  if (modal) modal.style.display = 'flex';
+  if (typeof syncWin11SidebarActive === 'function') syncWin11SidebarActive('thispc');
+
+  // Full-window screenExplorer view rendered directly
 
   const fileList = document.getElementById('explorerFileList');
   const breadcrumbContainer = document.getElementById('explorerBreadcrumbs');
@@ -19969,3 +19970,33 @@ setTimeout(() => {
   if (typeof initVrmControlsBarState === 'function') initVrmControlsBarState();
   if (typeof initHomeCardsTouchReorder === 'function') initHomeCardsTouchReorder();
 }, 600);
+
+
+function syncWin11SidebarActive(path) {
+  document.querySelectorAll('.win11-nav-item').forEach(b => b.classList.remove('active'));
+  if (!path || path === 'thispc') {
+    const el = document.getElementById('win11NavThisPc');
+    if (el) el.classList.add('active');
+  } else if (path === '/home/nfgodin') {
+    const el = document.getElementById('win11NavHome');
+    if (el) el.classList.add('active');
+  } else if (path.startsWith('/home/nfgodin/CarPi5')) {
+    const el = document.getElementById('win11NavProject');
+    if (el) el.classList.add('active');
+  } else if (path.startsWith('/media')) {
+    const el = document.getElementById('win11NavUsb');
+    if (el) el.classList.add('active');
+  } else if (path.includes('dashcam')) {
+    const el = document.getElementById('win11NavDashcam');
+    if (el) el.classList.add('active');
+  } else if (path.includes('roms') || path.includes('RetroPie')) {
+    const el = document.getElementById('win11NavRoms');
+    if (el) el.classList.add('active');
+  } else if (path.includes('Music')) {
+    const el = document.getElementById('win11NavMusic');
+    if (el) el.classList.add('active');
+  } else if (path === '/') {
+    const el = document.getElementById('win11NavRoot');
+    if (el) el.classList.add('active');
+  }
+}

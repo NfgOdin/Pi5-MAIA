@@ -100,7 +100,7 @@
       </div>
       <div class="gear-badge" id="gearBadge" title="C635 Transmission Gear">N</div>
       <!-- Dynamic USB Drive Mount Pill (Only shown when physical USB is mounted) -->
-      <div class="usb-status-pill dynamic-usb-pill" id="headerUsbPill" style="display:none;" onclick="openFileExplorer()" title="External USB Storage Connected • Click to Open">
+      <div class="usb-status-pill dynamic-usb-pill" id="headerUsbPill" style="display:none;" onclick="navigateTo('explorer')" title="External USB Storage Connected • Click to Open">
         <span>💾</span> <span id="headerUsbText">USB</span>
       </div>
     </div>
@@ -254,7 +254,7 @@
         </div>
 
         <!-- 7. IN-CAR FILE EXPLORER & USB STORAGE -->
-        <div class="launcher-card card-settings" onclick="openFileExplorer()">
+        <div class="launcher-card card-settings" onclick="navigateTo('explorer')">
           <div class="card-badge" id="homeUsbBadge" style="background:rgba(0,230,118,0.15); color:var(--accent-green); border:1px solid var(--accent-green);">
             💾 USB: MOUNTED
           </div>
@@ -738,6 +738,129 @@
           <span style="font-size:11px; font-weight:900; color:#4ade80;">PROTECTED</span>
         </div>
       </div>
+    </div>
+
+    <!-- 3C. FULL-WINDOW WINDOWS 11 IN-CAR FILE EXPLORER SCREEN -->
+    <div class="screen-view" id="screenExplorer" style="flex-direction:row; height:100%; overflow:hidden; padding:0; margin:0; box-sizing:border-box;">
+      
+      <!-- Left Windows 11 Navigation Sidebar -->
+      <aside class="win11-sidebar" id="win11Sidebar">
+        <!-- Sidebar Header -->
+        <div class="win11-sidebar-header">
+          <span style="font-size:22px;">📁</span>
+          <div>
+            <div style="font-weight:900; font-size:13px; color:#fff; letter-spacing:0.5px;">FILE EXPLORER</div>
+            <div style="font-size:9.5px; color:var(--text-secondary);">Windows 11 Native Hub</div>
+          </div>
+        </div>
+
+        <!-- Quick Access Section -->
+        <div class="win11-sidebar-section-title">QUICK ACCESS</div>
+        <div class="win11-sidebar-nav" id="win11QuickNav">
+          <button class="win11-nav-item active" id="win11NavThisPc" onclick="renderWin11ThisPcView()">
+            <span class="win11-nav-icon">🖥️</span>
+            <span class="win11-nav-label">This PC</span>
+          </button>
+          <button class="win11-nav-item" id="win11NavHome" onclick="loadExplorerDirectory('/home/nfgodin')">
+            <span class="win11-nav-icon">🏠</span>
+            <span class="win11-nav-label">Home</span>
+          </button>
+          <button class="win11-nav-item" id="win11NavProject" onclick="loadExplorerDirectory('/home/nfgodin/CarPi5')">
+            <span class="win11-nav-icon">💼</span>
+            <span class="win11-nav-label">CarPi5 Project</span>
+          </button>
+          <button class="win11-nav-item" id="win11NavDownloads" onclick="loadExplorerDirectory('/home/nfgodin/Downloads')">
+            <span class="win11-nav-icon">⬇️</span>
+            <span class="win11-nav-label">Downloads</span>
+          </button>
+          <button class="win11-nav-item" id="win11NavMusic" onclick="loadExplorerDirectory('/home/nfgodin/Music')">
+            <span class="win11-nav-icon">🎵</span>
+            <span class="win11-nav-label">Music Library</span>
+          </button>
+          <button class="win11-nav-item" id="win11NavRoms" onclick="loadExplorerDirectory('/home/nfgodin/RetroPie/roms')">
+            <span class="win11-nav-icon">🎮</span>
+            <span class="win11-nav-label">Retro ROMs</span>
+          </button>
+        </div>
+
+        <!-- Devices & Drives Section -->
+        <div class="win11-sidebar-section-title">DRIVES & NETWORK</div>
+        <div class="win11-sidebar-nav" id="win11DrivesNav">
+          <button class="win11-nav-item" id="win11NavRoot" onclick="loadExplorerDirectory('/')">
+            <span class="win11-nav-icon">💽</span>
+            <span class="win11-nav-label">System (Root /)</span>
+          </button>
+          <button class="win11-nav-item" id="win11NavUsb" onclick="loadExplorerDirectory('/media/nfgodin')">
+            <span class="win11-nav-icon">💾</span>
+            <span class="win11-nav-label">USB Storage</span>
+          </button>
+          <button class="win11-nav-item" id="win11NavDashcam" onclick="loadExplorerDirectory('/home/nfgodin/CarPi5/storage/dashcam_videos')">
+            <span class="win11-nav-icon">📹</span>
+            <span class="win11-nav-label">Pi 3 Dashcam</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- Right Main Explorer Viewport -->
+      <main class="win11-main-view">
+        <!-- Top Command Bar / Ribbon -->
+        <div class="win11-command-bar">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <button class="win11-cmd-btn" onclick="navigateExplorerUp()" title="Go up to parent folder">
+              <span>⬆️</span> <span>UP</span>
+            </button>
+            <button class="win11-cmd-btn" onclick="promptNewFolder()" title="Create new directory">
+              <span>➕</span> <span>NEW FOLDER</span>
+            </button>
+            <button class="win11-cmd-btn" id="explorerPasteBtn" onclick="pasteFileClipboard()" style="display:none; background:var(--accent-green); color:#000; font-weight:900;">
+              <span>📋</span> <span>PASTE</span>
+            </button>
+            <button class="win11-cmd-btn" onclick="refreshExplorer()" title="Reload folder">
+              <span>🔄</span> <span>REFRESH</span>
+            </button>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:10px;">
+            <!-- Search Filter Input -->
+            <div class="explorer-search-box">
+              <span style="opacity:0.6; font-size:13px;">🔍</span>
+              <input type="text" id="explorerSearchInput" placeholder="Search files & folders..." oninput="filterExplorerItems()" autocomplete="off" spellcheck="false">
+              <button id="explorerSearchClear" style="display:none; background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:12px; padding:0 4px;" onclick="clearExplorerSearch()">✕</button>
+            </div>
+
+            <!-- Sort By Chips -->
+            <div class="explorer-sort-group">
+              <span style="font-size:10px; color:var(--text-secondary); font-weight:700;">SORT:</span>
+              <button class="sort-chip active" id="sortBtnName" onclick="setExplorerSort('name')">Name</button>
+              <button class="sort-chip" id="sortBtnSize" onclick="setExplorerSort('size')">Size</button>
+              <button class="sort-chip" id="sortBtnDate" onclick="setExplorerSort('date')">Date</button>
+            </div>
+
+            <button class="cockpit-home-btn" onclick="navigateTo('home')" style="margin:0; padding:6px 14px; font-size:12px;" title="Back to Cockpit Home">🏠 HOME</button>
+          </div>
+        </div>
+
+        <!-- Breadcrumbs Path Bar -->
+        <div class="win11-path-bar">
+          <div class="breadcrumb-container" id="explorerBreadcrumbs">
+            <span class="breadcrumb-segment active" onclick="renderWin11ThisPcView()">🖥️ This PC</span>
+          </div>
+        </div>
+
+        <!-- Main Content Area: Files & Folders List OR Drives Grid -->
+        <div class="win11-viewport-content" id="explorerFileList">
+          <!-- Populated dynamically via renderWin11ThisPcView() or renderExplorerFilteredItems() -->
+        </div>
+
+        <!-- Bottom Status Bar -->
+        <div class="win11-status-bar">
+          <span id="explorerFooterStatus" style="font-size:11px; color:var(--text-secondary); font-weight:700;">0 items</span>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <span id="explorerSelectionInfo" style="font-size:10px; color:var(--text-secondary); font-family:var(--font-mono);"></span>
+            <span style="font-size:10px; color:#a0b8d0; font-family:var(--font-mono);">⚡ Automotive High-Speed Storage Bus</span>
+          </div>
+        </div>
+      </main>
     </div>
 
     <!-- 5. GAMES & RETROARCH SCREEN (NEW) -->
@@ -2562,68 +2685,8 @@
   </div>
 
   <!-- IN-CAR FILE EXPLORER MODAL (Full Filesystem Browser: Home, Storage, USB, ROMs) -->
-  <div class="explorer-modal-overlay" id="fileExplorerModal">
-    <div class="explorer-content">
-      <!-- Header -->
-      <div class="explorer-header">
-        <div style="display:flex; align-items:center; gap:10px;">
-          <span style="font-size:24px;">📁</span>
-          <div>
-            <div style="font-size:16px; font-weight:900; color:#fff; letter-spacing:0.5px;">SYSTEM FILE EXPLORER</div>
-            <div style="font-size:10px; color:var(--text-secondary); font-weight:700;">Home (~), CarPi5 Workspace, ROMs, Music & Removable Media</div>
-          </div>
-        </div>
-        <button class="graph-close-btn" onclick="closeFileExplorer()">✕ CLOSE</button>
-      </div>
+  <!-- File Explorer has been migrated to full-window screenExplorer -->
 
-      <!-- Quick Access Location Chips Bar -->
-      <div class="device-tabs-row" id="explorerDeviceTabs">
-        <!-- Injected dynamically by JS (Home, CarPi5, ROMs, Music, USB Drives, Root) -->
-      </div>
-
-      <!-- Breadcrumbs Path Bar -->
-      <div class="breadcrumb-bar">
-        <button class="cluster-action-btn" style="padding:6px 12px; font-size:11px; font-weight:800;" onclick="navigateExplorerUp()" title="Go to parent directory">⬆ UP</button>
-        <div class="breadcrumb-container" id="explorerBreadcrumbs">
-          <span class="breadcrumb-segment" onclick="loadExplorerDirectory('/')">/</span>
-        </div>
-        <div style="display:flex; gap:6px;">
-          <button class="cluster-action-btn" style="padding:6px 12px; font-size:11px; font-weight:800;" onclick="promptNewFolder()" title="Create folder">➕ NEW FOLDER</button>
-          <button class="cluster-action-btn" id="explorerPasteBtn" style="padding:6px 12px; font-size:11px; background:var(--accent-green); color:#000; font-weight:900; display:none;" onclick="pasteFileClipboard()">📋 PASTE HERE</button>
-          <button class="cluster-action-btn" style="padding:6px 12px; font-size:11px; font-weight:800;" onclick="refreshExplorer()" title="Reload folder">🔄 REFRESH</button>
-        </div>
-      </div>
-
-      <!-- Search & Sorting Toolbar -->
-      <div class="explorer-toolbar">
-        <div class="explorer-search-box">
-          <span style="opacity:0.6; font-size:13px;">🔍</span>
-          <input type="text" id="explorerSearchInput" placeholder="Filter files & folders..." oninput="filterExplorerItems()" autocomplete="off" spellcheck="false">
-          <button id="explorerSearchClear" style="display:none; background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:12px; padding:0 4px;" onclick="clearExplorerSearch()">✕</button>
-        </div>
-        <div class="explorer-sort-group">
-          <span style="font-size:10px; color:var(--text-secondary); font-weight:700; text-transform:uppercase;">Sort:</span>
-          <button class="sort-chip active" id="sortBtnName" onclick="setExplorerSort('name')">Name</button>
-          <button class="sort-chip" id="sortBtnSize" onclick="setExplorerSort('size')">Size</button>
-          <button class="sort-chip" id="sortBtnDate" onclick="setExplorerSort('date')">Date</button>
-        </div>
-      </div>
-
-      <!-- File / Folder Listing -->
-      <div class="explorer-body" id="explorerFileList">
-        <!-- Injected dynamically by JS -->
-      </div>
-
-      <!-- Footer Toolbar -->
-      <div class="explorer-footer">
-        <span style="font-size:11px; color:var(--text-secondary);" id="explorerFooterStatus">0 items</span>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span id="explorerSelectionInfo" style="font-size:10px; color:var(--text-secondary); font-family:var(--font-mono);"></span>
-          <span style="font-size:10px; color:var(--text-secondary); font-family:var(--font-mono);">⚡ Linux Native Filesystem</span>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <!-- IN-CAR CONFIG & TEXT EDITOR MODAL -->
   <div class="editor-modal-overlay" id="fileEditorModal">
