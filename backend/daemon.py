@@ -1969,6 +1969,22 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"status": "ok", "track": cur}).encode("utf-8"))
             return
 
+        elif parsed.path == "/api/media/stremio_addons":
+            addons_path = os.path.join(os.path.dirname(__file__), "..", "config", "stremio_addons.json")
+            data = {"addons": []}
+            if os.path.exists(addons_path):
+                try:
+                    with open(addons_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                except Exception:
+                    pass
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(data).encode("utf-8"))
+            return
+
         elif parsed.path == "/api/audio/volume":
             vol = 80
             muted = False
@@ -3917,6 +3933,30 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
                 self.wfile.write(json.dumps({"status": "ok", "message": "Stremio Launched", "pid": proc.pid}).encode("utf-8"))
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/media/stremio_addons":
+            addons_path = os.path.join(os.path.dirname(__file__), "..", "config", "stremio_addons.json")
+            try:
+                new_addon = json.loads(self.rfile.read(content_length).decode('utf-8'))
+                data = {"addons": []}
+                if os.path.exists(addons_path):
+                    with open(addons_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                data.setdefault("addons", []).append(new_addon)
+                with open(addons_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok", "addons": data["addons"]}).encode("utf-8"))
             except Exception as e:
                 self.send_response(500)
                 self.send_header("Content-Type", "application/json")

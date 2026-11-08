@@ -310,7 +310,7 @@ function toggleClockFormat() {
 
   const clock = document.getElementById('footerClock');
 
-  if (clock) clock.innerText = formatClockTime(new Date());
+  if (typeof updateSystemClock === 'function') updateSystemClock(); else if (clock) clock.innerText = formatClockTime(new Date());
 
   const scClock = document.getElementById('screensaverClock');
 
@@ -813,6 +813,9 @@ function navigateTo(screenId) {
     setTimeout(resizeAllCanvases, 50);
 
   } else if (screenId === "ai") {
+    if (!vrmInitialized && typeof initVrmEngine === "function") {
+      initVrmEngine();
+    }
     if (typeof dockCompanionToAi === "function") dockCompanionToAi();
     scrollChatToBottom();
 
@@ -3891,6 +3894,8 @@ function speakUtterance(text, emotion) {
   // Fallback timer only if SSE stream is disconnected
 
   const estimatedDurationMs = Math.max(2200, (text.length / 9.5) * 1000 + 300);
+
+  rumGazeRetentionUntil = Math.max(rumGazeRetentionUntil, Date.now() + estimatedDurationMs + 9000);
 
   if (!eventSource || eventSource.readyState !== 1) {
 
@@ -8297,19 +8302,20 @@ function focusWifiSection() {
 
 
 
-setInterval(() => {
+function updateSystemClock() {
+  const now = new Date();
+  const timeStr = formatClockTime(now, false);
+  const timeSecStr = formatClockTime(now, true);
+  const headerClock = document.getElementById('headerClock');
+  if (headerClock) headerClock.innerText = timeStr;
+  const footerClock = document.getElementById('footerClock');
+  if (footerClock) footerClock.innerText = timeStr;
+  const scClock = document.getElementById('screensaverClock');
+  if (scClock) scClock.innerText = timeSecStr;
+}
 
-  const clock = document.getElementById('footerClock');
-
-  if (clock) {
-
-    const now = new Date();
-
-    clock.innerText = formatClockTime(now, false);
-
-  }
-
-}, 1000);
+updateSystemClock();
+setInterval(updateSystemClock, 1000);
 
 
 
@@ -11866,6 +11872,10 @@ let vrmSpeechEndTime = 0;
 
 let vrmReactionEndTime = 0;
 
+
+
+let rumGazeRetentionUntil = 0;
+
 let isCompanionFloating = false;
 
 
@@ -13576,6 +13586,8 @@ function initVrmEngine() {
 
   initAvatarPokeRaycaster(canvas);
 
+  initRoomTouchOrbitLookAround(canvas);
+
   vrmEnvironmentGroup = new THREE.Group();
   vrmScene.add(vrmEnvironmentGroup);
 
@@ -13592,6 +13604,7 @@ function initVrmEngine() {
   function animateVrm() {
 
     requestAnimationFrame(animateVrm);
+    try {
 
 
 
@@ -13967,6 +13980,9 @@ function initVrmEngine() {
       vrmRenderer.render(vrmScene, vrmCamera);
 
     }
+    } catch (animErr) {
+      console.error('[VRM_ANIM_ERROR]', animErr);
+    }
 
   }
 
@@ -14042,10 +14058,121 @@ function updateCameraDirector(delta, isSpeaking, isReacting) {
 
   currentLookAt.lerp(targetLookAt, lerpFactor);
 
-  vrmCamera.lookAt(currentLookAt);
+  if (typeof orbitReturnToCenter !== 'undefined' && orbitReturnToCenter) {
+    orbitTargetYaw += (0.0 - orbitTargetYaw) * (delta * 2.5);
+    orbitTargetPitch += (0.0 - orbitTargetPitch) * (delta * 2.5);
+  }
+  orbitUserYaw += (orbitTargetYaw - orbitUserYaw) * (delta * 8.0);
+  orbitUserPitch += (orbitTargetPitch - orbitUserPitch) * (delta * 8.0);
+
+  const orbitLookAt = currentLookAt.clone();
+  orbitLookAt.x += Math.sin(orbitUserYaw) * 1.8;
+  orbitLookAt.y += orbitUserPitch * 1.2;
+  orbitLookAt.z += (Math.cos(orbitUserYaw) - 1.0) * 1.8;
+
+  vrmCamera.lookAt(orbitLookAt);
 
 }
 
+
+
+
+// ============================================================================
+// --- AI SCREEN 3-WAY SPLITTER & 3D ROOM TOUCH ORBIT LOOK-AROUND ENGINE ---
+// ============================================================================
+let currentAiLayoutMode = 'SPLIT';
+let isTouchOrbiting = false;
+let orbitTouchStartX = 0;
+let orbitTouchStartY = 0;
+let orbitUserYaw = 0.0;
+let orbitUserPitch = 0.0;
+let orbitTargetYaw = 0.0;
+let orbitTargetPitch = 0.0;
+let orbitIdleTimer = null;
+let orbitReturnToCenter = true;
+
+function setAiLayoutMode(mode = 'SPLIT') {
+  currentAiLayoutMode = mode;
+  localStorage.setItem('carpi5_ai_layout_mode', mode);
+  const container = document.getElementById('screenAI');
+  if (!container) return;
+
+  container.classList.remove('ai-layout-chat', 'ai-layout-split', 'ai-layout-room');
+
+  const btnChat = document.getElementById('btnSplitChat');
+  const btnSplit = document.getElementById('btnSplitBalanced');
+  const btnRoom = document.getElementById('btnSplitRoom');
+
+  if (btnChat) btnChat.classList.toggle('active', mode === 'CHAT');
+  if (btnSplit) btnSplit.classList.toggle('active', mode === 'SPLIT');
+  if (btnRoom) btnRoom.classList.toggle('active', mode === 'ROOM');
+
+  if (mode === 'CHAT') {
+    container.classList.add('ai-layout-chat');
+    if (typeof popOutFloatingCompanion === 'function') popOutFloatingCompanion(true);
+  } else if (mode === 'ROOM') {
+    container.classList.add('ai-layout-room');
+    if (typeof dockCompanionToAi === 'function') dockCompanionToAi();
+  } else {
+    container.classList.add('ai-layout-split');
+    if (typeof dockCompanionToAi === 'function') dockCompanionToAi();
+  }
+
+  setTimeout(() => {
+    resizeVrmToStage();
+  }, 60);
+}
+
+function initAiLayoutMode() {
+  const saved = localStorage.getItem('carpi5_ai_layout_mode') || 'SPLIT';
+  setAiLayoutMode(saved);
+}
+
+function initRoomTouchOrbitLookAround(canvas) {
+  if (!canvas || canvas._hasOrbitListeners) return;
+  canvas._hasOrbitListeners = true;
+
+  function onPointerDown(e) {
+    // Only orbit if not clicking a UI button
+    if (e.target.tagName === 'BUTTON') return;
+    isTouchOrbiting = true;
+    orbitReturnToCenter = false;
+    if (orbitIdleTimer) clearTimeout(orbitIdleTimer);
+    orbitTouchStartX = e.touches ? e.touches[0].clientX : e.clientX;
+    orbitTouchStartY = e.touches ? e.touches[0].clientY : e.clientY;
+  }
+
+  function onPointerMove(e) {
+    if (!isTouchOrbiting) return;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const dx = clientX - orbitTouchStartX;
+    const dy = clientY - orbitTouchStartY;
+    orbitTouchStartX = clientX;
+    orbitTouchStartY = clientY;
+
+    // Pan camera angle (yaw horizontally, pitch vertically)
+    orbitTargetYaw -= dx * 0.0055;
+    orbitTargetPitch = Math.max(-0.45, Math.min(0.40, orbitTargetPitch + dy * 0.0045));
+  }
+
+  function onPointerUp() {
+    isTouchOrbiting = false;
+    // After 7 seconds of inactivity, smoothly ease camera back to direct forward gaze
+    if (orbitIdleTimer) clearTimeout(orbitIdleTimer);
+    orbitIdleTimer = setTimeout(() => {
+      orbitReturnToCenter = true;
+    }, 7000);
+  }
+
+  canvas.addEventListener('mousedown', onPointerDown);
+  window.addEventListener('mousemove', onPointerMove);
+  window.addEventListener('mouseup', onPointerUp);
+
+  canvas.addEventListener('touchstart', onPointerDown, { passive: true });
+  window.addEventListener('touchmove', onPointerMove, { passive: true });
+  window.addEventListener('touchend', onPointerUp, { passive: true });
+}
 
 
 function loadRumVrmModel(modelName = (currentVrmModelName || 'Rum.vrm')) {
@@ -14337,6 +14464,8 @@ function setVrmSpeaking(durationMs, text, forceTimer = false) {
   if (forceTimer || !eventSource || eventSource.readyState !== 1) {
 
     vrmSpeechEndTime = Date.now() + (durationMs || 3000);
+
+    rumGazeRetentionUntil = Math.max(rumGazeRetentionUntil, Date.now() + (durationMs || 3000) + 9000);
 
   }
 
@@ -14668,11 +14797,13 @@ function switchAvatarEngine(mode) {
 
 // Auto-initialize 3D VRM Rum on startup
 
-window.addEventListener('load', () => {
-
-  setTimeout(initVrmEngine, 500);
-
-});
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+  setTimeout(initVrmEngine, 200);
+} else {
+  window.addEventListener('load', () => {
+    setTimeout(initVrmEngine, 500);
+  });
+}
 
 window.addEventListener('resize', () => {
 

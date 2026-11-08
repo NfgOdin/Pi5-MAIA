@@ -23,3 +23,7 @@
 ## 5. R.U.M. Persona & 3D Interactive Rig
 - R.U.M. must always maintain direct forward eye contact with the driver/user (Camera X = 0.0) rather than looking off to the side.
 - 3D interactive props (basketball, tools, accessories) must bind to standard VRM humanoid bones (`rightHand`, `leftHand`) to ensure flawless physics, natural hold offsets, and cross-avatar compatibility with any loaded VRM model.
+
+## 6. Comprehensive Whole-Screen Visual Auditing
+- When capturing or reviewing screenshots and visual output, always inspect the entire screen frame and every visual element (avatar visibility, live clocks, status badges, layout integrity)—never just the isolated component being modified. Catch and resolve any missing assets, regressions, or anomalies immediately.
+

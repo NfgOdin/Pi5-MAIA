@@ -337,6 +337,11 @@
           <!-- 3D VRM Full Body Container (Full Height 100%) -->
           <div class="vrm-stage-container" id="vrmStageContainer">
             <div class="vrm-controls-bar">
+              <div class="ai-layout-splitter-pill" id="aiLayoutSplitter">
+                <button type="button" class="ai-split-btn" id="btnSplitChat" onclick="setAiLayoutMode('CHAT')" title="100% Full Width Chat Focus">💬 CHAT</button>
+                <button type="button" class="ai-split-btn active" id="btnSplitBalanced" onclick="setAiLayoutMode('SPLIT')" title="Balanced 50/50 Split View">⚖️ SPLIT</button>
+                <button type="button" class="ai-split-btn" id="btnSplitRoom" onclick="setAiLayoutMode('ROOM')" title="Full Screen 3D Room Focus">🛋️ ROOM</button>
+              </div>
               <button class="vrm-ctrl-btn" id="btnVrmModelToggle" onclick="toggleRemRumAvatar()" title="Switch between Rem and Rum" style="border-color:#c084fc; color:#c084fc;">💜 RUM</button>
               <button class="vrm-ctrl-btn" id="btnRoomCustomizer" onclick="openRoomCustomizerModal()" title="Customize Rum's Room & Add 3D Props" style="border-color:#f472b6; color:#f472b6; font-weight:800;">🛋️ CUSTOM ROOM</button>
               <button class="vrm-ctrl-btn" id="btnBasketballAction" onclick="triggerBasketballDribbleAction()" title="Dribble & Play with Basketball" style="border-color:#ff7a00; color:#ff7a00; font-weight:800;">🏀 DRIBBLE</button>

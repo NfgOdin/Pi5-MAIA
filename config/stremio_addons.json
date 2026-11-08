@@ -1,0 +1,26 @@
+{
+  "description": "Pre-configured and user-added Stremio addon manifests for CarPi5 In-Dash Cinema",
+  "addons": [
+    {
+      "id": "torrentio",
+      "name": "Torrentio",
+      "manifest_url": "https://torrentio.strem.fun/manifest.json",
+      "description": "Multi-scraper torrent streaming provider with real-time cached streams",
+      "enabled": true
+    },
+    {
+      "id": "animestream",
+      "name": "AnimeStream",
+      "manifest_url": "https://animestream-addon.keypop3750.workers.dev/manifest.json",
+      "description": "Anime catalog, episodes, and stream manifests",
+      "enabled": true
+    },
+    {
+      "id": "tpb-plus",
+      "name": "The Pirate Bay+",
+      "manifest_url": "https://thepiratebay-plus.strem.fun/manifest.json",
+      "description": "The Pirate Bay media stream provider addon",
+      "enabled": true
+    }
+  ]
+}
