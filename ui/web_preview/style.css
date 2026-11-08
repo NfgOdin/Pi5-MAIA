@@ -4274,3 +4274,279 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
   display: flex;
   align-items: center;
 }
+
+
+/* ========================================================
+   CARPI5 PHASE 3 AUTOMOTIVE ERGONOMICS & FULL HUB STYLES
+   ======================================================== */
+
+/* 1. Touchscreen Automotive First: Hide Redundant Bottom Bar */
+.bottom-bar {
+  display: none !important;
+}
+
+.view-container {
+  height: calc(100vh - 50px) !important;
+  max-height: calc(100vh - 50px) !important;
+}
+
+/* 2. 3D Stage Collapsible Controls Bar */
+.vrm-controls-bar {
+  position: absolute !important;
+  top: 6px !important;
+  left: 6px !important;
+  right: 6px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 4px !important;
+  z-index: 10 !important;
+  pointer-events: none !important;
+}
+
+.vrm-ctrl-toggle-btn {
+  pointer-events: auto !important;
+  align-self: flex-start !important;
+  margin-left: 6px !important;
+  background: rgba(13, 17, 26, 0.88) !important;
+  border: 1.5px solid rgba(168, 85, 247, 0.5) !important;
+  border-radius: 12px !important;
+  color: #c084fc !important;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  padding: 6px 14px !important;
+  min-height: 44px !important;
+  min-width: 44px !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4), 0 0 10px rgba(168, 85, 247, 0.2) !important;
+  backdrop-filter: blur(8px) !important;
+  user-select: none !important;
+  transition: all 0.2s ease !important;
+}
+
+.vrm-ctrl-toggle-btn:hover {
+  background: rgba(168, 85, 247, 0.25) !important;
+  color: #fff !important;
+  border-color: var(--accent-pink) !important;
+}
+
+.vrm-controls-items {
+  pointer-events: auto !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  width: 100% !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  max-height: 160px !important;
+  opacity: 1 !important;
+  transform: translateY(0) !important;
+}
+
+.vrm-controls-bar.collapsed .vrm-controls-items {
+  max-height: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  overflow: hidden !important;
+  transform: translateY(-8px) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* 3. Floating Shotgun-Style Chat in Room Focus Mode */
+#screenAI.ai-layout-room {
+  position: relative !important;
+}
+
+#screenAI.ai-layout-room .ai-sidebar-column {
+  flex: 1 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+}
+
+#screenAI.ai-layout-room .ai-chat-column {
+  position: absolute !important;
+  bottom: 16px !important;
+  left: 16px !important;
+  width: 360px !important;
+  max-width: calc(100vw - 32px) !important;
+  height: 350px !important;
+  max-height: 380px !important;
+  background: rgba(12, 16, 25, 0.94) !important;
+  backdrop-filter: blur(16px) !important;
+  border: 1.5px solid rgba(168, 85, 247, 0.6) !important;
+  border-radius: 16px !important;
+  padding: 0 !important;
+  z-index: 45 !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), 0 0 20px rgba(168, 85, 247, 0.3) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  transition: opacity 0.2s ease, transform 0.2s ease !important;
+}
+
+#screenAI.ai-layout-room.chat-closed .ai-chat-column {
+  display: none !important;
+}
+
+#screenAI.ai-layout-room .room-chat-close-btn {
+  display: inline-flex !important;
+}
+
+.room-chat-close-btn {
+  display: none;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  min-height: 36px;
+  min-width: 36px;
+  align-items: center;
+  justify-content: center;
+}
+
+.room-chat-close-btn:hover {
+  background: rgba(239, 68, 68, 0.3);
+  border-color: #ef4444;
+  color: #fff;
+}
+
+.room-chat-floating-pill {
+  display: none;
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  z-index: 50;
+  background: rgba(13, 17, 26, 0.92);
+  border: 1.5px solid rgba(168, 85, 247, 0.7);
+  border-radius: 24px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 10px 18px;
+  min-height: 46px;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6), 0 0 15px rgba(168, 85, 247, 0.4);
+  backdrop-filter: blur(10px);
+  align-items: center;
+  gap: 8px;
+}
+
+#screenAI.ai-layout-room.chat-closed .room-chat-floating-pill {
+  display: inline-flex !important;
+}
+
+/* 4. Home Cards Drag & Drop Reordering */
+.launcher-card {
+  user-select: none;
+  touch-action: pan-y;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.launcher-card.dragging-card {
+  opacity: 0.65;
+  transform: scale(1.05) !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.8), 0 0 20px rgba(168, 85, 247, 0.5) !important;
+  z-index: 100 !important;
+  border-color: var(--accent-pink) !important;
+}
+
+.launcher-card.drag-over {
+  border-color: var(--accent-cyan) !important;
+  transform: translateY(-4px);
+}
+
+/* 5. Windows 11 "This PC" Drives Overview in File Explorer */
+.win11-drives-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.win11-drive-card {
+  background: rgba(22, 29, 44, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: all 0.2s ease;
+  min-height: 88px;
+}
+
+.win11-drive-card:hover, .win11-drive-card:active {
+  background: rgba(30, 42, 64, 0.95);
+  border-color: var(--accent-blue);
+  box-shadow: 0 6px 18px rgba(0, 176, 255, 0.25);
+  transform: translateY(-2px);
+}
+
+.win11-drive-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.win11-drive-icon {
+  font-size: 30px;
+  flex-shrink: 0;
+}
+
+.win11-drive-name {
+  font-size: 13px;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: 0.3px;
+}
+
+.win11-drive-sub {
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.win11-drive-meter {
+  width: 100%;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.win11-drive-meter-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #00b0ff, #00e5ff);
+  transition: width 0.3s ease;
+}
+
+.win11-drive-meter-fill.warn {
+  background: linear-gradient(90deg, #f59e0b, #ef4444);
+}
+
+.win11-drive-capacity {
+  font-size: 10px;
+  color: #a0b8d0;
+  font-family: var(--font-mono);
+  display: flex;
+  justify-content: space-between;
+}
+
+
+#screenAI.ai-layout-room .ai-chat-top-header #aiLayoutSplitterChat {
+  display: none !important;
+}

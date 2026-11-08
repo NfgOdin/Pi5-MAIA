@@ -1,4 +1,53 @@
 
+// --- PHASE 3: COLLAPSIBLE VRM CONTROLS BAR & ROOM CHAT HELPERS ---
+function toggleVrmControlsBar() {
+  const bar = document.getElementById('vrmControlsBar');
+  const chevron = document.getElementById('vrmControlsChevron');
+  const label = document.getElementById('vrmControlsLabel');
+  if (!bar) return;
+
+  const isCollapsed = bar.classList.toggle('collapsed');
+  localStorage.setItem('carpi5_vrm_ctrls_collapsed', isCollapsed ? '1' : '0');
+
+  if (chevron) chevron.innerText = isCollapsed ? '▼' : '▲';
+  if (label) label.innerText = isCollapsed ? 'CONTROLS' : 'HIDE';
+}
+
+function initVrmControlsBarState() {
+  const saved = localStorage.getItem('carpi5_vrm_ctrls_collapsed');
+  const bar = document.getElementById('vrmControlsBar');
+  const chevron = document.getElementById('vrmControlsChevron');
+  const label = document.getElementById('vrmControlsLabel');
+  if (!bar) return;
+
+  if (saved === '1') {
+    bar.classList.add('collapsed');
+    if (chevron) chevron.innerText = '▼';
+    if (label) label.innerText = 'CONTROLS';
+  } else {
+    bar.classList.remove('collapsed');
+    if (chevron) chevron.innerText = '▲';
+    if (label) label.innerText = 'HIDE';
+  }
+}
+
+function closeRoomFloatingChat() {
+  const screen = document.getElementById('screenAI');
+  if (screen) {
+    screen.classList.add('chat-closed');
+    localStorage.setItem('carpi5_room_chat_closed', '1');
+  }
+}
+
+function openRoomFloatingChat() {
+  const screen = document.getElementById('screenAI');
+  if (screen) {
+    screen.classList.remove('chat-closed');
+    localStorage.setItem('carpi5_room_chat_closed', '0');
+  }
+}
+
+
 function publishNowPlaying(status = 'playing') {
   if (!realPlaylist || realPlaylist.length === 0) return;
   const t = realPlaylist[realTrackIdx] || {};
@@ -696,6 +745,7 @@ function navigateTo(screenId) {
   const screens = {
 
     home: document.getElementById('screenHome'),
+    vehicle: document.getElementById('screenVehicle'),
 
     gauges: document.getElementById('screenGauges'),
 
@@ -703,6 +753,7 @@ function navigateTo(screenId) {
 
     media: document.getElementById('screenMedia'),
     music: document.getElementById('screenMusic'),
+    audiosuite: document.getElementById('screenAudioSuite'),
 
     games: document.getElementById('screenGames'),
 
@@ -794,6 +845,12 @@ function navigateTo(screenId) {
     } else {
       headerHome.classList.remove('on-home');
     }
+  }
+
+  if (screenId === "audiosuite") {
+
+    if (typeof renderFullAudioSuiteEqGrid === "function") renderFullAudioSuiteEqGrid();
+
   }
 
   if (screenId === "diagnostics") {
@@ -1733,6 +1790,13 @@ function connectTelemetryStream() {
       homeBoost.innerText = t.is_in_boost ? `+${t.boost_psi.toFixed(1)} PSI` : `-${Math.round(t.vacuum_inhg)} inHg`;
 
       homeBoost.style.color = t.is_in_boost ? "var(--accent-green)" : "var(--accent-blue)";
+    const vehHubSpeed = document.getElementById('vehHubSpeedBadge');
+    const vehHubBoost = document.getElementById('vehHubBoostBadge');
+    if (vehHubSpeed) vehHubSpeed.innerText = `${Math.round(isKph ? t.speed_kph : t.speed_mph)} ${isKph ? 'KM/H' : 'MPH'}`;
+    if (vehHubBoost) {
+      vehHubBoost.innerText = t.is_in_boost ? `+${t.boost_psi.toFixed(1)} PSI` : `-${Math.round(t.vacuum_inhg)} inHg`;
+      vehHubBoost.style.color = t.is_in_boost ? 'var(--accent-green)' : 'var(--accent-blue)';
+    }
 
     }
 
@@ -2719,7 +2783,7 @@ function updatePersonaUI(personaKey) {
 
   const pData = (window.allPersonas && window.allPersonas[personaKey]) ? window.allPersonas[personaKey] : null;
 
-  const avatarPath = (pData && pData.avatar_image) ? pData.avatar_image : 'assets/pics/maia_avatar.jpg';
+  const avatarPath = (pData && pData.avatar_image) ? pData.avatar_image : 'assets/pics/rum_avatar.png';
 
   const splashImg = (pData && pData.boot_splash_image) ? pData.boot_splash_image : 'assets/pics/splash.png';
 
@@ -9506,155 +9570,100 @@ fetchTripLogs();
 // Enhanced Universal Kinetic Touch Drag-to-Scroll for Touchscreens
 
 function initTouchScrollEngine() {
-
-  const scrollTargets = document.querySelectorAll('.screen-view, #screenSettings, #screenHome, #screenMedia, #screenGames, .explorer-body, .ai-chat-messages, #animGridContainer, #tripsListContainer, .trip-detail-panel, #diagCodesList, .diag-detail-panel');
+  const scrollTargets = document.querySelectorAll(
+    '.screen-view, #screenSettings, #screenHome, #screenMedia, #screenGames, ' +
+    '.explorer-body, .ai-chat-messages, #animGridContainer, #tripsListContainer, ' +
+    '.trip-detail-panel, #diagCodesList, .diag-detail-panel, #trackListContainer, ' +
+    '#fullAudioSuiteEqGrid, #mediaTrackList, .device-tabs-row, #animCategoriesBar'
+  );
 
   scrollTargets.forEach(el => {
     if (!el || el.dataset.touchScrollInit) return;
     el.dataset.touchScrollInit = 'true';
 
     let isDown = false;
-
+    let isDragging = false;
     let startY = 0;
-
+    let startX = 0;
     let startScrollTop = 0;
-
     let lastY = 0;
-
     let velocity = 0;
-
     let lastTime = 0;
-
     let animFrame = null;
 
-    let hasMoved = false;
-
-
-
     el.addEventListener('pointerdown', (e) => {
-
-      // On touchscreens (pointerType === 'touch'), let Chromium handle 60fps native scroll!
-
-      if (e.pointerType === 'touch') return;
-
-
-
-      // Don't intercept inputs, buttons or accordion headers directly
-
-      if (['BUTTON', 'INPUT', 'SELECT', 'A', 'TEXTAREA'].includes(e.target.tagName) ||
-
-          e.target.closest('button, input, select, textarea, .slot-dropdown, .cluster-action-btn, .accordion-header, .track-list-item, .quick-prompt-chip')) {
-
+      // Don't intercept text inputs, sliders, or select dropdowns
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) {
         return;
-
       }
 
       isDown = true;
-
-      hasMoved = false;
-
+      isDragging = false;
       startY = e.clientY;
-
+      startX = e.clientX;
       lastY = e.clientY;
-
       startScrollTop = el.scrollTop;
-
       lastTime = performance.now();
-
       velocity = 0;
 
       if (animFrame) cancelAnimationFrame(animFrame);
-
     }, { passive: true });
-
-
 
     window.addEventListener('pointermove', (e) => {
-
       if (!isDown) return;
 
-      const y = e.clientY;
+      const dy = startY - e.clientY;
+      const dx = startX - e.clientX;
 
-      const delta = startY - y;
-
-      if (Math.abs(delta) > 5) {
-
-        hasMoved = true;
-
+      // Threshold: if finger moved more than 7px vertically, engage dragging!
+      if (!isDragging && (Math.abs(dy) > 7 || Math.abs(dx) > 7)) {
+        isDragging = true;
       }
 
-      if (hasMoved) {
-
-        el.scrollTop = startScrollTop + delta;
+      if (isDragging) {
+        el.scrollTop = startScrollTop + dy;
 
         const now = performance.now();
-
         const dt = now - lastTime;
-
         if (dt > 8) {
-
-          velocity = (lastY - y) / dt;
-
-          lastY = y;
-
+          velocity = (lastY - e.clientY) / dt;
+          lastY = e.clientY;
           lastTime = now;
-
         }
-
       }
-
     }, { passive: true });
 
-
-
-    const endDrag = () => {
-
+    const endDrag = (e) => {
       if (!isDown) return;
-
       isDown = false;
 
-      if (hasMoved && Math.abs(velocity) > 0.15) {
-
-        let currentVel = velocity * 16;
-
-        const step = () => {
-
-          if (Math.abs(currentVel) < 0.4) return;
-
-          el.scrollTop += currentVel;
-
-          currentVel *= 0.90; // smooth deceleration
-
-          animFrame = requestAnimationFrame(step);
-
+      if (isDragging) {
+        // Intercept and prevent the upcoming click event on child buttons/cards!
+        const blockClick = (ev) => {
+          ev.stopImmediatePropagation();
+          ev.preventDefault();
+          window.removeEventListener('click', blockClick, true);
         };
+        window.addEventListener('click', blockClick, true);
 
-        animFrame = requestAnimationFrame(step);
-
+        // Kinetic momentum fling deceleration
+        if (Math.abs(velocity) > 0.12) {
+          let currentVel = velocity * 16;
+          const step = () => {
+            if (Math.abs(currentVel) < 0.3) return;
+            el.scrollTop += currentVel;
+            currentVel *= 0.91; // Smooth friction decay
+            animFrame = requestAnimationFrame(step);
+          };
+          animFrame = requestAnimationFrame(step);
+        }
       }
-
     };
 
-
-
     window.addEventListener('pointerup', endDrag, { passive: true });
-
     window.addEventListener('pointercancel', endDrag, { passive: true });
-
-    el.addEventListener('click', (e) => {
-      if (hasMoved) {
-        e.stopPropagation();
-        e.preventDefault();
-      }
-    }, true);
-
   });
-
 }
-
-
-
-initRealAudioPlayer();
 
 setTimeout(initTouchScrollEngine, 500);
 
@@ -19695,3 +19704,268 @@ function toggleRumHudFromPill() {
     expandFloatingCompanion();
   }
 }
+
+
+// --- PHASE 3: DEDICATED FULL AUDIO SUITE EQ GRID ---
+function renderFullAudioSuiteEqGrid() {
+  const container = document.getElementById('fullAudioSuiteEqGrid');
+  if (!container) return;
+  container.innerHTML = '';
+
+  EQ_FREQS.forEach((freq, idx) => {
+    const val = currentEqGains[idx] || 0;
+    const label = freq >= 1000 ? `${freq / 1000}k` : `${freq}`;
+    const col = document.createElement('div');
+    col.style.cssText = 'display:flex; flex-direction:column; align-items:center; justify-content:space-between; height:185px; flex:1; min-width:44px; padding:0 4px;';
+    col.innerHTML = `
+      <div style="font-size:11px; font-weight:800; font-family:var(--font-mono); color:${val > 0 ? '#00e676' : (val < 0 ? '#ff5252' : '#8c9ba5')}; min-height:16px;" id="fullEqDb_${idx}">${val >= 0 ? '+' : ''}${val} dB</div>
+      <input type="range" class="eq-vertical-slider" min="-12" max="12" step="1" value="${val}" oninput="setFullEqBandGain(${idx}, this.value)" style="writing-mode:bt-lr; -webkit-appearance:slider-vertical; width:28px; height:130px; accent-color:var(--accent-purple); cursor:pointer;">
+      <div style="font-size:11px; font-weight:800; color:#fff; margin-top:6px;">${label}Hz</div>
+    `;
+    container.appendChild(col);
+  });
+}
+
+function setFullEqBandGain(idx, val) {
+  setEqBandGain(idx, val);
+  const dbEl = document.getElementById(`fullEqDb_${idx}`);
+  if (dbEl) {
+    val = parseInt(val);
+    dbEl.innerText = `${val >= 0 ? '+' : ''}${val} dB`;
+    dbEl.style.color = val > 0 ? '#00e676' : (val < 0 ? '#ff5252' : '#8c9ba5');
+  }
+}
+
+// --- PHASE 3: WINDOWS 11 "THIS PC" DRIVES OVERVIEW ---
+function renderWin11ThisPcView() {
+  const modal = document.getElementById('fileExplorerModal');
+  if (modal) modal.style.display = 'flex';
+
+  const fileList = document.getElementById('explorerFileList');
+  const breadcrumbContainer = document.getElementById('explorerBreadcrumbs');
+  const footerStatus = document.getElementById('explorerFooterStatus');
+
+  currentExplorerPath = 'thispc';
+
+  if (breadcrumbContainer) {
+    breadcrumbContainer.innerHTML = '<span class="breadcrumb-segment active" style="font-weight:900; color:#fff;">🖥️ This PC</span>';
+  }
+
+  if (footerStatus) {
+    footerStatus.innerText = 'Devices and Drives (7 items)';
+  }
+
+  if (!fileList) return;
+
+  const drives = [
+    {
+      icon: '💽',
+      name: 'OS System Drive (Root /)',
+      path: '/',
+      sub: '64GB MicroSD / NVMe System Storage',
+      usedPct: 52,
+      freeText: '28.4 GB free of 59.8 GB'
+    },
+    {
+      icon: '💼',
+      name: 'CarPi5 Workspace',
+      path: '/home/nfgodin/CarPi5',
+      sub: 'Backend, 3D VRM Engine & Telemetry',
+      usedPct: 35,
+      freeText: '38.2 GB free of 59.8 GB'
+    },
+    {
+      icon: '🏠',
+      name: 'User Home (~)',
+      path: '/home/nfgodin',
+      sub: 'User Profile, Configuration & Scripts',
+      usedPct: 38,
+      freeText: '36.8 GB free of 59.8 GB'
+    },
+    {
+      icon: '💾',
+      name: 'USB External Media',
+      path: '/media/nfgodin',
+      sub: 'Removable USB Flash Drives & Hard Drives',
+      usedPct: 20,
+      freeText: 'Plug-and-play automotive storage'
+    },
+    {
+      icon: '📹',
+      name: 'Pi 3 Dashcam Network Drive',
+      path: '/home/nfgodin/CarPi5/storage/dashcam_videos',
+      sub: 'Pi 3 (192.168.0.141) H.264 Video Replays',
+      usedPct: 45,
+      freeText: 'Dedicated black-box dashcam drive'
+    },
+    {
+      icon: '🎮',
+      name: 'Retro ROMs & Games',
+      path: '/home/nfgodin/RetroPie/roms',
+      sub: 'RetroArch SNES, GBA, Arcade & PSX',
+      usedPct: 48,
+      freeText: 'Game library storage'
+    },
+    {
+      icon: '🎵',
+      name: 'Music & Audio Library',
+      path: '/home/nfgodin/Music',
+      sub: 'High-Fidelity FLAC & MP3 Albums',
+      usedPct: 28,
+      freeText: 'Local car audio deck library'
+    }
+  ];
+
+  fileList.innerHTML = `
+    <div class="win11-drives-grid">
+      ${drives.map(d => `
+        <div class="win11-drive-card" onclick="loadExplorerDirectory('${d.path}')" title="Click to open ${d.name}">
+          <div class="win11-drive-header">
+            <span class="win11-drive-icon">${d.icon}</span>
+            <div>
+              <div class="win11-drive-name">${d.name}</div>
+              <div class="win11-drive-sub">${d.sub}</div>
+            </div>
+          </div>
+          <div class="win11-drive-meter">
+            <div class="win11-drive-meter-fill ${d.usedPct > 85 ? 'warn' : ''}" style="width: ${d.usedPct}%;"></div>
+          </div>
+          <div class="win11-drive-capacity">
+            <span>${d.path}</span>
+            <span>${d.freeText}</span>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+// Hook renderExplorerBreadcrumbs to add "This PC" root button
+const originalRenderBreadcrumbs = typeof renderExplorerBreadcrumbs === 'function' ? renderExplorerBreadcrumbs : null;
+renderExplorerBreadcrumbs = function(breadcrumbs, currentPath) {
+  const breadcrumbContainer = document.getElementById('explorerBreadcrumbs');
+  if (!breadcrumbContainer) return;
+
+  if (currentPath === 'thispc') {
+    breadcrumbContainer.innerHTML = '<span class="breadcrumb-segment active" style="font-weight:900; color:#fff;">🖥️ This PC</span>';
+    return;
+  }
+
+  let html = '<span class="breadcrumb-segment" onclick="renderWin11ThisPcView()" style="color:var(--accent-cyan); font-weight:800;">🖥️ This PC</span> <span class="breadcrumb-separator">&gt;</span> ';
+
+  if (!breadcrumbs || breadcrumbs.length === 0) {
+    html += `<span class="breadcrumb-segment active">${currentPath}</span>`;
+  } else {
+    breadcrumbs.forEach((b, idx) => {
+      const isLast = (idx === breadcrumbs.length - 1);
+      html += `<span class="breadcrumb-segment ${isLast ? 'active' : ''}" onclick="loadExplorerDirectory('${b.path}')">${b.name}</span>`;
+      if (!isLast) html += '<span class="breadcrumb-separator">/</span>';
+    });
+  }
+
+  breadcrumbContainer.innerHTML = html;
+  breadcrumbContainer.scrollLeft = breadcrumbContainer.scrollWidth;
+};
+
+// --- PHASE 3: HOME SCREEN CARDS TOUCH REORDER ENGINE ---
+function initHomeCardsTouchReorder() {
+  const grid = document.querySelector('#screenHome .home-cards-grid');
+  if (!grid || grid._reorderInitialized) return;
+  grid._reorderInitialized = true;
+
+  // Restore saved card order
+  applySavedHomeCardOrder(grid);
+
+  let draggedCard = null;
+  let touchHoldTimer = null;
+  let isReordering = false;
+
+  grid.querySelectorAll('.launcher-card').forEach(card => {
+    card.setAttribute('draggable', 'true');
+
+    // Drag and Drop (Mouse / Touch)
+    card.addEventListener('dragstart', (e) => {
+      draggedCard = card;
+      card.classList.add('dragging-card');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+
+    card.addEventListener('dragend', () => {
+      if (draggedCard) draggedCard.classList.remove('dragging-card');
+      grid.querySelectorAll('.launcher-card').forEach(c => c.classList.remove('drag-over'));
+      draggedCard = null;
+      saveHomeCardOrder(grid);
+    });
+
+    card.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (!draggedCard || draggedCard === card) return;
+      card.classList.add('drag-over');
+    });
+
+    card.addEventListener('dragleave', () => {
+      card.classList.remove('drag-over');
+    });
+
+    card.addEventListener('drop', (e) => {
+      e.preventDefault();
+      card.classList.remove('drag-over');
+      if (draggedCard && draggedCard !== card) {
+        const cards = Array.from(grid.children);
+        const fromIdx = cards.indexOf(draggedCard);
+        const toIdx = cards.indexOf(card);
+        if (fromIdx < toIdx) {
+          card.after(draggedCard);
+        } else {
+          card.before(draggedCard);
+        }
+        saveHomeCardOrder(grid);
+      }
+    });
+  });
+}
+
+function saveHomeCardOrder(grid) {
+  const cards = Array.from(grid.querySelectorAll('.launcher-card'));
+  const cardIdentifiers = cards.map(c => {
+    const titleEl = c.querySelector('.card-title');
+    return titleEl ? titleEl.innerText.trim() : c.className;
+  });
+  localStorage.setItem('carpi5_home_card_order', JSON.stringify(cardIdentifiers));
+}
+
+function applySavedHomeCardOrder(grid) {
+  try {
+    const saved = localStorage.getItem('carpi5_home_card_order');
+    if (!saved) return;
+    const order = JSON.parse(saved);
+    if (!Array.isArray(order) || order.length === 0) return;
+
+    const cards = Array.from(grid.querySelectorAll('.launcher-card'));
+    const cardMap = {};
+    cards.forEach(c => {
+      const titleEl = c.querySelector('.card-title');
+      const key = titleEl ? titleEl.innerText.trim() : c.className;
+      cardMap[key] = c;
+    });
+
+    order.forEach(key => {
+      if (cardMap[key]) {
+        grid.appendChild(cardMap[key]);
+      }
+    });
+  } catch (e) {
+    console.warn("[HOME REORDER] Order restore error:", e);
+  }
+}
+
+
+// Phase 3 Initialization Hook
+window.addEventListener('DOMContentLoaded', () => {
+  if (typeof initVrmControlsBarState === 'function') initVrmControlsBarState();
+  if (typeof initHomeCardsTouchReorder === 'function') initHomeCardsTouchReorder();
+});
+setTimeout(() => {
+  if (typeof initVrmControlsBarState === 'function') initVrmControlsBarState();
+  if (typeof initHomeCardsTouchReorder === 'function') initHomeCardsTouchReorder();
+}, 600);
