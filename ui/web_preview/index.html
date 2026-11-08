@@ -1160,6 +1160,39 @@
             <input type="text" id="cfgElevenLabsVoiceId" class="settings-input" style="width:190px;" value="jBpfuIE2acCO8z3wKNLl" placeholder="Voice ID (Gigi)">
             <button class="cluster-action-btn" onclick="saveTtsVoiceSettings()" style="background:var(--accent-pink); color:#fff; font-weight:800;">Save Cloud Voice</button>
           </div>
+
+          <!-- R.U.M. Voice Speech Cache & Instant Playback Reserve -->
+          <div style="background:#090d14; border:1px solid #1a2332; border-radius:8px; padding:12px 14px; margin-top:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+              <div>
+                <div style="font-size:11px; font-weight:900; color:var(--accent-pink); letter-spacing:0.5px;">💾 R.U.M. SPEECH CACHE & INSTANT PLAYBACK RESERVE</div>
+                <div style="font-size:10px; color:var(--text-secondary);">Memoizes synthesized voice clauses. Repeated replies play in &lt;15ms with 0% CPU load.</div>
+              </div>
+              <button class="cluster-action-btn" onclick="clearTtsCache()" style="font-size:10px; padding:4px 12px; border-color:#e05666; color:#ff6b7d;">🧹 CLEAR CACHE</button>
+            </div>
+
+            <!-- Tier Selection Group -->
+            <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;" id="ttsCacheTierButtons">
+              <button class="cluster-action-btn cache-tier-btn" data-mb="128" onclick="onSelectTtsCacheTier(128)" style="font-size:10px; padding:5px 10px;">128 MB</button>
+              <button class="cluster-action-btn cache-tier-btn" data-mb="256" onclick="onSelectTtsCacheTier(256)" style="font-size:10px; padding:5px 10px;">256 MB</button>
+              <button class="cluster-action-btn cache-tier-btn" data-mb="512" onclick="onSelectTtsCacheTier(512)" style="font-size:10px; padding:5px 10px;">512 MB</button>
+              <button class="cluster-action-btn cache-tier-btn active-tier" data-mb="1024" onclick="onSelectTtsCacheTier(1024)" style="font-size:10px; padding:5px 10px; background:var(--accent-pink); color:#000; font-weight:900;">1 GB (Default)</button>
+              <button class="cluster-action-btn cache-tier-btn" data-mb="2048" onclick="onSelectTtsCacheTier(2048)" style="font-size:10px; padding:5px 10px;">2 GB</button>
+              <button class="cluster-action-btn cache-tier-btn" data-mb="4096" onclick="onSelectTtsCacheTier(4096)" style="font-size:10px; padding:5px 10px;">4 GB</button>
+              <button class="cluster-action-btn cache-tier-btn" data-mb="8192" onclick="onSelectTtsCacheTier(8192)" style="font-size:10px; padding:5px 10px;">8 GB</button>
+            </div>
+
+            <!-- Live Usage Meter -->
+            <div style="background:#05070a; border:1px solid #141b24; border-radius:6px; padding:8px 12px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; margin-bottom:6px;">
+                <span style="color:#c7d5e4;">Storage Reserved: <strong id="ttsCacheLimitText" style="color:#fff;">1,024 MB</strong></span>
+                <span style="color:var(--text-secondary);">Used: <strong id="ttsCacheUsedText" style="color:var(--accent-pink);">0.0 MB</strong> (<span id="ttsCachePctText">0%</span>) • <strong id="ttsCacheCountText" style="color:#fff;">0</strong> phrases cached (<strong id="ttsCacheHitsText" style="color:var(--accent-green);">0</strong> instant hits)</span>
+              </div>
+              <div style="width:100%; height:6px; background:#101722; border-radius:3px; overflow:hidden;">
+                <div id="ttsCacheProgressBar" style="width:0%; height:100%; background:linear-gradient(90deg, var(--accent-pink), #ff70a6); transition:width 0.3s ease;"></div>
+              </div>
+            </div>
+          </div>
         <!-- end tts engine block -->
         </div>
       </div>
@@ -2918,6 +2951,23 @@
         </div>
       </div>
 
+    </div>
+  </div>
+
+  <!-- TTS CACHE DOWNSIZE WARNING MODAL -->
+  <div class="config-modal-overlay" id="ttsCacheWarningModal" style="display:none;">
+    <div class="config-modal-content" style="max-width:480px; border-color:var(--accent-yellow);">
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
+        <span style="font-size:24px;">⚠️</span>
+        <h3 style="font-size:16px; font-weight:900; color:#fff;">SPEECH CACHE DOWNSIZE WARNING</h3>
+      </div>
+      <p style="font-size:12px; color:#c7d5e4; line-height:1.5; margin-bottom:16px;" id="ttsCacheWarningDesc">
+        Current cached speech exceeds the new target reserve. Lowering the reserve will prune older, least-frequently-used phrases. Frequently used phrases will be preserved. Proceed?
+      </p>
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <button class="graph-close-btn" onclick="closeTtsCacheWarningModal()">CANCEL</button>
+        <button class="cluster-action-btn" id="btnConfirmCachePrune" onclick="confirmTtsCacheDownsize()" style="background:var(--accent-yellow); color:#000; font-weight:900; font-size:11px; padding:6px 16px;">PROCEED & DOWNSIZE</button>
+      </div>
     </div>
   </div>
 

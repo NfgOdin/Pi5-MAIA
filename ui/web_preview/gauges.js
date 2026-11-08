@@ -18206,3 +18206,117 @@ window.loadTrack = function(idx, autoPlay = true) {
     if (marquee) marquee.innerText = `${t.title || 'Track'} — ${t.artist || 'CarPi5'}`;
   }
 };
+
+// ==========================================
+// R.U.M. VOICE SPEECH CACHE CONTROLLER
+// ==========================================
+let pendingDownsizeTier = null;
+
+function loadTtsCacheStats() {
+  fetch('/api/audio/cache')
+    .then(r => r.json())
+    .then(data => {
+      if (!data || !data.cache) return;
+      const c = data.cache;
+      const limText = document.getElementById('ttsCacheLimitText');
+      const usedText = document.getElementById('ttsCacheUsedText');
+      const pctText = document.getElementById('ttsCachePctText');
+      const countText = document.getElementById('ttsCacheCountText');
+      const hitsText = document.getElementById('ttsCacheHitsText');
+      const bar = document.getElementById('ttsCacheProgressBar');
+
+      const limMb = c.limit_mb || 1024;
+      const usedMb = c.total_mb || 0.0;
+      const pct = c.usage_pct || 0.0;
+
+      if (limText) limText.innerText = limMb >= 1024 ? `${(limMb / 1024).toFixed(0)} GB` : `${limMb} MB`;
+      if (usedText) usedText.innerText = `${usedMb.toFixed(1)} MB`;
+      if (pctText) pctText.innerText = `${pct.toFixed(1)}%`;
+      if (countText) countText.innerText = c.total_phrases || 0;
+      if (hitsText) hitsText.innerText = c.total_hits || 0;
+      if (bar) bar.style.width = `${Math.min(100, Math.max(2, pct))}%`;
+
+      // Update tier buttons active state
+      document.querySelectorAll('#ttsCacheTierButtons .cache-tier-btn').forEach(btn => {
+        const mb = parseInt(btn.getAttribute('data-mb'), 10);
+        if (mb === limMb) {
+          btn.style.background = "var(--accent-pink)";
+          btn.style.color = "#000";
+          btn.style.fontWeight = "900";
+        } else {
+          btn.style.background = "transparent";
+          btn.style.color = "#c7d5e4";
+          btn.style.fontWeight = "700";
+        }
+      });
+    })
+    .catch(e => console.warn("[TTS CACHE] Stats fetch error:", e));
+}
+
+function onSelectTtsCacheTier(targetMb) {
+  fetch('/api/audio/cache/limit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ limit_mb: targetMb, dry_run: true })
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (d.impact && d.impact.needs_prune) {
+        pendingDownsizeTier = targetMb;
+        const desc = document.getElementById('ttsCacheWarningDesc');
+        const targetStr = targetMb >= 1024 ? `${targetMb / 1024} GB` : `${targetMb} MB`;
+        if (desc) {
+          desc.innerHTML = `Your current speech cache uses <strong>${(d.impact.mb_to_delete + targetMb).toFixed(1)} MB</strong>. Lowering your reserve to <strong>${targetStr}</strong> will automatically prune approximately <strong>${d.impact.mb_to_delete} MB (${d.impact.phrases_to_delete} phrases)</strong> of older, least-frequently-used speech.<br><br>Frequently used phrases will be preserved. Proceed with downsize?`;
+        }
+        const m = document.getElementById('ttsCacheWarningModal');
+        if (m) m.style.display = 'flex';
+      } else {
+        applyTtsCacheTier(targetMb);
+      }
+    })
+    .catch(() => applyTtsCacheTier(targetMb));
+}
+
+function closeTtsCacheWarningModal() {
+  const m = document.getElementById('ttsCacheWarningModal');
+  if (m) m.style.display = 'none';
+  pendingDownsizeTier = null;
+}
+
+function confirmTtsCacheDownsize() {
+  if (pendingDownsizeTier) {
+    applyTtsCacheTier(pendingDownsizeTier);
+  }
+  closeTtsCacheWarningModal();
+}
+
+function applyTtsCacheTier(targetMb) {
+  fetch('/api/audio/cache/limit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ limit_mb: targetMb, dry_run: false })
+  })
+    .then(r => r.json())
+    .then(d => {
+      loadTtsCacheStats();
+      const targetStr = targetMb >= 1024 ? `${targetMb / 1024} GB` : `${targetMb} MB`;
+      showAiSpeechToast(`Speech cache reserve set to ${targetStr}`);
+    })
+    .catch(e => console.error("Error setting cache limit:", e));
+}
+
+function clearTtsCache() {
+  if (!confirm("Are you sure you want to clear all cached speech? Future responses will be re-synthesized.")) {
+    return;
+  }
+  fetch('/api/audio/cache/clear', { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      loadTtsCacheStats();
+      showAiSpeechToast("Speech cache completely cleared");
+    })
+    .catch(e => console.error("Error clearing speech cache:", e));
+}
+
+// Auto-load cache stats on boot
+setTimeout(loadTtsCacheStats, 1500);

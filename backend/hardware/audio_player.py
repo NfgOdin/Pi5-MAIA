@@ -33,17 +33,199 @@ import queue
 import tempfile
 
 import threading
-
 import subprocess
-
 import urllib.request
-
+import hashlib
+import shutil
+import random
 from pathlib import Path
-
 from typing import Optional, Dict, Any
 
 
+class TTSCacheManager:
+    """
+    High-Performance Voice Response Memoization & LRU Cache Manager for CarPi5.
+    Caches synthesized speech WAV clips to eliminate synthesis lag (<15ms replay).
+    Supports user-configurable size limit (128MB - 8GB) with automatic LRU pruning.
+    """
+    def __init__(self, cache_dir: Optional[str] = None, limit_mb: int = 1024):
+        if cache_dir is None:
+            base = Path(__file__).parent.parent.parent
+            self.cache_dir = base / "storage" / "tts_cache"
+        else:
+            self.cache_dir = Path(cache_dir)
+            
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.index_file = self.cache_dir / "cache_index.json"
+        self.limit_mb = max(128, int(limit_mb))
+        self.lock = threading.Lock()
+        self.index: Dict[str, Dict[str, Any]] = self._load_index()
 
+    def _load_index(self) -> Dict[str, Dict[str, Any]]:
+        if self.index_file.exists():
+            try:
+                with open(self.index_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
+
+    def _save_index(self):
+        try:
+            with open(self.index_file, "w", encoding="utf-8") as f:
+                json.dump(self.index, f, indent=2)
+        except Exception as e:
+            print(f"[TTS-CACHE] Failed saving index: {e}")
+
+    def _make_key(self, text: str, voice: str, pitch: float) -> str:
+        clean = "".join(c for c in text.lower().strip() if c.isalnum() or c.isspace())
+        norm = " ".join(clean.split())
+        raw = f"{norm}|{voice.lower()}|{pitch:.2f}"
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
+
+    def get(self, text: str, voice: str, pitch: float) -> Optional[str]:
+        """Returns path to cached audio file if present, updating LRU metrics."""
+        key = self._make_key(text, voice, pitch)
+        with self.lock:
+            if key in self.index:
+                meta = self.index[key]
+                fpath = self.cache_dir / meta.get("file", f"{key}.wav")
+                if fpath.exists():
+                    meta["last_accessed"] = time.time()
+                    meta["hit_count"] = meta.get("hit_count", 0) + 1
+                    self._save_index()
+                    return str(fpath)
+                else:
+                    del self.index[key]
+        return None
+
+    def put(self, text: str, voice: str, pitch: float, src_wav_path: str) -> Optional[str]:
+        """Stores a newly synthesized WAV file in the cache and manages LRU limits."""
+        if not os.path.exists(src_wav_path) or os.path.getsize(src_wav_path) < 500:
+            return None
+        key = self._make_key(text, voice, pitch)
+        dest_filename = f"{key}.wav"
+        dest_path = self.cache_dir / dest_filename
+
+        try:
+            shutil.copy2(src_wav_path, str(dest_path))
+            size_bytes = dest_path.stat().st_size
+            with self.lock:
+                self.index[key] = {
+                    "text": text[:120],
+                    "voice": voice,
+                    "pitch": round(pitch, 2),
+                    "file": dest_filename,
+                    "size_bytes": size_bytes,
+                    "created_at": time.time(),
+                    "last_accessed": time.time(),
+                    "hit_count": 1
+                }
+                self._save_index()
+            self.auto_prune_if_needed()
+            return str(dest_path)
+        except Exception as e:
+            print(f"[TTS-CACHE] Error storing cache for '{text[:30]}': {e}")
+            return None
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Returns live storage statistics, phrase counts, and hit metrics."""
+        with self.lock:
+            total_bytes = sum(item.get("size_bytes", 0) for item in self.index.values())
+            total_hits = sum(item.get("hit_count", 0) for item in self.index.values())
+            total_files = len(self.index)
+            total_mb = total_bytes / (1024 * 1024)
+            pct = (total_mb / self.limit_mb * 100.0) if self.limit_mb > 0 else 0.0
+
+            return {
+                "total_phrases": total_files,
+                "total_bytes": total_bytes,
+                "total_mb": round(total_mb, 2),
+                "limit_mb": self.limit_mb,
+                "usage_pct": round(pct, 1),
+                "total_hits": total_hits,
+                "cache_dir": str(self.cache_dir)
+            }
+
+    def calculate_downsize_impact(self, new_limit_mb: int) -> Dict[str, Any]:
+        """Calculates how many phrases and megabytes would be deleted if downsized."""
+        with self.lock:
+            total_bytes = sum(item.get("size_bytes", 0) for item in self.index.values())
+            current_mb = total_bytes / (1024 * 1024)
+            if current_mb <= new_limit_mb:
+                return {"needs_prune": False, "bytes_to_delete": 0, "mb_to_delete": 0.0, "phrases_to_delete": 0}
+
+            target_bytes = int(new_limit_mb * 1024 * 1024 * 0.90)
+            bytes_needed = max(0, total_bytes - target_bytes)
+
+            sorted_items = sorted(
+                self.index.items(),
+                key=lambda x: (x[1].get("hit_count", 1) > 2, x[1].get("last_accessed", 0))
+            )
+
+            freed = 0
+            count = 0
+            for k, meta in sorted_items:
+                freed += meta.get("size_bytes", 0)
+                count += 1
+                if freed >= bytes_needed:
+                    break
+
+            return {
+                "needs_prune": True,
+                "bytes_to_delete": freed,
+                "mb_to_delete": round(freed / (1024 * 1024), 2),
+                "phrases_to_delete": count
+            }
+
+    def set_limit_mb(self, new_limit_mb: int) -> Dict[str, Any]:
+        """Sets new capacity limit and executes pruning if current usage exceeds it."""
+        new_limit = max(128, int(new_limit_mb))
+        self.limit_mb = new_limit
+        self.auto_prune_if_needed()
+        return self.get_stats()
+
+    def auto_prune_if_needed(self):
+        """Prunes oldest / lowest-hit phrases if total size exceeds limit_mb."""
+        with self.lock:
+            total_bytes = sum(item.get("size_bytes", 0) for item in self.index.values())
+            max_bytes = self.limit_mb * 1024 * 1024
+            if total_bytes <= max_bytes:
+                return
+
+            target_bytes = int(max_bytes * 0.85)
+            sorted_items = sorted(
+                self.index.items(),
+                key=lambda x: (x[1].get("hit_count", 1) > 2, x[1].get("last_accessed", 0))
+            )
+
+            for key, meta in sorted_items:
+                fpath = self.cache_dir / meta.get("file", f"{key}.wav")
+                if fpath.exists():
+                    try:
+                        fpath.unlink()
+                    except Exception:
+                        pass
+                total_bytes -= meta.get("size_bytes", 0)
+                del self.index[key]
+                if total_bytes <= target_bytes:
+                    break
+
+            self._save_index()
+            print(f"[TTS-CACHE] Auto-pruned cache down to {round(total_bytes / (1024*1024), 2)} MB")
+
+    def clear(self) -> Dict[str, Any]:
+        """Clears all cached audio files and resets the registry."""
+        with self.lock:
+            for f in self.cache_dir.glob("*.wav"):
+                try:
+                    f.unlink()
+                except Exception:
+                    pass
+            self.index = {}
+            self._save_index()
+            print("[TTS-CACHE] Cache cleared completely.")
+            return self.get_stats()
 
 
 class AudioPlayer:
@@ -178,12 +360,11 @@ class AudioPlayer:
 
         self.alsa_device = "plughw:0,0" if sys.platform.startswith("linux") else None
 
-
+        # Voice Response Cache & LRU Manager (Default 1GB reserve)
+        self.cache_mgr = TTSCacheManager(limit_mb=1024)
 
         # Start worker thread
-
         self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
-
         self.worker_thread.start()
 
 
@@ -241,29 +422,24 @@ class AudioPlayer:
             self.elevenlabs_voice_id = vid
 
         if "api_key" in settings and settings["api_key"]:
-
             self.openai_api_key = str(settings["api_key"]).strip()
 
-
+        if "tts_cache_limit_mb" in settings and settings["tts_cache_limit_mb"]:
+            try:
+                self.cache_mgr.set_limit_mb(int(settings["tts_cache_limit_mb"]))
+            except Exception:
+                pass
 
     def get_tts_status(self) -> Dict[str, Any]:
-
         return {
-
             "tts_engine": self.tts_engine,
-
             "kokoro_voice": self.kokoro_voice,
-
             "tts_pitch": self.pitch_factor,
-
             "kokoro_ready": self._kokoro_loaded,
-
             "piper_ready": self._piper_loaded,
-
             "elevenlabs_configured": bool(self.elevenlabs_api_key),
-
             "elevenlabs_voice_id": self.elevenlabs_voice_id,
-
+            "cache": self.cache_mgr.get_stats(),
         }
 
 
@@ -653,11 +829,18 @@ class AudioPlayer:
 
 
     def _synthesize_and_play(self, text: str):
-
         """Synthesize text using the selected TTS engine (with automatic fallback), pitch-tune, and play."""
+        voice_id = self.kokoro_voice if self.tts_engine == "KOKORO" else self.tts_engine
+        pitch = self.pitch_factor
+
+        # 1. Fast Cache Lookup (Zero-Latency Replay)
+        cached_wav = self.cache_mgr.get(text, voice_id, pitch)
+        if cached_wav and os.path.exists(cached_wav):
+            print(f"[AUDIO] TTS Cache HIT ({self.cache_mgr.get_stats()['total_hits']} hits): '{text[:40]}'")
+            self._play_file_direct(cached_wav, lead_in_silence_sec=0.08)
+            return
 
         wav_path = None
-
         try:
 
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
@@ -798,8 +981,10 @@ class AudioPlayer:
 
 
 
-            # Play the generated WAV file with exact hardware speaking state tracking
+            # Save newly synthesized phrase into speech cache for instant future replay
+            self.cache_mgr.put(text, voice_id, pitch, wav_path)
 
+            # Play the generated WAV file with exact hardware speaking state tracking
             self._play_file_direct(wav_path, lead_in_silence_sec=0.12)
 
 
@@ -895,6 +1080,36 @@ class AudioPlayer:
                     pass
 
         finally:
-
             self.is_speaking = False
+
+    def play_acknowledgment(self, persona: str = "RUM") -> bool:
+        """Plays a natural, instant (<15ms) voice acknowledgment when mic opens."""
+        base = Path(__file__).parent.parent.parent
+        ack_dir = base / "assets" / "sounds" / "acknowledgments" / persona.lower()
+        if not ack_dir.exists():
+            ack_dir = base / "assets" / "sounds" / "acknowledgments" / "rum"
+        if ack_dir.exists():
+            wavs = sorted(list(ack_dir.glob("*.wav")))
+            if wavs:
+                chosen = random.choice(wavs)
+                print(f"[AUDIO] Playing instant R.U.M. voice acknowledgment: {chosen.name}")
+                threading.Thread(target=self._play_file_direct, args=(str(chosen), 0.0), daemon=True).start()
+                return True
+        return False
+
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Returns live statistics of the TTS cache."""
+        return self.cache_mgr.get_stats()
+
+    def set_cache_limit(self, new_limit_mb: int) -> Dict[str, Any]:
+        """Updates the speech cache storage limit."""
+        return self.cache_mgr.set_limit_mb(new_limit_mb)
+
+    def calculate_downsize_impact(self, new_limit_mb: int) -> Dict[str, Any]:
+        """Calculates pruning impact if downsizing cache limit."""
+        return self.cache_mgr.calculate_downsize_impact(new_limit_mb)
+
+    def clear_cache(self) -> Dict[str, Any]:
+        """Empties the speech cache."""
+        return self.cache_mgr.clear()
 

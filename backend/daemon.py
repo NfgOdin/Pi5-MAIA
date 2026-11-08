@@ -246,11 +246,9 @@ def get_default_app_settings() -> Dict[str, Any]:
         "driver_name": "Creator",
 
         "personality": "RUM",
-
         "voice_mode": "COPILOT",
-
-        "speed_units": "MPH"
-
+        "speed_units": "MPH",
+        "tts_cache_limit_mb": 1024
     }
 
 
@@ -1930,6 +1928,15 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(audio).encode("utf-8"))
             return
 
+        elif parsed.path == "/api/audio/cache":
+            stats = state.audio.get_cache_stats()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "cache": stats}).encode("utf-8"))
+            return
+
 
 
         elif parsed.path == "/api/ui/navigate":
@@ -2870,30 +2877,20 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
 
         if parsed.path == "/api/ai/listen":
-
             action = req_data.get("action", "toggle_convo")
-
             if action == "toggle_convo":
-
                 state.live_convo_mode = not state.live_convo_mode
-
                 if state.live_convo_mode:
-
                     state.listen_once_requested = True
-
                     state.is_mic_listening = True
-
+                    state.audio.play_acknowledgment(state.llm.settings.get("personality", "RUM"))
                 else:
-
                     state.listen_once_requested = False
-
                     state.stop_current_listen()
-
             elif action == "start_once":
-
                 state.listen_once_requested = True
-
                 state.is_mic_listening = True
+                state.audio.play_acknowledgment(state.llm.settings.get("personality", "RUM"))
 
             elif action == "stop":
 
@@ -3596,6 +3593,33 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/audio/cache/limit":
+            limit_mb = int(req_data.get("limit_mb", 1024))
+            dry_run = bool(req_data.get("dry_run", False))
+            if dry_run:
+                impact = state.audio.calculate_downsize_impact(limit_mb)
+                res = {"status": "ok", "impact": impact}
+            else:
+                stats = state.audio.set_cache_limit(limit_mb)
+                state.settings["tts_cache_limit_mb"] = limit_mb
+                state._save_settings(state.settings)
+                res = {"status": "ok", "cache": stats}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/audio/cache/clear":
+            stats = state.audio.clear_cache()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "cache": stats}).encode("utf-8"))
             return
 
 
