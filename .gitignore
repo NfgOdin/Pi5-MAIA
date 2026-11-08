@@ -20,3 +20,5 @@ node_modules/
 # Secret credentials & personal keys
 backend/ai/ai_config.json
 backend/ai/google_oauth_tokens.json
+storage/trip_archives/
+storage/tts_cache/

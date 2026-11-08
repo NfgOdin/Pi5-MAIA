@@ -81,7 +81,6 @@ from bluetooth_manager import BluetoothManager
 from hardware.system_monitor import SystemMonitor
 
 from hardware.gpio_controller import GpioController
-from hardware.fan_controller import FanController
 
 from hardware.audio_player import AudioPlayer
 from hardware.pedal_commander import PedalCommanderController
@@ -339,7 +338,6 @@ class CarPi5ServerState:
         self.sys_monitor = SystemMonitor()
 
         self.gpio = GpioController()
-        self.fan = FanController(pwm_pin=12, tach_pin=24)
 
         self.rom_mgr = RomManager()
 
@@ -2079,7 +2077,6 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
         elif parsed.path == "/api/system/health":
             health = state.sys_monitor.get_system_health()
-            health["fan"] = state.fan.get_status()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -2088,12 +2085,11 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             return
 
         elif parsed.path == "/api/system/fan":
-            fan_status = state.fan.get_status()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
-            self.wfile.write(json.dumps(fan_status).encode("utf-8"))
+            self.wfile.write(json.dumps({"enabled": False, "status": "disabled"}).encode("utf-8"))
             return
 
 
@@ -3006,12 +3002,6 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             res = state.llm.chat_with_action(user_msg, live_telemetry=frame_dict)
             if res.get("action"):
-                act = res["action"]
-                if act.get("type") == "fan":
-                    if act.get("action") == "auto":
-                        state.fan.set_mode("AUTO")
-                    elif act.get("action") == "set":
-                        state.fan.set_mode("MANUAL", manual_pct=float(act.get("duty", 50)))
                 with state.lock:
                     state.latest_ui_action = res["action"]
 
@@ -3631,6 +3621,9 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                 stats = state.audio.set_cache_limit(limit_mb)
                 state.settings["tts_cache_limit_mb"] = limit_mb
                 state.save_settings(state.settings)
+                if hasattr(state, "llm") and hasattr(state.llm, "settings"):
+                    state.llm.settings["tts_cache_limit_mb"] = limit_mb
+                    state.llm.save_settings(state.llm.settings)
                 res = {"status": "ok", "cache": stats}
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -3671,19 +3664,11 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
 
         elif parsed.path == "/api/system/fan":
-            mode = req_data.get("mode", "AUTO")
-            duty = req_data.get("duty_cycle")
-            if duty is not None:
-                try:
-                    duty = float(duty)
-                except (ValueError, TypeError):
-                    duty = None
-            res = state.fan.set_mode(mode, manual_pct=duty)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
-            self.wfile.write(json.dumps({"status": "ok", "fan": res}).encode("utf-8"))
+            self.wfile.write(json.dumps({"status": "disabled", "message": "Fan controller disabled"}).encode("utf-8"))
             return
 
         elif parsed.path == "/api/gpio/toggle":

@@ -363,9 +363,17 @@ class AudioPlayer:
         # Voice Response Cache & LRU Manager (Default 1GB reserve)
         self.cache_mgr = TTSCacheManager(limit_mb=1024)
 
-        # Start worker thread
-        self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
-        self.worker_thread.start()
+        # Dual-Stage Synthesis & Playback Queues for Non-Blocking Clause Streaming
+        self.synthesis_queue = queue.Queue(maxsize=64)
+        self.playback_queue = queue.Queue(maxsize=32)
+        self.speech_queue = self.synthesis_queue  # Backwards compatibility
+
+        # Start dual worker threads
+        self.synthesis_thread = threading.Thread(target=self._synthesis_loop, daemon=True, name="TTSSynthesisThread")
+        self.synthesis_thread.start()
+
+        self.playback_thread = threading.Thread(target=self._playback_loop, daemon=True, name="TTSPlaybackThread")
+        self.playback_thread.start()
 
 
 
@@ -445,36 +453,38 @@ class AudioPlayer:
 
 
     def _init_kokoro(self):
-
         """Loads Kokoro-82M int8 ONNX model and voices into RAM if available."""
-
         with self._kokoro_lock:
-
             if self._kokoro_instance is not None:
-
                 return
-
+            model_p = None
+            voices_p = None
             try:
-
+                import onnxruntime as ort
                 from kokoro_onnx import Kokoro
-
                 model_p = next((p for p in self.kokoro_model_candidates if os.path.exists(p) and os.path.getsize(p) > 1000000), None)
-
                 voices_p = next((p for p in self.kokoro_voices_candidates if os.path.exists(p) and os.path.getsize(p) > 100000), None)
-
                 if model_p and voices_p:
-
                     print(f"[AUDIO] Loading Kokoro-82M neural voice model: {model_p}...")
-
-                    self._kokoro_instance = Kokoro(model_p, voices_p)
-
+                    opts = ort.SessionOptions()
+                    opts.intra_op_num_threads = 4
+                    opts.inter_op_num_threads = 2
+                    opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                    opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+                    session = ort.InferenceSession(model_p, sess_options=opts, providers=['CPUExecutionProvider'])
+                    self._kokoro_instance = Kokoro.from_session(session, voices_p)
                     self._kokoro_loaded = True
-
-                    print("[AUDIO] Kokoro-82M neural voice ready for in-dash speech!")
-
+                    print("[AUDIO] Kokoro-82M multi-threaded neural voice ready for in-dash speech!")
             except Exception as e:
-
-                print(f"[AUDIO] Kokoro-82M init note: {e}")
+                print(f"[AUDIO] Kokoro-82M optimized init note: {e}")
+                try:
+                    from kokoro_onnx import Kokoro
+                    if model_p and voices_p:
+                        self._kokoro_instance = Kokoro(model_p, voices_p)
+                        self._kokoro_loaded = True
+                        print("[AUDIO] Kokoro-82M fallback loaded.")
+                except Exception:
+                    pass
 
 
 
@@ -516,81 +526,89 @@ class AudioPlayer:
 
 
 
+    def _split_clauses(self, text: str) -> list:
+        """Splits multi-sentence / multi-clause responses into punctuation-bounded phrases."""
+        import re
+        text = text.strip()
+        if not text:
+            return []
+        raw_chunks = re.split(r'(?<=[.!?])\s+|\n+', text)
+        clauses = []
+        for c in raw_chunks:
+            c = c.strip()
+            if not c:
+                continue
+            if len(c) < 4 and clauses:
+                clauses[-1] = f"{clauses[-1]} {c}".strip()
+            else:
+                clauses.append(c)
+        return clauses if clauses else [text]
+
     def speak(self, text: str, priority: bool = False):
-
-        """Queue text to be spoken aloud through in-dash speakers with automatic de-duplication."""
-
+        """Queue text to be spoken aloud through in-dash speakers with automatic clause streaming & de-duplication."""
         if not text or not text.strip():
-
             return
-
         clean_text = text.strip()
-
         clean_text = clean_text.replace("*", "").replace("`", "").replace('"', '')
 
-
-
         now = time.time()
-
         if clean_text == self._last_spoken_text and ((now - self._last_spoken_time) < 8.0 or self.is_speaking):
-
             print(f"[AUDIO] De-duplicating repeat speech request: {clean_text[:40]}...")
-
             return
-
         self._last_spoken_text = clean_text
-
         self._last_spoken_time = now
 
-
-
-        self.speech_queue.put(clean_text)
-
-
+        clauses = self._split_clauses(clean_text)
+        for clause in clauses:
+            self.synthesis_queue.put(clause)
 
     def play_wav_file(self, wav_path: str):
-
-        """Directly queue a WAV sound file for playback."""
-
+        """Directly queue a WAV sound file for instant hardware playback."""
         if os.path.exists(wav_path):
+            self.playback_queue.put({"file": wav_path, "lead_in": 0.0, "cleanup": False})
 
-            self.speech_queue.put({"file": wav_path})
-
-
-
-    def _worker_loop(self):
-
-        """Background loop continuously consuming queued speech."""
-
+    def _synthesis_loop(self):
+        """Worker thread continuously synthesizing queued text clauses into audio WAV clips."""
         while True:
-
             try:
-
-                item = self.speech_queue.get()
-
+                item = self.synthesis_queue.get()
                 if item is None:
-
                     break
-
-
-
                 if isinstance(item, dict) and "file" in item:
-
-                    self._play_file_direct(item["file"])
-
+                    self.playback_queue.put(item)
                 elif isinstance(item, str):
-
-                    self._synthesize_and_play(item)
-
-
-
-                self.speech_queue.task_done()
-
+                    self._synthesize_clause_pipelined(item)
+                self.synthesis_queue.task_done()
             except Exception as e:
+                print(f"[AUDIO] Synthesis pipeline error: {e}")
+                time.sleep(0.05)
 
+    def _playback_loop(self):
+        """Dedicated ALSA / PipeWire hardware audio playback thread."""
+        while True:
+            try:
+                item = self.playback_queue.get()
+                if item is None:
+                    break
+                fpath = item.get("file") if isinstance(item, dict) else str(item)
+                lead_in = item.get("lead_in", 0.0) if isinstance(item, dict) else 0.0
+                cleanup = item.get("cleanup", False) if isinstance(item, dict) else False
+
+                if fpath and os.path.exists(fpath):
+                    self._play_file_direct(fpath, lead_in_silence_sec=lead_in)
+
+                if cleanup and fpath and os.path.exists(fpath):
+                    try:
+                        os.remove(fpath)
+                    except Exception:
+                        pass
+                self.playback_queue.task_done()
+            except Exception as e:
                 print(f"[AUDIO] Playback error: {e}")
-
-                time.sleep(0.1)
+                time.sleep(0.05)
+            finally:
+                if self.playback_queue.empty():
+                    self.is_speaking = False
 
 
 
@@ -828,182 +846,112 @@ class AudioPlayer:
 
 
 
-    def _synthesize_and_play(self, text: str):
-        """Synthesize text using the selected TTS engine (with automatic fallback), pitch-tune, and play."""
+    def _synthesize_clause_pipelined(self, text: str):
+        """Synthesize a single clause using the selected engine, cache it, and push to playback queue."""
         voice_id = self.kokoro_voice if self.tts_engine == "KOKORO" else self.tts_engine
         pitch = self.pitch_factor
 
-        # 1. Fast Cache Lookup (Zero-Latency Replay)
+        # 1. Fast Cache Lookup (Zero-Latency Replay < 15ms)
         cached_wav = self.cache_mgr.get(text, voice_id, pitch)
         if cached_wav and os.path.exists(cached_wav):
             print(f"[AUDIO] TTS Cache HIT ({self.cache_mgr.get_stats()['total_hits']} hits): '{text[:40]}'")
-            self._play_file_direct(cached_wav, lead_in_silence_sec=0.08)
+            self.playback_queue.put({"file": cached_wav, "lead_in": 0.04, "cleanup": False})
             return
 
         wav_path = None
         try:
-
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-
                 wav_path = tmp.name
 
-
-
             synthesized = False
-
             used_engine = self.tts_engine
 
-
-
             if self.tts_engine == "ELEVENLABS":
-
                 synthesized = self._synthesize_cloud_elevenlabs(text, wav_path)
-
                 if not synthesized:
-
                     used_engine = "KOKORO"
-
-
 
             elif self.tts_engine == "OPENAI_TTS":
-
                 synthesized = self._synthesize_cloud_openai(text, wav_path)
-
                 if not synthesized:
-
                     used_engine = "KOKORO"
 
-
-
             if not synthesized and used_engine == "KOKORO":
-
                 synthesized = self._synthesize_local_kokoro(text, wav_path)
-
                 if not synthesized:
-
                     used_engine = "PIPER"
 
-
-
             if not synthesized:
-
                 synthesized = self._synthesize_local_piper(text, wav_path)
-
                 used_engine = "PIPER"
 
-
-
             if not synthesized:
-
                 if sys.platform.startswith("linux"):
-
                     try:
-
                         self.is_speaking = True
-
                         subprocess.run(["espeak-ng", "-v", "en-us", text], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
                     except Exception:
-
                         pass
-
                     finally:
-
                         self.is_speaking = False
-
                 return
 
-
-
             # Apply youthful pitch transform ONLY for local TTS (Kokoro/Piper) and only if pitch factor is notably different from 1.0
-
             if used_engine not in ("ELEVENLABS", "OPENAI_TTS") and abs(self.pitch_factor - 1.0) > 0.05:
-
                 try:
-
                     with wave.open(wav_path, "rb") as r:
-
                         sr = r.getframerate()
-
                     pf = self.pitch_factor
-
                     pitched_path = wav_path + ".pitched.wav"
-
                     cmd = [
-
                         "ffmpeg", "-y", "-threads", "2", "-i", wav_path,
-
                         "-af", f"asetrate={int(sr * pf)},atempo={1.0 / pf:.6f},aresample={sr}",
-
                         pitched_path
-
                     ]
-
                     res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
-
                     if res.returncode == 0 and os.path.exists(pitched_path) and os.path.getsize(pitched_path) > 1000:
-
                         os.replace(pitched_path, wav_path)
-
                 except Exception as p_err:
-
                     print(f"[AUDIO] Pitch shift note: {p_err}")
 
-
-
-            # Prepend 0.12s silence so HDMI monitor sink wakes up cleanly
-
+            # Prepend 0.08s silence so HDMI monitor / Bluetooth sink wakes up cleanly
             try:
-
                 with wave.open(wav_path, "rb") as r:
-
                     params = r.getparams()
-
                     frames = r.readframes(params.nframes)
 
-
-
-                silent_count = int(params.framerate * 0.12)
-
+                silent_count = int(params.framerate * 0.08)
                 silence = b"\x00" * (silent_count * params.nchannels * params.sampwidth)
 
-
-
                 with wave.open(wav_path, "wb") as w:
-
                     w.setparams(params)
-
                     w.writeframes(silence + frames)
-
             except Exception as ex:
-
                 print(f"[AUDIO] Prepend silence note: {ex}")
 
-
-
             # Save newly synthesized phrase into speech cache for instant future replay
-            self.cache_mgr.put(text, voice_id, pitch, wav_path)
-
-            # Play the generated WAV file with exact hardware speaking state tracking
-            self._play_file_direct(wav_path, lead_in_silence_sec=0.12)
-
-
+            cached_file = self.cache_mgr.put(text, voice_id, pitch, wav_path)
+            if cached_file and os.path.exists(cached_file):
+                self.playback_queue.put({"file": cached_file, "lead_in": 0.04, "cleanup": False})
+                if os.path.exists(wav_path):
+                    try:
+                        os.remove(wav_path)
+                    except Exception:
+                        pass
+            else:
+                self.playback_queue.put({"file": wav_path, "lead_in": 0.04, "cleanup": True})
 
         except Exception as e:
-
             print(f"[AUDIO] TTS synthesize failed: {e}")
-
-        finally:
-
             if wav_path and os.path.exists(wav_path):
-
                 try:
-
                     os.remove(wav_path)
-
                 except Exception:
-
                     pass
+
+    def _synthesize_and_play(self, text: str):
+        """Backwards compatibility wrapper."""
+        self._synthesize_clause_pipelined(text)
 
 
 

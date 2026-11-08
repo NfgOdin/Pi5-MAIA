@@ -76,6 +76,11 @@ class FanController:
         self.start()
 
     def _init_hardware(self):
+        """Hardware fan controller disabled to keep all GPIO pins free."""
+        self.hardware_active = False
+        return
+
+    def _init_hardware_disabled(self):
         """Initializes gpiozero PWM output at 25kHz and tachometer input."""
         if not self.is_linux or not GPIOZERO_AVAILABLE:
             print(f"[FAN] Running in virtual emulation mode (Linux={self.is_linux}, gpiozero={GPIOZERO_AVAILABLE})")
@@ -254,11 +259,9 @@ class FanController:
             time.sleep(2.0)
 
     def start(self):
-        """Starts the background thermal management thread."""
-        if not self.running:
-            self.running = True
-            self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True, name="FanControllerThread")
-            self.monitor_thread.start()
+        """Fan controller is disabled; no background thread started."""
+        self.running = False
+        return
 
     def stop(self):
         """Stops the controller and releases GPIO resources."""

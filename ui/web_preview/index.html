@@ -2279,93 +2279,128 @@
   </div>
 
   <!-- SBC HARDWARE & THERMAL HEALTH MODAL -->
+  <!-- SBC HARDWARE & THERMAL HEALTH MODAL -->
   <div class="config-modal-overlay" id="sbcHealthModal">
-    <div class="config-modal-content" style="max-width:480px; border-color:var(--accent-yellow);">
+    <div class="config-modal-content" style="max-width:520px; border-color:var(--accent-yellow);">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
         <div style="display:flex; align-items:center; gap:8px;">
           <span style="font-size:22px;">🌡️</span>
           <div>
-            <h3 style="font-size:16px; font-weight:900; color:#fff;">RASPBERRY PI 5 HARDWARE HEALTH</h3>
-            <span style="font-size:10px; color:var(--text-secondary);">Live SoC Thermals, Throttling & In-Dash Protection</span>
+            <h3 style="font-size:16px; font-weight:900; color:#fff;" id="sbcModalTitle">DUAL SBC HARDWARE HEALTH</h3>
+            <span style="font-size:10px; color:var(--text-secondary);">Live SoC Thermals, CPU, Memory & Diagnostics for In-Dash Computers</span>
           </div>
         </div>
         <button class="graph-close-btn" onclick="closeSystemHealthModal()">✕</button>
       </div>
 
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
-        <div class="slot-item">
-          <div>
-            <div style="font-size:10px; color:var(--text-secondary);">SOC CORE TEMPERATURE</div>
-            <div style="font-size:20px; font-weight:900; color:var(--accent-green);" id="modalSbcTemp">-- °C</div>
-            <div style="font-size:10px; color:var(--text-secondary);" id="modalSbcTempF">-- °F</div>
+      <!-- Segmented Tab Switcher (Pi 5 vs Pi 3) -->
+      <div style="display:flex; background:#080c13; border:1px solid #1a2433; border-radius:8px; padding:3px; gap:4px; margin-bottom:14px;">
+        <button id="tabBtnPi5" class="cluster-action-btn" onclick="switchSbcTab('PI5')" style="flex:1; font-size:11px; font-weight:900; padding:7px 12px; background:var(--accent-pink); color:#fff; border-color:transparent; cursor:pointer;">
+          🍓 PI 5 (COCKPIT HOST)
+        </button>
+        <button id="tabBtnPi3" class="cluster-action-btn" onclick="switchSbcTab('PI3')" style="flex:1; font-size:11px; font-weight:900; padding:7px 12px; background:transparent; color:var(--text-secondary); border-color:transparent; cursor:pointer;">
+          📷 PI 3 (DASHCAM)
+        </button>
+      </div>
+
+      <!-- PANE 1: RASPBERRY PI 5 (HOST) -->
+      <div id="panePi5Health">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
+          <div class="slot-item">
+            <div>
+              <div style="font-size:10px; color:var(--text-secondary);">SOC CORE TEMPERATURE</div>
+              <div style="font-size:20px; font-weight:900; color:var(--accent-green);" id="modalSbcTemp">-- °C</div>
+              <div style="font-size:10px; color:var(--text-secondary);" id="modalSbcTempF">-- °F</div>
+            </div>
+          </div>
+          <div class="slot-item">
+            <div>
+              <div style="font-size:10px; color:var(--text-secondary);">CPU LOAD (4 CORES)</div>
+              <div style="font-size:20px; font-weight:900; color:var(--accent-blue);" id="modalSbcCpu">-- %</div>
+              <div style="font-size:10px; color:var(--text-secondary);">Cortex-A76 @ 2.4 GHz</div>
+            </div>
+          </div>
+          <div class="slot-item">
+            <div>
+              <div style="font-size:10px; color:var(--text-secondary);">RAM UTILIZATION</div>
+              <div style="font-size:18px; font-weight:900; color:#fff;" id="modalSbcRam">-- / -- MB</div>
+              <div style="font-size:10px; color:var(--accent-green);" id="modalSbcRamPct">--% Used</div>
+            </div>
+          </div>
+          <div class="slot-item">
+            <div>
+              <div style="font-size:10px; color:var(--text-secondary);">SYSTEM UPTIME</div>
+              <div style="font-size:18px; font-weight:900; color:#fff;" id="modalSbcUptime">--</div>
+              <div style="font-size:10px; color:var(--accent-green);">Cockpit Host Active</div>
+            </div>
           </div>
         </div>
-        <div class="slot-item">
-          <div>
-            <div style="font-size:10px; color:var(--text-secondary);">CPU LOAD (4 CORES)</div>
-            <div style="font-size:20px; font-weight:900; color:var(--accent-blue);" id="modalSbcCpu">-- %</div>
-            <div style="font-size:10px; color:var(--text-secondary);">Cortex-A76 @ 2.4 GHz</div>
+
+        <div style="background:#0c1219; border:1px solid #212b38; padding:10px 14px; border-radius:8px; margin-bottom:12px;">
+          <div style="font-size:10px; color:var(--text-secondary); font-weight:800;">THROTTLING & VOLTAGE STATUS:</div>
+          <div style="font-size:12px; font-weight:800; color:var(--accent-green); margin-top:2px;" id="modalSbcThrottleMsg">
+            🟢 Thermal & Voltage Nominal
           </div>
         </div>
-        <div class="slot-item">
-          <div>
-            <div style="font-size:10px; color:var(--text-secondary);">RAM UTILIZATION</div>
-            <div style="font-size:18px; font-weight:900; color:#fff;" id="modalSbcRam">-- / -- MB</div>
-            <div style="font-size:10px; color:var(--accent-green);" id="modalSbcRamPct">--% Used</div>
-          </div>
-        </div>
-        <div class="slot-item">
-          <div>
-            <div style="font-size:10px; color:var(--text-secondary);">SYSTEM UPTIME</div>
-            <div style="font-size:18px; font-weight:900; color:#fff;" id="modalSbcUptime">--</div>
-            <div style="font-size:10px; color:var(--accent-green);">Session Active</div>
-          </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; background:#070a0e; border:1px solid #141c26; padding:8px 12px; border-radius:6px; font-size:10px; color:var(--text-secondary); margin-bottom:8px;">
+          <span>Device: <strong style="color:#fff;">Raspberry Pi 5 (8GB)</strong></span>
+          <span>IP: <strong style="color:var(--accent-pink);">192.168.0.131</strong> / <strong style="color:var(--accent-cyan);">10.0.0.1</strong></span>
         </div>
       </div>
 
-      <div style="background:#0c1219; border:1px solid #212b38; padding:10px 14px; border-radius:8px; margin-bottom:14px;">
-        <div style="font-size:10px; color:var(--text-secondary); font-weight:800;">THROTTLING & VOLTAGE STATUS:</div>
-        <div style="font-size:12px; font-weight:800; color:var(--accent-green); margin-top:2px;" id="modalSbcThrottleMsg">
-          🟢 Thermal & Voltage Nominal
+      <!-- PANE 2: RASPBERRY PI 3 (DASHCAM COPROCESSOR) -->
+      <div id="panePi3Health" style="display:none;">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
+          <div class="slot-item">
+            <div>
+              <div style="font-size:10px; color:var(--text-secondary);">SOC CORE TEMPERATURE</div>
+              <div style="font-size:20px; font-weight:900; color:var(--accent-green);" id="modalPi3Temp">-- °C</div>
+              <div style="font-size:10px; color:var(--text-secondary);" id="modalPi3TempF">-- °F</div>
+            </div>
+          </div>
+          <div class="slot-item">
+            <div>
+              <div style="font-size:10px; color:var(--text-secondary);">CPU LOAD (4 CORES)</div>
+              <div style="font-size:20px; font-weight:900; color:var(--accent-blue);" id="modalPi3Cpu">-- %</div>
+              <div style="font-size:10px; color:var(--text-secondary);">Cortex-A53 @ 1.2 GHz</div>
+            </div>
+          </div>
+          <div class="slot-item">
+            <div>
+              <div style="font-size:10px; color:var(--text-secondary);">RAM UTILIZATION</div>
+              <div style="font-size:18px; font-weight:900; color:#fff;" id="modalPi3Ram">-- / -- MB</div>
+              <div style="font-size:10px; color:var(--accent-green);" id="modalPi3RamPct">--% Used</div>
+            </div>
+          </div>
+          <div class="slot-item">
+            <div>
+              <div style="font-size:10px; color:var(--text-secondary);">DASHCAM UPTIME</div>
+              <div style="font-size:18px; font-weight:900; color:#fff;" id="modalPi3Uptime">--</div>
+              <div style="font-size:10px; color:var(--accent-green);" id="modalPi3StatusMsg">Camera Online</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dashcam Storage Card -->
+        <div style="background:#0c1219; border:1px solid #212b38; padding:10px 14px; border-radius:8px; margin-bottom:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:10px;">
+            <span style="color:var(--text-secondary); font-weight:800;">DASHCAM SD CARD STORAGE:</span>
+            <span style="color:#fff;" id="modalPi3DiskText">-- GB Free / -- GB Total</span>
+          </div>
+          <div style="width:100%; height:6px; background:#141b24; border-radius:3px; overflow:hidden;">
+            <div id="modalPi3DiskBar" style="width:0%; height:100%; background:var(--accent-cyan); transition:width 0.3s ease;"></div>
+          </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; background:#070a0e; border:1px solid #141c26; padding:8px 12px; border-radius:6px; font-size:10px; color:var(--text-secondary); margin-bottom:8px;">
+          <span>Device: <strong style="color:#fff;">Raspberry Pi 3 Model B</strong></span>
+          <span>IP: <strong style="color:var(--accent-cyan);">192.168.0.141</strong> / <strong style="color:var(--accent-green);">10.0.0.2</strong></span>
         </div>
       </div>
 
-      <!-- Delta AFB0812SH 4-Wire PWM Fan Section -->
-      <div style="background:#0c141f; border:1px solid #1a2a3e; padding:12px 14px; border-radius:8px; margin-bottom:14px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <div>
-            <div style="font-size:10px; color:var(--accent-cyan, #00e5ff); font-weight:900; letter-spacing:0.5px;">COOLING FAN: DELTA AFB0812SH (4-WIRE PWM)</div>
-            <div style="font-size:10px; color:var(--text-secondary);">PWM: GPIO 12 (Pin 32) • Tachometer: GPIO 24 (Pin 18)</div>
-          </div>
-          <div style="display:flex; gap:6px;">
-            <button id="fanModeAutoBtn" onclick="setFanMode('AUTO')" class="cluster-action-btn" style="padding:3px 10px; font-size:10px; font-weight:800; background:var(--accent-cyan, #00e5ff); color:#000;">AUTO</button>
-            <button id="fanModeManualBtn" onclick="setFanMode('MANUAL')" class="cluster-action-btn" style="padding:3px 10px; font-size:10px; font-weight:800; background:transparent; color:#8a9ba8; border-color:#2a3a4e;">MANUAL</button>
-          </div>
-        </div>
-
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:8px;">
-          <div style="background:#090d14; padding:8px 10px; border-radius:6px; border:1px solid #162232;">
-            <div style="font-size:9px; color:var(--text-secondary);">TACHOMETER SPEED</div>
-            <div style="font-size:18px; font-weight:900; color:#fff;" id="modalFanRpm">-- RPM</div>
-            <div style="font-size:9px; color:var(--accent-green);" id="modalFanSpeedDesc">Normal Idle</div>
-          </div>
-          <div style="background:#090d14; padding:8px 10px; border-radius:6px; border:1px solid #162232;">
-            <div style="font-size:9px; color:var(--text-secondary);">PWM DUTY CYCLE (25 kHz)</div>
-            <div style="font-size:18px; font-weight:900; color:var(--accent-cyan, #00e5ff);" id="modalFanDuty">-- %</div>
-            <div style="font-size:9px; color:var(--text-secondary);" id="modalFanModeDesc">Auto Thermal Curve</div>
-          </div>
-        </div>
-
-        <div id="fanManualControlBox" style="display:none; margin-top:8px;">
-          <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--text-secondary); margin-bottom:4px;">
-            <span>MANUAL FAN SPEED</span>
-            <span id="fanManualSliderVal" style="color:var(--accent-cyan, #00e5ff); font-weight:800;">50%</span>
-          </div>
-          <input type="range" id="fanManualSlider" min="0" max="100" value="50" step="5" style="width:100%; accent-color:var(--accent-cyan, #00e5ff);" oninput="onFanSliderInput(this.value)" onchange="applyManualFanSpeed(this.value)">
-        </div>
-      </div>
-
-      <div style="display:flex; justify-content:flex-end;">
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:14px;">
+        <button class="cluster-action-btn" onclick="refreshSbcHealth()" style="font-size:10px; padding:6px 14px; border-color:#2a3a4e; cursor:pointer;">🔄 REFRESH</button>
         <button class="graph-close-btn" onclick="closeSystemHealthModal()">CLOSE</button>
       </div>
     </div>

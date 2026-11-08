@@ -494,7 +494,9 @@ class LLMClient:
 
             "elevenlabs_api_key": "",
 
-            "elevenlabs_voice_id": "cgSgspJ2msm6clMCkdW9"
+            "elevenlabs_voice_id": "cgSgspJ2msm6clMCkdW9",
+
+            "tts_cache_limit_mb": 1024
 
         }
 

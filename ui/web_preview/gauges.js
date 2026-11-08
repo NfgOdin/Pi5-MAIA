@@ -8406,73 +8406,102 @@ function fetchSystemHealth() {
         mThrottle.style.color = data.throttled ? "var(--accent-red)" : (data.under_voltage ? "var(--accent-yellow)" : "var(--accent-green)");
       }
 
-      // Update Delta Fan Telemetry if present
-      if (data.fan) {
-        const mRpm = document.getElementById('modalFanRpm');
-        const mDuty = document.getElementById('modalFanDuty');
-        const mDesc = document.getElementById('modalFanSpeedDesc');
-        const mModeDesc = document.getElementById('modalFanModeDesc');
-        const autoBtn = document.getElementById('fanModeAutoBtn');
-        const manBtn = document.getElementById('fanModeManualBtn');
-        const box = document.getElementById('fanManualControlBox');
-
-        if (mRpm) mRpm.innerText = `${data.fan.actual_rpm || 0} RPM`;
-        if (mDuty) mDuty.innerText = `${Math.round(data.fan.duty_cycle_pct || 0)}%`;
-        
-        if (mDesc) {
-          const rpm = data.fan.actual_rpm || 0;
-          if (rpm === 0) mDesc.innerText = "Fan Off / Stalled";
-          else if (rpm < 1500) mDesc.innerText = "Quiet Idle";
-          else if (rpm < 3000) mDesc.innerText = "Active Cooling";
-          else mDesc.innerText = "High-Velocity Cooling";
-        }
-
-        if (mModeDesc) {
-          mModeDesc.innerText = data.fan.mode === "AUTO" ? "Auto Thermal Curve" : "Manual Override";
-        }
-
-        if (autoBtn && manBtn) {
-          const isAuto = data.fan.mode === "AUTO";
-          autoBtn.style.background = isAuto ? "var(--accent-cyan, #00e5ff)" : "transparent";
-          autoBtn.style.color = isAuto ? "#000" : "#8a9ba8";
-          autoBtn.style.borderColor = isAuto ? "var(--accent-cyan, #00e5ff)" : "#2a3a4e";
-
-          manBtn.style.background = !isAuto ? "var(--accent-cyan, #00e5ff)" : "transparent";
-          manBtn.style.color = !isAuto ? "#000" : "#8a9ba8";
-          manBtn.style.borderColor = !isAuto ? "var(--accent-cyan, #00e5ff)" : "#2a3a4e";
-        }
-
-        if (box) {
-          box.style.display = data.fan.mode === "MANUAL" ? "block" : "none";
-        }
-      }
-
+      // Pi 5 hardware metrics updated successfully
     })
-
     .catch(err => console.warn("[SBC] Health fetch error:", err));
-
 }
 
+let currentSbcTab = 'PI5';
+let latestPi3Health = null;
 
+function switchSbcTab(tab) {
+  currentSbcTab = tab;
+  const p5 = document.getElementById('panePi5Health');
+  const p3 = document.getElementById('panePi3Health');
+  const btn5 = document.getElementById('tabBtnPi5');
+  const btn3 = document.getElementById('tabBtnPi3');
+  const title = document.getElementById('sbcModalTitle');
+
+  if (tab === 'PI5') {
+    if (p5) p5.style.display = 'block';
+    if (p3) p3.style.display = 'none';
+    if (btn5) {
+      btn5.style.background = 'var(--accent-pink)';
+      btn5.style.color = '#fff';
+    }
+    if (btn3) {
+      btn3.style.background = 'transparent';
+      btn3.style.color = 'var(--text-secondary)';
+    }
+    if (title) title.innerText = 'RASPBERRY PI 5 (COCKPIT HOST)';
+    fetchSystemHealth();
+  } else {
+    if (p5) p5.style.display = 'none';
+    if (p3) p3.style.display = 'block';
+    if (btn3) {
+      btn3.style.background = 'var(--accent-cyan)';
+      btn3.style.color = '#000';
+    }
+    if (btn5) {
+      btn5.style.background = 'transparent';
+      btn5.style.color = 'var(--text-secondary)';
+    }
+    if (title) title.innerText = 'RASPBERRY PI 3 (DASHCAM COPROCESSOR)';
+    fetchPi3Health();
+  }
+}
+
+function fetchPi3Health() {
+  fetch('/api/dashcam/api/status')
+    .then(r => r.json())
+    .then(d => {
+      latestPi3Health = d;
+      if (!d || !d.online) return;
+
+      const hw = d.hardware || {};
+      const mTemp = document.getElementById('modalPi3Temp');
+      const mTempF = document.getElementById('modalPi3TempF');
+      const mCpu = document.getElementById('modalPi3Cpu');
+      const mRam = document.getElementById('modalPi3Ram');
+      const mRamPct = document.getElementById('modalPi3RamPct');
+      const mUptime = document.getElementById('modalPi3Uptime');
+      const mStatus = document.getElementById('modalPi3StatusMsg');
+      const mDiskText = document.getElementById('modalPi3DiskText');
+      const mDiskBar = document.getElementById('modalPi3DiskBar');
+
+      if (mTemp && hw.temp_c != null) mTemp.innerText = `${hw.temp_c.toFixed(1)} °C`;
+      if (mTempF && hw.temp_f != null) mTempF.innerText = `${hw.temp_f.toFixed(1)} °F`;
+      if (mCpu && hw.cpu_pct != null) mCpu.innerText = `${Math.round(hw.cpu_pct)} %`;
+      if (mRam && hw.ram_used_mb != null && hw.ram_total_mb != null) {
+        mRam.innerText = `${hw.ram_used_mb} / ${hw.ram_total_mb} MB`;
+      }
+      if (mRamPct && hw.ram_pct != null) mRamPct.innerText = `${Math.round(hw.ram_pct)}% Used`;
+      if (mUptime && hw.system_uptime) mUptime.innerText = hw.system_uptime;
+      if (mStatus) {
+        mStatus.innerText = d.recording ? "Recording Active" : "Camera Online (Idle Preview)";
+        mStatus.style.color = d.recording ? "var(--accent-green)" : "var(--accent-cyan)";
+      }
+      if (d.disk) {
+        if (mDiskText) mDiskText.innerText = `${d.disk.free_gb} GB Free / ${d.disk.total_gb} GB Total (${d.disk.used_percent}% Used)`;
+        if (mDiskBar) mDiskBar.style.width = `${Math.min(100, Math.max(0, d.disk.used_percent))}%`;
+      }
+    })
+    .catch(err => console.warn("[PI3] Health fetch error:", err));
+}
+
+function refreshSbcHealth() {
+  fetchSystemHealth();
+  fetchPi3Health();
+}
 
 function openSystemHealthModal() {
-
   const m = document.getElementById('sbcHealthModal');
-
   if (m) {
-
     m.style.display = 'flex';
-
     m.classList.add('open');
-
   }
-
-  fetchSystemHealth();
+  refreshSbcHealth();
 }
-
-
-
-
 
 function closeSystemHealthModal() {
   const m = document.getElementById('sbcHealthModal');
@@ -8481,41 +8510,6 @@ function closeSystemHealthModal() {
     m.classList.remove('open');
   }
 }
-
-function setFanMode(mode) {
-  fetch('/api/system/fan', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mode: mode })
-  })
-    .then(r => r.json())
-    .then(d => {
-      fetchSystemHealth();
-      showAiSpeechToast(`Cooling fan set to ${mode} mode`);
-    })
-    .catch(e => console.error("Error setting fan mode:", e));
-}
-
-function onFanSliderInput(val) {
-  const lbl = document.getElementById('fanManualSliderVal');
-  if (lbl) lbl.innerText = `${val}%`;
-}
-
-function applyManualFanSpeed(val) {
-  fetch('/api/system/fan', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mode: 'MANUAL', duty_cycle: parseFloat(val) })
-  })
-    .then(r => r.json())
-    .then(d => {
-      fetchSystemHealth();
-      showAiSpeechToast(`Fan speed set to ${val}%`);
-    })
-    .catch(e => console.error("Error setting fan speed:", e));
-}
-
-
 
 // 2. Hardware Brightness (delegates to main handler)
 
