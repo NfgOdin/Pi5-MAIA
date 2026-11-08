@@ -85,6 +85,7 @@
 
   <!-- PERSISTENT TOP STATUS BAR -->
   <header class="top-header">
+    <!-- LEFT: Cockpit Home, Shift Lights, Gear/Shift Badge, Dynamic USB Mount -->
     <div class="header-left">
       <button class="cockpit-home-btn" id="headerHomeBtn" onclick="navigateTo('home')" title="Cockpit Home Launcher">
         <span class="home-icon">🏠</span>
@@ -97,40 +98,30 @@
         <div class="f1-dot"></div>
         <div class="f1-dot"></div>
       </div>
-      <div class="gear-badge" id="gearBadge" title="C635 6-Speed Gear">N</div>
+      <div class="gear-badge" id="gearBadge" title="C635 Transmission Gear">N</div>
+      <!-- Dynamic USB Drive Mount Pill (Only shown when physical USB is mounted) -->
+      <div class="usb-status-pill dynamic-usb-pill" id="headerUsbPill" style="display:none;" onclick="openFileExplorer()" title="External USB Storage Connected • Click to Open">
+        <span>💾</span> <span id="headerUsbText">USB</span>
+      </div>
     </div>
 
-    <!-- CENTER CHECK ENGINE MIL BADGE -->
+    <!-- CENTER: Centered SoC Core Temp Pill & DTC Check Engine Warning -->
     <div class="header-center">
-      <div class="check-engine-badge" id="milBadge" onclick="onMilBadgeClicked()" title="Click to ask AI Mechanic about this code">
+      <div class="sbc-status-pill" id="headerSbcPill" onclick="openSystemHealthModal()" title="Pi 5 SoC Temp & Dual-Pi Health (Click to open)">
+        <span id="sbcTempIcon">🌡️</span> <span id="sbcTempText">45°C</span>
+      </div>
+      <div class="check-engine-badge" id="milBadge" style="display:none;" onclick="onMilBadgeClicked()" title="Click to ask AI Mechanic about this code">
         <span>⚠️</span> <span id="milText">CHECK ENGINE</span>
       </div>
     </div>
 
-    <!-- RIGHT STATUS & AI VOICE TOGGLE -->
+    <!-- RIGHT: Strict Order: Keyboard | AI Copilot | Wi-Fi | Bluetooth | Time -->
     <div class="header-right">
-      <div class="sbc-status-pill" id="headerSbcPill" onclick="openSystemHealthModal()" title="Pi 5 SoC Temp & CPU Health" style="font-size:10px; font-weight:800; padding:3px 8px; border-radius:12px; background:rgba(255,255,255,0.06); border:1px solid #334; display:flex; align-items:center; gap:4px; cursor:pointer;">
-        <span id="sbcTempIcon">🌡️</span> <span id="sbcTempText">48°C</span>
-      </div>
-      <div class="wifi-status-pill" id="headerWifiPill" onclick="navigateTo('settings'); setTimeout(focusWifiSection, 100);" title="Click to manage Wi-Fi & Hotspots">
-        <span id="headerWifiIcon">📶</span> <span id="headerWifiText">WI-FI</span>
-      </div>
-      <div class="bt-status-pill" id="headerBtPill" onclick="navigateTo('settings'); setTimeout(focusBtSection, 100);" title="Click to manage Bluetooth & Phone Audio Pairing" style="background:rgba(0,176,255,0.12); border:1px solid #00b0ff; color:#00b0ff; font-size:10px; font-weight:800; padding:3px 10px; border-radius:12px; cursor:pointer; display:flex; align-items:center; gap:5px;">
-        <span id="headerBtIcon">ᛒ</span> <span id="headerBtText">BLUETOOTH</span>
-      </div>
-      <div class="usb-status-pill" id="headerUsbPill" onclick="openFileExplorer()" title="Click to open File Explorer & USB storage">
-        <span>💾</span> <span id="headerUsbText">USB READY</span>
-      </div>
-      <div class="rum-min-hud-pill" id="rumMinHudPill" onclick="toggleRumHudFromPill()" title="R.U.M. Status • Click to Expand/Minimize Shotgun">
-        <span class="rum-min-avatar">💜</span>
-        <span class="rum-min-name">RUM</span>
-        <span class="rum-min-speech-icon" id="rumMinSpeechIcon">💬</span>
-      </div>
-      <div class="ai-core-pill" id="aiCoreStatusPill" onclick="navigateTo('ai')" title="Neural AI Core Status"><span class="ai-core-orb" id="aiCoreOrb">🟡</span> <span id="aiCoreText">AI CORE: WARMING</span></div>
-      <span class="pill pill-warming" id="multiairPill">MULTIAIR WARMING</span>
-      <button class="voice-mode-btn" id="voiceModeBtn" onclick="cycleVoiceMode()" title="Click to Cycle AI Voice Mode">🏎️ AI: COPILOT</button>
-      <button class="cluster-action-btn" id="btnManualKeyboard" onclick="toggleManualKeyboard()" title="Toggle Virtual Keyboard" style="padding:3px 8px; font-size:11px; border-color:#2a374a; background:#141b24; color:#a0b8d0; cursor:pointer;">⌨️</button>
-      <span style="font-size:11px; font-weight:800; color:var(--text-secondary); font-family:var(--font-mono); margin-left:4px;" id="headerClock">12:00 PM</span>
+      <button class="header-icon-btn" id="btnManualKeyboard" onclick="toggleManualKeyboard()" title="Toggle Virtual Touchscreen Keyboard">⌨️</button>
+      <button class="voice-mode-btn" id="voiceModeBtn" onclick="cycleVoiceMode()" title="AI Voice Copilot Mode (Click to cycle)">💜 COPILOT</button>
+      <button class="header-icon-btn" id="btnHeaderWifi" onclick="navigateTo('settings'); setTimeout(focusWifiSection, 100);" title="Wi-Fi & Hotspots">📶</button>
+      <button class="header-icon-btn" id="btnHeaderBt" onclick="navigateTo('settings'); setTimeout(focusBtSection, 100);" title="Bluetooth & Phone Audio">ᛒ</button>
+      <span class="header-clock" id="headerClock">12:00 PM</span>
     </div>
   </header>
 

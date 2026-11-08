@@ -38,20 +38,121 @@ body {
 
 /* --- PERSISTENT TOP STATUS BAR --- */
 .top-header {
-  height: 46px;
+  height: 48px;
   background-color: var(--panel-bg);
   border-bottom: 2px solid var(--panel-border);
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   padding: 0 14px;
   z-index: 50;
 }
 
-.header-left, .header-center, .header-right {
+.header-left {
   display: flex;
   align-items: center;
   gap: 10px;
+  justify-content: flex-start;
+}
+
+.header-center {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* Modern Square Touch Buttons for Top Bar (>= 42px touch target) */
+.header-icon-btn {
+  width: 42px;
+  height: 38px;
+  min-width: 42px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.header-icon-btn:hover, .header-icon-btn:active {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: var(--accent-cyan, #00e5ff);
+  transform: scale(1.04);
+}
+
+.header-icon-btn.active-bt {
+  border-color: #00b0ff;
+  color: #00b0ff;
+  background: rgba(0, 176, 255, 0.15);
+  box-shadow: 0 0 10px rgba(0, 176, 255, 0.3);
+}
+
+.header-icon-btn.active-wifi {
+  border-color: var(--accent-green, #4ade80);
+  color: var(--accent-green, #4ade80);
+  background: rgba(74, 222, 128, 0.15);
+  box-shadow: 0 0 10px rgba(74, 222, 128, 0.3);
+}
+
+/* Centered SoC Temp Pill */
+.header-center .sbc-status-pill {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 4px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.header-center .sbc-status-pill:hover {
+  background: rgba(255, 64, 129, 0.15);
+  border-color: var(--accent-pink, #ff4081);
+}
+
+/* Header Clock */
+.header-clock {
+  font-size: 13px;
+  font-weight: 900;
+  color: var(--text-primary);
+  font-family: var(--font-mono, monospace);
+  margin-left: 6px;
+  letter-spacing: 0.5px;
+}
+
+/* Shifting & Coasting Symbol Animations */
+.gear-shifting-anim {
+  display: inline-block;
+  color: var(--accent-cyan, #00e5ff);
+  animation: gearShiftPulse 0.4s infinite alternate;
+}
+
+@keyframes gearShiftPulse {
+  from { opacity: 0.4; transform: scale(0.9); }
+  to { opacity: 1.0; transform: scale(1.15); }
+}
+
+.gear-coasting-anim {
+  display: inline-block;
+  color: var(--accent-yellow, #eab308);
 }
 
 .f1-light-bar {

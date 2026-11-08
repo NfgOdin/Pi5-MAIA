@@ -77,6 +77,10 @@ class RealVehicleTelemetryReader:
         self.engine_runtime_sec: Optional[int] = None
         self.last_map_kpa: float = 35.0
 
+        # Gear detection & shifting/coasting tracking
+        self.last_locked_gear: str = "N"
+        self.neutral_start_time: float = 0.0
+
         # 0-60 Launch Tracker
         self.launch_start_time: Optional[float] = None
         self.last_0_60_time: Optional[float] = None
@@ -275,26 +279,52 @@ class RealVehicleTelemetryReader:
         self.status_message = "CABLE CONNECTED - KEY OFF"
 
     def _calculate_gear(self, speed_mph: float, rpm: float) -> str:
-        """Calculate active transmission gear on C635 6-speed manual from ratio."""
-        if speed_mph < 2.5 or rpm < 500:
+        """Calculate active transmission gear on C635 6-speed manual with shifting & coasting symbols."""
+        if speed_mph < 1.5 or rpm < 450:
+            self.last_locked_gear = "N"
+            self.neutral_start_time = 0.0
             return "N"
 
         speed_ms = speed_mph * 0.44704
         wheel_rpm = (speed_ms / TIRE_CIRCUMFERENCE_METERS) * 60.0
         if wheel_rpm < 1.0:
+            self.last_locked_gear = "N"
+            self.neutral_start_time = 0.0
             return "N"
 
         current_ratio = (rpm / wheel_rpm) / FINAL_DRIVE
 
-        best_gear = "N"
-        min_diff = 0.32
+        # 1st Gear special tolerance for clutch engagement & launch (ratio: 3.909)
+        if speed_mph < 18.0 and (3.0 <= current_ratio <= 5.2):
+            self.last_locked_gear = "1"
+            self.neutral_start_time = 0.0
+            return "1"
+
+        best_gear = None
+        min_diff = 0.35
         for g, ratio in GEAR_RATIOS.items():
             diff = abs(current_ratio - ratio)
             if diff < min_diff:
                 min_diff = diff
                 best_gear = g
 
-        return best_gear
+        if best_gear is not None:
+            self.last_locked_gear = best_gear
+            self.neutral_start_time = 0.0
+            return best_gear
+
+        # Moving down the road (speed >= 1.5 MPH) but ratio doesn't match a locked gear
+        now = time.time()
+        if self.neutral_start_time == 0.0:
+            self.neutral_start_time = now
+
+        elapsed_neutral = now - self.neutral_start_time
+        # Under 2.0 seconds -> Shifting transition symbol
+        if elapsed_neutral < 2.0:
+            return "⇄"
+        else:
+            # Over 2.0 seconds -> Coasting symbol
+            return "〜"
 
     def read_frame(self) -> TelemetryFrame:
         """Query live vehicle sensors using non-blocking staggered polling."""

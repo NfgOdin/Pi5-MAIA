@@ -120,7 +120,7 @@ class Dart14TSimulator:
 
         elif cycle_time < 9.0:
             # Shift 1st -> 2nd (Clutch in, throttle lift, blow-off valve dump!)
-            self.gear = "N"
+            self.gear = "⇄"
             self.throttle_pct = 10.0
             self.rpm = max(1800.0, self.rpm - (dt * 4500.0))
             self.boost_psi = 0.0

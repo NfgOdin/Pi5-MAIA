@@ -1607,7 +1607,21 @@ function connectTelemetryStream() {
 
     const gearEl = document.getElementById('gearBadge');
 
-    if (gearEl) gearEl.innerText = t.gear;
+    if (gearEl) {
+      if (t.gear === '⇄') {
+        gearEl.innerHTML = '<span class="gear-shifting-anim">⇄</span>';
+        gearEl.title = 'Shifting Gears';
+        gearEl.style.borderColor = 'var(--accent-cyan, #00e5ff)';
+      } else if (t.gear === '〜') {
+        gearEl.innerHTML = '<span class="gear-coasting-anim">〜</span>';
+        gearEl.title = 'Coasting in Neutral';
+        gearEl.style.borderColor = 'var(--accent-yellow, #eab308)';
+      } else {
+        gearEl.innerText = t.gear;
+        gearEl.title = `C635 Gear: ${t.gear}`;
+        gearEl.style.borderColor = (t.gear === 'N') ? '#4a5568' : 'var(--accent-red, #ff3344)';
+      }
+    }
 
 
 
@@ -6602,15 +6616,13 @@ function updateUsbIndicatorUI() {
 
 
 
-  if (detectedDevices.length > 0) {
-
+  const removable = detectedDevices.find(d => d.is_removable);
+  if (removable) {
     pill.style.display = 'flex';
-
-    const removable = detectedDevices.find(d => d.is_removable) || detectedDevices[0];
-
-    const shortLabel = removable.label || removable.name.split(' ')[0];
-
-    if (text) text.innerText = `USB: ${shortLabel} (${removable.total_gb.toFixed(0)}GB)`;
+    const shortLabel = removable.label || removable.name.split(' ')[0] || 'USB';
+    const driveLetter = removable.mount_point || 'USB';
+    if (text) text.innerText = `💾 ${shortLabel} (${driveLetter})`;
+    pill.onclick = () => openFileExplorer(removable.mount_point);
 
     if (badge) {
 
@@ -8019,7 +8031,7 @@ function fetchBtStatus() {
 }
 
 function updateBtHeaderPill() {
-  const pill = document.getElementById('headerBtPill');
+  const pill = document.getElementById('btnHeaderBt');
   const text = document.getElementById('headerBtText');
   const icon = document.getElementById('headerBtIcon');
   if (!pill) return;
@@ -16353,8 +16365,9 @@ function stopRoamWalkAnimation() {
 
 function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, dancing, isSpeedPanic) {
   const isDriverInteracting = isSpeaking || isReacting || isSpeedPanic || dancing;
+  const isGazeRetained = (Date.now() < rumGazeRetentionUntil);
 
-  if (!vrmRoamEnabled || isDriverInteracting) {
+  if (!vrmRoamEnabled || isDriverInteracting || isGazeRetained) {
     if (vrmRoamState === 'WALKING') {
       stopRoamWalkAnimation();
     }
@@ -16374,7 +16387,7 @@ function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, 
   const now = Date.now();
 
   if (vrmRoamState === 'IDLE') {
-    if (vrmRoamCurrentWaypoint && vrmRoamCurrentWaypoint.faceOcean && !isDriverInteracting) {
+    if (vrmRoamCurrentWaypoint && vrmRoamCurrentWaypoint.faceOcean && !isDriverInteracting && !isGazeRetained) {
       vrmRoamCurrentRotY = 0.0;
     }
     if (now >= vrmNextRoamTime) {
