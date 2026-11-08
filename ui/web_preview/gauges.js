@@ -13465,7 +13465,7 @@ function initVrmEngine() {
 
   targetLookAt = new THREE.Vector3(0, vrmBaseY + 0.68, 0);
 
-  targetCamPos = new THREE.Vector3(0.80, vrmBaseY + 0.82, 4.05);
+  targetCamPos = new THREE.Vector3(0.0, vrmBaseY + 0.82, 4.05);
 
   vrmCamera.position.copy(targetCamPos);
 
@@ -13950,7 +13950,7 @@ function updateCameraDirector(delta, isSpeaking, isReacting) {
 
     // Shotgun HUD: close-up on Rum's expressive face
 
-    targetCamPos.set(0.65, headY + 0.05, 1.35);
+    targetCamPos.set(0.0, headY + 0.05, 1.35);
 
     targetLookAt.set(0.0, headY, 0.0);
 
@@ -13966,7 +13966,7 @@ function updateCameraDirector(delta, isSpeaking, isReacting) {
 
     // Portrait / Speaking Zoom: close-up on Rum's face and upper body
 
-    targetCamPos.set(0.70, headY + 0.05, 1.65 * vrmZoomMultiplier);
+    targetCamPos.set(0.0, headY + 0.05, 1.65 * vrmZoomMultiplier);
 
     targetLookAt.set(0.0, headY, 0.0);
 
@@ -13974,7 +13974,7 @@ function updateCameraDirector(delta, isSpeaking, isReacting) {
 
     // Full Body: Zoomed out so entire body (hair to shoes) is completely in view without any part cut off
 
-    targetCamPos.set(0.80, vrmBaseY + 0.82, 4.05 * vrmZoomMultiplier);
+    targetCamPos.set(0.0, vrmBaseY + 0.82, 4.05 * vrmZoomMultiplier);
 
     // Smoothly track Rem's horizontal wandering position and elevation on the stage
     targetLookAt.set(vrmRoamCurrentPos.x * 0.40, vrmBaseY + vrmCurrentElevation + 0.68, vrmRoamCurrentPos.z * 0.40);
@@ -15648,67 +15648,60 @@ function buildGardenEnvironment() {
 function buildBedroomEnvironment() {
   clearVrmEnvironment();
 
-  // 1. GUARANTEED UNBROKEN SOLID OAK UNDERLAYER (10x10m) - Zero gaps or holes forever!
-  const floorGeo = new THREE.PlaneGeometry(10, 10);
+  // 1. Sleek Polished Hardwood Floor
+  const floorGeo = new THREE.PlaneGeometry(12, 12);
   const floorTex = createWoodPlankTexture();
-  const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.70 });
+  const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.55, metalness: 0.1 });
   const floor = new THREE.Mesh(floorGeo, floorMat);
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(0, vrmBaseY - 0.005, 0);
   floor.receiveShadow = true;
   vrmEnvironmentGroup.add(floor);
 
-  // 2. Load Sketchfab bedroom GLTF if not already cached
-  if (!bedroomModel) {
-    const loader = new THREE.GLTFLoader();
-    loader.load('models/environment/bedroom/scene.gltf', (gltf) => {
-      bedroomModel = gltf.scene;
-      const box = new THREE.Box3().setFromObject(bedroomModel);
-      const center = box.getCenter(new THREE.Vector3());
-      bedroomModel.position.set(-center.x, vrmBaseY - box.min.y, -center.z);
+  // 2. Clean Back Accent Studio Wall
+  const backWallGeo = new THREE.PlaneGeometry(12, 6);
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x181c24, roughness: 0.85 });
+  const backWall = new THREE.Mesh(backWallGeo, wallMat);
+  backWall.position.set(0, vrmBaseY + 2.5, -2.8);
+  vrmEnvironmentGroup.add(backWall);
 
-      // FIXED: Only hide true obstructing front walls and ceiling!
-      // Do NOT hide floor boards (FrontSide_4, FrontSide_11, FrontSide_12, etc.)!
-      const hideMeshNames = [
-        'BackSide', 'FrontSide_0', 'FrontSide_84', 'FrontSide_52', 'FrontSide_17', 'FrontSide_19'
-      ];
-      bedroomModel.traverse((node) => {
-        if (node.isMesh) {
-          for (const h of hideMeshNames) {
-            if (node.name.includes(h) || (node.material && node.material.name.includes(h))) {
-              node.visible = false;
-              break;
-            }
-          }
-          if (node.visible) {
-            node.castShadow = true;
-            node.receiveShadow = true;
-            node.frustumCulled = false;
-            if (node.material) {
-              node.material.side = THREE.DoubleSide;
-              node.material.depthWrite = true;
-            }
-          }
-        }
-      });
-      vrmEnvironmentGroup.add(bedroomModel);
-    });
-  } else {
-    vrmEnvironmentGroup.add(bedroomModel);
-  }
+  // 3. Wide Studio Panoramic Skybox Window
+  const winFrameGeo = new THREE.BoxGeometry(4.2, 2.4, 0.1);
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x0a0e14, roughness: 0.4 });
+  const winFrame = new THREE.Mesh(winFrameGeo, frameMat);
+  winFrame.position.set(0, vrmBaseY + 1.8, -2.75);
+  vrmEnvironmentGroup.add(winFrame);
 
-  // Bedroom lights
-  const bedLamp = new THREE.PointLight(0xffb048, 2.2, 7.5, 1.4);
-  bedLamp.position.set(2.4, vrmBaseY + 1.6, 0.8);
-  vrmEnvironmentGroup.add(bedLamp);
-  envLights.push(bedLamp);
+  // 4. Low-profile Walnut Side Table for Yoshi & Props
+  const tableTop = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.38, 0.38, 0.04, 24),
+    new THREE.MeshStandardMaterial({ color: 0x3d271d, roughness: 0.5 })
+  );
+  tableTop.position.set(0.66, vrmBaseY + 0.34, 0.16);
+  tableTop.receiveShadow = true;
+  vrmEnvironmentGroup.add(tableTop);
 
-  const bedCeil = new THREE.PointLight(0xffecd0, 1.2, 12.0, 1.2);
-  bedCeil.position.set(0.0, vrmBaseY + 3.4, 0.0);
-  vrmEnvironmentGroup.add(bedCeil);
-  envLights.push(bedCeil);
+  const tableLeg = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.04, 0.04, 0.34, 16),
+    new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.6, roughness: 0.3 })
+  );
+  tableLeg.position.set(0.66, vrmBaseY + 0.17, 0.16);
+  vrmEnvironmentGroup.add(tableLeg);
+
+  // 5. Studio Ambient and Rim Lighting
+  const studioKey = new THREE.DirectionalLight(0xfff5ea, 1.4);
+  studioKey.position.set(2.0, vrmBaseY + 3.0, 3.5);
+  studioKey.castShadow = true;
+  vrmEnvironmentGroup.add(studioKey);
+  envLights.push(studioKey);
+
+  const rimLight = new THREE.PointLight(0xa066ff, 1.8, 8.0, 1.2);
+  rimLight.position.set(-1.8, vrmBaseY + 2.2, -1.0);
+  vrmEnvironmentGroup.add(rimLight);
+  envLights.push(rimLight);
 
   updateYoshiEnvironmentRest();
+  createBasketballProp();
 }
 
 function setVrmEnvironment(envName) {
@@ -16155,39 +16148,100 @@ function triggerAvatarPokeReaction(relY) {
 
 
 
+// --- UNIVERSAL VRM HUMANOID BONE-PARENTED PROPS RIG ---
+function attachPropToVrmHand(propObject, boneName = 'rightHand') {
+  if (!currentVrm || !propObject) return false;
+  const bone = currentVrm.humanoid?.getNormalizedBoneNode(boneName) || currentVrm.humanoid?.getBoneNode(boneName);
+  if (bone) {
+    bone.add(propObject);
+    propObject.position.set(0.0, -0.05, 0.08);
+    propObject.rotation.set(0, 0, 0);
+    return true;
+  }
+  return false;
+}
+
+function detachPropFromVrmHand(propObject) {
+  if (!propObject) return;
+  const worldPos = new THREE.Vector3();
+  const worldQuat = new THREE.Quaternion();
+  propObject.getWorldPosition(worldPos);
+  propObject.getWorldQuaternion(worldQuat);
+  vrmScene.add(propObject);
+  propObject.position.copy(worldPos);
+  propObject.quaternion.copy(worldQuat);
+}
+
 function triggerYoshiPlushInteraction() {
-
   if (!yoshiModel) return;
-
   isHoldingYoshi = !isHoldingYoshi;
 
-
-
   if (isHoldingYoshi) {
-
     playVrmAction('pose_v_sign', 4000);
-
     setWaifuEmotion('HAPPY', '🦖 YOSHI TIME! • BEST FRIENDS');
-
     speakUtterance('Yay! Master, look at my Yoshi plushie! He loves riding shotgun in the car too!');
-
-    yoshiModel.position.set(0.08, vrmBaseY + (vrmSize.y * 0.52), 0.32);
-
-    yoshiModel.rotation.set(-0.2, 0.2, 0);
-
+    attachPropToVrmHand(yoshiModel, 'rightHand');
   } else {
-
+    detachPropFromVrmHand(yoshiModel);
     playVrmAction('greeting', 3000);
-
     setWaifuEmotion('DEVOTED', '🦖 YOSHI RESTING');
-
     speakUtterance('Okay! Let us put Yoshi right here so he can watch the road with us!');
-
     updateYoshiEnvironmentRest();
-
   }
-
 }
+
+// 3D Interactive Basketball with Physics Bounce
+let basketballMesh = null;
+let isHoldingBasketball = false;
+let isBouncingBasketball = false;
+let basketballVy = 0.0;
+
+function createBasketballProp() {
+  if (basketballMesh || typeof THREE === 'undefined' || !vrmScene) return;
+  const group = new THREE.Group();
+  const ballGeo = new THREE.SphereGeometry(0.12, 32, 32);
+  const ballMat = new THREE.MeshStandardMaterial({
+    color: 0xd65a19,
+    roughness: 0.65,
+    metalness: 0.05
+  });
+  const sphere = new THREE.Mesh(ballGeo, ballMat);
+  sphere.castShadow = true;
+  group.add(sphere);
+
+  const seamMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+  const seam1 = new THREE.Mesh(new THREE.TorusGeometry(0.1205, 0.003, 8, 32), seamMat);
+  const seam2 = new THREE.Mesh(new THREE.TorusGeometry(0.1205, 0.003, 8, 32), seamMat);
+  seam2.rotation.x = Math.PI / 2;
+  const seam3 = new THREE.Mesh(new THREE.TorusGeometry(0.1205, 0.003, 8, 32), seamMat);
+  seam3.rotation.y = Math.PI / 2;
+  group.add(seam1);
+  group.add(seam2);
+  group.add(seam3);
+
+  group.position.set(0.48, vrmBaseY + 0.12, 0.22);
+  basketballMesh = group;
+  vrmScene.add(basketballMesh);
+}
+
+function triggerBasketballInteraction() {
+  if (!basketballMesh) createBasketballProp();
+  isHoldingBasketball = !isHoldingBasketball;
+  if (isHoldingBasketball) {
+    isBouncingBasketball = false;
+    attachPropToVrmHand(basketballMesh, 'rightHand');
+    playVrmAction('pose_v_sign', 3500);
+    setWaifuEmotion('HAPPY', '🏀 BASKETBALL TIME!');
+    speakUtterance('Check this out, Master! I have a basketball! Want to see me shoot or bounce it?');
+  } else {
+    detachPropFromVrmHand(basketballMesh);
+    isBouncingBasketball = true;
+    basketballVy = 2.4;
+    playVrmAction('wave', 3000);
+    speakUtterance('Bounce, bounce! High score!');
+  }
+}
+
 
 
 
@@ -18314,3 +18368,441 @@ function clearTtsCache() {
 
 // Auto-load cache stats on boot
 setTimeout(loadTtsCacheStats, 1500);
+
+// ============================================================================
+// --- DEDICATED POWERTRAIN OBD-II & ECU DIAGNOSTICS SUITE ---
+// ============================================================================
+let currentSelectedDtc = null;
+let isRumMechanicActive = false;
+
+function refreshDiagnostics() {
+  fetch('/api/dtc/status')
+    .then(r => r.json())
+    .then(data => {
+      renderDiagnosticsScreen(data);
+    })
+    .catch(err => console.error('[DIAGNOSTICS] Status fetch error:', err));
+}
+
+function renderDiagnosticsScreen(data) {
+  const milVal = document.getElementById('diagMilVal');
+  const milCard = document.getElementById('diagMilStatCard');
+  const faultsVal = document.getElementById('diagFaultsCountVal');
+  const pendingVal = document.getElementById('diagPendingCountVal');
+  const codesBadge = document.getElementById('diagCodesBadge');
+  const codesList = document.getElementById('diagCodesList');
+  const obdBadge = document.getElementById('diagObdStatusBadge');
+
+  if (obdBadge) {
+    if (data.connected) {
+      obdBadge.innerText = '● OBD-II CONNECTED';
+      obdBadge.style.color = 'var(--accent-green)';
+      obdBadge.style.borderColor = 'var(--accent-green)';
+      obdBadge.style.background = 'rgba(0,230,118,0.15)';
+    } else {
+      obdBadge.innerText = '○ OBD-II DISCONNECTED / STANDBY';
+      obdBadge.style.color = '#ff9100';
+      obdBadge.style.borderColor = '#ff9100';
+      obdBadge.style.background = 'rgba(255,145,0,0.15)';
+    }
+  }
+
+  if (milVal && milCard) {
+    if (data.mil_active) {
+      milVal.innerText = 'ACTIVE / MIL ON';
+      milVal.style.color = 'var(--accent-red)';
+      milCard.classList.add('alert');
+    } else {
+      milVal.innerText = 'OFF / HEALTHY';
+      milVal.style.color = 'var(--accent-green)';
+      milCard.classList.remove('alert');
+    }
+  }
+
+  const dtcs = data.active_dtcs || [];
+  if (faultsVal) faultsVal.innerText = `${dtcs.length} CODES`;
+  if (pendingVal) pendingVal.innerText = `${(data.pending_dtcs || []).length} CODES`;
+  if (codesBadge) {
+    codesBadge.innerText = dtcs.length > 0 ? `${dtcs.length} ACTIVE` : 'ALL CLEAR';
+    codesBadge.style.color = dtcs.length > 0 ? 'var(--accent-red)' : 'var(--accent-green)';
+  }
+
+  // Freeze frame values
+  const ff = data.freeze_frame || {};
+  const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
+  setEl('ffRpm', `${ff.rpm || '--'} RPM`);
+  setEl('ffBoost', `${ff.boost_psi !== undefined ? ff.boost_psi.toFixed(1) : '--'} PSI`);
+  setEl('ffCoolant', `${ff.coolant_temp_f || '--'}°F`);
+  setEl('ffSpeed', `${ff.speed_mph || '--'} MPH`);
+  setEl('ffLoad', `${ff.engine_load_pct !== undefined ? ff.engine_load_pct.toFixed(0) : '--'}%`);
+  setEl('ffThrottle', `${ff.throttle_pct !== undefined ? ff.throttle_pct.toFixed(0) : '--'}%`);
+
+  // Render DTC list
+  if (codesList) {
+    if (dtcs.length === 0) {
+      codesList.innerHTML = `
+        <div style="text-align:center; padding:24px 12px; color:var(--text-secondary);">
+          <div style="font-size:26px; margin-bottom:6px;">✅</div>
+          <div style="font-size:12px; font-weight:800; color:#fff;">NO POWERTRAIN FAULTS DETECTED</div>
+          <div style="font-size:11px; margin-top:4px;">ECU memory is clear. All systems operating nominally.</div>
+        </div>
+      `;
+      setEl('diagDetailTitle', 'NO FAULT CODES ACTIVE');
+      setEl('diagDetailSub', 'Magneti Marelli 8GM Powertrain Diagnostic Module');
+      setEl('diagDetailBody', 'All monitored powertrain circuits, MultiAir variable valve solenoids, and turbo boost control loops are performing within OEM specifications.');
+      const mBox = document.getElementById('diagMechanicBox');
+      if (mBox) mBox.style.display = 'none';
+    } else {
+      let html = '';
+      (data.code_details || []).forEach((item, idx) => {
+        const isActive = (idx === 0);
+        if (isActive) currentSelectedDtc = item;
+        html += `
+          <div class="diag-code-item ${isActive ? 'active' : ''}" onclick="selectDtcDetail('${item.code}')">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:14px; font-weight:900; color:var(--accent-yellow); font-family:var(--font-mono);">${item.code}</span>
+              <span class="card-badge" style="font-size:9px; background:rgba(255,170,0,0.2); color:var(--accent-yellow); border-color:var(--accent-yellow);">${item.severity_badge || 'FAULT'}</span>
+            </div>
+            <div style="font-size:11px; font-weight:800; color:#fff; margin-top:3px;">${item.title || 'Diagnostic Fault'}</div>
+          </div>
+        `;
+      });
+      codesList.innerHTML = html;
+      if (currentSelectedDtc) {
+        renderDtcDetailPanel(currentSelectedDtc);
+      }
+    }
+  }
+}
+
+function selectDtcDetail(code) {
+  fetch(`/api/dtc/lookup?code=${code}`)
+    .then(r => r.json())
+    .then(data => {
+      currentSelectedDtc = data;
+      renderDtcDetailPanel(data);
+    });
+}
+
+function renderDtcDetailPanel(data) {
+  const title = document.getElementById('diagDetailTitle');
+  const sub = document.getElementById('diagDetailSub');
+  const body = document.getElementById('diagDetailBody');
+  const mBox = document.getElementById('diagMechanicBox');
+  const mText = document.getElementById('diagMechanicSpeechText');
+
+  if (title) title.innerText = `${data.code}: ${data.title}`;
+  if (sub) sub.innerText = `Magneti Marelli 8GM • ${data.severity_badge || 'Dodge Dart 1.4L Turbo MultiAir'}`;
+  if (body) {
+    body.innerHTML = `
+      <div style="margin-bottom:8px;"><strong>Description:</strong> ${data.description || ''}</div>
+      <div style="margin-bottom:8px; color:#ffdd88;"><strong>Recommended Action:</strong> ${data.advice || ''}</div>
+      <div style="color:var(--text-secondary); font-size:11px;"><strong>Likely MultiAir Root Causes:</strong> ${data.common_causes || 'Check wiring harness and vacuum lines.'}</div>
+    `;
+  }
+  if (mBox && mText) {
+    mBox.style.display = 'block';
+    mText.innerText = data.spoken_summary || `Code ${data.code} detected on the Dart. Master, let me check the MultiAir actuators!`;
+  }
+}
+
+function promptClearDtcCodes() {
+  if (confirm("Reset Check Engine MIL and clear all active diagnostic codes from ECU memory (Mode 04)?")) {
+    fetch('/api/dtc/clear', { method: 'POST' })
+      .then(r => r.json())
+      .then(() => {
+        showAiSpeechToast("Codes cleared and CEL reset!");
+        refreshDiagnostics();
+      });
+  }
+}
+
+function toggleRumMechanicMode() {
+  isRumMechanicActive = !isRumMechanicActive;
+  const btn = document.getElementById('btnRumMechanicMode');
+  if (btn) {
+    if (isRumMechanicActive) {
+      btn.style.boxShadow = '0 0 16px rgba(255, 64, 129, 0.8)';
+      speakMechanicBriefing();
+    } else {
+      btn.style.boxShadow = 'none';
+    }
+  }
+}
+
+function speakMechanicBriefing() {
+  if (currentSelectedDtc && currentSelectedDtc.spoken_summary) {
+    speakUtterance(currentSelectedDtc.spoken_summary);
+  } else {
+    speakUtterance("Master, powertrain diagnostics are completely clear! The 1.4L MultiAir actuators, Garrett turbo, and oil pressures are looking fantastic!");
+  }
+}
+
+// ============================================================================
+// --- DEDICATED BLACK-BOX TRIP LOGGER & FLIGHT RECORDER ---
+// ============================================================================
+let currentTripSessionPoints = [];
+
+function refreshTripsList() {
+  fetch('/api/trips/recent')
+    .then(r => r.json())
+    .then(trips => {
+      renderTripsList(trips);
+    })
+    .catch(err => console.error('[TRIPS] Fetch error:', err));
+
+  fetch('/api/trips/stats')
+    .then(r => r.json())
+    .then(stats => {
+      const badge = document.getElementById('tripLifetimeBadge');
+      if (badge) {
+        badge.innerText = `LIFETIME: ${stats.total_miles || 0} MILES • ${stats.total_trips || 0} SESSIONS`;
+      }
+    });
+}
+
+function renderTripsList(trips) {
+  const container = document.getElementById('tripsListContainer');
+  const countBadge = document.getElementById('tripsCountBadge');
+  if (countBadge) countBadge.innerText = `${trips.length} SESSIONS`;
+  if (!container) return;
+
+  if (trips.length === 0) {
+    container.innerHTML = `
+      <div style="text-align:center; padding:24px 8px; color:var(--text-secondary); font-size:11.5px;">
+        <div>📊</div>
+        <div style="margin-top:6px;">No recorded drive sessions yet.</div>
+        <div style="font-size:10px; color:#667;">Start driving to record black-box telemetry.</div>
+      </div>
+    `;
+    return;
+  }
+
+  let html = '';
+  trips.forEach((t, idx) => {
+    const isFirst = (idx === 0);
+    html += `
+      <div class="trip-item-card ${isFirst ? 'active' : ''}" onclick="selectTripSession(${t.id})">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:12px; font-weight:900; color:#fff;">TRIP #${t.id}</span>
+          <span style="font-size:10px; color:var(--accent-blue); font-family:var(--font-mono);">${(t.distance_miles || 0).toFixed(1)} mi</span>
+        </div>
+        <div style="font-size:10px; color:var(--text-secondary); margin-top:3px;">${t.start_time || 'Recent Drive'} • ${(t.duration_min || 0).toFixed(0)} min</div>
+        <div style="display:flex; gap:8px; font-size:9.5px; font-family:var(--font-mono); margin-top:4px; color:#a0b8d0;">
+          <span>TOP: ${(t.max_speed_mph || 0).toFixed(0)} MPH</span>
+          <span>BOOST: ${(t.max_boost_psi || 0).toFixed(1)} PSI</span>
+        </div>
+      </div>
+    `;
+  });
+  container.innerHTML = html;
+  if (trips.length > 0) {
+    selectTripSession(trips[0].id);
+  }
+}
+
+function selectTripSession(tripId) {
+  fetch(`/api/trips/telemetry?id=${tripId}`)
+    .then(r => r.json())
+    .then(points => {
+      currentTripSessionPoints = points;
+      renderTripChart(points);
+    });
+}
+
+function renderTripChart(points) {
+  const canvas = document.getElementById('tripChartCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.clientWidth || 400;
+  const h = canvas.clientHeight || 140;
+  canvas.width = w;
+  canvas.height = h;
+
+  ctx.clearRect(0, 0, w, h);
+
+  if (!points || points.length < 2) {
+    ctx.fillStyle = '#667788';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Accumulating telemetry stream points...', w / 2, h / 2);
+    return;
+  }
+
+  // Draw Grid Lines
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+  ctx.lineWidth = 1;
+  for (let y = 0; y < h; y += 30) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+  }
+
+  // Draw Speed (Cyan)
+  ctx.beginPath();
+  ctx.strokeStyle = '#00e5ff';
+  ctx.lineWidth = 2;
+  points.forEach((p, i) => {
+    const x = (i / (points.length - 1)) * w;
+    const y = h - ((p.speed_mph || 0) / 100) * (h - 20) - 10;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Draw Boost (Yellow)
+  ctx.beginPath();
+  ctx.strokeStyle = '#ffcc00';
+  ctx.lineWidth = 1.8;
+  points.forEach((p, i) => {
+    const x = (i / (points.length - 1)) * w;
+    const boost = Math.max(0, p.boost_psi || 0);
+    const y = h - (boost / 25) * (h - 20) - 10;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+}
+
+function exportCurrentTripManifest() {
+  window.open('/api/trips/manifest', '_blank');
+}
+
+function promptClearAllTrips() {
+  if (confirm("Purge all recorded driving sessions from the vehicle black-box database?")) {
+    fetch('/api/trips/clear', { method: 'POST' })
+      .then(r => r.json())
+      .then(() => {
+        showAiSpeechToast("Flight records purged.");
+        refreshTripsList();
+      });
+  }
+}
+
+// ============================================================================
+// --- SETTINGS CATEGORY TABS & DYNAMIC AUDIO ROUTING ---
+// ============================================================================
+function switchSettingsCategory(catId) {
+  const tabs = {
+    ai: document.getElementById('tabSetCatAi'),
+    audio: document.getElementById('tabSetCatAudio'),
+    vehicle: document.getElementById('tabSetCatVehicle'),
+    conn: document.getElementById('tabSetCatConn'),
+    theme: document.getElementById('tabSetCatTheme'),
+    system: document.getElementById('tabSetCatSystem')
+  };
+
+  Object.keys(tabs).forEach(k => {
+    if (tabs[k]) {
+      if (k === catId) tabs[k].classList.add('active');
+      else tabs[k].classList.remove('active');
+    }
+  });
+
+  const accs = {
+    ai: document.getElementById('accAiGroup'),
+    audio: document.getElementById('accSystemGroup'),
+    vehicle: document.getElementById('accPowertrainGroup'),
+    conn: document.getElementById('accSystemGroup'),
+    theme: document.getElementById('accSystemGroup'),
+    system: document.getElementById('accAboutGroup')
+  };
+
+  Object.values(accs).forEach(el => {
+    if (el) el.classList.remove('active');
+  });
+
+  if (accs[catId]) {
+    accs[catId].classList.add('active');
+  }
+
+  if (catId === 'audio') {
+    loadDynamicAudioDevices();
+    const c = document.getElementById('cardDynamicAudio');
+    if (c) c.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+function loadDynamicAudioDevices() {
+  fetch('/api/audio/devices')
+    .then(r => r.json())
+    .then(data => {
+      populateAudioDropdowns(data);
+    })
+    .catch(err => console.error('[AUDIO] Devices error:', err));
+}
+
+function populateAudioDropdowns(data) {
+  const sinkSelect = document.getElementById('audioOutputSinkSelect');
+  const sourceSelect = document.getElementById('audioInputSourceSelect');
+  const sinkLabel = document.getElementById('audioCurrentSinkLabel');
+  const sourceLabel = document.getElementById('audioCurrentSourceLabel');
+
+  if (sinkSelect && data.sinks) {
+    let html = '';
+    data.sinks.forEach(s => {
+      const isSel = s.id === data.active_sink_id || s.is_default;
+      const type = s.is_bluetooth ? '📻 Bluetooth Uconnect' : (s.name.toLowerCase().includes('hdmi') ? '🖥️ HDMI Display' : '🎧 Audio Device');
+      html += `<option value="${s.id}" ${isSel ? 'selected' : ''}>${type} (${s.name})</option>`;
+      if (isSel && sinkLabel) {
+        sinkLabel.innerText = `Active Output: ${s.name} (${Math.round((s.volume || 1.0) * 100)}% Vol)`;
+      }
+    });
+    sinkSelect.innerHTML = html;
+  }
+
+  if (sourceSelect && data.sources) {
+    let html = '';
+    data.sources.forEach(src => {
+      const isSel = src.id === data.active_source_id || src.is_default;
+      const type = src.is_bluetooth ? '📱 Bluetooth Mic' : '🎙️ Microphone';
+      html += `<option value="${src.id}" ${isSel ? 'selected' : ''}>${type} (${src.name})</option>`;
+      if (isSel && sourceLabel) {
+        sourceLabel.innerText = `Active Mic: ${src.name}`;
+      }
+    });
+    sourceSelect.innerHTML = html;
+  }
+}
+
+function onSelectAudioOutputSink(sinkId) {
+  if (!sinkId) return;
+  fetch('/api/audio/output', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sink: sinkId })
+  })
+    .then(r => r.json())
+    .then(() => {
+      showAiSpeechToast("Audio output switched!");
+      loadDynamicAudioDevices();
+    });
+}
+
+function onSelectAudioInputSource(sourceId) {
+  if (!sourceId) return;
+  fetch('/api/audio/input', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source: sourceId })
+  })
+    .then(r => r.json())
+    .then(() => {
+      showAiSpeechToast("Microphone source switched!");
+      loadDynamicAudioDevices();
+    });
+}
+
+function toggleRumHudFromPill() {
+  const hud = document.getElementById('vrmFloatingHud');
+  if (!hud) return;
+  if (hud.style.display === 'none') {
+    if (currentScreen === 'ai') {
+      navigateTo('home');
+    }
+    floatCompanionShotgun();
+  } else {
+    dismissFloatingHud();
+  }
+}

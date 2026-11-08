@@ -535,27 +535,46 @@ function isEligibleInput(el) {
   return false;
 }
 
+// Track the most recent pointer interaction to distinguish touchscreen taps vs physical mouse clicks
+let vkLastPointerType = ('ontouchstart' in window && navigator.maxTouchPoints > 0) ? 'touch' : 'mouse';
+
 // Universal initialization & listeners
 function initVirtualKeyboard() {
-  // Detect touch device (in-dash touch screen or mobile/tablet vs desktop mouse/keyboard)
   const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
 
-  // 1. Focusin listener - auto-open only on touch devices so desktop keyboards type freely
+  // Track pointer movements/clicks to know whether user is actively using a mouse or finger
+  window.addEventListener('pointermove', (e) => {
+    if (e.pointerType) vkLastPointerType = e.pointerType;
+  }, { passive: true });
+
+  // 1. Focusin listener - auto-open ONLY on touchscreen/pen taps. Physical mouse clicks never pop keyboard
   document.addEventListener('focusin', (e) => {
     if (isEligibleInput(e.target)) {
-      if (isTouchDevice) {
+      if (vkLastPointerType === 'mouse') {
+        // Physical mouse click: keep keyboard hidden so hardware keyboard types freely
+        return;
+      }
+      if (vkLastPointerType === 'touch' || vkLastPointerType === 'pen') {
         openVirtualKeyboard(e.target);
       }
     }
   });
 
-  // 2. Touch / click listener for reliable mobile/tablet tapping
+  // 2. Pointerdown listener with strict mouse vs touch discrimination
   document.addEventListener('pointerdown', (e) => {
+    if (e.pointerType) vkLastPointerType = e.pointerType;
     const kb = document.getElementById('virtualTouchKeyboard');
-    // If tap is inside keyboard, do nothing
     if (kb && kb.contains(e.target)) return;
 
     if (isEligibleInput(e.target)) {
+      if (e.pointerType === 'mouse' || vkLastPointerType === 'mouse') {
+        // User clicked with physical mouse - dismiss virtual keyboard if open
+        if (kb && kb.classList.contains('visible')) {
+          vkCloseKeyboard();
+        }
+        return;
+      }
+      // Touch or pen tap on touchscreen - slide up virtual keyboard
       if (e.pointerType === 'touch' || e.pointerType === 'pen' || isTouchDevice) {
         openVirtualKeyboard(e.target);
       }

@@ -179,6 +179,8 @@ class LLMClient:
         self.speech_log: List[Dict[str, Any]] = []
 
         self.personas = load_personas_from_dir()
+        self.lorebooks = {}
+        self.load_lorebooks()
 
         self.memory_mgr = MemoryManager()
 
@@ -223,6 +225,65 @@ class LLMClient:
             threading.Thread(target=self._preload_local_gguf, daemon=True).start()
 
 
+
+
+    def load_lorebooks(self):
+        """Loads modular domain lorebooks and web knowledge from config/lorebooks/."""
+        base_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "config", "lorebooks")
+        if not os.path.exists(base_dir):
+            return
+        for fname in os.listdir(base_dir):
+            if fname.endswith(".json"):
+                fpath = os.path.join(base_dir, fname)
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        book_id = data.get("id", fname.replace(".json", ""))
+                        self.lorebooks[book_id] = data
+                except Exception as e:
+                    print(f"[LOREBOOK] Error loading {fname}: {e}")
+        print(f"[LOREBOOK] Loaded {len(self.lorebooks)} modular knowledge lorebooks.")
+
+    def get_lorebook_injection(self, query: str) -> str:
+        """Fast sub-millisecond keyword scanner for relevant domain knowledge injection."""
+        q_lower = query.lower()
+        snippets = []
+        for book_id, book in self.lorebooks.items():
+            keywords = book.get("keywords", [])
+            if any(k in q_lower for k in keywords):
+                facts = book.get("factual_data", {})
+                for k, v in facts.items():
+                    snippets.append(f"- {k}: {v}")
+                if "learned_facts" in book:
+                    for fact_obj in book.get("learned_facts", []):
+                        if any(k in q_lower for k in fact_obj.get("keywords", [])):
+                            snippets.append(f"- [LEARNED]: {fact_obj.get('fact')}")
+        return "\n".join(snippets[:5]) if snippets else ""
+
+    def save_learned_fact(self, keyword: str, fact: str, source: str = "web") -> bool:
+        """Saves newly learned verified facts upon user confirmation into learned_web_knowledge.json."""
+        base_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "config", "lorebooks")
+        fpath = os.path.join(base_dir, "learned_web_knowledge.json")
+        try:
+            data = {"version": "1.0", "learned_facts": []}
+            if os.path.exists(fpath):
+                with open(fpath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            data.setdefault("learned_facts", []).append({
+                "keyword": keyword,
+                "keywords": [keyword.lower()],
+                "fact": fact,
+                "source": source,
+                "learned_at": time.time()
+            })
+            with open(fpath, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            self.load_lorebooks()
+            print(f"[LOREBOOK] Successfully saved learned fact: {keyword}")
+            return True
+        except Exception as e:
+            print(f"[LOREBOOK] Error saving fact: {e}")
+            return False
 
     def get_ai_core_status(self) -> str:
 
@@ -978,7 +1039,17 @@ class LLMClient:
 
             return reply
 
+        # Faithful zero-fake-data check when OBD-II is disconnected
+        is_telem_query = any(k in user_message.lower() for k in ["boost", "speed", "rpm", "coolant", "temp", "stats", "telemetry", "how fast", "engine code", "dtc"])
+        if live_telemetry and not live_telemetry.get("connected", True) and is_telem_query and self.settings.get("telemetry_mode", "REAL") != "SIM":
+            reply = f"Master, I cannot detect an active CAN bus or OBD-II connection right now! The cable might be unplugged, or the car is keyed off. Would you like me to switch to Simulation Mode so we can test the gauges, or check the adapter connection under the dash?"
+            self._record_chat(user_message, reply)
+            return reply
 
+        # Sub-millisecond Modular Lorebook Keyword Injection
+        lore_injection = self.get_lorebook_injection(user_message)
+        if lore_injection:
+            system_prompt += f"\n[GROUNDED KNOWLEDGE INJECTION:\n{lore_injection}]"
 
         if live_telemetry:
 

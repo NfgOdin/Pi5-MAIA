@@ -1,0 +1,43 @@
+{
+  "id": "dart_multiair_specs",
+  "title": "2013-2016 Dodge Dart 1.4L Turbo MultiAir Factual Specifications",
+  "keywords": [
+    "dart",
+    "dodge dart",
+    "multiair",
+    "1.4l",
+    "turbo",
+    "garrett",
+    "gt1446",
+    "c635",
+    "magneti marelli",
+    "8gm",
+    "intercooler",
+    "wastegate",
+    "divertor",
+    "spark plugs",
+    "viscosity",
+    "5w-40",
+    "oil",
+    "boost",
+    "psi",
+    "actuator",
+    "downpipe",
+    "euro spec",
+    "wastegate rattle",
+    "p0299",
+    "p1066",
+    "p1067",
+    "p1068",
+    "p1069"
+  ],
+  "factual_data": {
+    "engine": "1.4L 16V MultiAir Turbo (Fiat FIRE architecture, cast iron block, aluminum head). Factory rating: 160 hp @ 5500 RPM, 184 lb-ft torque @ 2500-4000 RPM. Bore: 72.0mm, Stroke: 84.0mm, Compression ratio: 9.8:1.",
+    "multiair_system": "Electro-hydraulic variable valve actuation replacing mechanical intake camshaft. Uses engine oil pressure driven by high-pressure solenoid valves. Demands strict API SN / ACEA C3 SAE 5W-40 Full Synthetic oil (Pennzoil Platinum Euro / Selenia). MultiAir brick has a replaceable micro-mesh oil supply screen filter inside the cylinder head; if clogged by poor oil maintenance, valve actuation fails causing misfires and solenoid codes (P1066-P1069).",
+    "turbocharger": "Garrett GT1446 small-frame wastegated turbocharger. Stock peak boost is 14-16 PSI; tuned setups (Eurocompulsion Phase 1/2) reach 19-22 PSI. Common failure point for underboost (P0299) is loose wastegate actuator arm pin slop or a torn Pierburg diverter valve rubber diaphragm.",
+    "transmission": "Fiat Powertrain C635 6-Speed Manual (dual-mass flywheel, hydraulic clutch) or 6-Speed DDCT dual dry clutch automated manual.",
+    "powertrain_control": "Magneti Marelli 8GM Powertrain Control Module (PCM/ECU), running high-speed CAN bus at 500 kbps (CAN-C) and interior CAN-IHS at 125 kbps.",
+    "maintenance_specs": "Spark plugs: NGK IKR9J8 (Laser Iridium), gap strictly 0.024-0.026 inch, torque 11-14 lb-ft. Oil capacity: 4.0 quarts 5W-40 with filter. Coolant: Mopar Antifreeze OAT 50/50 purple."
+  },
+  "guidelines": "When Master asks technical questions about the car, engine, boost, oil, or fault codes, cite these exact specifications faithfully in character."
+}

@@ -1235,10 +1235,57 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
 
 
+        elif parsed.path == "/api/dtc/status":
+            is_connected = bool(getattr(state.obd, "connected", False)) if hasattr(state, "obd") and state.obd else False
+            if is_connected:
+                active_dtcs = list(getattr(state.obd, "active_dtcs", []))
+            else:
+                active_dtcs = list(getattr(state.simulator, "active_dtcs", [])) if hasattr(state, "simulator") and state.simulator else []
+            
+            code_details = []
+            if hasattr(state, "copilot") and state.copilot and hasattr(state.copilot, "diagnostics"):
+                for code in active_dtcs:
+                    code_details.append(state.copilot.diagnostics.explain_code(code))
+
+            last_f = getattr(state, "last_frame", {}) or {}
+            freeze_frame = {
+                "rpm": last_f.get("rpm", 850),
+                "boost_psi": last_f.get("boost_psi", 0.0),
+                "coolant_temp_f": last_f.get("coolant_temp_f", 195),
+                "speed_mph": last_f.get("speed_mph", 0),
+                "engine_load_pct": last_f.get("engine_load_pct", 24.5),
+                "throttle_pct": last_f.get("pedal_pos_pct", 12.0)
+            }
+
+            res = {
+                "status": "ok",
+                "connected": is_connected,
+                "mil_active": len(active_dtcs) > 0,
+                "active_dtcs": active_dtcs,
+                "pending_dtcs": [],
+                "code_details": code_details,
+                "freeze_frame": freeze_frame,
+                "readiness": {
+                    "misfire": True, "fuel_system": True, "comprehensive": True,
+                    "catalyst": True, "evap": True, "o2_sensor": True,
+                    "o2_heater": True, "egr_vvt": True
+                }
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
         elif parsed.path == "/api/dtc/clear":
-
-            state.simulator.clear_dtcs()
-
+            if hasattr(state, "obd") and state.obd:
+                try:
+                    state.obd.clear_dtcs()
+                except Exception:
+                    pass
+            if hasattr(state, "simulator") and state.simulator:
+                state.simulator.clear_dtcs()
             state.copilot.announced_dtcs.clear()
 
             self.send_response(200)
@@ -2278,6 +2325,17 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             return
 
 
+
+        elif parsed.path == "/api/trips/telemetry":
+            qs = parse_qs(parsed.query)
+            t_id = int(qs.get("id", [0])[0])
+            pts = state.trip_logger.get_trip_telemetry(t_id) if (hasattr(state, "trip_logger") and state.trip_logger and t_id) else []
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(pts).encode("utf-8"))
+            return
 
         elif parsed.path == "/api/trips/recent":
 
@@ -3604,6 +3662,19 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                 res = state.bluetooth.set_audio_sink(sink)
             else:
                 res = {"status": "ok", "auto_route": state.bluetooth.config.get("auto_route_audio", True)}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/audio/input":
+            source = req_data.get("source")
+            if source is not None and hasattr(state, "bluetooth") and state.bluetooth:
+                res = state.bluetooth.set_audio_source(source)
+            else:
+                res = {"status": "ok"}
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")

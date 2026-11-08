@@ -3411,3 +3411,353 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
 .music-track-item.active-track .track-name-bold {
   color: var(--accent-blue) !important;
 }
+
+/* ==========================================================================
+   NAVIGATION REDESIGN: FULL-HEIGHT COCKPIT + TOP HOME BUTTON
+   ========================================================================== */
+.bottom-bar {
+  display: none !important;
+}
+
+.view-container {
+  height: calc(100vh - 46px) !important;
+}
+
+.screen-view {
+  padding-bottom: 14px !important;
+}
+
+.cockpit-home-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  min-width: 82px;
+  padding: 0 12px;
+  background: linear-gradient(135deg, rgba(255, 64, 129, 0.22), rgba(124, 77, 255, 0.22));
+  border: 1.5px solid rgba(255, 64, 129, 0.5);
+  border-radius: 10px;
+  color: #fff;
+  font-family: var(--font-header, sans-serif);
+  font-size: 12.5px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  touch-action: manipulation;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  flex-shrink: 0;
+}
+
+.cockpit-home-btn:hover, .cockpit-home-btn:active {
+  background: linear-gradient(135deg, rgba(255, 64, 129, 0.45), rgba(124, 77, 255, 0.45));
+  border-color: var(--accent-pink);
+  transform: scale(0.96);
+  box-shadow: 0 0 12px rgba(255, 64, 129, 0.55);
+}
+
+.cockpit-home-btn.on-home {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: var(--text-secondary);
+  box-shadow: none;
+}
+
+/* R.U.M. Minimized Speech Status Pill in Top Header */
+.rum-min-hud-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  background: rgba(255, 64, 129, 0.12);
+  border: 1.5px solid rgba(255, 64, 129, 0.35);
+  border-radius: 15px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.rum-min-hud-pill:hover, .rum-min-hud-pill:active {
+  background: rgba(255, 64, 129, 0.25);
+  border-color: var(--accent-pink);
+}
+
+.rum-min-hud-pill.speaking {
+  background: rgba(255, 64, 129, 0.35);
+  border-color: var(--accent-pink);
+  box-shadow: 0 0 12px rgba(255, 64, 129, 0.7);
+  animation: rumSpeakingPulse 1.2s infinite ease-in-out;
+}
+
+@keyframes rumSpeakingPulse {
+  0% { transform: scale(1); box-shadow: 0 0 6px rgba(255, 64, 129, 0.4); }
+  50% { transform: scale(1.04); box-shadow: 0 0 16px rgba(255, 64, 129, 0.85); }
+  100% { transform: scale(1); box-shadow: 0 0 6px rgba(255, 64, 129, 0.4); }
+}
+
+/* ==========================================================================
+   DEDICATED POWERTRAIN & OBD-II DIAGNOSTICS SCREEN
+   ========================================================================== */
+.diagnostics-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  gap: 10px;
+  box-sizing: border-box;
+}
+
+.diag-header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 8px 14px;
+  flex-shrink: 0;
+}
+
+.diag-stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.diag-stat-card {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.diag-stat-card.alert {
+  border-color: var(--accent-red);
+  background: rgba(255, 51, 68, 0.12);
+}
+
+.diag-stat-label {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  letter-spacing: 0.5px;
+}
+
+.diag-stat-val {
+  font-size: 18px;
+  font-weight: 900;
+  color: #fff;
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+
+.diag-main-split {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+}
+
+.diag-codes-panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.diag-code-item {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1.5px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.diag-code-item:hover, .diag-code-item.active {
+  background: rgba(255, 170, 0, 0.12);
+  border-color: var(--accent-yellow);
+  box-shadow: 0 0 12px rgba(255, 170, 0, 0.25);
+}
+
+.diag-code-item.active {
+  border-color: var(--accent-pink);
+  background: rgba(255, 64, 129, 0.15);
+}
+
+.diag-detail-panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.diag-mechanic-card {
+  background: linear-gradient(135deg, rgba(255, 64, 129, 0.12), rgba(124, 77, 255, 0.1));
+  border: 1px solid rgba(255, 64, 129, 0.35);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-top: 10px;
+}
+
+.readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.readiness-item {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  padding: 6px 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.readiness-item.ready {
+  border-color: rgba(0, 230, 118, 0.4);
+}
+
+.readiness-item.ready .readiness-val {
+  color: var(--accent-green);
+}
+
+/* ==========================================================================
+   DEDICATED TRIP LOGGER SCREEN
+   ========================================================================== */
+.trip-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  gap: 10px;
+  box-sizing: border-box;
+}
+
+.trip-header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 8px 14px;
+  flex-shrink: 0;
+}
+
+.trip-main-split {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+}
+
+.trip-list-panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.trip-item-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.trip-item-card:hover, .trip-item-card.active {
+  background: rgba(0, 176, 255, 0.12);
+  border-color: var(--accent-blue);
+}
+
+.trip-detail-panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* ==========================================================================
+   TOUCH-FIRST SETTINGS CATEGORY TABS
+   ========================================================================== */
+.settings-category-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  flex-shrink: 0;
+}
+
+.settings-cat-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  padding: 0 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.settings-cat-tab:hover, .settings-cat-tab.active {
+  background: rgba(255, 64, 129, 0.18);
+  border-color: var(--accent-pink);
+  color: #fff;
+  box-shadow: 0 0 10px rgba(255, 64, 129, 0.3);
+}
+
+.settings-section-view {
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-section-view.active {
+  display: flex;
+}

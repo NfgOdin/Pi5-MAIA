@@ -320,6 +320,7 @@ class BluetoothManager:
         sinks = []
         sources = []
         active_sink_id = None
+        active_source_id = None
         bt_device_id = None
         current_section = None
 
@@ -380,6 +381,8 @@ class BluetoothManager:
                             'volume': vol,
                             'is_bluetooth': is_bt
                         })
+                        if is_def:
+                            active_source_id = s_id
         except Exception as e:
             print(f"[BLUETOOTH AUDIO] Error querying wpctl: {e}")
 
@@ -387,6 +390,7 @@ class BluetoothManager:
             "sinks": sinks,
             "sources": sources,
             "active_sink_id": active_sink_id,
+            "active_source_id": active_source_id,
             "bt_device_id": bt_device_id,
             "auto_route": self.config.get("auto_route_audio", True)
         }
@@ -435,6 +439,37 @@ class BluetoothManager:
                 return {"status": "error", "message": str(e)}
 
         return {"status": "error", "message": f"Could not find sink matching '{sink_id_or_type}'"}
+
+    def set_audio_source(self, source_id_or_type: Any) -> Dict[str, Any]:
+        """Sets the active audio microphone input source via WirePlumber/wpctl."""
+        if not IS_LINUX:
+            return {"status": "ok", "message": f"Set audio input microphone to {source_id_or_type} (PC simulation)"}
+
+        env = os.environ.copy()
+        env['XDG_RUNTIME_DIR'] = '/run/user/1000'
+
+        devs = self.get_audio_devices()
+        target_id = None
+
+        if isinstance(source_id_or_type, int) or (isinstance(source_id_or_type, str) and str(source_id_or_type).isdigit()):
+            target_id = int(source_id_or_type)
+        else:
+            for s in devs.get("sources", []):
+                if str(source_id_or_type).lower() in s["name"].lower():
+                    target_id = s["id"]
+                    break
+
+        if target_id is not None:
+            try:
+                cmd = ['wpctl', 'set-default', str(target_id)]
+                subprocess.run(cmd, env=env, timeout=2)
+                print(f"[AUDIO ROUTING] Set default microphone source to wpctl ID: {target_id}")
+                return {"status": "ok", "active_source_id": target_id}
+            except Exception as e:
+                return {"status": "error", "message": str(e)}
+
+        return {"status": "error", "message": f"Could not find source matching '{source_id_or_type}'"}
+
 
     def set_auto_route(self, enabled: bool) -> Dict[str, Any]:
         self.config["auto_route_audio"] = bool(enabled)

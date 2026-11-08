@@ -548,3 +548,16 @@ class RealVehicleTelemetryReader:
             fuel_gph=self.fuel_gph,
             baro_kpa=self.baro_kpa
         )
+
+    def clear_dtcs(self) -> bool:
+        """Sends OBD-II Mode 04 command to clear powertrain trouble codes and reset CEL."""
+        self.active_dtcs.clear()
+        if self.connected and self.ser:
+            try:
+                res = self._send_cmd('04', timeout=1.0)
+                print(f'[OBD] Mode 04 Clear DTC response: {res}')
+                return True
+            except Exception as e:
+                print(f'[OBD] Error sending Mode 04 clear DTCs: {e}')
+                return False
+        return True

@@ -86,6 +86,10 @@
   <!-- PERSISTENT TOP STATUS BAR -->
   <header class="top-header">
     <div class="header-left">
+      <button class="cockpit-home-btn" id="headerHomeBtn" onclick="navigateTo('home')" title="Cockpit Home Launcher">
+        <span class="home-icon">🏠</span>
+        <span class="home-text">HOME</span>
+      </button>
       <div class="f1-light-bar" title="Sequential F1 Shift Light Bar">
         <div class="f1-dot"></div>
         <div class="f1-dot"></div>
@@ -117,9 +121,16 @@
       <div class="usb-status-pill" id="headerUsbPill" onclick="openFileExplorer()" title="Click to open File Explorer & USB storage">
         <span>💾</span> <span id="headerUsbText">USB READY</span>
       </div>
+      <div class="rum-min-hud-pill" id="rumMinHudPill" onclick="toggleRumHudFromPill()" title="R.U.M. Status • Click to Expand/Minimize Shotgun">
+        <span class="rum-min-avatar">💜</span>
+        <span class="rum-min-name">RUM</span>
+        <span class="rum-min-speech-icon" id="rumMinSpeechIcon">💬</span>
+      </div>
       <div class="ai-core-pill" id="aiCoreStatusPill" onclick="navigateTo('ai')" title="Neural AI Core Status"><span class="ai-core-orb" id="aiCoreOrb">🟡</span> <span id="aiCoreText">AI CORE: WARMING</span></div>
       <span class="pill pill-warming" id="multiairPill">MULTIAIR WARMING</span>
       <button class="voice-mode-btn" id="voiceModeBtn" onclick="cycleVoiceMode()" title="Click to Cycle AI Voice Mode">🏎️ AI: COPILOT</button>
+      <button class="cluster-action-btn" id="btnManualKeyboard" onclick="toggleManualKeyboard()" title="Toggle Virtual Keyboard" style="padding:3px 8px; font-size:11px; border-color:#2a374a; background:#141b24; color:#a0b8d0; cursor:pointer;">⌨️</button>
+      <span style="font-size:11px; font-weight:800; color:var(--text-secondary); font-family:var(--font-mono); margin-left:4px;" id="headerClock">12:00 PM</span>
     </div>
   </header>
 
@@ -200,16 +211,29 @@
         </div>
 
         <!-- 6. ONBOARD DIAGNOSTICS -->
-        <div class="launcher-card card-cams" onclick="showDiagnosticsModal()">
+        <div class="launcher-card card-cams" onclick="navigateTo('diagnostics')">
           <div class="card-badge" id="homeDtcBadge" style="background:rgba(0,230,118,0.2); color:var(--accent-green); border:1px solid var(--accent-green);">
             ECU: HEALTHY
           </div>
           <div>
             <div class="card-icon">🔧</div>
             <div class="card-title">POWERTRAIN OBD-II</div>
-            <div class="card-subtitle">Scan Magneti Marelli 8GM ECU, view AI diagnostic summaries, and reset CEL.</div>
+            <div class="card-subtitle">Scan Magneti Marelli 8GM ECU, view R.U.M. mechanic summaries, and reset CEL.</div>
           </div>
           <div style="font-size:10px; font-weight:800; color:var(--accent-orange); letter-spacing:0.5px;">INSPECT OBD-II →</div>
+        </div>
+
+        <!-- TRIP LOGGER & FLIGHT RECORDER -->
+        <div class="launcher-card card-trip" onclick="navigateTo('trip')" style="border-color:rgba(0,176,255,0.4);">
+          <div class="card-badge" id="homeTripBadge" style="background:rgba(0,176,255,0.18); color:var(--accent-blue); border:1px solid var(--accent-blue);">
+            RECORDER ACTIVE
+          </div>
+          <div>
+            <div class="card-icon" style="color:var(--accent-blue);">📊</div>
+            <div class="card-title">TRIP LOGGER</div>
+            <div class="card-subtitle">Black-box driving sessions, 16-sensor flight recorder, boost logs & PDF manifests.</div>
+          </div>
+          <div style="font-size:10px; font-weight:800; color:var(--accent-blue); letter-spacing:0.5px;">VIEW FLIGHT LOGS →</div>
         </div>
 
         
@@ -744,8 +768,19 @@
       </div>
     </div>
 
-    <!-- 5. SETTINGS SCREEN (EXPANDABLE ACCORDIONS & SYSTEM PREFERENCES) -->
-    <div class="screen-view" id="screenSettings" style="overflow-y:auto; padding-bottom:90px;">
+    <!-- 5. SETTINGS SCREEN (TOUCH CATEGORIES & SYSTEM PREFERENCES) -->
+    <div class="screen-view" id="screenSettings" style="overflow-y:auto; padding-bottom:14px;">
+
+      <!-- Touch-Friendly Segmented Category Tabs (44px min touch target) -->
+      <div class="settings-category-bar">
+        <button class="settings-cat-tab active" id="tabSetCatAi" onclick="switchSettingsCategory('ai')">🤖 AI COPILOT</button>
+        <button class="settings-cat-tab" id="tabSetCatAudio" onclick="switchSettingsCategory('audio')">🔊 AUDIO & MICS</button>
+        <button class="settings-cat-tab" id="tabSetCatVehicle" onclick="switchSettingsCategory('vehicle')">🏎️ VEHICLE & OBD</button>
+        <button class="settings-cat-tab" id="tabSetCatConn" onclick="switchSettingsCategory('conn')">📶 CONNECTIVITY</button>
+        <button class="settings-cat-tab" id="tabSetCatTheme" onclick="switchSettingsCategory('theme')">🎨 COCKPIT & THEMES</button>
+        <button class="settings-cat-tab" id="tabSetCatSystem" onclick="switchSettingsCategory('system')">ℹ️ SYSTEM INFO</button>
+      </div>
+
 
       <!-- ACCORDION 1: R.U.M. & AI NEURAL ENGINE (Default Open) -->
       <div class="settings-accordion-group active" id="accAiGroup">
@@ -1507,26 +1542,43 @@
         </div>
 
         
-        <!-- Audio Output Routing (PipeWire / WirePlumber) -->
-        <div style="background:#0c1219; border:1px solid #1c2d42; border-radius:8px; padding:12px 14px; margin-bottom:14px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
-            <div style="font-size:11px; font-weight:800; color:#fff; display:flex; align-items:center; gap:6px;">
-              <span>🔊</span> AUDIO OUTPUT ROUTING &amp; SPEAKERS:
+        <!-- Dynamic PipeWire Audio Output & Microphone Routing -->
+        <div style="background:#0c1219; border:1px solid var(--accent-blue); border-radius:8px; padding:12px 14px; margin-bottom:14px;" id="cardDynamicAudio">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:6px;">
+            <div style="font-size:12px; font-weight:900; color:var(--accent-blue); display:flex; align-items:center; gap:6px;">
+              <span>🔊</span> PIPEWIRE DYNAMIC AUDIO &amp; MICROPHONE ROUTING
             </div>
-            <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:#00e676; cursor:pointer;">
-              <input type="checkbox" id="chkAutoRouteAudio" checked onchange="toggleAutoRouteAudio(this.checked)" style="accent-color:#00e676;">
-              <span>Auto-Switch to Car Speakers</span>
-            </label>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:#00e676; cursor:pointer;">
+                <input type="checkbox" id="chkAutoRouteAudio" checked onchange="toggleAutoRouteAudio(this.checked)" style="accent-color:#00e676;">
+                <span>Auto-Switch to Uconnect</span>
+              </label>
+              <button class="cluster-action-btn" onclick="loadDynamicAudioDevices()" style="padding:4px 10px; font-size:10px;">🔄 RESCAN DEVICES</button>
+            </div>
           </div>
-          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;" id="audioOutputsButtonGroup">
-            <button id="btnAudioCar" class="cluster-action-btn active" onclick="setAudioOutput('bluetooth')" style="font-size:10px; padding:6px 14px; display:flex; align-items:center; gap:6px; color:#00e676; border-color:#00e676;">
-              <span>📻</span> UCONNECT (CAR SPEAKERS)
-            </button>
-            <button id="btnAudioHdmi" class="cluster-action-btn" onclick="setAudioOutput('hdmi')" style="font-size:10px; padding:6px 14px; display:flex; align-items:center; gap:6px;">
-              <span>🖥️</span> HDMI DISPLAY AUDIO
-            </button>
-            <span id="audioCurrentSinkLabel" style="font-size:10px; color:var(--text-secondary); display:flex; align-items:center; margin-left:auto;">
-              Active: Uconnect (100% Vol)
+          <p style="font-size:11.5px; color:var(--text-secondary); margin-bottom:10px;">
+            Dynamically lists every detected hardware output and input: HDMI, Uconnect Bluetooth streaming, USB Headsets, and USB Microphones.
+          </p>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:8px;">
+            <div>
+              <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px;">AUDIO OUTPUT (SPEAKERS / HEADPHONES):</div>
+              <select id="audioOutputSinkSelect" class="settings-input" style="width:100%; height:44px; font-size:12px;" onchange="onSelectAudioOutputSink(this.value)">
+                <option value="">Scanning audio outputs...</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px;">MICROPHONE INPUT (VOICE RECOGNITION):</div>
+              <select id="audioInputSourceSelect" class="settings-input" style="width:100%; height:44px; font-size:12px;" onchange="onSelectAudioInputSource(this.value)">
+                <option value="">Scanning microphone sources...</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+            <span id="audioCurrentSinkLabel" style="font-size:10px; color:var(--accent-blue); font-family:var(--font-mono);">
+              Active Output: Uconnect
+            </span>
+            <span id="audioCurrentSourceLabel" style="font-size:10px; color:var(--accent-green); font-family:var(--font-mono);">
+              Active Mic: USB PnP Sound Device
             </span>
           </div>
         </div>
@@ -1986,6 +2038,233 @@
                 <input type="checkbox" id="chkAutoDimHome" style="accent-color:var(--accent-blue);">
                 <span>Auto-Dim Display at Home</span>
               </label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- 6. POWERTRAIN OBD-II & ECU DIAGNOSTICS SCREEN -->
+    <div class="screen-view" id="screenDiagnostics">
+      <div class="diagnostics-container">
+        <!-- Top Diagnostics Header -->
+        <div class="diag-header-bar">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="font-size:22px;">🔧</div>
+            <div>
+              <div style="font-size:14px; font-weight:900; color:#fff; letter-spacing:0.5px;">POWERTRAIN OBD-II & ECU DIAGNOSTICS</div>
+              <div style="font-size:11px; color:var(--text-secondary);">MAGNETI MARELLI 8GM • 2013-2016 DODGE DART 1.4L TURBO MULTIAIR</div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div id="diagObdStatusBadge" class="card-badge" style="background:rgba(0,230,118,0.15); color:var(--accent-green); border:1px solid var(--accent-green);">
+              ● OBD-II CONNECTED
+            </div>
+            <button class="cluster-action-btn" id="btnRumMechanicMode" onclick="toggleRumMechanicMode()" style="background:linear-gradient(135deg, rgba(255,64,129,0.25), rgba(124,77,255,0.25)); border:1.5px solid var(--accent-pink); color:#fff; font-weight:900;">
+              🔧 R.U.M. MECHANIC MODE
+            </button>
+            <button class="cluster-action-btn" onclick="refreshDiagnostics()" style="border-color:#334455; color:var(--text-secondary);">
+              🔄 RESCAN ECU
+            </button>
+          </div>
+        </div>
+
+        <!-- Metric KPI Cards Row -->
+        <div class="diag-stats-row">
+          <div class="diag-stat-card" id="diagMilStatCard">
+            <div class="diag-stat-label">CHECK ENGINE MIL</div>
+            <div class="diag-stat-val" id="diagMilVal" style="color:var(--accent-green);">OFF / HEALTHY</div>
+          </div>
+          <div class="diag-stat-card" id="diagFaultsStatCard">
+            <div class="diag-stat-label">ACTIVE FAULTS (STORED)</div>
+            <div class="diag-stat-val" id="diagFaultsCountVal">0 CODES</div>
+          </div>
+          <div class="diag-stat-card">
+            <div class="diag-stat-label">PENDING DTCS</div>
+            <div class="diag-stat-val" id="diagPendingCountVal">0 CODES</div>
+          </div>
+          <div class="diag-stat-card">
+            <div class="diag-stat-label">I/M EMISSIONS READINESS</div>
+            <div class="diag-stat-val" id="diagReadinessSummaryVal" style="color:var(--accent-green);">8 / 8 READY</div>
+          </div>
+        </div>
+
+        <!-- Main Diagnostics Split View -->
+        <div class="diag-main-split">
+          <!-- Left Column: Detected DTC Codes & Actions -->
+          <div class="diag-codes-panel">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:6px;">
+              <span style="font-size:11px; font-weight:800; color:var(--text-secondary); letter-spacing:0.5px;">DETECTED TROUBLE CODES</span>
+              <span id="diagCodesBadge" style="font-size:10px; color:var(--accent-green); font-weight:800;">ALL CLEAR</span>
+            </div>
+
+            <div id="diagCodesList" style="flex:1; overflow-y:auto; min-height:100px;">
+              <!-- Code items dynamically populated -->
+            </div>
+
+            <!-- Mode 04 Clear DTCs Button -->
+            <button class="cluster-action-btn" id="btnClearCodes" onclick="promptClearDtcCodes()" style="margin-top:10px; background:rgba(255,51,68,0.18); border:1.5px solid var(--accent-red); color:#ff5263; font-weight:900; height:42px; width:100%; display:flex; align-items:center; justify-content:center; gap:8px;">
+              <span>🧹</span> CLEAR CODES & RESET CEL (MODE 04)
+            </button>
+          </div>
+
+          <!-- Right Column: Deep-Dive Code Analysis & Mechanic Briefing -->
+          <div class="diag-detail-panel">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
+              <div>
+                <div id="diagDetailTitle" style="font-size:16px; font-weight:900; color:#fff;">SELECT A CODE FOR ANALYSIS</div>
+                <div id="diagDetailSub" style="font-size:11px; color:var(--text-secondary); margin-top:2px;">Magneti Marelli 8GM Powertrain Diagnostic Module</div>
+              </div>
+              <span id="diagDetailSeverity" class="card-badge" style="display:none;">INFO</span>
+            </div>
+
+            <div id="diagDetailBody" style="font-size:12px; color:#c7d5e4; line-height:1.5; margin-bottom:12px;">
+              No trouble codes detected in ECU memory. Engine is operating within factory MultiAir calibration parameters.
+            </div>
+
+            <!-- R.U.M. Mechanic Audio Briefing Card -->
+            <div class="diag-mechanic-card" id="diagMechanicBox" style="display:none;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span style="font-size:18px;">💜</span>
+                  <span style="font-size:12px; font-weight:900; color:var(--accent-pink);">R.U.M. MECHANIC DIAGNOSIS</span>
+                </div>
+                <button class="cluster-action-btn" onclick="speakMechanicBriefing()" style="background:var(--accent-pink); color:#fff; font-size:10px; font-weight:900; padding:4px 10px;">
+                  🗣️ SPEAK ANALYSIS
+                </button>
+              </div>
+              <p id="diagMechanicSpeechText" style="font-size:11.5px; color:#f0d0ff; line-height:1.5; margin:0;">
+                <!-- Filled dynamically -->
+              </p>
+            </div>
+
+            <!-- Freeze Frame & Emissions Section -->
+            <div style="margin-top:14px; border-top:1px solid rgba(255,255,255,0.08); padding-top:10px;">
+              <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px;">ECU FREEZE FRAME SNAPSHOT (AT TRIGGER TIME)</div>
+              <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; font-family:var(--font-mono); font-size:11px;">
+                <div style="background:rgba(0,0,0,0.3); padding:6px 8px; border-radius:6px; border:1px solid rgba(255,255,255,0.05);">RPM: <span id="ffRpm" style="color:#00e5ff;">--</span></div>
+                <div style="background:rgba(0,0,0,0.3); padding:6px 8px; border-radius:6px; border:1px solid rgba(255,255,255,0.05);">BOOST: <span id="ffBoost" style="color:#ffcc00;">--</span></div>
+                <div style="background:rgba(0,0,0,0.3); padding:6px 8px; border-radius:6px; border:1px solid rgba(255,255,255,0.05);">COOLANT: <span id="ffCoolant" style="color:#ff5263;">--</span></div>
+                <div style="background:rgba(0,0,0,0.3); padding:6px 8px; border-radius:6px; border:1px solid rgba(255,255,255,0.05);">SPEED: <span id="ffSpeed" style="color:#fff;">--</span></div>
+                <div style="background:rgba(0,0,0,0.3); padding:6px 8px; border-radius:6px; border:1px solid rgba(255,255,255,0.05);">ENGINE LOAD: <span id="ffLoad" style="color:#00e5ff;">--</span></div>
+                <div style="background:rgba(0,0,0,0.3); padding:6px 8px; border-radius:6px; border:1px solid rgba(255,255,255,0.05);">THROTTLE: <span id="ffThrottle" style="color:#00e5ff;">--</span></div>
+              </div>
+
+              <!-- Emissions Readiness -->
+              <div style="font-size:11px; font-weight:800; color:#fff; margin-top:12px; margin-bottom:6px;">I/M EMISSIONS READINESS MONITORS</div>
+              <div class="readiness-grid">
+                <div class="readiness-item ready"><span>MISFIRE</span><span class="readiness-val">READY</span></div>
+                <div class="readiness-item ready"><span>FUEL SYS</span><span class="readiness-val">READY</span></div>
+                <div class="readiness-item ready"><span>COMPONENTS</span><span class="readiness-val">READY</span></div>
+                <div class="readiness-item ready"><span>CATALYST</span><span class="readiness-val">READY</span></div>
+                <div class="readiness-item ready"><span>EVAP</span><span class="readiness-val">READY</span></div>
+                <div class="readiness-item ready"><span>O2 SENSOR</span><span class="readiness-val">READY</span></div>
+                <div class="readiness-item ready"><span>O2 HEATER</span><span class="readiness-val">READY</span></div>
+                <div class="readiness-item ready"><span>EGR / VVT</span><span class="readiness-val">READY</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7. TRIP LOGGER & FLIGHT RECORDER SCREEN -->
+    <div class="screen-view" id="screenTripLogger">
+      <div class="trip-container">
+        <!-- Top Header -->
+        <div class="trip-header-bar">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="font-size:22px;">📊</div>
+            <div>
+              <div style="font-size:14px; font-weight:900; color:#fff; letter-spacing:0.5px;">BLACK-BOX FLIGHT RECORDER & TRIP ARCHIVES</div>
+              <div style="font-size:11px; color:var(--text-secondary);">CONTINUOUS 16-SENSOR TELEMETRY LOGGING (SQLITE + SHA-256 MANIFESTS)</div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div id="tripLifetimeBadge" class="card-badge" style="background:rgba(0,176,255,0.15); color:var(--accent-blue); border:1px solid var(--accent-blue);">
+              LIFETIME: 0 MILES • 0 TRIPS
+            </div>
+            <button class="cluster-action-btn" onclick="exportCurrentTripManifest()" style="background:rgba(0,230,118,0.18); border:1.5px solid var(--accent-green); color:var(--accent-green); font-weight:900;">
+              📑 EXPORT LEGAL MANIFEST
+            </button>
+            <button class="cluster-action-btn" onclick="refreshTripsList()" style="border-color:#334455; color:var(--text-secondary);">
+              🔄 REFRESH
+            </button>
+          </div>
+        </div>
+
+        <!-- Main Split View -->
+        <div class="trip-main-split">
+          <!-- Left: Recorded Driving Sessions -->
+          <div class="trip-list-panel">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:6px;">
+              <span style="font-size:11px; font-weight:800; color:var(--text-secondary); letter-spacing:0.5px;">RECORDED SESSIONS</span>
+              <span id="tripsCountBadge" style="font-size:10px; color:var(--accent-blue); font-weight:800;">0 SESSIONS</span>
+            </div>
+
+            <div id="tripsListContainer" style="flex:1; overflow-y:auto;">
+              <!-- Populated dynamically -->
+            </div>
+
+            <div style="display:flex; gap:8px; margin-top:10px;">
+              <button class="cluster-action-btn" onclick="promptClearAllTrips()" style="flex:1; border-color:rgba(255,51,68,0.4); color:#ff5263; font-size:10px; font-weight:800;">
+                🗑️ PURGE ARCHIVES
+              </button>
+            </div>
+          </div>
+
+          <!-- Right: Selected Session Telemetry & Charts -->
+          <div class="trip-detail-panel">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
+              <div>
+                <div id="tripDetailTitle" style="font-size:16px; font-weight:900; color:#fff;">CURRENT DRIVE SESSION</div>
+                <div id="tripDetailSub" style="font-size:11px; color:var(--text-secondary); margin-top:2px;">Recording live 1Hz telemetry to local SQLite</div>
+              </div>
+              <span id="tripActiveBadge" class="card-badge" style="background:rgba(0,230,118,0.15); color:var(--accent-green); border:1px solid var(--accent-green);">RECORDING LIVE</span>
+            </div>
+
+            <!-- KPI Row -->
+            <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:8px; margin-bottom:12px;">
+              <div style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 10px;">
+                <div style="font-size:10px; color:var(--text-secondary); font-weight:800;">DISTANCE</div>
+                <div id="tripKpiMiles" style="font-size:16px; font-weight:900; color:#00e5ff; font-family:var(--font-mono);">0.0 mi</div>
+              </div>
+              <div style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 10px;">
+                <div style="font-size:10px; color:var(--text-secondary); font-weight:800;">DURATION</div>
+                <div id="tripKpiDuration" style="font-size:16px; font-weight:900; color:#fff; font-family:var(--font-mono);">0m 00s</div>
+              </div>
+              <div style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 10px;">
+                <div style="font-size:10px; color:var(--text-secondary); font-weight:800;">TOP SPEED</div>
+                <div id="tripKpiTopSpeed" style="font-size:16px; font-weight:900; color:var(--accent-red); font-family:var(--font-mono);">0 MPH</div>
+              </div>
+              <div style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 10px;">
+                <div style="font-size:10px; color:var(--text-secondary); font-weight:800;">PEAK BOOST</div>
+                <div id="tripKpiPeakBoost" style="font-size:16px; font-weight:900; color:var(--accent-yellow); font-family:var(--font-mono);">0.0 PSI</div>
+              </div>
+              <div style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 10px;">
+                <div style="font-size:10px; color:var(--text-secondary); font-weight:800;">PULLS COUNT</div>
+                <div id="tripKpiPulls" style="font-size:16px; font-weight:900; color:var(--accent-purple); font-family:var(--font-mono);">0 PULLS</div>
+              </div>
+            </div>
+
+            <!-- Telemetry Graph Canvas -->
+            <div style="flex:1; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px; display:flex; flex-direction:column; min-height:160px; position:relative;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                <span style="font-size:10px; font-weight:800; color:var(--text-secondary); letter-spacing:0.5px;">SPEED & BOOST TELEMETRY STREAM</span>
+                <div style="display:flex; gap:10px; font-size:10px; font-weight:800;">
+                  <span style="color:#00e5ff;">● SPEED (MPH)</span>
+                  <span style="color:#ffcc00;">● BOOST (PSI)</span>
+                  <span style="color:#ff5263;">● RPM / 100</span>
+                </div>
+              </div>
+              <canvas id="tripChartCanvas" style="width:100%; height:100%; flex:1;"></canvas>
+            </div>
+
+            <!-- SHA-256 Digital Verification Hash -->
+            <div style="margin-top:10px; font-family:var(--font-mono); font-size:10px; color:var(--text-secondary); display:flex; justify-content:space-between; align-items:center;">
+              <span>SHA-256 VERIFIED RECORD: <span id="tripShaHash" style="color:var(--accent-green);">7c9a41... (ACTIVE LIVE STREAM)</span></span>
+              <span>CARPI5 BLACK-BOX V2.4</span>
             </div>
           </div>
         </div>
