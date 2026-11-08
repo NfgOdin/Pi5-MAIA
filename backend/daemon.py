@@ -86,6 +86,7 @@ from hardware.audio_player import AudioPlayer
 from hardware.pedal_commander import PedalCommanderController
 from hardware.avrcp_listener import AvrcpListener
 from hardware.avrcp_player import AvrcpPlayerManager
+from hardware.gesture_detector import InCabinGestureController
 
 from games.rom_manager import RomManager
 
@@ -368,6 +369,17 @@ class CarPi5ServerState:
         
         self.avrcp = AvrcpListener(action_callback=on_avrcp_event)
         self.avrcp_player = AvrcpPlayerManager(action_callback=on_avrcp_event)
+        
+        def on_gesture_event(ev):
+            with self.lock:
+                self.latest_ui_action = {
+                    "type": "gesture",
+                    "gesture": ev.get("type"),
+                    "confidence": ev.get("confidence", 1.0)
+                }
+        self.gesture_ctrl = InCabinGestureController("/dev/video0")
+        self.gesture_ctrl.add_listener(on_gesture_event)
+        self.gesture_ctrl.start()
 
         self.settings_file = SETTINGS_FILE
 
@@ -1730,7 +1742,7 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
 
 
-        elif parsed.path == "/api/fs/devices":
+        elif parsed.path in ("/api/fs/devices", "/api/storage/devices"):
 
             drives = detect_usb_drives()
 
@@ -2287,6 +2299,15 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             return
 
 
+
+        elif parsed.path == "/api/gesture/status":
+            status = state.gesture_ctrl.get_status()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(status).encode("utf-8"))
+            return
 
         elif parsed.path == "/api/gpio/pins":
 
@@ -3910,6 +3931,21 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"status": "disabled", "message": "Fan controller disabled"}).encode("utf-8"))
             return
 
+        elif parsed.path == "/api/gesture/trigger":
+            gesture = req_data.get("gesture", "SWIPE_RIGHT")
+            with state.lock:
+                state.latest_ui_action = {
+                    "type": "gesture",
+                    "gesture": gesture,
+                    "confidence": 1.0
+                }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "gesture": gesture}).encode("utf-8"))
+            return
+
         elif parsed.path == "/api/gpio/toggle":
 
             bcm = req_data.get("bcm", 17)
@@ -3955,6 +3991,17 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             return
 
 
+
+        elif parsed.path == "/api/gpio/pwm":
+            bcm = req_data.get("bcm", 18)
+            duty = req_data.get("duty_cycle", 0.5)
+            state.gpio.set_pwm(bcm, duty)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "bcm": bcm, "duty_cycle": duty}).encode("utf-8"))
+            return
 
         elif parsed.path == "/api/gpio/pulse":
 

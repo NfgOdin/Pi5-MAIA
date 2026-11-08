@@ -294,8 +294,10 @@ class RealVehicleTelemetryReader:
 
         current_ratio = (rpm / wheel_rpm) / FINAL_DRIVE
 
-        # 1st Gear special tolerance for clutch engagement & launch (ratio: 3.909)
-        if speed_mph < 18.0 and (3.0 <= current_ratio <= 5.2):
+        # 1st Gear special tolerance for clutch engagement & launch (nominal ratio: 3.909)
+        # During clutch slip at takeoff (0-15 MPH), effective ratio spikes to 6.0-14.0.
+        # Since 2nd gear is 2.118, any ratio >= 2.75 under 18 MPH is definitively 1st gear!
+        if speed_mph < 18.0 and (current_ratio >= 2.75):
             self.last_locked_gear = "1"
             self.neutral_start_time = 0.0
             return "1"

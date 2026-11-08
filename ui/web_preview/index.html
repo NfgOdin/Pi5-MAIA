@@ -425,9 +425,21 @@
           <div id="libraryMarkdownContent"></div>
         </div>
 
-        <!-- PDF Document Viewport (Embedded iframe) -->
-        <div id="libraryPdfContainer" style="display:none; flex:1; height:100%; overflow:hidden;">
-          <iframe id="libraryPdfFrame" src="about:blank" style="width:100%; height:100%; border:none; background:#1a1f2c;"></iframe>
+        <!-- PDF Document Viewport with Dedicated Touch Navigation -->
+        <div id="libraryPdfContainer" style="display:none; flex:1; height:100%; flex-direction:column; overflow:hidden;">
+          <div style="display:flex; justify-content:space-between; align-items:center; background:#161d2a; padding:6px 14px; border-bottom:1px solid #1c2636; flex-shrink:0;">
+            <div style="display:flex; gap:8px; align-items:center;">
+              <span style="font-size:11px; font-weight:800; color:var(--text-secondary);">PAGE NAV:</span>
+              <button class="cluster-action-btn" onclick="document.getElementById('libraryPdfFrame').contentWindow.scrollBy({top: -300, behavior: 'smooth'})" style="padding:4px 12px; font-size:11px; min-height:36px;">▲ PREV PAGE</button>
+              <button class="cluster-action-btn" onclick="document.getElementById('libraryPdfFrame').contentWindow.scrollBy({top: 300, behavior: 'smooth'})" style="padding:4px 12px; font-size:11px; min-height:36px;">▼ NEXT PAGE</button>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <button class="cluster-action-btn" onclick="window.open(document.getElementById('libraryPdfFrame').src, '_blank')" style="padding:4px 12px; font-size:11px; min-height:36px; border-color:var(--accent-blue); color:var(--accent-blue);">⛶ EXPAND</button>
+            </div>
+          </div>
+          <div style="flex:1; height:calc(100% - 48px); overflow:hidden;">
+            <iframe id="libraryPdfFrame" src="about:blank" style="width:100%; height:100%; border:none; background:#1a1f2c;"></iframe>
+          </div>
         </div>
       </div>
     </div>
@@ -2983,31 +2995,108 @@
     </div>
   </div>
 
-  <!-- 40-PIN GPIO HEADER INSPECTOR MODAL -->
+  <!-- ADVANCED RASPBERRY PI 5 40-PIN GPIO & HARDWARE STUDIO (ODIN UPGRADE) -->
   <div class="config-modal-overlay" id="gpioModal">
-    <div class="config-modal-content" style="max-width:680px; border-color:var(--accent-green);">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:22px;">🔌</span>
+    <div class="config-modal-content" style="max-width:920px; width:95vw; height:540px; max-height:92vh; border-color:var(--accent-green); display:flex; flex-direction:column; padding:14px 18px; box-sizing:border-box; background:#0b0f17;">
+      <!-- Studio Header -->
+      <div style="display:flex; justify-content:space-between; align-items:center; padding-bottom:10px; border-bottom:1px solid #1c2636; flex-shrink:0;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:24px;">🔌</span>
           <div>
-            <h3 style="font-size:16px; font-weight:900; color:#fff;">RASPBERRY PI 5 40-PIN GPIO HEADER</h3>
-            <span style="font-size:10px; color:var(--text-secondary);">Interactive Pinout & State Monitor (Derived from O.D.I.N.)</span>
+            <h3 style="font-size:16px; font-weight:900; color:#fff; letter-spacing:0.5px; margin:0;">RASPBERRY PI 5 40-PIN EXPANSION HEADER STUDIO</h3>
+            <span style="font-size:10px; color:var(--text-secondary); font-weight:600;">RP1 Hardware Controller • Interactive PWM Sliders • 12V Automotive Relays • Pinout Monitor</span>
           </div>
         </div>
-        <button class="graph-close-btn" onclick="closeGpioModal()">✕</button>
-      </div>
-
-      <div style="max-height:360px; overflow-y:auto; margin-bottom:14px;">
-        <div id="gpioPinsGrid" style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
-          <!-- Injected dynamically via /api/gpio/pins -->
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button class="cluster-action-btn" onclick="triggerMorseBeacon()" style="font-size:10px; padding:4px 10px; color:var(--accent-red); border-color:var(--accent-red);">🚨 SOS BEACON</button>
+          <button class="graph-close-btn" onclick="closeGpioModal()">✕</button>
         </div>
       </div>
 
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <div style="font-size:10px; color:var(--text-secondary);">
-          Tap any GPIO pin to toggle output state (HIGH / LOW)
+      <!-- Studio Body (2 Columns: Left Pinout Board, Right Pin Inspector) -->
+      <div style="display:grid; grid-template-columns:1fr 340px; gap:14px; flex:1; min-height:0; overflow:hidden; margin-top:10px;">
+        <!-- Left: 40-Pin Visual Board Header -->
+        <div style="display:flex; flex-direction:column; background:#070a0f; border:1px solid #16202e; border-radius:10px; overflow:hidden;">
+          <!-- Legend Bar -->
+          <div style="display:flex; gap:10px; padding:6px 12px; background:#0f1522; border-bottom:1px solid #16202e; font-size:9px; font-weight:800; flex-wrap:wrap; flex-shrink:0;">
+            <span style="color:#ef4444;">● 5V</span>
+            <span style="color:#f97316;">● 3.3V</span>
+            <span style="color:#64748b;">● GND</span>
+            <span style="color:#00e5ff;">● I2C</span>
+            <span style="color:#a855f7;">● SPI</span>
+            <span style="color:#38bdf8;">● UART</span>
+            <span style="color:#eab308;">● PWM</span>
+            <span style="color:#22c55e;">● GPIO</span>
+          </div>
+          <!-- Pin List Viewport (Scrollable) -->
+          <div id="gpioBoardPinsContainer" style="flex:1; overflow-y:auto; padding:8px 10px; touch-action:pan-y;">
+            <div id="gpioPinsGrid" style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+              <!-- Populated dynamically via renderGpioBoardStudio() -->
+            </div>
+          </div>
         </div>
-        <button class="graph-close-btn" onclick="closeGpioModal()">CLOSE</button>
+
+        <!-- Right: Touch Pin Inspector & PWM / Relay Controller -->
+        <div id="gpioPinInspector" style="display:flex; flex-direction:column; background:#0f1522; border:1px solid #1c2636; border-radius:10px; padding:14px; gap:12px; overflow-y:auto;">
+          <!-- Selected Pin Header -->
+          <div style="border-bottom:1px solid #1c2636; padding-bottom:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span id="inspPinNumBadge" style="font-size:12px; font-weight:900; background:rgba(34,197,94,0.15); color:var(--accent-green); padding:3px 8px; border-radius:6px; border:1px solid var(--accent-green);">PIN 11</span>
+              <span id="inspPinStateBadge" style="font-size:11px; font-weight:900; color:#fff; background:#1c2636; padding:3px 10px; border-radius:6px;">STATE: LOW</span>
+            </div>
+            <div id="inspPinName" style="font-size:14px; font-weight:900; color:#fff; margin-top:6px;">GPIO 17</div>
+            <div id="inspPinDesc" style="font-size:10px; color:var(--text-secondary);">BCM 17 • Relay 1 (Aux Exterior Pod Lights)</div>
+          </div>
+
+          <!-- Mode Selector Tabs -->
+          <div style="display:flex; gap:6px;">
+            <button class="cluster-action-btn insp-mode-btn" id="btnModeOut" onclick="setPinModeFromInspector('OUT')" style="flex:1; font-size:11px; padding:6px 0; font-weight:800; border-color:var(--accent-green); color:var(--accent-green);">⚡ OUTPUT</button>
+            <button class="cluster-action-btn insp-mode-btn" id="btnModeIn" onclick="setPinModeFromInspector('IN')" style="flex:1; font-size:11px; padding:6px 0; font-weight:800; border-color:var(--accent-blue); color:var(--accent-blue);">📥 INPUT</button>
+            <button class="cluster-action-btn insp-mode-btn" id="btnModePwm" onclick="setPinModeFromInspector('PWM')" style="flex:1; font-size:11px; padding:6px 0; font-weight:800; border-color:var(--accent-yellow); color:var(--accent-yellow);">🌊 PWM</button>
+          </div>
+
+          <!-- Output Control Section -->
+          <div id="inspOutputSection" style="display:flex; flex-direction:column; gap:8px;">
+            <button class="cluster-action-btn" id="btnToggleOutput" onclick="toggleSelectedPinState()" style="padding:12px 14px; font-size:13px; font-weight:900; background:rgba(34,197,94,0.2); border-color:#22c55e; color:#22c55e; min-height:48px;">
+              ⚡ TOGGLE PIN (HIGH / LOW)
+            </button>
+            <button class="cluster-action-btn" onclick="pulseSelectedPin()" style="padding:8px 12px; font-size:11px; min-height:40px;">
+              ⏱️ PULSE TEST (0.5s TRIGGER)
+            </button>
+          </div>
+
+          <!-- PWM Control Section (Duty Cycle Slider for Fans & Dimming) -->
+          <div id="inspPwmSection" style="display:none; flex-direction:column; gap:8px; background:#090d14; padding:10px; border-radius:8px; border:1px solid #1c2636;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:11px; font-weight:800; color:var(--accent-yellow);">PWM DUTY CYCLE:</span>
+              <span id="inspPwmValueText" style="font-size:14px; font-weight:900; color:#fff;">50%</span>
+            </div>
+            <input type="range" id="inspPwmSlider" min="0" max="100" value="50" oninput="onPwmSliderChange(this.value)" style="width:100%; height:32px; cursor:pointer; accent-color:var(--accent-yellow);">
+            <div style="display:flex; gap:4px; justify-content:space-between;">
+              <button class="cluster-action-btn" onclick="setPwmPreset(0)" style="flex:1; font-size:9px; padding:4px 0;">0% OFF</button>
+              <button class="cluster-action-btn" onclick="setPwmPreset(25)" style="flex:1; font-size:9px; padding:4px 0;">25%</button>
+              <button class="cluster-action-btn" onclick="setPwmPreset(50)" style="flex:1; font-size:9px; padding:4px 0;">50%</button>
+              <button class="cluster-action-btn" onclick="setPwmPreset(75)" style="flex:1; font-size:9px; padding:4px 0;">75%</button>
+              <button class="cluster-action-btn" onclick="setPwmPreset(100)" style="flex:1; font-size:9px; padding:4px 0;">100%</button>
+            </div>
+          </div>
+
+          <!-- Input Read Section -->
+          <div id="inspInputSection" style="display:none; flex-direction:column; gap:6px; background:#090d14; padding:10px; border-radius:8px; border:1px solid #1c2636;">
+            <div style="font-size:11px; font-weight:800; color:var(--accent-blue);">INPUT SENSOR READING:</div>
+            <div id="inspInputReadingText" style="font-size:14px; font-weight:900; color:#fff;">LOGIC LOW (0.0V)</div>
+            <span style="font-size:9px; color:var(--text-secondary);">Pull-up resistor active • Connect contact switch to GND</span>
+          </div>
+
+          <!-- Custom Vehicle Accessory Label -->
+          <div style="margin-top:auto; padding-top:10px; border-top:1px solid #1c2636;">
+            <label style="font-size:10px; font-weight:800; color:var(--text-secondary); display:block; margin-bottom:4px;">VEHICLE ACCESSORY NAME:</label>
+            <div style="display:flex; gap:6px;">
+              <input type="text" id="inspPinLabelInput" placeholder="e.g. Intercooler Spray" style="flex:1; height:36px; background:#070a0f; border:1px solid #1c2636; border-radius:6px; padding:0 8px; color:#fff; font-size:11px;">
+              <button class="cluster-action-btn" onclick="saveSelectedPinLabel()" style="padding:6px 12px; font-size:10px; border-color:var(--accent-blue); color:var(--accent-blue);">SAVE</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>

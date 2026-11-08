@@ -1669,6 +1669,59 @@ function connectTelemetryStream() {
 
 
 
+    
+// --- AUDIBLE SHIFT CHIME & REDLINE HUD FLASH CONTROLLER ---
+let lastShiftBeepTime = 0;
+let audioCtxShift = null;
+
+function triggerShiftTone(rpm) {
+  const now = Date.now();
+  if (now - lastShiftBeepTime < 550) return; // Debounce
+  lastShiftBeepTime = now;
+
+  try {
+    if (!audioCtxShift) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) audioCtxShift = new AudioCtx();
+    }
+    if (audioCtxShift && audioCtxShift.state === 'suspended') {
+      audioCtxShift.resume();
+    }
+    if (audioCtxShift) {
+      const osc = audioCtxShift.createOscillator();
+      const gain = audioCtxShift.createGain();
+      
+      // High-pitched F1/Rally prompt tone: 2200Hz -> 2600Hz sweep
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(2200, audioCtxShift.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(2700, audioCtxShift.currentTime + 0.08);
+
+      gain.gain.setValueAtTime(0.4, audioCtxShift.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtxShift.currentTime + 0.12);
+
+      osc.connect(gain);
+      gain.connect(audioCtxShift.destination);
+
+      osc.start();
+      osc.stop(audioCtxShift.currentTime + 0.12);
+    }
+  } catch (e) {
+    console.warn("[AUDIO] Shift chime error:", e);
+  }
+
+  // Visual Redline Flash on header and cluster
+  const header = document.querySelector('.cluster-header');
+  if (header) {
+    header.classList.add('shift-redline-flash');
+    setTimeout(() => header.classList.remove('shift-redline-flash'), 180);
+  }
+}
+
+        // 2a. Audible Shift Chime & Redline Tach Warning (5,800+ RPM under load)
+    if (t.rpm && t.rpm >= 5800 && t.gear !== 'N' && t.gear !== '〜') {
+      triggerShiftTone(t.rpm);
+    }
+
     // 2. Header F1 Lights & Gear Badge
 
     const gearEl = document.getElementById('gearBadge');
@@ -3207,7 +3260,38 @@ function savePersonaMediaConfig() {
 
 
 
+
+// --- ELEMENTARY MOTION DETECTOR (EMD) GESTURE CONTROLLER ---
+function handleGestureEvent(gesture) {
+  if (!gesture) return;
+  console.log("[EMD GESTURE EVENT]", gesture);
+
+  if (gesture === 'SWIPE_RIGHT') {
+    nextTrack();
+    showAiSpeechToast("👉 GESTURE: NEXT TRACK");
+  } else if (gesture === 'SWIPE_LEFT') {
+    prevTrack();
+    showAiSpeechToast("👈 GESTURE: PREVIOUS TRACK");
+  } else if (gesture === 'SWIPE_UP') {
+    fetch('/api/avrcp/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'volume_up' })
+    }).catch(() => {});
+    showAiSpeechToast("👆 GESTURE: VOLUME UP");
+  } else if (gesture === 'SWIPE_DOWN') {
+    if (typeof closeGpioModal === 'function') closeGpioModal();
+    if (typeof closeDtcScanModal === 'function') closeDtcScanModal();
+    navigateTo('home');
+    showAiSpeechToast("👇 GESTURE: RETURN HOME");
+  } else if (gesture === 'LOOM_PUSH') {
+    togglePlayPause();
+    showAiSpeechToast("✋ GESTURE: PLAY / PAUSE");
+  }
+}
+
 function handleAiAction(action) {
+  if (action && action.type === 'gesture') { handleGestureEvent(action.gesture); return; }
 
   if (!action) return;
 
@@ -3942,6 +4026,7 @@ function scheduleShotgunAutoDismiss(delayMs = 2800) {
 function speakUtterance(text, emotion) {
 
   if (!text || currentVoiceMode === "MUTED") return;
+  setMediaDuckState(true);
 
 
 
@@ -3970,6 +4055,7 @@ function speakUtterance(text, emotion) {
   if (!eventSource || eventSource.readyState !== 1) {
 
     waifuSpeechEndTime = Date.now() + estimatedDurationMs;
+    setTimeout(() => { if (!isHardwareSpeaking) setMediaDuckState(false); }, estimatedDurationMs);
 
   }
 
@@ -8967,54 +9053,206 @@ function closeGpioModal() {
 
 
 
+let activeGpioPinsList = [];
+let selectedGpioPin = null;
+
+const PIN_COLOR_MAP = {
+  'power_5v':  '#ef4444',
+  'power_3v3': '#f97316',
+  'ground':    '#475569',
+  'i2c':       '#00e5ff',
+  'spi':       '#a855f7',
+  'uart':      '#38bdf8',
+  'pwm':       '#eab308',
+  'gpio':      '#22c55e'
+};
+
+function getPinCategory(p) {
+  if (p.name.includes('5V')) return 'power_5v';
+  if (p.name.includes('3.3V')) return 'power_3v3';
+  if (p.type === 'ground' || p.name.includes('Ground')) return 'ground';
+  if (p.name.includes('SDA') || p.name.includes('SCL')) return 'i2c';
+  if (p.name.includes('MOSI') || p.name.includes('MISO') || p.name.includes('SCLK') || p.name.includes('CE')) return 'spi';
+  if (p.name.includes('TXD') || p.name.includes('RXD')) return 'uart';
+  if (p.pwm || (p.name && p.name.includes('PWM'))) return 'pwm';
+  return 'gpio';
+}
+
 function fetchGpioPins() {
-
   fetch('/api/gpio/pins')
-
     .then(r => r.json())
-
     .then(pins => {
-
-      const grid = document.getElementById('gpioPinsGrid');
-
-      if (!grid) return;
-
-      grid.innerHTML = pins.map(p => {
-
-        const isGpio = p.type === "gpio";
-
-        const color = p.state ? "var(--accent-green)" : (p.type === "power" ? "var(--accent-red)" : "var(--text-secondary)");
-
-        return `
-
-          <div style="background:#0c1219; border:1px solid #1c2633; padding:8px 12px; border-radius:6px; display:flex; justify-content:space-between; align-items:center; ${isGpio ? 'cursor:pointer;' : ''}" ${isGpio ? `onclick="toggleRelay(${p.bcm}); setTimeout(fetchGpioPins, 80);"` : ''}>
-
-            <div style="display:flex; align-items:center; gap:8px;">
-
-              <span style="font-size:10px; font-weight:900; color:#607d8b; width:22px;">P${p.pin}</span>
-
-              <div>
-
-                <div style="font-size:11px; font-weight:800; color:#fff;">${p.name}</div>
-
-                <div style="font-size:9px; color:var(--text-secondary);">${p.type.toUpperCase()}${p.bcm !== null ? ` • BCM ${p.bcm}` : ''}</div>
-
-              </div>
-
-            </div>
-
-            <span style="font-size:10px; font-weight:900; color:${color};">${p.state ? 'HIGH' : 'LOW'}</span>
-
-          </div>
-
-        `;
-
-      }).join('');
-
+      activeGpioPinsList = pins || [];
+      renderGpioBoardStudio();
+      if (!selectedGpioPin && activeGpioPinsList.length > 0) {
+        // Default to BCM 17 (Pin 11) or first GPIO
+        const def = activeGpioPinsList.find(p => p.bcm === 17) || activeGpioPinsList[10];
+        selectGpioPinForInspector(def);
+      } else if (selectedGpioPin) {
+        const fresh = activeGpioPinsList.find(p => p.pin === selectedGpioPin.pin);
+        if (fresh) selectGpioPinForInspector(fresh, true);
+      }
     })
+    .catch(err => console.warn('[GPIO] Pins fetch error:', err));
+}
 
-    .catch(err => console.warn("[GPIO] Pins fetch error:", err));
+function renderGpioBoardStudio() {
+  const grid = document.getElementById('gpioPinsGrid');
+  if (!grid || !activeGpioPinsList.length) return;
 
+  // Render dual-column physical header: Pins 1-40 (Odd left, Even right)
+  let html = '';
+  for (let i = 0; i < 20; i++) {
+    const oddPin = activeGpioPinsList[i * 2];       // Pins 1, 3, 5...
+    const evenPin = activeGpioPinsList[i * 2 + 1];  // Pins 2, 4, 6...
+
+    [oddPin, evenPin].forEach(p => {
+      if (!p) return;
+      const cat = getPinCategory(p);
+      const dotColor = PIN_COLOR_MAP[cat] || '#22c55e';
+      const isSelected = selectedGpioPin && selectedGpioPin.pin === p.pin;
+      const isGpio = p.bcm !== null;
+      const stateBadge = p.state
+        ? `<span style="font-size:9px; font-weight:900; color:#22c55e; background:rgba(34,197,94,0.18); padding:2px 6px; border-radius:4px;">HIGH</span>`
+        : `<span style="font-size:9px; font-weight:800; color:#64748b; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px;">LOW</span>`;
+
+      html += `
+        <div onclick="onGpioPinClicked(${p.pin})" style="display:flex; align-items:center; justify-content:space-between; background:${isSelected ? 'rgba(34,197,94,0.12)' : '#0d131d'}; border:1.5px solid ${isSelected ? 'var(--accent-green)' : '#1a2333'}; border-radius:6px; padding:6px 10px; cursor:pointer; min-height:42px; transition:border-color 0.15s ease;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:${dotColor}; box-shadow:0 0 6px ${dotColor}; flex-shrink:0;"></span>
+            <span style="font-size:10px; font-weight:900; color:#94a3b8; width:22px;">P${p.pin}</span>
+            <div>
+              <div style="font-size:11px; font-weight:800; color:#fff; line-height:1.2;">${p.name.split(' (')[0]}</div>
+              <div style="font-size:9px; color:var(--text-secondary);">${p.bcm !== null ? `BCM ${p.bcm}` : cat.replace('_', ' ').toUpperCase()}</div>
+            </div>
+          </div>
+          <div>${isGpio ? stateBadge : `<span style="font-size:8px; font-weight:800; color:#64748b;">${cat.toUpperCase()}</span>`}</div>
+        </div>
+      `;
+    });
+  }
+  grid.innerHTML = html;
+}
+
+function onGpioPinClicked(pinNum) {
+  const p = activeGpioPinsList.find(x => x.pin === pinNum);
+  if (p) selectGpioPinForInspector(p);
+}
+
+function selectGpioPinForInspector(p, keepInputFocus = false) {
+  selectedGpioPin = p;
+  renderGpioBoardStudio();
+
+  const numBadge = document.getElementById('inspPinNumBadge');
+  const stateBadge = document.getElementById('inspPinStateBadge');
+  const nameEl = document.getElementById('inspPinName');
+  const descEl = document.getElementById('inspPinDesc');
+  const toggleBtn = document.getElementById('btnToggleOutput');
+  const labelInput = document.getElementById('inspPinLabelInput');
+
+  if (numBadge) numBadge.innerText = `PIN ${p.pin}`;
+  if (nameEl) nameEl.innerText = p.name;
+  if (descEl) descEl.innerText = p.bcm !== null ? `BCM ${p.bcm} • ${p.type.toUpperCase()}` : p.type.toUpperCase();
+
+  const isHigh = !!p.state;
+  if (stateBadge) {
+    stateBadge.innerText = isHigh ? 'STATE: HIGH (3.3V)' : 'STATE: LOW (0.0V)';
+    stateBadge.style.color = isHigh ? 'var(--accent-green)' : '#94a3b8';
+    stateBadge.style.background = isHigh ? 'rgba(34,197,94,0.2)' : '#1c2636';
+  }
+
+  if (toggleBtn) {
+    toggleBtn.innerText = isHigh ? '🔴 TURN OFF (DRIVE LOW)' : '⚡ TURN ON (DRIVE HIGH)';
+    toggleBtn.style.borderColor = isHigh ? '#ef4444' : '#22c55e';
+    toggleBtn.style.color = isHigh ? '#ef4444' : '#22c55e';
+  }
+
+  // Load custom label if present
+  if (labelInput && !keepInputFocus) {
+    labelInput.value = localStorage.getItem(`carpi5_gpio_label_${p.pin}`) || '';
+  }
+
+  // Mode UI sync
+  const curMode = p.mode || (p.pwm ? 'PWM' : 'OUT');
+  updateInspectorModeUI(curMode);
+}
+
+function updateInspectorModeUI(mode) {
+  const outSec = document.getElementById('inspOutputSection');
+  const inSec = document.getElementById('inspInputSection');
+  const pwmSec = document.getElementById('inspPwmSection');
+
+  if (outSec) outSec.style.display = (mode === 'OUT') ? 'flex' : 'none';
+  if (inSec) inSec.style.display = (mode === 'IN') ? 'flex' : 'none';
+  if (pwmSec) pwmSec.style.display = (mode === 'PWM') ? 'flex' : 'none';
+
+  ['btnModeOut', 'btnModeIn', 'btnModePwm'].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) b.classList.remove('active');
+  });
+
+  if (mode === 'OUT') document.getElementById('btnModeOut')?.classList.add('active');
+  else if (mode === 'IN') document.getElementById('btnModeIn')?.classList.add('active');
+  else if (mode === 'PWM') document.getElementById('btnModePwm')?.classList.add('active');
+}
+
+function setPinModeFromInspector(mode) {
+  if (!selectedGpioPin || selectedGpioPin.bcm === null) return;
+  selectedGpioPin.mode = mode;
+  updateInspectorModeUI(mode);
+  showAiSpeechToast(`Set BCM ${selectedGpioPin.bcm} to ${mode}`);
+}
+
+function toggleSelectedPinState() {
+  if (!selectedGpioPin || selectedGpioPin.bcm === null) return;
+  toggleRelay(selectedGpioPin.bcm);
+  setTimeout(fetchGpioPins, 120);
+}
+
+function pulseSelectedPin() {
+  if (!selectedGpioPin || selectedGpioPin.bcm === null) return;
+  fetch('/api/gpio/pulse', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bcm: selectedGpioPin.bcm, duration: 0.5 })
+  })
+    .then(r => r.json())
+    .then(() => {
+      showAiSpeechToast(`Pulsed BCM ${selectedGpioPin.bcm} (0.5s)`);
+      setTimeout(fetchGpioPins, 100);
+      setTimeout(fetchGpioPins, 600);
+    });
+}
+
+function onPwmSliderChange(val) {
+  const text = document.getElementById('inspPwmValueText');
+  if (text) text.innerText = `${val}%`;
+  if (selectedGpioPin && selectedGpioPin.bcm !== null) {
+    fetch('/api/gpio/pwm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bcm: selectedGpioPin.bcm, duty_cycle: parseFloat(val) / 100.0 })
+    }).catch(err => console.warn('[GPIO] PWM send err:', err));
+  }
+}
+
+function setPwmPreset(val) {
+  const slider = document.getElementById('inspPwmSlider');
+  if (slider) slider.value = val;
+  onPwmSliderChange(val);
+  if (selectedGpioPin && selectedGpioPin.bcm !== null) {
+    showAiSpeechToast(`PWM BCM ${selectedGpioPin.bcm}: ${val}%`);
+  }
+}
+
+function saveSelectedPinLabel() {
+  if (!selectedGpioPin) return;
+  const input = document.getElementById('inspPinLabelInput');
+  if (input) {
+    const val = input.value.trim();
+    localStorage.setItem(`carpi5_gpio_label_${selectedGpioPin.pin}`, val);
+    showAiSpeechToast(`Saved label: ${val || 'Default'}`);
+  }
 }
 
 
@@ -9599,7 +9837,7 @@ fetchTripLogs();
 
 function initTouchScrollEngine() {
   const scrollTargets = document.querySelectorAll(
-    '.screen-view, #screenSettings, #screenHome, #screenMedia, #screenGames, ' +
+    '.screen-view, #screenSettings, #screenHome, #screenMedia, #screenGames, #screenLibrary, #libraryMarkdownContainer, #libraryReaderView, #libraryShelfView, ' +
     '.explorer-body, .ai-chat-messages, #animGridContainer, #tripsListContainer, ' +
     '.trip-detail-panel, #diagCodesList, .diag-detail-panel, #trackListContainer, ' +
     '#fullAudioSuiteEqGrid, #mediaTrackList, .device-tabs-row, #animCategoriesBar'
@@ -20888,12 +21126,12 @@ function openLibraryBook(bookKey) {
     if (titleEl) titleEl.innerText = "📕 2013 DODGE DART OWNER'S MANUAL (1.4L TURBO MULTIAIR)";
     if (mdContainer) mdContainer.style.display = 'none';
     if (pdfContainer) pdfContainer.style.display = 'block';
-    if (pdfFrame) pdfFrame.src = "/storage/manuals/2013-Dodge-Dart-OM.pdf#toolbar=1&navpanes=1";
+    if (pdfFrame) pdfFrame.src = "http://127.0.0.1:8080/storage/manuals/2013-Dodge-Dart-OM.pdf#toolbar=1&navpanes=1";
   } else if (bookKey === 'dart_repair') {
     if (titleEl) titleEl.innerText = "📙 DODGE DART COLLISION & BODY SERVICE MANUAL (2012-2016)";
     if (mdContainer) mdContainer.style.display = 'none';
     if (pdfContainer) pdfContainer.style.display = 'block';
-    if (pdfFrame) pdfFrame.src = "/storage/manuals/Collision_Body_Repair_Manual_Dodge_Dart_2012-2016_253-document.pdf#toolbar=1&navpanes=1";
+    if (pdfFrame) pdfFrame.src = "http://127.0.0.1:8080/storage/manuals/Collision_Body_Repair_Manual_Dodge_Dart_2012-2016_253-document.pdf#toolbar=1&navpanes=1";
   }
 }
 

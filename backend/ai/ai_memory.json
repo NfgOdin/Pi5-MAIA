@@ -1,7 +1,7 @@
 {
-  "total_drives": 6,
+  "total_drives": 8,
   "first_boot_date": "2026-11-03T12:41:37.343592",
-  "last_boot_date": "2026-11-03T15:21:58.192072",
+  "last_boot_date": "2026-11-08T03:31:44.686204",
   "last_shutdown_date": null,
   "all_time_stats": {
     "peak_boost_ever": 18.2,
