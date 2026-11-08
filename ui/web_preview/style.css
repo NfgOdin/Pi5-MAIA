@@ -3522,6 +3522,22 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
   border-radius: 12px;
   padding: 8px 14px;
   flex-shrink: 0;
+  gap: 12px;
+  min-height: 48px;
+  box-sizing: border-box;
+}
+
+.diag-header-pill, .trip-header-pill {
+  position: static !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .diag-stats-row {
@@ -3576,8 +3592,32 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
   padding: 12px;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden !important;
+  height: 100%;
   min-height: 0;
+  box-sizing: border-box;
+}
+
+#diagCodesList {
+  flex: 1 1 0px !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  touch-action: pan-y !important;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
+#diagCodesList::-webkit-scrollbar {
+  width: 6px;
+}
+#diagCodesList::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+#diagCodesList::-webkit-scrollbar-thumb {
+  background: rgba(255, 170, 0, 0.4);
+  border-radius: 4px;
 }
 
 .diag-code-item {
@@ -3588,6 +3628,9 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
   margin-bottom: 8px;
   cursor: pointer;
   transition: all 0.15s ease;
+  touch-action: pan-y !important;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .diag-code-item:hover, .diag-code-item.active {
@@ -3668,6 +3711,17 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
   border-radius: 12px;
   padding: 8px 14px;
   flex-shrink: 0;
+  gap: 12px;
+  min-height: 48px;
+  box-sizing: border-box;
+}
+
+.trip-header-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+  height: 34px;
+  padding: 0 12px;
+  font-size: 11px;
 }
 
 .trip-main-split {
@@ -3676,6 +3730,7 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
   gap: 12px;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 .trip-list-panel {
@@ -3685,8 +3740,35 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
   padding: 12px;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden !important;
+  height: 100%;
   min-height: 0;
+  box-sizing: border-box;
+}
+
+#tripsListContainer {
+  flex: 1 1 0px !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  touch-action: pan-y !important;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
+#tripsListContainer::-webkit-scrollbar {
+  width: 6px;
+}
+#tripsListContainer::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+#tripsListContainer::-webkit-scrollbar-thumb {
+  background: rgba(0, 176, 255, 0.4);
+  border-radius: 4px;
+}
+#tripsListContainer::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-blue);
 }
 
 .trip-item-card {
@@ -3697,6 +3779,9 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
   margin-bottom: 8px;
   cursor: pointer;
   transition: all 0.15s ease;
+  touch-action: pan-y !important;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .trip-item-card:hover, .trip-item-card.active {
@@ -3713,6 +3798,20 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
   flex-direction: column;
   overflow-y: auto;
   min-height: 0;
+  touch-action: pan-y !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+.trip-detail-panel::-webkit-scrollbar {
+  width: 6px;
+}
+.trip-detail-panel::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+.trip-detail-panel::-webkit-scrollbar-thumb {
+  background: rgba(0, 176, 255, 0.3);
+  border-radius: 4px;
 }
 
 /* ==========================================================================

@@ -798,8 +798,10 @@ function navigateTo(screenId) {
 
   if (screenId === "diagnostics") {
     if (typeof refreshDiagnostics === "function") refreshDiagnostics();
+    if (typeof initTouchScrollEngine === "function") setTimeout(initTouchScrollEngine, 100);
   } else if (screenId === "trip") {
     if (typeof refreshTripsList === "function") refreshTripsList();
+    if (typeof initTouchScrollEngine === "function") setTimeout(initTouchScrollEngine, 100);
   } else if (screenId === "gauges") {
 
     requestAnimationFrame(() => {
@@ -9483,9 +9485,11 @@ fetchTripLogs();
 
 function initTouchScrollEngine() {
 
-  const scrollTargets = document.querySelectorAll('.screen-view, #screenSettings, #screenHome, #screenMedia, #screenGames, .explorer-body, .ai-chat-messages, #animGridContainer');
+  const scrollTargets = document.querySelectorAll('.screen-view, #screenSettings, #screenHome, #screenMedia, #screenGames, .explorer-body, .ai-chat-messages, #animGridContainer, #tripsListContainer, .trip-detail-panel, #diagCodesList, .diag-detail-panel');
 
   scrollTargets.forEach(el => {
+    if (!el || el.dataset.touchScrollInit) return;
+    el.dataset.touchScrollInit = 'true';
 
     let isDown = false;
 
@@ -9614,6 +9618,13 @@ function initTouchScrollEngine() {
     window.addEventListener('pointerup', endDrag, { passive: true });
 
     window.addEventListener('pointercancel', endDrag, { passive: true });
+
+    el.addEventListener('click', (e) => {
+      if (hasMoved) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    }, true);
 
   });
 
