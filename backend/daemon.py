@@ -349,6 +349,8 @@ class CarPi5ServerState:
         self.pedal_commander = PedalCommanderController()
         self.gps = GpsManager()
         self.gps.start()
+        self.pi3_dashcam_host = "http://10.0.0.2:8000"
+        self.pi3_host_last_check = 0
         
         def on_avrcp_event(act):
             with self.lock:
@@ -435,7 +437,30 @@ class CarPi5ServerState:
 
                 pass
 
+    def get_pi3_dashcam_host(self) -> str:
+        now = time.time()
+        if self.pi3_host_last_check and (now - self.pi3_host_last_check < 30):
+            return self.pi3_dashcam_host
 
+        candidates = [
+            "http://10.0.0.2:8000",       # Direct in-car Ethernet link (1st priority)
+            "http://carpi3.local:8000",   # mDNS fallback (Wi-Fi bench testing)
+            "http://192.168.0.141:8000",  # Static IP fallback
+        ]
+        import urllib.request
+        for cand in candidates:
+            try:
+                req = urllib.request.Request(f"{cand}/api/status", headers={"User-Agent": "CarPi5-Proxy"})
+                with urllib.request.urlopen(req, timeout=0.6) as r:
+                    if r.status == 200:
+                        self.pi3_dashcam_host = cand
+                        self.pi3_host_last_check = now
+                        return cand
+            except Exception:
+                continue
+
+        self.pi3_host_last_check = now
+        return self.pi3_dashcam_host
 
     def _load_settings(self) -> Dict[str, Any]:
 
@@ -1723,8 +1748,8 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
 
         elif parsed.path.startswith("/api/dashcam/") or parsed.path.startswith("/dashcam/"):
-            # Proxy dashcam requests from Pi 5 to Pi 3 over direct Ethernet (10.0.0.2:8000)
-            pi3_host = "http://10.0.0.2:8000"
+            # Proxy dashcam requests from Pi 5 to Pi 3 (auto-discovery: direct Ethernet 10.0.0.2 or Wi-Fi mDNS carpi3.local)
+            pi3_host = state.get_pi3_dashcam_host()
             subpath = parsed.path
             if subpath.startswith("/api/dashcam/"):
                 subpath = subpath[len("/api/dashcam/"):]
@@ -1762,6 +1787,7 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                     self.wfile.write(data)
                 resp.close()
             except Exception as e:
+                state.pi3_host_last_check = 0
                 try:
                     self.send_response(502)
                     self.send_header("Content-Type", "application/json")
