@@ -710,6 +710,8 @@ function navigateTo(screenId) {
 
     maps: document.getElementById('screenMaps'),
     dashcam: document.getElementById('screenDashcam'),
+    diagnostics: document.getElementById('screenDiagnostics'),
+    trip: document.getElementById('screenTripLogger'),
 
     settings: document.getElementById('screenSettings')
 
@@ -784,7 +786,21 @@ function navigateTo(screenId) {
 
   // Specific Screen Hooks
 
-  if (screenId === "gauges") {
+  // Cockpit top HOME button active state
+  const headerHome = document.getElementById('headerHomeBtn');
+  if (headerHome) {
+    if (screenId === 'home') {
+      headerHome.classList.add('on-home');
+    } else {
+      headerHome.classList.remove('on-home');
+    }
+  }
+
+  if (screenId === "diagnostics") {
+    if (typeof refreshDiagnostics === "function") refreshDiagnostics();
+  } else if (screenId === "trip") {
+    if (typeof refreshTripsList === "function") refreshTripsList();
+  } else if (screenId === "gauges") {
 
     requestAnimationFrame(() => {
 
@@ -795,7 +811,7 @@ function navigateTo(screenId) {
     setTimeout(resizeAllCanvases, 50);
 
   } else if (screenId === "ai") {
-
+    if (typeof dockCompanionToAi === "function") dockCompanionToAi();
     scrollChatToBottom();
 
     fetchAiHistory();
