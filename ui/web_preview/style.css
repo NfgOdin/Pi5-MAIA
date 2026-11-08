@@ -2648,6 +2648,66 @@ body {
 }
 
 
+/* ==========================================================================
+   ROOM CUSTOMIZER MODAL CARDS
+   ========================================================================== */
+.room-item-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.room-item-card:hover {
+  background: rgba(168, 85, 247, 0.12);
+  border-color: var(--accent-purple, #a855f7);
+}
+
+.room-item-card.active {
+  background: rgba(168, 85, 247, 0.2);
+  border-color: var(--accent-purple, #a855f7);
+  box-shadow: 0 0 15px rgba(168, 85, 247, 0.3);
+}
+
+.room-item-icon {
+  font-size: 26px;
+  flex-shrink: 0;
+}
+
+.room-item-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.room-item-name {
+  font-size: 13px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.room-item-sub {
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.room-item-toggle {
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+  accent-color: var(--accent-purple, #a855f7);
+}
+
 /* Full-Height 3D Avatar Stage & Unified Chat Layout */
 #screenAI.active {
   display: flex !important;

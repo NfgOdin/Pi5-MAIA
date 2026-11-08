@@ -3947,8 +3947,8 @@ function speakUtterance(text, emotion) {
 
 
   // 3. Fallback browser SpeechSynthesis ONLY for offline desktop browser preview (not on live Pi backend)
-
-  if (!isConnected && 'speechSynthesis' in window) {
+  const isDevPreview = window.location.protocol === 'file:';
+  if (isDevPreview && 'speechSynthesis' in window) {
 
     try {
 
@@ -11665,10 +11665,12 @@ let vrmInitialized = false;
 
 
 
-// 3D Multi-World Environment Suite (Sakura Garden, Loft, Cyber Garage, Repaired Bedroom)
+// 3D Multi-World Environment Suite (Custom Empty Room, Sakura Garden, Loft, Cyber Garage)
 let vrmEnvironmentGroup = null;
-const VRM_ENVIRONMENTS = ['GARDEN', 'LOFT', 'GARAGE', 'BEDROOM'];
-let currentEnvironmentName = localStorage.getItem('vrmEnvironment') || 'GARDEN';
+let vrmRoomPropsGroup = null;
+const VRM_ENVIRONMENTS = ['ROOM', 'GARDEN', 'LOFT', 'GARAGE'];
+let currentEnvironmentName = localStorage.getItem('vrmEnvironment') || 'ROOM';
+if (currentEnvironmentName === 'BEDROOM') currentEnvironmentName = 'ROOM';
 let vrmCurrentElevation = 0.0;
 let bedroomModel = null;
 let yoshiModel = null;
@@ -13941,6 +13943,11 @@ function initVrmEngine() {
       updateGardenOceanAndSky(time, delta);
     }
 
+    // 5b. 3D Basketball Physics & Dribbling Simulation
+    if (typeof updateBasketballPhysics === 'function') {
+      updateBasketballPhysics(delta);
+    }
+
     // 6. Render
 
     if (vrmRenderer && vrmScene && vrmCamera) {
@@ -15741,77 +15748,477 @@ function buildGardenEnvironment() {
   updateCelestialVisuals();
 }
 
-function buildBedroomEnvironment() {
+// ============================================================================
+// --- PURE ARCHITECTURAL EMPTY ROOM & MODULAR PROPS ENGINE ---
+// Clean procedural geometry: 4 walls, ceiling, hardwood floor, exactly ONE DOOR
+// Modular customizer items: Window, Bed, Closet, Mirror, Plant, Yoshi, Basketball
+// ============================================================================
+
+let roomWindowMesh = null;
+let roomBedMesh = null;
+let roomClosetMesh = null;
+let roomMirrorMesh = null;
+let roomPlantMesh = null;
+
+function loadRoomDecorationsConfig() {
+  try {
+    const raw = localStorage.getItem('rum_room_decorations');
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return {
+    door: true,
+    basketball: true,
+    window: true,
+    plant: true,
+    yoshi: true,
+    bed: false,
+    closet: false,
+    mirror: false
+  };
+}
+
+function saveRoomDecorationsConfig(cfg) {
+  try {
+    localStorage.setItem('rum_room_decorations', JSON.stringify(cfg));
+  } catch (e) {}
+}
+
+function buildEmptyRoomEnvironment() {
   clearVrmEnvironment();
 
-  // 1. Sleek Polished Hardwood Floor
-  const floorGeo = new THREE.PlaneGeometry(12, 12);
+  vrmRoomPropsGroup = new THREE.Group();
+  vrmEnvironmentGroup.add(vrmRoomPropsGroup);
+
+  // 1. Sleek Polished Hardwood Floor (10m x 9m)
+  const floorGeo = new THREE.PlaneGeometry(10, 9);
   const floorTex = createWoodPlankTexture();
-  const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.55, metalness: 0.1 });
+  const floorMat = new THREE.MeshStandardMaterial({
+    map: floorTex,
+    roughness: 0.52,
+    metalness: 0.08
+  });
   const floor = new THREE.Mesh(floorGeo, floorMat);
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(0, vrmBaseY - 0.005, 0);
   floor.receiveShadow = true;
   vrmEnvironmentGroup.add(floor);
 
-  // 2. Clean Back Accent Studio Wall
-  const backWallGeo = new THREE.PlaneGeometry(12, 6);
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x181c24, roughness: 0.85 });
+  // 2. Back Wall (Z = -3.5m)
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x181e28, roughness: 0.88 });
+  const backWallGeo = new THREE.PlaneGeometry(10, 4.0);
   const backWall = new THREE.Mesh(backWallGeo, wallMat);
-  backWall.position.set(0, vrmBaseY + 2.5, -2.8);
+  backWall.position.set(0, vrmBaseY + 2.0, -3.5);
+  backWall.receiveShadow = true;
   vrmEnvironmentGroup.add(backWall);
 
-  // 3. Wide Studio Panoramic Skybox Window
-  const winFrameGeo = new THREE.BoxGeometry(4.2, 2.4, 0.1);
-  const frameMat = new THREE.MeshStandardMaterial({ color: 0x0a0e14, roughness: 0.4 });
-  const winFrame = new THREE.Mesh(winFrameGeo, frameMat);
-  winFrame.position.set(0, vrmBaseY + 1.8, -2.75);
-  vrmEnvironmentGroup.add(winFrame);
+  // Baseboard trim on back wall
+  const baseboardMat = new THREE.MeshStandardMaterial({ color: 0x0c0f14, roughness: 0.6 });
+  const backTrim = new THREE.Mesh(new THREE.BoxGeometry(10, 0.12, 0.04), baseboardMat);
+  backTrim.position.set(0, vrmBaseY + 0.06, -3.48);
+  vrmEnvironmentGroup.add(backTrim);
 
-  // 4. Low-profile Walnut Side Table for Yoshi & Props
-  const tableTop = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.38, 0.38, 0.04, 24),
-    new THREE.MeshStandardMaterial({ color: 0x3d271d, roughness: 0.5 })
-  );
-  tableTop.position.set(0.66, vrmBaseY + 0.34, 0.16);
-  tableTop.receiveShadow = true;
-  vrmEnvironmentGroup.add(tableTop);
+  // 3. Right Wall (X = +4.5m)
+  const sideWallGeo = new THREE.PlaneGeometry(9, 4.0);
+  const rightWall = new THREE.Mesh(sideWallGeo, wallMat);
+  rightWall.rotation.y = -Math.PI / 2;
+  rightWall.position.set(4.5, vrmBaseY + 2.0, 0);
+  rightWall.receiveShadow = true;
+  vrmEnvironmentGroup.add(rightWall);
 
-  const tableLeg = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.04, 0.04, 0.34, 16),
-    new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.6, roughness: 0.3 })
-  );
-  tableLeg.position.set(0.66, vrmBaseY + 0.17, 0.16);
-  vrmEnvironmentGroup.add(tableLeg);
+  const rightTrim = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.12, 9), baseboardMat);
+  rightTrim.position.set(4.48, vrmBaseY + 0.06, 0);
+  vrmEnvironmentGroup.add(rightTrim);
 
-  // 5. Studio Ambient and Rim Lighting
-  const studioKey = new THREE.DirectionalLight(0xfff5ea, 1.4);
-  studioKey.position.set(2.0, vrmBaseY + 3.0, 3.5);
-  studioKey.castShadow = true;
-  vrmEnvironmentGroup.add(studioKey);
-  envLights.push(studioKey);
+  // 4. Left Wall (X = -4.5m) - HOUSES THE EXACTLY ONE DOOR
+  const leftWall = new THREE.Mesh(sideWallGeo, wallMat);
+  leftWall.rotation.y = Math.PI / 2;
+  leftWall.position.set(-4.5, vrmBaseY + 2.0, 0);
+  leftWall.receiveShadow = true;
+  vrmEnvironmentGroup.add(leftWall);
 
-  const rimLight = new THREE.PointLight(0xa066ff, 1.8, 8.0, 1.2);
-  rimLight.position.set(-1.8, vrmBaseY + 2.2, -1.0);
-  vrmEnvironmentGroup.add(rimLight);
-  envLights.push(rimLight);
+  const leftTrim = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.12, 9), baseboardMat);
+  leftTrim.position.set(-4.48, vrmBaseY + 0.06, 0);
+  vrmEnvironmentGroup.add(leftTrim);
 
-  updateYoshiEnvironmentRest();
-  createBasketballProp();
+  // --- THE ONE DOOR (Prominently modeled on Back-Left Wall) ---
+  const doorGroup = new THREE.Group();
+  doorGroup.position.set(-1.35, vrmBaseY, -3.46);
+  doorGroup.rotation.y = 0;
+
+  // Door Frame Casing (Espresso Dark Wood)
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x16110d, roughness: 0.5 });
+  const leftCasing = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.30, 0.06), frameMat);
+  leftCasing.position.set(-0.55, 1.15, 0);
+  const rightCasing = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.30, 0.06), frameMat);
+  rightCasing.position.set(0.55, 1.15, 0);
+  const topCasing = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.08, 0.06), frameMat);
+  topCasing.position.set(0, 2.30, 0);
+  doorGroup.add(leftCasing);
+  doorGroup.add(rightCasing);
+  doorGroup.add(topCasing);
+
+  // Inset Wooden Door Panel (Rich Walnut)
+  const doorMat = new THREE.MeshStandardMaterial({ color: 0x241810, roughness: 0.42 });
+  const doorPanel = new THREE.Mesh(new THREE.BoxGeometry(1.02, 2.22, 0.04), doorMat);
+  doorPanel.position.set(0, 1.11, -0.01);
+  doorGroup.add(doorPanel);
+
+  // Door Panel Molding Accents
+  const moldingMat = new THREE.MeshStandardMaterial({ color: 0x1c130c, roughness: 0.6 });
+  const upperMolding = new THREE.Mesh(new THREE.BoxGeometry(0.80, 0.90, 0.015), moldingMat);
+  upperMolding.position.set(0, 1.55, 0.015);
+  const lowerMolding = new THREE.Mesh(new THREE.BoxGeometry(0.80, 0.70, 0.015), moldingMat);
+  lowerMolding.position.set(0, 0.55, 0.015);
+  doorGroup.add(upperMolding);
+  doorGroup.add(lowerMolding);
+
+  // Brushed Brass Lever Handle & Rose
+  const handleMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.88, roughness: 0.22 });
+  const rose = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.015, 16), handleMat);
+  rose.rotation.x = Math.PI / 2;
+  rose.position.set(0.38, 1.05, 0.02);
+  const lever = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.018, 0.025), handleMat);
+  lever.position.set(0.44, 1.05, 0.035);
+  doorGroup.add(rose);
+  doorGroup.add(lever);
+
+  // Threshold Floor Light Gap (Amber light glow under door)
+  const thresholdMat = new THREE.MeshStandardMaterial({
+    color: 0xffaa44,
+    emissive: 0xff8811,
+    emissiveIntensity: 1.8
+  });
+  const thresholdStrip = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.015, 0.04), thresholdMat);
+  thresholdStrip.position.set(0, 0.008, 0);
+  doorGroup.add(thresholdStrip);
+
+  const doorHallwayLight = new THREE.PointLight(0xffa040, 1.2, 3.5, 1.8);
+  doorHallwayLight.position.set(0, 0.08, 0.2);
+  doorGroup.add(doorHallwayLight);
+
+  vrmEnvironmentGroup.add(doorGroup);
+
+  // 5. Clean Architectural Ceiling (Y = +3.6m)
+  const ceilingGeo = new THREE.PlaneGeometry(10, 9);
+  const ceilingMat = new THREE.MeshStandardMaterial({ color: 0x111620, roughness: 0.92 });
+  const ceiling = new THREE.Mesh(ceilingGeo, ceilingMat);
+  ceiling.rotation.x = Math.PI / 2;
+  ceiling.position.set(0, vrmBaseY + 3.6, 0);
+  vrmEnvironmentGroup.add(ceiling);
+
+  // Recessed pot light bezels in ceiling
+  const potGeo = new THREE.RingGeometry(0.08, 0.14, 20);
+  const potMat = new THREE.MeshBasicMaterial({ color: 0x4a5568, side: THREE.DoubleSide });
+  const p1 = new THREE.Mesh(potGeo, potMat); p1.rotation.x = Math.PI / 2; p1.position.set(-1.8, vrmBaseY + 3.59, -1.0); vrmEnvironmentGroup.add(p1);
+  const p2 = new THREE.Mesh(potGeo, potMat); p2.rotation.x = Math.PI / 2; p2.position.set(1.8, vrmBaseY + 3.59, -1.0); vrmEnvironmentGroup.add(p2);
+  const p3 = new THREE.Mesh(potGeo, potMat); p3.rotation.x = Math.PI / 2; p3.position.set(-1.8, vrmBaseY + 3.59, 1.2); vrmEnvironmentGroup.add(p3);
+  const p4 = new THREE.Mesh(potGeo, potMat); p4.rotation.x = Math.PI / 2; p4.position.set(1.8, vrmBaseY + 3.59, 1.2); vrmEnvironmentGroup.add(p4);
+
+  // 6. Architectural Lighting
+  const keyLight = new THREE.DirectionalLight(0xfff6ea, 1.4);
+  keyLight.position.set(2.4, vrmBaseY + 3.4, 3.2);
+  keyLight.castShadow = true;
+  vrmEnvironmentGroup.add(keyLight);
+  envLights.push(keyLight);
+
+  const fillLight = new THREE.PointLight(0xa855f7, 1.2, 9.0, 1.4);
+  fillLight.position.set(-2.6, vrmBaseY + 2.8, -1.2);
+  vrmEnvironmentGroup.add(fillLight);
+  envLights.push(fillLight);
+
+  // Apply active props according to user decorations config
+  applyRoomDecorations();
+}
+
+function buildRoomWindowProp() {
+  const group = new THREE.Group();
+  group.position.set(1.15, vrmBaseY + 2.0, -3.46);
+
+  // Window Outer Frame (2.2m x 1.8m)
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x0a0d12, roughness: 0.35 });
+  const outer = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.8, 0.08), frameMat);
+  group.add(outer);
+
+  // Dynamic Time-of-Day Scenic Sky / Horizon
+  const skyMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+  const skyPlane = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 1.6), skyMat);
+  skyPlane.position.set(0, 0, 0.01);
+  group.add(skyPlane);
+
+  // Window Pane Mullions / Grids
+  const mullionMat = new THREE.MeshStandardMaterial({ color: 0x111620, roughness: 0.4 });
+  const vert = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.6, 0.03), mullionMat);
+  vert.position.set(0, 0, 0.02);
+  const horiz = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.04, 0.03), mullionMat);
+  horiz.position.set(0, 0, 0.02);
+  group.add(vert);
+  group.add(horiz);
+
+  return group;
+}
+
+function buildRoomBedProp() {
+  const group = new THREE.Group();
+  group.position.set(-2.4, vrmBaseY, -2.1);
+
+  // Dark Platform Base
+  const baseMat = new THREE.MeshStandardMaterial({ color: 0x181410, roughness: 0.6 });
+  const base = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.28, 1.8), baseMat);
+  base.position.set(0, 0.14, 0);
+  group.add(base);
+
+  // Headboard
+  const hb = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.90, 0.10), baseMat);
+  hb.position.set(0, 0.60, -0.85);
+  group.add(hb);
+
+  // Plush Mattress
+  const matMat = new THREE.MeshStandardMaterial({ color: 0xeeece8, roughness: 0.8 });
+  const mat = new THREE.Mesh(new THREE.BoxGeometry(1.95, 0.22, 1.65), matMat);
+  mat.position.set(0, 0.39, 0.04);
+  group.add(mat);
+
+  // Folded Quilt / Duvet
+  const duvetMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.75 });
+  const duvet = new THREE.Mesh(new THREE.BoxGeometry(1.97, 0.12, 1.10), duvetMat);
+  duvet.position.set(0, 0.47, 0.32);
+  group.add(duvet);
+
+  // Pillows
+  const pilMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.9 });
+  const pil1 = new THREE.Mesh(new THREE.BoxGeometry(0.70, 0.12, 0.40), pilMat);
+  pil1.position.set(-0.50, 0.52, -0.55);
+  pil1.rotation.x = 0.2;
+  const pil2 = new THREE.Mesh(new THREE.BoxGeometry(0.70, 0.12, 0.40), pilMat);
+  pil2.position.set(0.50, 0.52, -0.55);
+  pil2.rotation.x = 0.2;
+  group.add(pil1);
+  group.add(pil2);
+
+  return group;
+}
+
+function buildRoomClosetProp() {
+  const group = new THREE.Group();
+  group.position.set(3.8, vrmBaseY, -1.8);
+  group.rotation.y = -Math.PI / 2;
+
+  // Armoire Body
+  const woodMat = new THREE.MeshStandardMaterial({ color: 0x201812, roughness: 0.5 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.35, 0.60), woodMat);
+  body.position.set(0, 1.175, 0);
+  group.add(body);
+
+  // Twin Door Inset Lines
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0x0f0b08 });
+  const line = new THREE.Mesh(new THREE.BoxGeometry(0.015, 2.25, 0.01), lineMat);
+  line.position.set(0, 1.175, 0.302);
+  group.add(line);
+
+  // Vertical Brass Handles
+  const hMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.85, roughness: 0.25 });
+  const h1 = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.32, 0.025), hMat);
+  h1.position.set(-0.06, 1.15, 0.315);
+  const h2 = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.32, 0.025), hMat);
+  h2.position.set(0.06, 1.15, 0.315);
+  group.add(h1);
+  group.add(h2);
+
+  return group;
+}
+
+function buildRoomMirrorProp() {
+  const group = new THREE.Group();
+  group.position.set(3.9, vrmBaseY, 0.8);
+  group.rotation.y = -Math.PI / 2;
+
+  // Standing Frame (Champagne Gold)
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.8, roughness: 0.25 });
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(0.80, 1.95, 0.06), frameMat);
+  frame.position.set(0, 0.98, 0);
+  group.add(frame);
+
+  // Reflective Glass Surface
+  const glassMat = new THREE.MeshStandardMaterial({
+    color: 0x94a3b8,
+    metalness: 0.95,
+    roughness: 0.05
+  });
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.70, 1.85), glassMat);
+  glass.position.set(0, 0.98, 0.032);
+  group.add(glass);
+
+  return group;
+}
+
+function buildRoomPlantProp() {
+  const group = new THREE.Group();
+  group.position.set(2.6, vrmBaseY, -2.6);
+
+  // Ceramic Pot
+  const potMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.4 });
+  const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.18, 0.46, 24), potMat);
+  pot.position.set(0, 0.23, 0);
+  group.add(pot);
+
+  // Soil
+  const soilMat = new THREE.MeshStandardMaterial({ color: 0x1f140e, roughness: 0.9 });
+  const soil = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.04, 20), soilMat);
+  soil.position.set(0, 0.44, 0);
+  group.add(soil);
+
+  // Stems & Leaves
+  const leafMat = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.6 });
+  for (let i = 0; i < 7; i++) {
+    const angle = (i / 7) * Math.PI * 2;
+    const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 8), leafMat);
+    leaf.scale.set(1.4, 0.2, 0.8);
+    leaf.rotation.y = angle;
+    leaf.rotation.z = 0.45;
+    leaf.position.set(Math.cos(angle) * 0.22, 0.55 + (i * 0.08), Math.sin(angle) * 0.22);
+    group.add(leaf);
+  }
+
+  return group;
+}
+
+function applyRoomDecorations() {
+  if (!vrmRoomPropsGroup) return;
+
+  // Clear existing modular props
+  while (vrmRoomPropsGroup.children.length > 0) {
+    vrmRoomPropsGroup.remove(vrmRoomPropsGroup.children[0]);
+  }
+
+  const cfg = loadRoomDecorationsConfig();
+
+  // 1. Studio Window
+  if (cfg.window) {
+    roomWindowMesh = buildRoomWindowProp();
+    vrmRoomPropsGroup.add(roomWindowMesh);
+  }
+
+  // 2. Platform Bed
+  if (cfg.bed) {
+    roomBedMesh = buildRoomBedProp();
+    vrmRoomPropsGroup.add(roomBedMesh);
+  }
+
+  // 3. Wardrobe Closet
+  if (cfg.closet) {
+    roomClosetMesh = buildRoomClosetProp();
+    vrmRoomPropsGroup.add(roomClosetMesh);
+  }
+
+  // 4. Full-Length Mirror
+  if (cfg.mirror) {
+    roomMirrorMesh = buildRoomMirrorProp();
+    vrmRoomPropsGroup.add(roomMirrorMesh);
+  }
+
+  // 5. Potted Plant
+  if (cfg.plant) {
+    roomPlantMesh = buildRoomPlantProp();
+    vrmRoomPropsGroup.add(roomPlantMesh);
+  }
+
+  // 6. Yoshi Plush
+  if (cfg.yoshi) {
+    if (!yoshiModel) {
+      loadYoshiPlushProp();
+    } else {
+      updateYoshiEnvironmentRest();
+      if (!vrmScene.children.includes(yoshiModel)) {
+        vrmScene.add(yoshiModel);
+      }
+    }
+  } else if (yoshiModel && !isHoldingYoshi) {
+    if (vrmScene.children.includes(yoshiModel)) {
+      vrmScene.remove(yoshiModel);
+    }
+  }
+
+  // 7. Interactive Basketball
+  if (cfg.basketball) {
+    createBasketballProp();
+    if (basketballMesh && !vrmScene.children.includes(basketballMesh)) {
+      vrmScene.add(basketballMesh);
+    }
+  } else if (basketballMesh && basketballState !== 'DRIBBLING') {
+    if (vrmScene.children.includes(basketballMesh)) {
+      vrmScene.remove(basketballMesh);
+    }
+  }
+
+  // Update Modal Checkboxes and Cards
+  syncRoomCustomizerUI(cfg);
+}
+
+function syncRoomCustomizerUI(cfg) {
+  const items = ['basketball', 'window', 'bed', 'closet', 'mirror', 'plant', 'yoshi'];
+  items.forEach(k => {
+    const cap = k.charAt(0).toUpperCase() + k.slice(1);
+    const chk = document.getElementById('chkRoom' + cap);
+    const card = document.getElementById('cardRoom' + cap);
+    const isChecked = !!cfg[k];
+    if (chk) chk.checked = isChecked;
+    if (card) {
+      if (isChecked) card.classList.add('active');
+      else card.classList.remove('active');
+    }
+  });
+}
+
+function openRoomCustomizerModal() {
+  const modal = document.getElementById('roomCustomizerModal');
+  if (!modal) return;
+  syncRoomCustomizerUI(loadRoomDecorationsConfig());
+  modal.style.display = 'flex';
+}
+
+function closeRoomCustomizerModal() {
+  const modal = document.getElementById('roomCustomizerModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function toggleRoomItem(key) {
+  const cfg = loadRoomDecorationsConfig();
+  cfg[key] = !cfg[key];
+  saveRoomDecorationsConfig(cfg);
+  applyRoomDecorations();
+}
+
+function clearAllRoomItems() {
+  const cfg = {
+    door: true,
+    basketball: false,
+    window: false,
+    plant: false,
+    yoshi: false,
+    bed: false,
+    closet: false,
+    mirror: false
+  };
+  saveRoomDecorationsConfig(cfg);
+  applyRoomDecorations();
+  speakUtterance('All cleared! Just a pure, peaceful empty room with our door, Master!');
+  setWaifuEmotion('HAPPY', '🛋️ PURE EMPTY ROOM');
 }
 
 function setVrmEnvironment(envName) {
-  currentEnvironmentName = envName || 'LOFT';
+  let target = (envName || 'ROOM').toUpperCase();
+  if (target === 'BEDROOM') target = 'ROOM';
+  currentEnvironmentName = target;
   localStorage.setItem('vrmEnvironment', currentEnvironmentName);
 
   if (currentEnvironmentName === 'GARAGE') {
     buildGarageEnvironment();
   } else if (currentEnvironmentName === 'GARDEN') {
     buildGardenEnvironment();
-  } else if (currentEnvironmentName === 'BEDROOM') {
-    buildBedroomEnvironment();
-  } else {
+  } else if (currentEnvironmentName === 'LOFT') {
     buildLoftEnvironment();
+  } else {
+    buildEmptyRoomEnvironment();
   }
 
   updateWorldButtonLabel();
@@ -15826,10 +16233,11 @@ function cycleVrmEnvironment() {
 function updateWorldButtonLabel() {
   const btn = document.getElementById('btnVrmWorldToggle');
   const labels = {
+    'ROOM': '🛋️ ROOM',
+    'BEDROOM': '🛋️ ROOM',
     'LOFT': '🏯 LOFT',
     'GARAGE': '🏎️ GARAGE',
-    'GARDEN': '🌸 GARDEN',
-    'BEDROOM': '🛏️ BEDROOM'
+    'GARDEN': '🌸 GARDEN'
   };
   if (btn) btn.innerText = labels[currentEnvironmentName] || '🏯 LOFT';
 }
@@ -15970,11 +16378,22 @@ function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, 
       vrmRoamCurrentRotY = 0.0;
     }
     if (now >= vrmNextRoamTime) {
-      const candidates = VRM_ROAM_WAYPOINTS.filter(wp => {
+      const activeWaypoints = (currentEnvironmentName === 'ROOM' || currentEnvironmentName === 'BEDROOM')
+        ? [
+            { x: -2.8, z: -0.6, name: 'Doorway' },
+            { x: 0.0, z: 0.2, name: 'Room Center' },
+            { x: 2.2, z: -1.6, name: 'Window Side' },
+            { x: -1.4, z: 1.4, name: 'Front Left' },
+            { x: 1.8, z: 0.8, name: 'Front Right' },
+            { x: 0.6, z: -2.0, name: 'Back Wall' }
+          ]
+        : VRM_ROAM_WAYPOINTS;
+
+      const candidates = activeWaypoints.filter(wp => {
         const d = Math.hypot(wp.x - vrmRoamCurrentPos.x, wp.z - vrmRoamCurrentPos.z);
         return d > 0.22;
       });
-      const wp = candidates[Math.floor(Math.random() * candidates.length)] || VRM_ROAM_WAYPOINTS[0];
+      const wp = candidates[Math.floor(Math.random() * candidates.length)] || activeWaypoints[0];
       vrmRoamCurrentWaypoint = wp;
       vrmRoamTargetPos = { x: wp.x, z: wp.z };
 
@@ -16160,6 +16579,15 @@ function initAvatarPokeRaycaster(canvas) {
 
 
 
+    // 0. Check if user tapped Basketball
+    if (basketballMesh) {
+      const ballHits = raycaster.intersectObjects(basketballMesh.children, true);
+      if (ballHits.length > 0) {
+        triggerBasketballDribbleAction();
+        return;
+      }
+    }
+
     // 1. Check if user tapped Yoshi Plush
 
     if (yoshiModel) {
@@ -16286,62 +16714,199 @@ function triggerYoshiPlushInteraction() {
   }
 }
 
-// 3D Interactive Basketball with Physics Bounce
+// ============================================================================
+// --- 3D INTERACTIVE BASKETBALL WITH REAL GRAVITY & BOUNCE PHYSICS ---
+// g = -9.8 m/s^2, restitution = 0.78, harmonic hand dribbling, arc shot/toss
+// ============================================================================
+
 let basketballMesh = null;
-let isHoldingBasketball = false;
-let isBouncingBasketball = false;
-let basketballVy = 0.0;
+let basketballState = 'REST'; // 'REST', 'DRIBBLING', 'TOSS'
+let basketballPos = new THREE.Vector3(0.48, vrmBaseY + 0.12, 0.22);
+let basketballVel = new THREE.Vector3(0, 0, 0);
+let basketballDribbleTimer = 0;
+const BASKETBALL_RADIUS = 0.12;
+const BASKETBALL_RESTITUTION = 0.78;
+const BASKETBALL_GRAVITY = -9.8;
+
+function createBasketballTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+
+  // Base basketball warm orange leather
+  ctx.fillStyle = '#d35400';
+  ctx.fillRect(0, 0, 512, 256);
+
+  // Leather pebbled grain dots
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+  for (let x = 0; x < 512; x += 4) {
+    for (let y = 0; y < 256; y += 4) {
+      if ((x + y) % 8 === 0) {
+        ctx.fillRect(x + (Math.random() * 2), y + (Math.random() * 2), 1.5, 1.5);
+      }
+    }
+  }
+
+  // Black molded rubber seams
+  ctx.strokeStyle = '#111111';
+  ctx.lineWidth = 6;
+  ctx.lineCap = 'round';
+
+  // Equator horizontal seam
+  ctx.beginPath();
+  ctx.moveTo(0, 128);
+  ctx.lineTo(512, 128);
+  ctx.stroke();
+
+  // Vertical meridians
+  ctx.beginPath();
+  ctx.moveTo(128, 0);
+  ctx.lineTo(128, 256);
+  ctx.moveTo(256, 0);
+  ctx.lineTo(256, 256);
+  ctx.moveTo(384, 0);
+  ctx.lineTo(384, 256);
+  ctx.stroke();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
 
 function createBasketballProp() {
-  if (basketballMesh || typeof THREE === 'undefined' || !vrmScene) return;
+  if (basketballMesh) return;
   const group = new THREE.Group();
-  const ballGeo = new THREE.SphereGeometry(0.12, 32, 32);
+
+  const ballTex = createBasketballTexture();
   const ballMat = new THREE.MeshStandardMaterial({
-    color: 0xd65a19,
-    roughness: 0.65,
+    map: ballTex,
+    roughness: 0.62,
     metalness: 0.05
   });
-  const sphere = new THREE.Mesh(ballGeo, ballMat);
+  const sphere = new THREE.Mesh(new THREE.SphereGeometry(BASKETBALL_RADIUS, 32, 32), ballMat);
   sphere.castShadow = true;
   group.add(sphere);
 
+  // Black 3D rib rings for tactile visual depth
   const seamMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
-  const seam1 = new THREE.Mesh(new THREE.TorusGeometry(0.1205, 0.003, 8, 32), seamMat);
-  const seam2 = new THREE.Mesh(new THREE.TorusGeometry(0.1205, 0.003, 8, 32), seamMat);
+  const seam1 = new THREE.Mesh(new THREE.TorusGeometry(BASKETBALL_RADIUS + 0.001, 0.003, 8, 32), seamMat);
+  const seam2 = new THREE.Mesh(new THREE.TorusGeometry(BASKETBALL_RADIUS + 0.001, 0.003, 8, 32), seamMat);
   seam2.rotation.x = Math.PI / 2;
-  const seam3 = new THREE.Mesh(new THREE.TorusGeometry(0.1205, 0.003, 8, 32), seamMat);
+  const seam3 = new THREE.Mesh(new THREE.TorusGeometry(BASKETBALL_RADIUS + 0.001, 0.003, 8, 32), seamMat);
   seam3.rotation.y = Math.PI / 2;
   group.add(seam1);
   group.add(seam2);
   group.add(seam3);
 
-  group.position.set(0.48, vrmBaseY + 0.12, 0.22);
+  group.position.set(0.48, vrmBaseY + BASKETBALL_RADIUS, 0.22);
   basketballMesh = group;
-  vrmScene.add(basketballMesh);
+  if (vrmScene) vrmScene.add(basketballMesh);
 }
 
-function triggerBasketballInteraction() {
+function triggerBasketballDribbleAction() {
   if (!basketballMesh) createBasketballProp();
-  isHoldingBasketball = !isHoldingBasketball;
-  if (isHoldingBasketball) {
-    isBouncingBasketball = false;
-    attachPropToVrmHand(basketballMesh, 'rightHand');
-    playVrmAction('pose_v_sign', 3500);
-    setWaifuEmotion('HAPPY', '🏀 BASKETBALL TIME!');
-    speakUtterance('Check this out, Master! I have a basketball! Want to see me shoot or bounce it?');
+
+  if (basketballState === 'REST') {
+    basketballState = 'DRIBBLING';
+    basketballDribbleTimer = 0;
+    playVrmAction('pose_v_sign', 4000);
+    setWaifuEmotion('HAPPY', '🏀 DRIBBLING • CROSSOVER');
+    speakUtterance('Check this out, Master! Smooth hardwood crossover bounce!');
+  } else if (basketballState === 'DRIBBLING') {
+    // Transition to high arc shot / toss!
+    basketballState = 'TOSS';
+    basketballVel.set(0.25, 3.4, -0.6);
+    playVrmAction('wave', 3500);
+    setWaifuEmotion('EXCITED', '🏀 THREE POINTER! SWOOSH');
+    speakUtterance('From three-point range! Swoosh! High arc shot!');
   } else {
-    detachPropFromVrmHand(basketballMesh);
-    isBouncingBasketball = true;
-    basketballVy = 2.4;
-    playVrmAction('wave', 3000);
-    speakUtterance('Bounce, bounce! High score!');
+    // Catch / Reset
+    basketballState = 'REST';
+    basketballVel.set(0, 0, 0);
+    basketballMesh.position.set(0.48, vrmBaseY + BASKETBALL_RADIUS, 0.22);
+    setWaifuEmotion('DEVOTED', '🏀 BALL AT REST');
   }
 }
 
+function triggerBasketballInteraction() {
+  triggerBasketballDribbleAction();
+}
 
+function updateBasketballPhysics(delta) {
+  if (!basketballMesh) return;
+  const floorY = vrmBaseY + BASKETBALL_RADIUS;
 
+  if (basketballState === 'DRIBBLING') {
+    basketballDribbleTimer += delta * 11.0;
+    const phase = basketballDribbleTimer % Math.PI;
+    const bounceHeight = Math.sin(phase) * 0.58;
 
+    // Follow Rum position with smooth right-side offset
+    const targetX = vrmRoamCurrentPos.x + 0.36;
+    const targetZ = vrmRoamCurrentPos.z + 0.26;
+    basketballMesh.position.x = targetX;
+    basketballMesh.position.z = targetZ;
+    basketballMesh.position.y = floorY + bounceHeight;
+    basketballMesh.rotation.x += delta * 7.5;
 
+    // Universal Humanoid Hand Tracking: Position right hand right on top of ball during down-push
+    if (currentVrm && currentVrm.humanoid) {
+      const rightHand = currentVrm.humanoid.getNormalizedBoneNode('rightHand') || currentVrm.humanoid.getBoneNode('rightHand');
+      if (rightHand) {
+        if (bounceHeight > 0.45) {
+          // Hand hovers and guides downward
+          rightHand.rotation.x = -0.3;
+          rightHand.rotation.z = 0.2;
+        }
+      }
+    }
+  } else if (basketballState === 'TOSS') {
+    // Real Gravity Integration
+    basketballVel.y += BASKETBALL_GRAVITY * delta;
+    basketballMesh.position.x += basketballVel.x * delta;
+    basketballMesh.position.y += basketballVel.y * delta;
+    basketballMesh.position.z += basketballVel.z * delta;
+
+    // Rotational spin
+    basketballMesh.rotation.x += delta * 6.5;
+    basketballMesh.rotation.y += delta * 2.8;
+
+    // Wall Bounces (X between -3.8 and 3.8, Z between -3.2 and 3.2)
+    if (basketballMesh.position.x < -3.8) {
+      basketballMesh.position.x = -3.8;
+      basketballVel.x = -basketballVel.x * 0.72;
+    } else if (basketballMesh.position.x > 3.8) {
+      basketballMesh.position.x = 3.8;
+      basketballVel.x = -basketballVel.x * 0.72;
+    }
+    if (basketballMesh.position.z < -3.2) {
+      basketballMesh.position.z = -3.2;
+      basketballVel.z = -basketballVel.z * 0.72;
+    } else if (basketballMesh.position.z > 3.2) {
+      basketballMesh.position.z = 3.2;
+      basketballVel.z = -basketballVel.z * 0.72;
+    }
+
+    // Floor Impact & Restitution Bounce
+    if (basketballMesh.position.y <= floorY) {
+      basketballMesh.position.y = floorY;
+      basketballVel.y = -basketballVel.y * BASKETBALL_RESTITUTION;
+      basketballVel.x *= 0.86;
+      basketballVel.z *= 0.86;
+
+      // When bounce energy dissipates, settle into restful state
+      if (Math.abs(basketballVel.y) < 0.16) {
+        basketballVel.set(0, 0, 0);
+        basketballState = 'REST';
+      }
+    }
+  } else {
+    // REST state: firmly anchored to hardwood floor
+    basketballMesh.position.y = floorY;
+  }
+}
 
 // --- 9. IN-DASH WEB BROWSER CONTROLLER ---
 
