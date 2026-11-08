@@ -11653,8 +11653,8 @@ let envLights = [];
 let sakuraPetals = [];
 let isHoldingYoshi = false;
 
-// 3D VRM Avatar Character Selection (Rem / Rum)
-let currentVrmModelName = localStorage.getItem('vrmCurrentAvatar') || 'Rem.vrm';
+// 3D VRM Avatar Character Selection (Default to Rum)
+let currentVrmModelName = localStorage.getItem('vrmCurrentAvatar') || 'Rum.vrm';
 
 // Autonomous Roaming State Engine
 let vrmRoamEnabled = (localStorage.getItem('vrmRoamEnabled') !== 'false');
@@ -14001,7 +14001,7 @@ function updateCameraDirector(delta, isSpeaking, isReacting) {
 
 
 
-function loadRumVrmModel(modelName = (currentVrmModelName || 'Rem.vrm')) {
+function loadRumVrmModel(modelName = (currentVrmModelName || 'Rum.vrm')) {
 
   currentVrmModelName = modelName;
   localStorage.setItem('vrmCurrentAvatar', modelName);
