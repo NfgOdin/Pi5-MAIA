@@ -2496,6 +2496,157 @@ body {
   transform: translateY(0);
 }
 
+/* ==========================================================================
+   FLOATING MINIMIZED R.U.M. OVERLAY BUBBLE
+   ========================================================================== */
+.vrm-mini-bubble {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  height: 48px;
+  min-width: 148px;
+  max-width: 230px;
+  padding: 4px 12px 4px 8px;
+  z-index: 1045;
+  background: radial-gradient(circle at center, rgba(22, 28, 44, 0.96) 0%, rgba(10, 14, 22, 0.98) 100%);
+  border: 2px solid var(--accent-purple, #a855f7);
+  border-radius: 26px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), 0 0 16px rgba(168, 85, 247, 0.45);
+  backdrop-filter: blur(14px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.vrm-mini-bubble:hover {
+  transform: translateY(-2px) scale(1.03);
+  border-color: var(--accent-pink, #ff4081);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.7), 0 0 22px rgba(255, 64, 129, 0.6);
+}
+
+.vrm-mini-bubble:active {
+  transform: scale(0.97);
+}
+
+.vrm-mini-bubble.talking {
+  border-color: var(--accent-pink, #ff4081) !important;
+  box-shadow: 0 0 25px rgba(255, 64, 129, 0.85), 0 0 12px #ff4081 !important;
+  animation: miniBubbleTalking 1.2s infinite ease-in-out;
+}
+
+@keyframes miniBubbleTalking {
+  0% { transform: scale(1.0); box-shadow: 0 0 15px rgba(255, 64, 129, 0.6); }
+  50% { transform: scale(1.06); box-shadow: 0 0 30px rgba(255, 64, 129, 0.95); }
+  100% { transform: scale(1.0); box-shadow: 0 0 15px rgba(255, 64, 129, 0.6); }
+}
+
+.vrm-mini-avatar-wrap {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(168, 85, 247, 0.25);
+  border: 1.5px solid var(--accent-purple, #a855f7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  flex-shrink: 0;
+}
+
+.vrm-mini-info {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  line-height: 1.15;
+}
+
+.vrm-mini-name {
+  font-size: 12px;
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: 0.5px;
+}
+
+.vrm-mini-status {
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--accent-lavender, #c084fc);
+  letter-spacing: 0.5px;
+}
+
+.vrm-mini-speech-badge {
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 2px;
+}
+
+.vrm-mini-bubble.talking .vrm-mini-speech-badge span {
+  animation: miniSpeechBounce 0.6s infinite alternate;
+  display: inline-block;
+  color: var(--accent-pink);
+  text-shadow: 0 0 8px #ff4081;
+}
+
+@keyframes miniSpeechBounce {
+  from { transform: scale(1.0) translateY(0); }
+  to { transform: scale(1.25) translateY(-2px); }
+}
+
+.vrm-mini-close-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
+  font-weight: 900;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  margin-left: auto;
+}
+
+.vrm-mini-close-btn:hover {
+  color: #ff5263;
+  background: rgba(255, 51, 68, 0.2);
+}
+
+.vrm-mini-speech-tooltip {
+  position: absolute;
+  bottom: 56px;
+  right: 0;
+  max-width: 260px;
+  min-width: 140px;
+  background: rgba(12, 16, 26, 0.96);
+  border: 1.5px solid var(--accent-pink);
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.35;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.7), 0 0 14px rgba(255, 64, 129, 0.4);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: all 0.2s ease;
+  z-index: 1050;
+}
+
+.vrm-mini-speech-tooltip.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 
 /* Full-Height 3D Avatar Stage & Unified Chat Layout */
 #screenAI.active {

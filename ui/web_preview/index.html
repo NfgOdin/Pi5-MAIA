@@ -2723,7 +2723,7 @@
       <span class="vrm-hud-title" id="vrmHudTitle"><span>💜</span> RUM • SHOTGUN</span>
       <div class="vrm-hud-actions">
         <button class="vrm-hud-btn" id="btnHudViewToggle" onclick="toggleVrmFraming()" title="Toggle Camera Framing (Portrait / Full Body / Room)">🔍</button>
-        <button class="vrm-hud-btn" id="btnHudMinimize" onclick="minimizeFloatingCompanion()" title="Minimize to Top Bar Pill">➖ MIN</button>
+        <button class="vrm-hud-btn" id="btnHudMinimize" onclick="minimizeFloatingCompanion()" title="Minimize to Floating Bubble">➖ MIN</button>
         <button class="vrm-hud-btn" onclick="dockCompanionToAi()" title="Dock Rum back into R.U.M. tab">⬇ DOCK</button>
         <button class="vrm-hud-btn close" onclick="dismissFloatingHud()" title="Dismiss / Hide Rum">✕</button>
       </div>
@@ -2732,6 +2732,23 @@
       <div id="vrmHudBubble" class="vrm-hud-speech-bubble">Ready for full boost, Master!</div>
       <!-- vrmCanvas moves here when floating! -->
     </div>
+  </div>
+
+  <!-- FLOATING MINIMIZED COMPANION OVERLAY BUBBLE (When Minimized from Shotgun) -->
+  <div id="vrmMiniBubble" class="vrm-mini-bubble" style="display:none;" onclick="expandFloatingCompanion()" title="R.U.M. Minimized • Tap to Expand Shotgun">
+    <div class="vrm-mini-avatar-wrap">
+      <span class="vrm-mini-heart">💜</span>
+    </div>
+    <div class="vrm-mini-info">
+      <span class="vrm-mini-name">R.U.M.</span>
+      <span class="vrm-mini-status" id="vrmMiniStatus">SHOTGUN</span>
+    </div>
+    <div class="vrm-mini-speech-badge" id="vrmMiniSpeechBadge">
+      <span id="vrmMiniSpeechIcon">💬</span>
+    </div>
+    <button class="vrm-mini-close-btn" onclick="event.stopPropagation(); dismissFloatingHud();" title="Close / Dock Rum">✕</button>
+    <!-- Live speech bubble tooltip when speaking while minimized -->
+    <div id="vrmMiniSpeechTooltip" class="vrm-mini-speech-tooltip">Ready for full boost, Master!</div>
   </div>
 
   <!-- HARDWARE / SCREEN BRIGHTNESS OVERLAY -->

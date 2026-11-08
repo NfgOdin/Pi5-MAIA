@@ -1800,6 +1800,12 @@ function connectTelemetryStream() {
         else rumPill.classList.remove('speaking');
       }
 
+      const mini = document.getElementById('vrmMiniBubble');
+      if (mini) {
+        if (isWaifuSpeaking) mini.classList.add('talking');
+        else mini.classList.remove('talking');
+      }
+
       if (data.is_speaking && currentScreen !== 'ai' && !window.isCompanionMinimizedByUser) {
         handleSpeechAutoShotgun(null, 4500);
       } else if (wasSpeaking && !data.is_speaking) {
@@ -14322,21 +14328,26 @@ function setVrmSpeaking(durationMs, text, forceTimer = false) {
     const hud = document.getElementById('vrmFloatingHud');
 
     if (bubble) {
-
       bubble.innerText = text;
-
       bubble.classList.add('show');
-
       if (hud) hud.classList.add('talking');
-
+      const mini = document.getElementById('vrmMiniBubble');
+      const miniTooltip = document.getElementById('vrmMiniSpeechTooltip');
+      if (mini && mini.style.display !== 'none') {
+        mini.classList.add('talking');
+        if (miniTooltip) {
+          miniTooltip.innerText = text;
+          miniTooltip.classList.add('show');
+        }
+      }
       setTimeout(() => {
-
         bubble.classList.remove('show');
-
         if (hud) hud.classList.remove('talking');
-
+        if (mini) {
+          mini.classList.remove('talking');
+          if (miniTooltip) miniTooltip.classList.remove('show');
+        }
       }, durationMs || 3000);
-
     }
 
   }
@@ -14437,11 +14448,68 @@ function dismissFloatingHud() {
 
 
 
+function initMiniBubbleDraggable() {
+  const bubble = document.getElementById('vrmMiniBubble');
+  if (!bubble || bubble.dataset.dragInit) return;
+  bubble.dataset.dragInit = 'true';
+
+  let isDragging = false;
+  let startX = 0;
+  let startY = 0;
+  let initialLeft = 0;
+  let initialTop = 0;
+  let hasMoved = false;
+
+  bubble.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button')) return;
+    isDragging = true;
+    hasMoved = false;
+    startX = e.clientX;
+    startY = e.clientY;
+    const rect = bubble.getBoundingClientRect();
+    initialLeft = rect.left;
+    initialTop = rect.top;
+    bubble.style.bottom = 'auto';
+    bubble.style.right = 'auto';
+    bubble.style.left = initialLeft + 'px';
+    bubble.style.top = initialTop + 'px';
+    bubble.setPointerCapture(e.pointerId);
+  }, { passive: false });
+
+  window.addEventListener('pointermove', (e) => {
+    if (!isDragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+      hasMoved = true;
+    }
+    let newLeft = Math.max(10, Math.min(window.innerWidth - bubble.offsetWidth - 10, initialLeft + dx));
+    let newTop = Math.max(10, Math.min(window.innerHeight - bubble.offsetHeight - 10, initialTop + dy));
+    bubble.style.left = newLeft + 'px';
+    bubble.style.top = newTop + 'px';
+  }, { passive: true });
+
+  const stopDrag = (e) => {
+    if (!isDragging) return;
+    isDragging = false;
+    try { bubble.releasePointerCapture(e.pointerId); } catch (_) {}
+    if (hasMoved) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  };
+
+  window.addEventListener('pointerup', stopDrag, { passive: false });
+  window.addEventListener('pointercancel', stopDrag, { passive: true });
+}
+
 function initFloatingHudDraggable() {
 
   const hud = document.getElementById('vrmFloatingHud');
 
   const header = document.getElementById('vrmHudHeader');
+
+  initMiniBubbleDraggable();
 
   if (!hud || !header) return;
 
@@ -18824,27 +18892,85 @@ function onSelectAudioInputSource(sourceId) {
 
 function minimizeFloatingCompanion() {
   window.isCompanionMinimizedByUser = true;
+  const hud = document.getElementById('vrmFloatingHud');
+  const mini = document.getElementById('vrmMiniBubble');
+  if (!hud) return;
+
+  if (mini) {
+    if (hud.style.left && hud.style.top && hud.style.left !== 'auto') {
+      mini.style.left = Math.max(10, Math.min(window.innerWidth - 180, parseInt(hud.style.left, 10) + 40)) + 'px';
+      mini.style.top = Math.max(10, Math.min(window.innerHeight - 60, parseInt(hud.style.top, 10) + 270)) + 'px';
+      mini.style.bottom = 'auto';
+      mini.style.right = 'auto';
+    } else {
+      mini.style.bottom = '24px';
+      mini.style.right = '24px';
+      mini.style.left = 'auto';
+      mini.style.top = 'auto';
+    }
+    mini.style.display = 'flex';
+  }
+
+  hud.style.display = 'none';
+
   const pill = document.getElementById('rumMinHudPill');
   if (pill) {
     pill.classList.add('glow-pulse');
     setTimeout(() => pill.classList.remove('glow-pulse'), 1500);
   }
-  dismissFloatingHud();
-  if (typeof showAiSpeechToast === 'function') {
-    showAiSpeechToast("R.U.M. minimized to top bar pill. Tap 💜 RUM to expand!");
+}
+
+function expandFloatingCompanion() {
+  window.isCompanionMinimizedByUser = false;
+  const hud = document.getElementById('vrmFloatingHud');
+  const mini = document.getElementById('vrmMiniBubble');
+  if (mini) mini.style.display = 'none';
+
+  if (!hud) return;
+
+  if (mini && mini.style.left && mini.style.top && mini.style.left !== 'auto') {
+    const leftVal = Math.max(10, Math.min(window.innerWidth - 260, parseInt(mini.style.left, 10) - 40));
+    const topVal = Math.max(10, Math.min(window.innerHeight - 340, parseInt(mini.style.top, 10) - 270));
+    hud.style.left = leftVal + 'px';
+    hud.style.top = topVal + 'px';
+    hud.style.bottom = 'auto';
+    hud.style.right = 'auto';
+  } else {
+    hud.style.bottom = '60px';
+    hud.style.right = '20px';
+    hud.style.left = 'auto';
+    hud.style.top = 'auto';
   }
+
+  popOutFloatingCompanion(true);
+}
+
+function floatCompanionShotgun(isAuto = false) {
+  popOutFloatingCompanion(isAuto);
+}
+
+function dismissFloatingHud() {
+  isShotgunAutoPopped = false;
+  window.isCompanionMinimizedByUser = false;
+  const mini = document.getElementById('vrmMiniBubble');
+  if (mini) mini.style.display = 'none';
+  dockCompanionToAi();
 }
 
 function toggleRumHudFromPill() {
   const hud = document.getElementById('vrmFloatingHud');
-  if (!hud) return;
-  if (hud.style.display === 'none') {
-    window.isCompanionMinimizedByUser = false;
+  const mini = document.getElementById('vrmMiniBubble');
+  const isHudShowing = (hud && hud.style.display !== 'none');
+  const isMiniShowing = (mini && mini.style.display !== 'none');
+
+  if (!isHudShowing && !isMiniShowing) {
     if (currentScreen === 'ai') {
       navigateTo('home');
     }
-    floatCompanionShotgun();
-  } else {
+    popOutFloatingCompanion();
+  } else if (isHudShowing) {
     minimizeFloatingCompanion();
+  } else {
+    expandFloatingCompanion();
   }
 }
