@@ -8415,23 +8415,23 @@ let currentSbcTab = 'PI5';
 let latestPi3Health = null;
 
 function switchSbcTab(tab) {
-  currentSbcTab = tab;
+  currentSbcTab = (tab || 'PI5').toUpperCase();
   const p5 = document.getElementById('panePi5Health');
   const p3 = document.getElementById('panePi3Health');
   const btn5 = document.getElementById('tabBtnPi5');
   const btn3 = document.getElementById('tabBtnPi3');
   const title = document.getElementById('sbcModalTitle');
 
-  if (tab === 'PI5') {
+  if (currentSbcTab === 'PI5') {
     if (p5) p5.style.display = 'block';
     if (p3) p3.style.display = 'none';
     if (btn5) {
-      btn5.style.background = 'var(--accent-pink)';
+      btn5.style.background = 'var(--accent-pink, #ff4081)';
       btn5.style.color = '#fff';
     }
     if (btn3) {
       btn3.style.background = 'transparent';
-      btn3.style.color = 'var(--text-secondary)';
+      btn3.style.color = 'var(--text-secondary, #8c9ba5)';
     }
     if (title) title.innerText = 'RASPBERRY PI 5 (COCKPIT HOST)';
     fetchSystemHealth();
@@ -8439,12 +8439,12 @@ function switchSbcTab(tab) {
     if (p5) p5.style.display = 'none';
     if (p3) p3.style.display = 'block';
     if (btn3) {
-      btn3.style.background = 'var(--accent-cyan)';
+      btn3.style.background = 'var(--accent-cyan, #00e5ff)';
       btn3.style.color = '#000';
     }
     if (btn5) {
       btn5.style.background = 'transparent';
-      btn5.style.color = 'var(--text-secondary)';
+      btn5.style.color = 'var(--text-secondary, #8c9ba5)';
     }
     if (title) title.innerText = 'RASPBERRY PI 3 (DASHCAM COPROCESSOR)';
     fetchPi3Health();
