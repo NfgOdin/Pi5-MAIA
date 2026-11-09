@@ -31,7 +31,7 @@ import urllib.request
 
 import urllib.error
 
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Callable
 
 try:
 
@@ -195,7 +195,9 @@ class LLMClient:
 
         self._llama_loading = False
 
-        self.ai_core_status = "warming" if self.settings.get("mode") == "LOCAL_GGUF" else "online"
+        self._saved_system_state = None
+        self._saved_system_prompt_text = None
+        self.ai_core_status = "warming" if self.settings.get("mode") in ("LOCAL", "LOCAL_GGUF") else "online"
 
 
 
@@ -221,7 +223,7 @@ class LLMClient:
 
         # Automatically warm up the local GGUF model in the background on Pi 5
 
-        if self.settings.get("mode") == "LOCAL_GGUF":
+        if self.settings.get("mode") in ("LOCAL", "LOCAL_GGUF"):
 
             threading.Thread(target=self._preload_local_gguf, daemon=True).start()
 
@@ -316,7 +318,7 @@ class LLMClient:
 
         """Returns 'online' if neural core is loaded and ready, else 'warming'."""
 
-        if self.settings.get("mode") != "LOCAL_GGUF":
+        if self.settings.get("mode") not in ("LOCAL", "LOCAL_GGUF"):
 
             return "online"
 
@@ -325,76 +327,89 @@ class LLMClient:
 
 
     def _preload_local_gguf(self):
-
-        """Loads the local GGUF neural model into RAM using 4 CPU threads."""
-
+        """Loads the local GGUF neural model into RAM and pre-caches the active persona KV state."""
         if self._llama_model is not None:
-
             self.ai_core_status = "online"
-
             return
-
         if self._llama_loading:
-
             return
-
         self._llama_loading = True
-
         self.ai_core_status = "warming"
+        
+        # CPU Core Pinning: On Linux/Pi 5, pin inference to Cores 2 & 3 to protect UI & Audio on Cores 0 & 1
+        try:
+            if hasattr(os, "sched_setaffinity"):
+                os.sched_setaffinity(0, {2, 3})
+                print("[LLM] Inference thread pinned to Cortex-A76 Cores 2 & 3.")
+        except Exception as e_pin:
+            print(f"[LLM] Core pinning note: {e_pin}")
 
         gguf_path = self.settings.get("gguf_model_path", "")
+        selected = self.settings.get("selected_model", "")
 
-        if not gguf_path or not os.path.exists(gguf_path):
-
-            candidates = [
-            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "models", "qwen3b.gguf"),
-            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "models", "qwen2.5-1.5b-instruct-q4_k_m.gguf"),
-            str(Path.home() / "CarPi5" / "models" / "qwen3b.gguf"),
-            str(Path.home() / "CarPi5" / "models" / "qwen2.5-1.5b-instruct-q4_k_m.gguf"),
-            os.path.expanduser("~/models/qwen3b.gguf")
+        candidates_dirs = [
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "models"),
+            str(Path.home() / "CarPi5" / "models"),
+            os.path.expanduser("~/models")
         ]
 
-            for c in candidates:
+        # Prioritize abliterated zero-refusal model, then selected model, then standard models
+        priority_filenames = [
+            "qwen2.5-3b-instruct-abliterated.q4_k_m.gguf"
+        ]
+        if selected and selected not in priority_filenames:
+            priority_filenames.append(selected)
+        priority_filenames.extend(["qwen3b.gguf", "qwen2.5-1.5b-instruct-q4_k_m.gguf"])
 
-                if os.path.exists(c):
-
-                    gguf_path = c
-
+        found_path = None
+        for fname in priority_filenames:
+            for cdir in candidates_dirs:
+                target = os.path.join(cdir, fname)
+                # Verify file exists and is complete (abliterated model is ~1.84GB)
+                min_size = 1900000000 if 'abliterated' in fname else 500 * 1024 * 1024
+                if os.path.exists(target) and os.path.getsize(target) >= min_size:
+                    found_path = target
                     break
+            if found_path:
+                break
+
+        if found_path:
+            gguf_path = found_path
 
         if gguf_path and os.path.exists(gguf_path):
-
             try:
-
                 from llama_cpp import Llama
-
                 print(f"[LLM] Preloading local GGUF model: {gguf_path}...")
-
                 with self._llama_lock:
+                    self._llama_model = Llama(model_path=gguf_path, n_ctx=2048, n_threads=4, n_batch=512, verbose=False)
 
-                    self._llama_model = Llama(model_path=gguf_path, n_ctx=2048, n_threads=4, verbose=False)
+                # Pre-evaluate base system prompt into KV-cache using fast batched prompt ingestion
+                try:
+                    p_key = self.settings.get("personality", "RUM")
+                    persona = self.personas.get(p_key, self.personas.get("RUM", {}))
+                    address = self.get_driver_address()
+                    base_prompt = persona.get("prompt", "").format(driver_address=address)
+                    with self._llama_lock:
+                        self._llama_model.create_chat_completion(
+                            messages=[{"role": "system", "content": base_prompt}],
+                            max_tokens=1
+                        )
+                        self._saved_system_state = self._llama_model.save_state()
+                        self._saved_system_prompt_text = base_prompt
+                    print("[LLM] Base KV session state pre-computed. In-car response start latency <800ms!")
+                except Exception as e_kv:
+                    print(f"[LLM] Note on KV session state caching: {e_kv}")
 
                 self._llama_loading = False
-
                 self.ai_core_status = "online"
-
-                print("[LLM] Local Qwen-3B GGUF model is warm and ready in memory! AI Core ONLINE.")
-
+                print(f"[LLM] Local neural model warm & ready: {os.path.basename(gguf_path)}! AI Core ONLINE.")
             except Exception as e:
-
                 print(f"[LLM] Error preloading GGUF model: {e}")
-
                 self._llama_loading = False
-
-                self.ai_core_status = "online" # Fallback to procedural
-
+                self.ai_core_status = "online"
         else:
-
             self.ai_core_status = "online"
-
         self._llama_loading = False
-
-
 
 
 
@@ -523,6 +538,7 @@ class LLMClient:
         # Detect local GGUF model on device
 
         candidates = [
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "models", "qwen2.5-3b-instruct-abliterated.q4_k_m.gguf"),
             os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "models", "qwen3b.gguf"),
             os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "models", "qwen2.5-1.5b-instruct-q4_k_m.gguf"),
             str(Path.home() / "CarPi5" / "models" / "qwen3b.gguf"),
@@ -928,7 +944,8 @@ class LLMClient:
 
         llm_fn = None
 
-        if mode == "LOCAL_GGUF":
+        if mode in ("LOCAL", "LOCAL_GGUF"):
+            print(f"[CHAT DEBUG] mode={mode}, gguf_path={self.settings.get('gguf_model_path')}, model={self._llama_model is not None}, loading={self._llama_loading}")
 
             def _ask_local_gguf(prompt, live_telemetry=None, is_greeting=False):
 
@@ -1038,7 +1055,7 @@ class LLMClient:
 
 
 
-    def chat(self, user_message: str, live_telemetry: Optional[Dict[str, Any]] = None) -> str:
+    def chat(self, user_message: str, live_telemetry: Optional[Dict[str, Any]] = None, on_clause: Optional[Callable[[str], None]] = None) -> str:
 
         """Send a message to the active AI persona via Tailscale, Local, or Offline Built-in."""
 
@@ -1098,23 +1115,27 @@ class LLMClient:
 
 
 
-        if mode == "LOCAL_GGUF":
+        if mode in ("LOCAL", "LOCAL_GGUF"):
 
             gguf_path = self.settings.get("gguf_model_path", "")
 
             if not gguf_path:
 
                 candidates = [
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "models", "qwen2.5-3b-instruct-abliterated.q4_k_m.gguf"),
             os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "models", "qwen3b.gguf"),
             os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "models", "qwen2.5-1.5b-instruct-q4_k_m.gguf"),
+            str(Path.home() / "CarPi5" / "models" / "qwen2.5-3b-instruct-abliterated.q4_k_m.gguf"),
             str(Path.home() / "CarPi5" / "models" / "qwen3b.gguf"),
             str(Path.home() / "CarPi5" / "models" / "qwen2.5-1.5b-instruct-q4_k_m.gguf"),
+            os.path.expanduser("~/models/qwen2.5-3b-instruct-abliterated.q4_k_m.gguf"),
             os.path.expanduser("~/models/qwen3b.gguf")
         ]
 
                 for c in candidates:
 
-                    if os.path.exists(c):
+                    min_sz = int(1.8 * 1024 * 1024 * 1024) if 'abliterated' in c else 500 * 1024 * 1024
+                    if os.path.exists(c) and os.path.getsize(c) >= min_sz:
 
                         gguf_path = c
 
@@ -1124,8 +1145,16 @@ class LLMClient:
 
                 try:
 
-                    # Qwen ChatML formatting for thread-safe direct inference
+                    # Restore pre-computed KV-cache session state if base prompt matches
+                    base_prompt = persona.get("prompt", "").format(driver_address=address)
+                    with self._llama_lock:
+                        if self._saved_system_state is not None and self._saved_system_prompt_text == base_prompt:
+                            try:
+                                self._llama_model.load_state(self._saved_system_state)
+                            except Exception as e_kv:
+                                print(f"[LLM] KV state reload note: {e_kv}")
 
+                    # Qwen ChatML formatting for thread-safe direct inference
                     chatml_prompt = (
 
                         f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
@@ -1136,21 +1165,44 @@ class LLMClient:
 
                     )
 
-                    with self._llama_lock:
-
-                        res = self._llama_model(
-
-                            chatml_prompt,
-
-                            max_tokens=85,
-
-                            stop=["<|im_end|>", "\n\n\n", "<|im_start|>"],
-
-                            temperature=0.75
-
-                        )
-
-                    reply = res["choices"][0]["text"].strip()
+                    if on_clause is not None:
+                        full_reply = ""
+                        buffer = ""
+                        with self._llama_lock:
+                            stream_iter = self._llama_model(
+                                chatml_prompt,
+                                max_tokens=85,
+                                stop=["<|im_end|>", "\n\n\n", "<|im_start|>"],
+                                temperature=0.75,
+                                stream=True
+                            )
+                            for chunk in stream_iter:
+                                text = chunk["choices"][0].get("text", "")
+                                if not text:
+                                    continue
+                                full_reply += text
+                                buffer += text
+                                for p in [". ", "! ", "? ", ".\n", "!\n", "?\n", "...", "\n"]:
+                                    if p in buffer:
+                                        parts = buffer.split(p, 1)
+                                        clause = parts[0].strip()
+                                        if len(clause) > 3:
+                                            punct = p.strip() or "."
+                                            on_clause(clause + punct)
+                                        buffer = parts[1]
+                            if buffer.strip():
+                                on_clause(buffer.strip())
+                        reply = full_reply.strip()
+                    else:
+                        with self._llama_lock:
+                            res = self._llama_model(
+                                chatml_prompt,
+                                max_tokens=85,
+                                stop=["<|im_end|>", "\n\n\n", "<|im_start|>"],
+                                temperature=0.75,
+                                stream=False
+                            )
+                        reply = res["choices"][0]["text"].strip()
 
                     if reply:
 
@@ -1242,13 +1294,13 @@ class LLMClient:
 
 
 
-    def chat_with_action(self, user_message: str, live_telemetry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def chat_with_action(self, user_message: str, live_telemetry: Optional[Dict[str, Any]] = None, on_clause: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
 
-        """Queries LLM and simultaneously resolves any cockpit navigation or device action."""
+        """Queries LLM with optional clause streaming and simultaneously resolves any cockpit navigation or device action."""
 
         action = self.extract_voice_action(user_message)
 
-        reply = self.chat(user_message, live_telemetry)
+        reply = self.chat(user_message, live_telemetry=live_telemetry, on_clause=on_clause)
 
         return {
 

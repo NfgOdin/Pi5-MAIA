@@ -27,3 +27,7 @@
 ## 6. Comprehensive Whole-Screen Visual Auditing
 - When capturing or reviewing screenshots and visual output, always inspect the entire screen frame and every visual element (avatar visibility, live clocks, status badges, layout integrity)—never just the isolated component being modified. Catch and resolve any missing assets, regressions, or anomalies immediately.
 
+## 7. Dynamic Feature Lifecycle & Living Roadmap Checklist
+- Maintain a comprehensive, master living implementation checklist in `ROADMAP.md` covering all planned engineering enhancements, architectural phases, and optimizations.
+- Never let planned ideas be lost or forgotten: every brainstormed concept must be cataloged with clear checkboxes under its respective phase.
+- Once an implementation is completed, tested, and verified on real hardware, move it to the "Completed & Verified in Production (Changelog)" section with the completion date, verification notes, and git commit details.

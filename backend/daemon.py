@@ -7145,40 +7145,25 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
 
 
-            # Query LLM with automated voice action extraction
+            # Query LLM with speculative clause streaming directly to Kokoro-82M
+            clauses_spoken = []
+            def _handle_clause(clause_text: str):
+                if state.copilot.voice_mode != "MUTED":
+                    _, clean_chunk = extract_emotion_and_clean_speech(clause_text)
+                    if clean_chunk:
+                        clauses_spoken.append(clean_chunk)
+                        state.audio.speak(clean_chunk)
 
-
-
-            res = state.llm.chat_with_action(user_msg, live_telemetry=frame_dict)
-
+            res = state.llm.chat_with_action(user_msg, live_telemetry=frame_dict, on_clause=_handle_clause)
             if res.get("action"):
-
                 with state.lock:
-
                     state.latest_ui_action = res["action"]
 
-
-
-            
-
-
-
             raw_reply = res.get("reply", "")
-
-
-
             emotion, clean_reply = extract_emotion_and_clean_speech(raw_reply)
 
-
-
-            
-
-
-
-            if clean_reply and state.copilot.voice_mode != "MUTED":
-
-
-
+            # Fallback: if no clauses were streamed (e.g. single clause or offline procedural), speak full reply
+            if not clauses_spoken and clean_reply and state.copilot.voice_mode != "MUTED":
                 state.audio.speak(clean_reply)
 
 
