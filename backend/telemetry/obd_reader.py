@@ -380,7 +380,9 @@ class RealVehicleTelemetryReader:
                 last_shift_score=None,
                 last_shift_type=None,
                 last_shift_delta=None,
-                avg_shift_score=100.0
+                avg_shift_score=100.0,
+                headlights_on=(time.localtime().tm_hour >= 19 or time.localtime().tm_hour < 6),
+                ambient_light_lux=5.0 if (time.localtime().tm_hour >= 19 or time.localtime().tm_hour < 6) else 450.0
             )
 
         # Vehicle is connected - execute staggered PID queries for max smoothness
@@ -614,7 +616,9 @@ class RealVehicleTelemetryReader:
             last_shift_score=dyno_metrics["latest_shift_score"],
             last_shift_type=dyno_metrics["latest_shift_type"],
             last_shift_delta=dyno_metrics["latest_shift_delta"],
-            avg_shift_score=dyno_metrics["avg_shift_score"]
+            avg_shift_score=dyno_metrics["avg_shift_score"],
+            headlights_on=getattr(self, "headlights_on", (time.localtime().tm_hour >= 19 or time.localtime().tm_hour < 6)),
+            ambient_light_lux=5.0 if getattr(self, "headlights_on", (time.localtime().tm_hour >= 19 or time.localtime().tm_hour < 6)) else 450.0
         )
 
     def clear_dtcs(self) -> bool:

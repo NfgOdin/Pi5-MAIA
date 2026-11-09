@@ -55,6 +55,8 @@ class TelemetryFrame:
     last_shift_type: Optional[str] = None
     last_shift_delta: Optional[float] = None
     avg_shift_score: float = 100.0
+    headlights_on: bool = False
+    ambient_light_lux: float = 100.0
 
 class Dart14TSimulator:
     def __init__(self, config_path: Optional[str] = None):
@@ -252,9 +254,15 @@ class Dart14TSimulator:
             last_shift_score=dyno_metrics["latest_shift_score"],
             last_shift_type=dyno_metrics["latest_shift_type"],
             last_shift_delta=dyno_metrics["latest_shift_delta"],
-            avg_shift_score=dyno_metrics["avg_shift_score"]
+            avg_shift_score=dyno_metrics["avg_shift_score"],
+            headlights_on=getattr(self, "_injected_headlights", (time.localtime().tm_hour >= 19 or time.localtime().tm_hour < 6)),
+            ambient_light_lux=5.0 if getattr(self, "_injected_headlights", (time.localtime().tm_hour >= 19 or time.localtime().tm_hour < 6)) else 450.0
         )
         return frame
+
+    def set_headlights(self, state: bool):
+        """Explicitly override headlights state for testing / CAN bridge."""
+        self._injected_headlights = bool(state)
 
     def inject_dtc(self, code: str):
         """Simulate an engine trouble code for testing the AI mechanic."""

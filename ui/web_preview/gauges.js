@@ -176,7 +176,7 @@ function setMediaDuckState(isDucking) {
 
     const targetVolume = Math.max(0.08, mediaPreDuckingVolume * 0.18);
 
-    rampAudioVolume(targetVolume, 200);
+    rampAudioVolume(targetVolume, 150);
 
   } else {
 
@@ -3924,6 +3924,35 @@ function triggerShiftTone(rpm) {
 
 
 
+    // 8. Auto-Dimming Headlight Obsidian Midnight Mode
+    if (t.headlights_on !== undefined) {
+      const mode = localStorage.getItem('carpi5_theme_mode') || 'AUTO';
+      if (mode === 'AUTO') {
+        if (t.headlights_on) {
+          document.body.classList.add('cockpit-night-mode');
+          document.body.classList.add('obsidian-midnight');
+          const badge = document.getElementById('themeModeBadge');
+          if (badge) {
+            badge.innerText = 'AUTO (HEADLIGHTS • OBSIDIAN)';
+            badge.style.borderColor = 'var(--accent-blue)';
+            badge.style.color = 'var(--accent-blue)';
+          }
+        } else {
+          const isNight = (vrmCelestialPhase === 'NIGHT' || vrmCelestialPhase === 'CIVIL_DUSK' || vrmCelestialPhase === 'CIVIL_DAWN');
+          if (!isNight) {
+            document.body.classList.remove('cockpit-night-mode');
+            document.body.classList.remove('obsidian-midnight');
+            const badge = document.getElementById('themeModeBadge');
+            if (badge) {
+              badge.innerText = 'AUTO (SOLAR)';
+              badge.style.borderColor = 'var(--accent-yellow)';
+              badge.style.color = 'var(--accent-yellow)';
+            }
+          }
+        }
+      }
+    }
+
     // 7. Update Launch Timer Badge
 
 
@@ -4018,7 +4047,8 @@ function triggerShiftTone(rpm) {
 
       isWaifuSpeaking = data.is_speaking;
 
-      setMediaDuckState(data.is_speaking);
+      const shouldDuck = (data.audio_duck !== undefined) ? data.audio_duck : data.is_speaking;
+      setMediaDuckState(shouldDuck);
 
 
 

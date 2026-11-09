@@ -81,7 +81,19 @@ import random
 
 from pathlib import Path
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
+
+# POSIX Shared Memory RAM tmpfs path for zero-wear NVMe/SD flash protection
+RAM_AUDIO_DIR = Path("/dev/shm/carpi5_audio") if sys.platform.startswith("linux") and os.path.exists("/dev/shm") else Path(tempfile.gettempdir())
+try:
+    RAM_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    RAM_AUDIO_DIR = Path(tempfile.gettempdir())
+
+# Audio Priority Levels for Cockpit Ducking Matrix
+PRIORITY_CRITICAL = 0   # Faults, coolant >215F, MultiAir protection, safety alerts (always speaks, ducks music)
+PRIORITY_COMMAND = 1    # User queries, wake-word, boost pull milestones, shift ratings (speaks, ducks music)
+PRIORITY_BANTER = 2     # Shower thoughts, morning digital dreams, idle chatter (silenced if music playing)
 
 
 
@@ -524,6 +536,10 @@ class AudioPlayer:
 
 
         self.speech_queue = queue.Queue()
+        self._duck_callback = None
+        self._music_playing_checker = None
+        self._is_currently_ducking = False
+        self._duck_lock = threading.Lock()
 
 
 
@@ -1041,23 +1057,82 @@ class AudioPlayer:
 
 
 
-    def speak(self, text: str, priority: bool = False):
+    def is_music_playing(self) -> bool:
+        if self._music_playing_checker:
+            try:
+                return bool(self._music_playing_checker())
+            except Exception:
+                pass
+        return False
 
+    def set_music_playing_checker(self, fn):
+        self._music_playing_checker = fn
+
+    def set_duck_callback(self, fn):
+        self._duck_callback = fn
+
+    def _trigger_duck_state(self, is_ducking: bool):
+        with self._duck_lock:
+            self._is_currently_ducking = is_ducking
+            if self._duck_callback:
+                try:
+                    self._duck_callback(is_ducking)
+                except Exception as e:
+                    print(f"[AUDIO DUCK] Duck callback exception: {e}")
+            if sys.platform.startswith("linux"):
+                try:
+                    self._apply_pipewire_ducking(is_ducking)
+                except Exception:
+                    pass
+
+    def _apply_pipewire_ducking(self, is_ducking: bool):
+        env = os.environ.copy()
+        env["XDG_RUNTIME_DIR"] = "/run/user/1000"
+        try:
+            res = subprocess.run(["wpctl", "status"], capture_output=True, text=True, env=env, timeout=1.5)
+            if res.returncode == 0:
+                in_streams = False
+                for line in res.stdout.splitlines():
+                    if "Streams:" in line:
+                        in_streams = True
+                        continue
+                    if in_streams and line.strip() and not line.startswith(" "):
+                        break
+                    if in_streams:
+                        m = re.search(r"(\d+)\.\s+(.+)", line.strip())
+                        if m:
+                            stream_id = m.group(1)
+                            name = m.group(2).lower()
+                            if "record" not in name and "play" not in name and "vosk" not in name:
+                                target_vol = "0.18" if is_ducking else "1.00"
+                                subprocess.run(["wpctl", "set-volume", stream_id, target_vol], env=env, timeout=1.0)
+        except Exception:
+            pass
+
+    def speak(self, text: str, priority: Any = 1):
         """Queue text to be spoken aloud through in-dash speakers with automatic clause streaming & de-duplication."""
-
         if not text or not text.strip():
-
             return
-
         clean_text = text.strip()
-
         clean_text = clean_text.replace("*", "").replace("`", "").replace('"', '')
-
         # Automotive Metric & Acronym Phonetic Normalization
-
         clean_text = re.sub(r'\bM\.?P\.?H\.?\b', 'miles per hour', clean_text, flags=re.IGNORECASE)
-
         clean_text = re.sub(r'(\d+)\s*mph\b', r'\1 miles per hour', clean_text, flags=re.IGNORECASE)
+
+        # Audio Ducking Matrix Priority Mapping:
+        # Priority 0: Critical alerts (coolant > 215F, MultiAir protection, safety alerts) -> always speaks, ducks music
+        # Priority 1: User command response, direct queries, peak boost pulls, 100-pt shift rating -> speaks, ducks music
+        # Priority 2: Routine banter, morning digital dreams, highway shower thoughts -> silenced when in-dash music is playing!
+        if isinstance(priority, bool):
+            p_level = PRIORITY_CRITICAL if priority else PRIORITY_COMMAND
+        elif isinstance(priority, int):
+            p_level = priority
+        else:
+            p_level = PRIORITY_COMMAND
+
+        if p_level == PRIORITY_BANTER and self.is_music_playing():
+            print(f"[AUDIO DUCKING MATRIX] Silencing routine banter (Priority 2): '{clean_text[:40]}...' because in-dash music is playing.")
+            return
 
 
 
@@ -1148,7 +1223,8 @@ class AudioPlayer:
 
 
                 if fpath and os.path.exists(fpath):
-
+                    if not self._is_currently_ducking:
+                        self._trigger_duck_state(True)
                     self._play_file_direct(fpath, lead_in_silence_sec=lead_in)
 
 
@@ -1174,8 +1250,9 @@ class AudioPlayer:
             finally:
 
                 if self.playback_queue.empty():
-
                     self.is_speaking = False
+                    if self._is_currently_ducking:
+                        self._trigger_duck_state(False)
 
 
 
@@ -1679,7 +1756,7 @@ class AudioPlayer:
 
         try:
 
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            with tempfile.NamedTemporaryFile(suffix=".wav", dir=str(RAM_AUDIO_DIR), delete=False) as tmp:
 
                 wav_path = tmp.name
 

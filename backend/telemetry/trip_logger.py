@@ -68,8 +68,18 @@ class TripLogger:
         self._load_settings()
         self.purge_old_trips()
 
+    def _get_connection(self):
+        """Flash Wear Protection & RAM-optimized SQLite Connection."""
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
+        conn.execute("PRAGMA temp_store = MEMORY;")
+        conn.execute("PRAGMA mmap_size = 268435456;")
+        conn.execute("PRAGMA cache_size = -64000;")
+        return conn
+
     def _init_db(self):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             c = conn.cursor()
             # 1. Main Trips Summary Table
             c.execute("""
@@ -190,7 +200,7 @@ class TripLogger:
 
     def _load_settings(self):
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_connection() as conn:
                 c = conn.cursor()
                 c.execute("SELECT key, value FROM trip_settings")
                 for k, v in c.fetchall():
@@ -213,7 +223,7 @@ class TripLogger:
                 self.auto_log_enabled = bool(settings_dict["auto_log_enabled"])
 
             try:
-                with sqlite3.connect(self.db_path) as conn:
+                with self._get_connection() as conn:
                     c = conn.cursor()
                     for k, v in [
                         ("retention_days", str(self.retention_days)),
@@ -268,7 +278,7 @@ class TripLogger:
             self.max_speed_time = ""
 
             try:
-                with sqlite3.connect(self.db_path) as conn:
+                with self._get_connection() as conn:
                     c = conn.cursor()
                     # Mark any previously open trips as inactive
                     c.execute("UPDATE trips SET is_active = 0 WHERE is_active = 1")
@@ -298,7 +308,7 @@ class TripLogger:
             trip_id = self.current_trip_id
             print(f"[TRIP_LOG] Ending Trip #{trip_id}...")
             try:
-                with sqlite3.connect(self.db_path) as conn:
+                with self._get_connection() as conn:
                     c = conn.cursor()
                     c.execute("UPDATE trips SET is_active = 0 WHERE id = ?", (trip_id,))
                     conn.commit()
@@ -422,7 +432,7 @@ class TripLogger:
 
             # 1. Insert high-res point into trip_telemetry_points
             try:
-                with sqlite3.connect(self.db_path) as conn:
+                with self._get_connection() as conn:
                     c = conn.cursor()
                     c.execute("""
                         INSERT INTO trip_telemetry_points (
@@ -512,7 +522,7 @@ class TripLogger:
         if self.current_trip_id:
             return self.current_trip_id
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_connection() as conn:
                 c = conn.cursor()
                 c.execute("SELECT id FROM trips ORDER BY id DESC LIMIT 1")
                 row = c.fetchone()
@@ -530,7 +540,7 @@ class TripLogger:
 
         with self.lock:
             try:
-                with sqlite3.connect(self.db_path) as conn:
+                with self._get_connection() as conn:
                     conn.row_factory = sqlite3.Row
                     c = conn.cursor()
                     c.execute("SELECT * FROM trips WHERE id = ?", (target_id,))
@@ -606,7 +616,7 @@ class TripLogger:
 
         with self.lock:
             try:
-                with sqlite3.connect(self.db_path) as conn:
+                with self._get_connection() as conn:
                     conn.row_factory = sqlite3.Row
                     c = conn.cursor()
                     c.execute("SELECT * FROM trips WHERE id = ?", (target_id,))
@@ -636,7 +646,7 @@ class TripLogger:
         # Check if already archived and exists
         with self.lock:
             try:
-                with sqlite3.connect(self.db_path) as conn:
+                with self._get_connection() as conn:
                     c = conn.cursor()
                     c.execute("SELECT archive_path FROM trips WHERE id = ?", (target_id,))
                     row = c.fetchone()
@@ -660,7 +670,7 @@ class TripLogger:
         """
         with self.lock:
             try:
-                with sqlite3.connect(self.db_path) as conn:
+                with self._get_connection() as conn:
                     conn.row_factory = sqlite3.Row
                     c = conn.cursor()
                     c.execute("SELECT * FROM trips WHERE id = ?", (trip_id,))
@@ -759,7 +769,7 @@ class TripLogger:
                 zf.writestr("official_trip_manifest.html", html_bytes)
 
             # Store archive path and hash in database
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_connection() as conn:
                 c = conn.cursor()
                 c.execute("""
                     UPDATE trips SET archive_path = ?, sha256_hash = ? WHERE id = ?
@@ -1140,7 +1150,7 @@ class TripLogger:
         """Returns time-series samples for UI graph scrubber."""
         with self.lock:
             try:
-                with sqlite3.connect(self.db_path) as conn:
+                with self._get_connection() as conn:
                     conn.row_factory = sqlite3.Row
                     c = conn.cursor()
                     c.execute("""
@@ -1168,7 +1178,7 @@ class TripLogger:
     def get_recent_trips(self, limit: int = 50) -> List[Dict[str, Any]]:
         with self.lock:
             try:
-                with sqlite3.connect(self.db_path) as conn:
+                with self._get_connection() as conn:
                     conn.row_factory = sqlite3.Row
                     c = conn.cursor()
                     c.execute("SELECT * FROM trips ORDER BY id DESC LIMIT ?", (limit,))
@@ -1191,7 +1201,7 @@ class TripLogger:
     def get_lifetime_stats(self) -> Dict[str, Any]:
         with self.lock:
             try:
-                with sqlite3.connect(self.db_path) as conn:
+                with self._get_connection() as conn:
                     c = conn.cursor()
                     c.execute("""
                         SELECT 
@@ -1234,7 +1244,7 @@ class TripLogger:
             return 0
         purged = 0
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_connection() as conn:
                 c = conn.cursor()
                 c.execute("""
                     SELECT id, archive_path FROM trips 
@@ -1262,7 +1272,7 @@ class TripLogger:
     def delete_trip(self, trip_id: int) -> bool:
         with self.lock:
             try:
-                with sqlite3.connect(self.db_path) as conn:
+                with self._get_connection() as conn:
                     c = conn.cursor()
                     c.execute("SELECT archive_path FROM trips WHERE id = ?", (trip_id,))
                     row = c.fetchone()
@@ -1287,7 +1297,7 @@ class TripLogger:
                             try: os.remove(os.path.join(self.archive_dir, f))
                             except: pass
 
-                with sqlite3.connect(self.db_path) as conn:
+                with self._get_connection() as conn:
                     c = conn.cursor()
                     c.execute("DELETE FROM trip_telemetry_points")
                     c.execute("DELETE FROM trips")

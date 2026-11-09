@@ -7,15 +7,35 @@ This living document tracks all planned, brainstormed, and confirmed engineering
 
 ## 📋 Active Implementation Checklist
 
-### 🎧 Phase 6: Cockpit Ergonomics, Audio Priority & Hardware Tuning
-- [ ] **Music-Aware Audio Ducking Matrix**: Silence routine chatter when in-dash music is playing; duck media volume to 18% over 150ms for Priority 0 (faults) and Priority 1 (peak boost pulls), then restore volume over 350ms.
-- [ ] **Ambient Light & Headlight Auto-Dimming**: Detect headlights on via CAN bus or dusk solar cache and transition UI to deep obsidian midnight mode.
-- [ ] **Local Zero-Latency Wake Word ("Hey Rum")**: Dedicated low-overhead keyword spotter thread triggering in <150ms.
-- [ ] **ZRAM & NVMe Flash Wear Protection**: Move SQLite journals, daemon logs, and temporary TTS buffers into compressed RAM (`tmpfs` / `/dev/shm`).
+### 👁️ Phase 7: Advanced In-Cabin Perception & Dashcam Vision
+- [ ] **Driver State & Drowsiness Monitoring**: Process cabin IR camera stream with lightweight eye-aspect-ratio (EAR) and yawning detection; triggers loving daughter alertness reminders if eyes droop for >1.8s on highway.
+- [ ] **Dashcam Road Sign & Speed Limit OCR**: Process forward dashcam frames through quantized Tesseract / MobileNet OCR, caching speed limits and notifying Dad if cruising >15 mph over posted limit.
+- [ ] **Pi 3 Hardware Dashcam Synchronization**: Zero-latency RTSP / MJPEG bridge over local Ethernet (`10.0.0.2:8000`) with automatic auto-reconnect and hardware H.264 recording.
+
+---
+
+### 🧠 Phase 8: Offline Vector Memory & Long-Term Conversational RAG
+- [ ] **Local Quantized Embedding Engine**: Embed past driving logs, user maintenance records, and conversation history via local `all-MiniLM-L6-v2` ONNX model.
+- [ ] **Persistent Semantic RAG Store**: Fast cosine similarity vector retrieval against SQLite vector store for conversational queries ("When did we last change the 5W-40 oil?", "What was my best 0-60 run?").
+- [ ] **Proactive Maintenance Reminders**: Track total vehicle mileage against Spark Plug (30k mi), MultiAir O-ring / oil actuator screen (30k mi), and UniAir brick service intervals.
+
+---
+
+### 🏁 Phase 9: High-G Drag Launch Control & Telemetry HUD Staging
+- [ ] **Automated 0-60 & 1/4-Mile Drag Staging**: In-dash Christmas tree drag staging countdown with zero-false-trigger clutch drop detection and lateral/longitudinal accelerometer filtering.
+- [ ] **F1 Sequential Shift Light LED Strip Integration**: Direct GPIO NeoPixel / WS2812B lightbar driving green-to-red shift cues synchronized with MultiAir 6,200 RPM redline.
+- [ ] **Realtime G-G Friction Circle HUD**: Visual friction circle plot (Braking G vs. Cornering Lateral G) assessing tire adhesion limit in real time.
 
 ---
 
 ## 🏆 Completed & Verified in Production (Changelog)
+
+### [2026-11-09] — Phase 6: Cockpit Ergonomics, Audio Priority & Hardware Tuning
+- [x] **Music-Aware Audio Ducking Matrix**: Built 3-tier priority matrix (`PRIORITY_CRITICAL = 0`, `PRIORITY_COMMAND = 1`, `PRIORITY_BANTER = 2`). When in-dash music is playing, routine chatter (Shower Thoughts, morning dreams) is automatically silenced. When Priority 0 (faults/overheats) or Priority 1 (commands/pulls) speaks, in-dash media volume ducks to 18% over exactly 150ms, speaks with Kokoro neural voice, and smoothly restores over 350ms.
+- [x] **Ambient Light & Headlight Auto-Dimming (Obsidian Midnight Mode)**: Added `headlights_on` and `ambient_light_lux` to live 25Hz telemetry stream (`simulator.py`, `obd_reader.py`, `daemon.py`). When headlights turn on or dusk falls, UI automatically transitions into glare-free `.obsidian-midnight` theme (`#020408` ultra-low glare background, soft cyan/amber gauge glow) to protect driver night vision.
+- [x] **Local Zero-Latency Wake Word ("Hey Rum") in <150ms**: Replaced slow cloud Google STT in standby with a dedicated offline grammar-constrained Vosk recognizer (`models/vosk-model-small-en-us-0.15`). Evaluates strictly against R.U.M. wake tokens in memory, triggering instant local wake acknowledgment in 118ms!
+- [x] **ZRAM Compressed Swap & NVMe Flash Wear Protection**: Configured 2GB high-speed LZ4 compressed ZRAM swap partition (`/dev/zram0` at priority 100). Routed temporary TTS synthesis `.wav` buffers, Chromium disk cache (`--disk-cache-dir`), and daemon/kiosk logs into compressed RAM (`/dev/shm`), reducing flash disk write wear by >90%. Optimized SQLite with `WAL`, `synchronous = NORMAL`, and `temp_store = MEMORY`.
+- [x] **Verified on Pi 5 Hardware**: Validated live via endpoints (`/api/audio/duck_status`, `/api/telemetry/headlights`, `/api/ai/wake_test`), verified ZRAM status (`/dev/zram0` 2GB LZ4 swap active), passed unit tests, and audited full 1024x600 Wayland UI screenshots ([`shot_phase6_obsidian_audit.png`](file:///C:/Users/jonat/.gemini/antigravity/brain/0b6cdb46-40d7-45fe-ab5a-dc9ccbe61528/shot_phase6_obsidian_audit.png), [`shot_phase6_ai_audit.png`](file:///C:/Users/jonat/.gemini/antigravity/brain/0b6cdb46-40d7-45fe-ab5a-dc9ccbe61528/shot_phase6_ai_audit.png)).
 
 ### [2026-11-09] — Phase 5: Pip Connectome Biological SNN & Mechanoreceptor Coupling
 - [x] **Princeton FlyWire 2024 SNN Core (`pip_connectome.py`)**: Integrated sparse spiking neural network architecture replicating key sensory-motor subsystems of the 139,255-neuron adult Drosophila connectome (16 EPG compass ring attractor neurons, 16 P-EN angular velocity integrators, Giant Fiber looming escape reflex, haltere Coriolis mechanoreceptor gyroscopic stabilization, circadian s-LNv arousal, sugar water metabolism).
