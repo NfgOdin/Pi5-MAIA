@@ -7,14 +7,6 @@ This living document tracks all planned, brainstormed, and confirmed engineering
 
 ## 📋 Active Implementation Checklist
 
-### 🏎️ Phase 2: 3D Avatar Kinematics & Physical G-Force Coupling
-- [ ] **Longitudinal G-Force Coupling**: Hook OBD-II speed delta ($\frac{\Delta v}{\Delta t}$) into Three.js: leaning R.U.M.'s spine and head back under hard boost acceleration and bracing forward under hard braking.
-- [ ] **Lateral Cornering Apex Lean**: Roll torso ($Z$-axis) smoothly into the apex of high-speed turns based on steering angle / lateral acceleration.
-- [ ] **Contextual Gauge Gaze Tracking**: When boost exceeds +15 PSI or coolant rises above 215°F, R.U.M.'s 3D eyes and head smoothly turn toward the instrument cluster on screen for 1.8s before returning forward eye contact to Dad (Camera $X=0.0$).
-- [ ] **Bone-Bound Diagnostic & Utility Props**: Automatically bind 3D multimeter or chrome ratchet to her `rightHand` bone when entering Diagnostics mode, and a sugar water dropper when interacting with Pip.
-
----
-
 ### 🌙 Phase 3: Circadian Rhythm, Sleeping Mode & Morning Digital Dreams
 - [ ] **Night Senses Mode (11:00 PM – 4:30 AM)**: Soften Kokoro voice pitch/volume, transition 3D posture to resting/dozing in her chair (`sit_idle2.bvh` or `laying_idle.bvh`) with gentle, slow breathing.
 - [ ] **Morning Ignition Wake-Up & "Digital Dreams"**: On morning `IGN_RUN`, trigger stretching animation (`action_standup.bvh`) and generate an unprompted, whimsical dream recollection.
@@ -48,7 +40,14 @@ This living document tracks all planned, brainstormed, and confirmed engineering
 
 ## 🏆 Completed & Verified in Production (Changelog)
 
-### [2026-11-09] — Phase 1: Local AI Latency & Inference Optimization
+### [2026-11-09] — Phase 2: 3D Avatar Kinematics, Physical G-Force Coupling & Bone-Bound Props
+- [x] **Longitudinal G-Force Coupling**: Hooked OBD-II speed delta ($\frac{\Delta v}{\Delta t}$) and boost spool into Three.js bone hierarchy (`spine`, `chest`, `neck`, `head`): leaning R.U.M. back into seat under acceleration/turbo spool (`-0.18 rad` pitch) and bracing forward under braking (`+0.22 rad` pitch).
+- [x] **Lateral Cornering Apex Lean**: Implemented smooth body roll ($Z$-axis lean up to $\pm 0.16$ rad) into the apex of turns based on steering angle and lateral acceleration.
+- [x] **Contextual Gauge Gaze Tracking**: When boost exceeds +15 PSI or coolant rises above 215°F, R.U.M.'s 3D eyes (`lEyeball`, `rEyeball`) and head turn down-left toward the instrument cluster for 1.8s, then smoothly lerp back to forward eye contact with Dad (Camera $X=0.0$).
+- [x] **Bone-Bound Diagnostic & Utility Props**: Procedurally built and parented a 3D yellow digital multimeter (with glowing cyan LCD) to `rightHand` when entering Diagnostics mode, and a sugar water dropper with amber nectar when Pip perches.
+- [x] **Automotive In-Seat Scream Address Alignment**: Replaced legacy "Master" references with dynamic driver moniker `getFormattedDriverAddress()` ("Dad") and expanded `MPH` to "miles per hour".
+
+### [2026-11-09] — Phase 1: Local AI Latency & Inference Optimization (Commit: `b63d2fa`)
 - [x] **KV-Cache Pre-Computation & Session State Caching**: Pre-evaluated R.U.M.'s 600-token system prompt and base lorebooks, caching the KV-cache state directly in RAM (`load_state` restoring state in ~125ms), dropping prompt ingestion time from 40s to <150ms.
 - [x] **Speculative Token-to-Speech Streaming**: Implemented clause-boundary chunking (`[.!?,\n]`) in `llm_client.py` and piped directly to Kokoro-82M in `daemon.py` via `_handle_clause()` callback, allowing spoken audio synthesis to start within seconds while subsequent tokens stream concurrently.
 - [x] **CPU Core Pinning & Scheduling Isolation**: Isolated `llama.cpp` neural inference to dedicated Cortex-A76 cores (Cores 2 & 3 via `os.sched_setaffinity(0, {2, 3})`) and Chromium Kiosk to Cores 0 & 1 (`taskset -c 0,1` in `start_carpi5.sh`), ensuring zero audio stuttering or UI frame drops.

@@ -1586,6 +1586,13 @@ function navigateTo(screenId) {
 
   });
 
+  // Phase 2: Diagnostic & Utility Prop Attachment Lifecycle
+  if (screenId === 'diagnostics') {
+    attachMultimeterToRum();
+  } else {
+    detachMultimeterFromRum();
+  }
+
 
 
 
@@ -3340,6 +3347,13 @@ function connectTelemetryStream() {
 
 
     latestTelemetry = t;
+
+    // Phase 2: Update Physical G-Force Coupling & Gauge Gaze Triggers
+    const curSpeed = (t.speed !== undefined) ? t.speed : (t.speed_mph || 0);
+    const curBoost = (t.boost_psi !== undefined) ? t.boost_psi : 0;
+    const curSteer = (t.steering_angle !== undefined) ? t.steering_angle : 0;
+    const curLatG = (t.lateral_accel !== undefined) ? t.lateral_accel : 0;
+    updateRumInertiaPhysics(curSpeed, curBoost, curSteer, curLatG);
 
 
 
@@ -24932,6 +24946,24 @@ let rumCurrentSpeed = 0.0;
 
 
 let rumCurrentBoost = 0.0;
+let rumTargetPitch = 0.0;
+let rumCurrentRoll = 0.0;
+let rumTargetRoll = 0.0;
+
+// Contextual Gauge Gaze Tracking (Phase 2)
+let rumGazeEndTime = 0;
+let rumGazeNextAllowedTime = 0;
+let rumGazeTargetYaw = 0.0;
+let rumGazeTargetPitch = 0.0;
+let rumCurrentGazeYaw = 0.0;
+let rumCurrentGazePitch = 0.0;
+
+// Utility & Diagnostic Props (Phase 2)
+let multimeterPropGroup = null;
+let pipDropperPropGroup = null;
+let isHoldingMultimeter = false;
+let isHoldingDropper = false;
+let pipDropperDetachTimer = 0;
 
 
 
@@ -25039,22 +25071,11 @@ function checkRumSpeedReaction(speedMph) {
 
 
 
+    const dTitle = (typeof getFormattedDriverAddress === 'function') ? getFormattedDriverAddress() : "Dad";
     const screams = [
-
-
-
-      `W-Waaaah! Master, we're going ${Math.round(speedMph)} MPH!! The MultiAir turbo is screaming, hold on to meee!`,
-
-
-
-      `Kyaaa! ${Math.round(speedMph)} miles an hour?! Master, my heart is beating at 7,000 RPM, hold the steering wheel tight!`,
-
-
-
-      `W-We're flying, Master! ${Math.round(speedMph)} MPH! Hold tight, waaah!`
-
-
-
+      `W-Waaaah! ${dTitle}, we're going ${Math.round(speedMph)} miles per hour!! The MultiAir turbo is screaming, hold on to meee!`,
+      `Kyaaa! ${Math.round(speedMph)} miles an hour?! ${dTitle}, my heart is beating at 7,000 RPM, hold the steering wheel tight!`,
+      `W-We're flying, ${dTitle}! ${Math.round(speedMph)} miles per hour! Hold tight, waaah!`
     ];
 
 
@@ -25083,82 +25104,56 @@ function checkRumSpeedReaction(speedMph) {
 
 
 
-function updateRumInertiaPhysics(speedMph, boostPsi) {
-
-
-
-  rumCurrentSpeed = speedMph;
-
-
-
-  rumCurrentBoost = boostPsi;
-
-
-
+function checkGaugeGazeTriggers(boostPsi, coolantTempF) {
   const now = Date.now();
+  if (now < rumGazeNextAllowedTime) return;
 
+  if (boostPsi >= 15.0) {
+    rumGazeEndTime = now + 1800; // 1.8 seconds gaze glance
+    rumGazeNextAllowedTime = now + 8500; // 8.5s cooldown
+    rumGazeTargetYaw = -0.38;   // Turn head & eyes down-left toward cluster
+    rumGazeTargetPitch = -0.22;
+  } else if (coolantTempF >= 215.0) {
+    rumGazeEndTime = now + 1800;
+    rumGazeNextAllowedTime = now + 12000;
+    rumGazeTargetYaw = -0.38;
+    rumGazeTargetPitch = -0.22;
+  }
+}
 
-
+function updateRumInertiaPhysics(speedMph, boostPsi, steeringAngle = 0, latAccel = 0) {
+  rumCurrentSpeed = speedMph;
+  rumCurrentBoost = boostPsi;
+  const now = Date.now();
   const dt = Math.max(0.016, (now - rumLastSpeedTime) * 0.001);
-
-
-
   const accel = (speedMph - rumLastSpeed) / dt;
-
-
-
   rumLastSpeed = speedMph;
-
-
-
   rumLastSpeedTime = now;
 
-
-
-
-
-
-
-  if (accel > 1.5 || boostPsi > 2.0) {
-
-
-
-    rumTargetInertiaZ = Math.min(0.22, (boostPsi * 0.010) + (accel * 0.025));
-
-
-
-    rumCurrentPitch = -Math.min(0.10, accel * 0.018);
-
-
-
-  } else if (accel < -3.0) {
-
-
-
-    rumTargetInertiaZ = -Math.min(0.28, Math.abs(accel) * 0.04);
-
-
-
-    rumCurrentPitch = Math.min(0.18, Math.abs(accel) * 0.03);
-
-
-
+  // 1. Longitudinal G-Force Coupling (Acceleration / Boost Push vs Braking Decel)
+  if (accel > 1.2 || boostPsi > 1.5) {
+    // Leaning back into seat under acceleration / turbo spool
+    rumTargetInertiaZ = Math.min(0.24, (boostPsi * 0.010) + (accel * 0.022));
+    rumTargetPitch = -Math.min(0.18, (boostPsi * 0.007) + (accel * 0.015));
+  } else if (accel < -2.2) {
+    // Bracing forward under braking deceleration
+    rumTargetInertiaZ = -Math.min(0.28, Math.abs(accel) * 0.035);
+    rumTargetPitch = Math.min(0.22, Math.abs(accel) * 0.022);
   } else {
-
-
-
     rumTargetInertiaZ = 0.0;
-
-
-
-    rumCurrentPitch = 0.0;
-
-
-
+    rumTargetPitch = 0.0;
   }
 
+  // 2. Lateral Cornering Apex Lean (Torso rolls smoothly into corner apex)
+  if (Math.abs(steeringAngle) > 8 || Math.abs(latAccel) > 0.08) {
+    rumTargetRoll = THREE.MathUtils.clamp(-steeringAngle * 0.0028 - latAccel * 0.12, -0.16, 0.16);
+  } else {
+    rumTargetRoll = 0.0;
+  }
 
-
+  // 3. Contextual Gauge Gaze Check (Boost > 15 PSI or Coolant > 215°F)
+  const coolant = (latestTelemetry && latestTelemetry.coolant_temp_f) ? latestTelemetry.coolant_temp_f : 0;
+  checkGaugeGazeTriggers(boostPsi, coolant);
 }
 
 
@@ -27999,7 +27994,18 @@ function initVrmEngine() {
 
 
 
-    rumCurrentInertiaZ += (rumTargetInertiaZ - rumCurrentInertiaZ) * (delta * 6.0);
+    // 3. Smooth G-Force Inertia, Pitch & Cornering Apex Roll Interpolation
+    rumCurrentInertiaZ += (rumTargetInertiaZ - rumCurrentInertiaZ) * Math.min(1.0, delta * 6.0);
+    rumCurrentPitch += (rumTargetPitch - rumCurrentPitch) * Math.min(1.0, delta * 5.0);
+    rumCurrentRoll += (rumTargetRoll - rumCurrentRoll) * Math.min(1.0, delta * 5.0);
+
+    // Smooth Contextual Gauge Gaze Lerp (1.8s glance toward instrument cluster when boost > 15 PSI or coolant > 215°F)
+    const isGazingAtGauges = (now < rumGazeEndTime);
+    const targetGazeYaw = isGazingAtGauges ? rumGazeTargetYaw : 0.0;
+    const targetGazePitch = isGazingAtGauges ? rumGazeTargetPitch : 0.0;
+    const gazeLerpRate = isGazingAtGauges ? 6.5 : 4.5;
+    rumCurrentGazeYaw += (targetGazeYaw - rumCurrentGazeYaw) * Math.min(1.0, delta * gazeLerpRate);
+    rumCurrentGazePitch += (targetGazePitch - rumCurrentGazePitch) * Math.min(1.0, delta * gazeLerpRate);
 
 
 
@@ -28094,6 +28100,21 @@ function initVrmEngine() {
 
 
         vrmMixer.update(delta);
+        // Apply Physical Kinematics (Longitudinal G-forces & Cornering Apex Roll)
+        if (vrmBones.spine) {
+          vrmBones.spine.rotation.x = THREE.MathUtils.clamp(vrmBones.spine.rotation.x + rumCurrentPitch * 0.40, -0.30, 0.30);
+          vrmBones.spine.rotation.z = THREE.MathUtils.clamp(vrmBones.spine.rotation.z + rumCurrentRoll * 0.40, -0.25, 0.25);
+        }
+        if (vrmBones.chest) {
+          vrmBones.chest.rotation.x = THREE.MathUtils.clamp(vrmBones.chest.rotation.x + rumCurrentPitch * 0.30, -0.25, 0.25);
+          vrmBones.chest.rotation.z = THREE.MathUtils.clamp(vrmBones.chest.rotation.z + rumCurrentRoll * 0.30, -0.20, 0.20);
+        }
+        if (vrmBones.neck) {
+          vrmBones.neck.rotation.x = THREE.MathUtils.clamp(vrmBones.neck.rotation.x + rumCurrentPitch * 0.15 + rumCurrentGazePitch * 0.25, -0.30, 0.30);
+          vrmBones.neck.rotation.y = THREE.MathUtils.clamp(vrmBones.neck.rotation.y + rumCurrentGazeYaw * 0.35, -0.40, 0.40);
+          vrmBones.neck.rotation.z = THREE.MathUtils.clamp(vrmBones.neck.rotation.z + rumCurrentRoll * 0.15, -0.20, 0.20);
+        }
+
 
 
 
@@ -28105,15 +28126,9 @@ function initVrmEngine() {
 
 
 
-          vrmBones.head.rotation.y = THREE.MathUtils.clamp(vrmBones.head.rotation.y, -0.55, 0.55);
-
-
-
-          vrmBones.head.rotation.x = THREE.MathUtils.clamp(vrmBones.head.rotation.x, -0.45, 0.45);
-
-
-
-          vrmBones.head.rotation.z = THREE.MathUtils.clamp(vrmBones.head.rotation.z, -0.35, 0.35);
+          vrmBones.head.rotation.y = THREE.MathUtils.clamp(vrmBones.head.rotation.y + rumCurrentGazeYaw * 0.65, -0.55, 0.55);
+          vrmBones.head.rotation.x = THREE.MathUtils.clamp(vrmBones.head.rotation.x + rumCurrentPitch * 0.20 + rumCurrentGazePitch * 0.65, -0.45, 0.45);
+          vrmBones.head.rotation.z = THREE.MathUtils.clamp(vrmBones.head.rotation.z + rumCurrentRoll * 0.20, -0.35, 0.35);
 
 
 
@@ -28344,6 +28359,13 @@ function initVrmEngine() {
 
 
         }
+      // Contextual Gauge Gaze Eyeball Coupling
+      if (vrmBones.lEyeball && vrmBones.rEyeball && (isGazingAtGauges || Math.abs(rumCurrentGazeYaw) > 0.02)) {
+        vrmBones.lEyeball.rotation.y = THREE.MathUtils.clamp(rumCurrentGazeYaw * 0.45, -0.35, 0.35);
+        vrmBones.lEyeball.rotation.x = THREE.MathUtils.clamp(rumCurrentGazePitch * 0.45, -0.25, 0.25);
+        vrmBones.rEyeball.rotation.y = THREE.MathUtils.clamp(rumCurrentGazeYaw * 0.45, -0.35, 0.35);
+        vrmBones.rEyeball.rotation.x = THREE.MathUtils.clamp(rumCurrentGazePitch * 0.45, -0.25, 0.25);
+      }
 
 
 
@@ -34243,6 +34265,7 @@ function updateConnectomeFly(delta, time) {
         flyPos.set(flyTargetPerch.x, flyTargetPerch.y, flyTargetPerch.z);
 
         flyState = 'PERCHED';
+        if (typeof attachPipDropperToRum === 'function') attachPipDropperToRum();
 
         flyStateTimer = 4.5 + Math.random() * 5.0;
 
@@ -34277,6 +34300,9 @@ function updateConnectomeFly(delta, time) {
       // Take off again!
 
       flyPitch = 0.55;
+      if (typeof detachPipDropperFromRum === 'function') {
+        setTimeout(detachPipDropperFromRum, 3500);
+      }
 
       flyHeading = Math.random() * Math.PI * 2;
 
@@ -36433,6 +36459,217 @@ function triggerAvatarPokeReaction(relY) {
 
 
 // --- UNIVERSAL VRM HUMANOID BONE-PARENTED PROPS RIG ---
+
+function createMultimeterProp() {
+  if (multimeterPropGroup) return multimeterPropGroup;
+  
+  const group = new THREE.Group();
+  group.name = "prop_multimeter";
+
+  // Rugged Yellow Protective Holster
+  const yellowCaseMat = new THREE.MeshStandardMaterial({
+    color: 0xf5b000,
+    roughness: 0.45,
+    metalness: 0.1
+  });
+  const yellowCase = new THREE.Mesh(
+    new THREE.BoxGeometry(0.065, 0.115, 0.032),
+    yellowCaseMat
+  );
+  group.add(yellowCase);
+
+  // Dark Grey Inner Bezel
+  const faceMat = new THREE.MeshStandardMaterial({
+    color: 0x222226,
+    roughness: 0.6,
+    metalness: 0.2
+  });
+  const faceplate = new THREE.Mesh(
+    new THREE.BoxGeometry(0.055, 0.105, 0.005),
+    faceMat
+  );
+  faceplate.position.set(0, 0, 0.016);
+  group.add(faceplate);
+
+  // Glowing High-Contrast LCD Screen
+  const lcdCanvas = document.createElement('canvas');
+  lcdCanvas.width = 128;
+  lcdCanvas.height = 64;
+  const ctx = lcdCanvas.getContext('2d');
+  ctx.fillStyle = '#062024';
+  ctx.fillRect(0, 0, 128, 64);
+  ctx.fillStyle = '#00f0ff';
+  ctx.font = 'bold 24px monospace';
+  ctx.fillText('14.2V', 16, 36);
+  ctx.font = '12px monospace';
+  ctx.fillStyle = '#00a8b5';
+  ctx.fillText('DC AUTO', 16, 54);
+  const lcdTex = new THREE.CanvasTexture(lcdCanvas);
+  
+  const lcdMat = new THREE.MeshStandardMaterial({
+    map: lcdTex,
+    emissive: 0x00d0e0,
+    emissiveMap: lcdTex,
+    emissiveIntensity: 0.75,
+    roughness: 0.2
+  });
+  const lcdScreen = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.045, 0.026),
+    lcdMat
+  );
+  lcdScreen.position.set(0, 0.032, 0.019);
+  group.add(lcdScreen);
+
+  // Rotary Selector Dial
+  const dialMat = new THREE.MeshStandardMaterial({
+    color: 0x111113,
+    roughness: 0.3,
+    metalness: 0.4
+  });
+  const dial = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.012, 0.012, 0.006, 16),
+    dialMat
+  );
+  dial.rotation.x = Math.PI / 2;
+  dial.position.set(0, -0.006, 0.019);
+  group.add(dial);
+
+  // Red & Black Test Probes
+  const redMat = new THREE.MeshStandardMaterial({ color: 0xdd2222, roughness: 0.3 });
+  const blackMat = new THREE.MeshStandardMaterial({ color: 0x181818, roughness: 0.3 });
+  const chromeMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.1 });
+
+  // Red probe lead
+  const redProbe = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.055, 12), redMat);
+  redProbe.rotation.x = Math.PI / 2;
+  redProbe.position.set(0.015, -0.050, 0.035);
+  const redTip = new THREE.Mesh(new THREE.ConeGeometry(0.002, 0.015, 8), chromeMat);
+  redTip.rotation.x = -Math.PI / 2;
+  redTip.position.set(0, 0.035, 0);
+  redProbe.add(redTip);
+  group.add(redProbe);
+
+  // Black probe lead
+  const blackProbe = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.055, 12), blackMat);
+  blackProbe.rotation.x = Math.PI / 2;
+  blackProbe.position.set(-0.015, -0.050, 0.035);
+  const blackTip = new THREE.Mesh(new THREE.ConeGeometry(0.002, 0.015, 8), chromeMat);
+  blackTip.rotation.x = -Math.PI / 2;
+  blackTip.position.set(0, 0.035, 0);
+  blackProbe.add(blackTip);
+  group.add(blackProbe);
+
+  group.scale.set(1.0, 1.0, 1.0);
+  multimeterPropGroup = group;
+  return group;
+}
+
+function createPipDropperProp() {
+  if (pipDropperPropGroup) return pipDropperPropGroup;
+
+  const group = new THREE.Group();
+  group.name = "prop_pip_dropper";
+
+  // Clear Glass Pipette Barrel
+  const glassMat = new THREE.MeshStandardMaterial({
+    color: 0xddf0ff,
+    transparent: true,
+    opacity: 0.55,
+    roughness: 0.1,
+    metalness: 0.1
+  });
+  const barrel = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.006, 0.0025, 0.09, 16),
+    glassMat
+  );
+  barrel.position.set(0, 0, 0);
+  group.add(barrel);
+
+  // Amber Sugar Water Column inside
+  const nectarMat = new THREE.MeshStandardMaterial({
+    color: 0xffaa00,
+    emissive: 0xff8800,
+    emissiveIntensity: 0.35,
+    transparent: true,
+    opacity: 0.85,
+    roughness: 0.2
+  });
+  const nectarColumn = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.004, 0.0018, 0.055, 12),
+    nectarMat
+  );
+  nectarColumn.position.set(0, -0.012, 0);
+  group.add(nectarColumn);
+
+  // Rubber Squeeze Bulb at Top
+  const bulbMat = new THREE.MeshStandardMaterial({
+    color: 0xcc2929,
+    roughness: 0.55,
+    metalness: 0.05
+  });
+  const bulb = new THREE.Mesh(
+    new THREE.SphereGeometry(0.012, 16, 16),
+    bulbMat
+  );
+  bulb.scale.set(1.0, 1.35, 1.0);
+  bulb.position.set(0, 0.052, 0);
+  group.add(bulb);
+
+  // Warm Amber Sugar Water Droplet at Tip
+  const dropMat = new THREE.MeshStandardMaterial({
+    color: 0xffbb22,
+    emissive: 0xffaa00,
+    emissiveIntensity: 0.65,
+    roughness: 0.1
+  });
+  const droplet = new THREE.Mesh(
+    new THREE.SphereGeometry(0.003, 12, 12),
+    dropMat
+  );
+  droplet.position.set(0, -0.048, 0);
+  group.add(droplet);
+
+  group.scale.set(1.0, 1.0, 1.0);
+  pipDropperPropGroup = group;
+  return group;
+}
+
+function attachMultimeterToRum() {
+  if (isHoldingMultimeter) return;
+  detachPipDropperFromRum();
+  const meter = createMultimeterProp();
+  if (attachPropToVrmHand(meter, 'rightHand')) {
+    meter.position.set(0.02, -0.035, 0.065);
+    meter.rotation.set(0.4, 0.2, -0.1);
+    isHoldingMultimeter = true;
+  }
+}
+
+function detachMultimeterFromRum() {
+  if (!isHoldingMultimeter || !multimeterPropGroup) return;
+  detachPropFromVrmHand(multimeterPropGroup);
+  if (multimeterPropGroup.parent) multimeterPropGroup.parent.remove(multimeterPropGroup);
+  isHoldingMultimeter = false;
+}
+
+function attachPipDropperToRum() {
+  if (isHoldingDropper) return;
+  detachMultimeterFromRum();
+  const dropper = createPipDropperProp();
+  if (attachPropToVrmHand(dropper, 'rightHand')) {
+    dropper.position.set(0.015, -0.04, 0.075);
+    dropper.rotation.set(0.85, 0.1, 0.0);
+    isHoldingDropper = true;
+  }
+}
+
+function detachPipDropperFromRum() {
+  if (!isHoldingDropper || !pipDropperPropGroup) return;
+  detachPropFromVrmHand(pipDropperPropGroup);
+  if (pipDropperPropGroup.parent) pipDropperPropGroup.parent.remove(pipDropperPropGroup);
+  isHoldingDropper = false;
+}
+
 
 function attachPropToVrmHand(propObject, boneName = 'rightHand') {
 
