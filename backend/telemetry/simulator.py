@@ -10,6 +10,7 @@ import random
 import json
 from pathlib import Path
 from dataclasses import dataclass, asdict
+from .multiair_virtual_dyno import MultiAirVirtualDyno
 from typing import Optional, Dict, Any, List
 
 @dataclass
@@ -44,6 +45,16 @@ class TelemetryFrame:
     engine_runtime_sec: Optional[int] = None
     fuel_gph: Optional[float] = None
     baro_kpa: Optional[float] = None
+    virtual_whp: float = 0.0
+    virtual_wtq: float = 0.0
+    multiair_oil_temp_f: Optional[float] = None
+    multiair_status: str = "WARM_OPTIMAL"
+    wastegate_spool_health: float = 100.0
+    wastegate_spool_gradient: float = 9.8
+    last_shift_score: Optional[int] = None
+    last_shift_type: Optional[str] = None
+    last_shift_delta: Optional[float] = None
+    avg_shift_score: float = 100.0
 
 class Dart14TSimulator:
     def __init__(self, config_path: Optional[str] = None):
@@ -74,6 +85,7 @@ class Dart14TSimulator:
         self.sim_time = 0.0
         self.current_gear_idx = 0  # 0: N, 1: 1st, 2: 2nd, etc.
         self.shift_pause = 0.0
+        self.dyno = MultiAirVirtualDyno()
 
     def step(self, dt: float = 0.05) -> TelemetryFrame:
         """Advance the physics simulation by dt seconds (default 20Hz / 50ms)."""
@@ -182,12 +194,25 @@ class Dart14TSimulator:
         if self.rpm > 5600: f1_level = 4  # Red
         if self.rpm >= float(self.cfg["shift_indicator_rpm"]): f1_level = 5  # Flash Blue!
 
-        # 4. Assemble Telemetry Frame
+        # 4. Assemble Telemetry Sensors
         sim_load = round(min(100.0, 20.0 + self.throttle_pct * 0.75), 1)
         sim_timing = round(max(-5.0, min(35.0, 5.0 + (self.rpm / 400.0) - (self.boost_psi * 0.4))), 1)
         sim_afr = round(14.7 - (0.15 * max(0.0, self.boost_psi)), 2)
         sim_gph = round(max(0.22, (self.rpm / 750.0) * 0.25 + (self.throttle_pct * 0.05)), 2)
         sim_mpg = 0.0 if self.speed_mph < 1.0 else round(min(99.9, self.speed_mph / sim_gph), 1)
+
+        # 5. Step MultiAir Virtual Dyno & Spool Health
+        dyno_metrics = self.dyno.process_frame(
+            speed_mph=self.speed_mph,
+            rpm=self.rpm,
+            gear=self.gear,
+            throttle_pct=self.throttle_pct,
+            boost_psi=self.boost_psi,
+            coolant_temp_f=self.coolant_temp_f,
+            intake_temp_f=self.intake_temp_f,
+            engine_load_pct=sim_load,
+            dt=dt
+        )
 
         frame = TelemetryFrame(
             timestamp=time.time(),
@@ -217,7 +242,17 @@ class Dart14TSimulator:
             pedal_pos_pct=round(self.throttle_pct, 1),
             engine_runtime_sec=int(self.sim_time),
             fuel_gph=sim_gph,
-            baro_kpa=88.0
+            baro_kpa=88.0,
+            virtual_whp=dyno_metrics["virtual_whp"],
+            virtual_wtq=dyno_metrics["virtual_wtq"],
+            multiair_oil_temp_f=dyno_metrics["multiair_oil_temp_f"],
+            multiair_status=dyno_metrics["multiair_status"],
+            wastegate_spool_health=dyno_metrics["wastegate_health_pct"],
+            wastegate_spool_gradient=dyno_metrics["spool_gradient"],
+            last_shift_score=dyno_metrics["latest_shift_score"],
+            last_shift_type=dyno_metrics["latest_shift_type"],
+            last_shift_delta=dyno_metrics["latest_shift_delta"],
+            avg_shift_score=dyno_metrics["avg_shift_score"]
         )
         return frame
 

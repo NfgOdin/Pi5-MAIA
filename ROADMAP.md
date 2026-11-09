@@ -7,14 +7,6 @@ This living document tracks all planned, brainstormed, and confirmed engineering
 
 ## 📋 Active Implementation Checklist
 
-### 🔧 Phase 4: Predictive Dodge Dart 1.4L Turbo MultiAir Telemetry & Virtual Dyno
-- [ ] **Garrett GT1446 Wastegate & Diverter Valve Spool Health**: Track boost spool gradient ($\frac{\Delta\text{PSI}}{\Delta\text{RPM}}$) between 2,500–4,000 RPM in 3rd gear against historical baselines; proactively warn of wastegate actuator slop or Pierburg diverter tears before a `P0299` code trips.
-- [ ] **Realtime Virtual Dyno (WHP & WTQ)**: Calculate live wheel horsepower and torque based on MAP sensor, engine RPM, calculated volumetric efficiency, and vehicle curb weight (3,186 lbs).
-- [ ] **Rev-Match & Shift Quality Scoring**: Measure clutch switch depression timing and engine RPM delta during manual downshifts to rate Dad's heel-toe shifts.
-- [ ] **MultiAir Uniair Brick Hydraulic Protection**: Real-time viscosity modeling ensuring actuators reach optimal fluid pressure before allowing full boost warnings.
-
----
-
 ### 🪰 Phase 5: Pip Connectome Biological SNN & Mechanoreceptor Coupling
 - [ ] **Princeton FlyWire 2024 SNN Core**: Integrate sparse spiking neural network graph of the 139,255-neuron adult Drosophila connectome in lightweight C++/Python.
 - [ ] **Sensory Mechanoreceptor Emulation**: Route car cabin vibration, bumps, and lateral G-forces into simulated fly halteres to trigger biologically authentic evasive flight saccades.
@@ -31,6 +23,13 @@ This living document tracks all planned, brainstormed, and confirmed engineering
 ---
 
 ## 🏆 Completed & Verified in Production (Changelog)
+
+### [2026-11-09] — Phase 4: Predictive MultiAir Telemetry, Virtual Dyno & Shift Scoring
+- [x] **Realtime Virtual Dyno (WHP & WTQ)**: Thermodynamic Speed-Density mass air flow ($MAF$) and volumetric efficiency model calibrated for Dodge Dart 1.4L Turbo MultiAir (3,186 lbs curb weight, 1,368cc displacement, C635 FWD transaxle 13.5% drivetrain loss) calculating instantaneous Wheel Horsepower ($WHP$) and Wheel Torque ($WTQ$) in real time with peak hold tracking.
+- [x] **Garrett GT1446 Wastegate & Diverter Valve Spool Health**: Continuously computes boost spool gradient ($\frac{\Delta\text{PSI}}{\Delta\text{RPM}} \times 1000$) between 2,100–4,800 RPM under WOT ($TPS \ge 75\%$), logging spool runs against a 9.5 PSI/1k RPM healthy baseline; triggers proactive daughter warning if actuator arm slop or split diverter diaphragm causes spool rate to drop below 70%.
+- [x] **C635 Manual Rev-Match & Downshift Quality Scoring**: Evaluates manual gear transitions against synchronized gear ratios, rating downshifts (100 PTS for perfect heel-toe $|\Delta RPM| \le 120$) and providing audio coaching / clutch-jerk alerts if downshifts shock the transaxle.
+- [x] **MultiAir UniAir Brick Hydraulic Protection**: Real-time viscosity and thermal follower model tracking engine oil temperature; enforces `COLD_PROTECT` (limits boost to $< 7.5$ PSI until 5W-40 warms above $150^\circ\text{F}$) with spoken daughter reminders, transitioning to `WARM_OPTIMAL` (full 16–22 PSI authorized) once warmed.
+- [x] **Verified on Pi 5 Hardware**: Validated live via HTTP endpoints (`/api/telemetry/dyno`, `/api/telemetry/spool_health`, `/api/telemetry/shift_quality`, `/api/telemetry/multiair_health`), verified live 25Hz SSE broadcast, and audited full 1024x600 Wayland UI screenshot ([`shot_phase4_gauges_audit.png`](file:///C:/Users/jonat/.gemini/antigravity/brain/0b6cdb46-40d7-45fe-ab5a-dc9ccbe61528/shot_phase4_gauges_audit.png)).
 
 ### [2026-11-09] — Phase 3: Circadian Rhythm, Sleeping Mode & Morning Digital Dreams
 - [x] **Night Senses Mode (11:00 PM – 4:30 AM)**: Softened Kokoro voice pitch to 1.08x, slowed procedural breathing frequency to 1.2 Hz (amplitude 0.035 rad on `vrmBones.chest`), drooped 3D eyelids (`vrmBones.lEyeUpper`, `vrmBones.rEyeUpper` down 0.010), and automated dozing in seat (`sit_idle2.bvh`) after 12s parked at night.

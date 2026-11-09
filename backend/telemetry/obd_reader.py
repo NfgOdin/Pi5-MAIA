@@ -19,6 +19,7 @@ from dataclasses import dataclass, asdict
 from typing import Optional, Dict, Any, List
 
 from .simulator import TelemetryFrame
+from .multiair_virtual_dyno import MultiAirVirtualDyno
 
 # Dodge Dart 1.4T US-Spec C635 6-Speed Manual Gear Ratios
 GEAR_RATIOS = {
@@ -85,6 +86,7 @@ class RealVehicleTelemetryReader:
         self.launch_start_time: Optional[float] = None
         self.last_0_60_time: Optional[float] = None
         self.is_launching = False
+        self.dyno = MultiAirVirtualDyno()
 
         self._try_connect()
 
@@ -368,7 +370,17 @@ class RealVehicleTelemetryReader:
                 pedal_pos_pct=None,
                 engine_runtime_sec=None,
                 fuel_gph=None,
-                baro_kpa=self.baro_kpa
+                baro_kpa=self.baro_kpa,
+                virtual_whp=0.0,
+                virtual_wtq=0.0,
+                multiair_oil_temp_f=None,
+                multiair_status="COLD_PROTECT",
+                wastegate_spool_health=100.0,
+                wastegate_spool_gradient=9.8,
+                last_shift_score=None,
+                last_shift_type=None,
+                last_shift_delta=None,
+                avg_shift_score=100.0
             )
 
         # Vehicle is connected - execute staggered PID queries for max smoothness
@@ -529,6 +541,20 @@ class RealVehicleTelemetryReader:
         self.gear = self._calculate_gear(self.speed_mph, self.rpm)
 
         # Sequential F1 Shift Lights for 1.4T MultiAir
+        # MultiAir Virtual Dyno, Spool Health & Rev-Match Scoring
+        dyno_metrics = self.dyno.process_frame(
+            speed_mph=self.speed_mph,
+            rpm=self.rpm,
+            gear=self.gear,
+            throttle_pct=self.throttle_pct,
+            boost_psi=self.boost_psi,
+            coolant_temp_f=self.coolant_temp_f,
+            intake_temp_f=self.intake_temp_f,
+            engine_load_pct=self.engine_load_pct,
+            dt=0.04
+        )
+        self.multiair_ready = dyno_metrics["multiair_ready"]
+
         f1_level = 0
         if self.rpm > 6200: f1_level = 5
         elif self.rpm > 5800: f1_level = 4
@@ -578,7 +604,17 @@ class RealVehicleTelemetryReader:
             pedal_pos_pct=self.pedal_pos_pct,
             engine_runtime_sec=self.engine_runtime_sec,
             fuel_gph=self.fuel_gph,
-            baro_kpa=self.baro_kpa
+            baro_kpa=self.baro_kpa,
+            virtual_whp=dyno_metrics["virtual_whp"],
+            virtual_wtq=dyno_metrics["virtual_wtq"],
+            multiair_oil_temp_f=dyno_metrics["multiair_oil_temp_f"],
+            multiair_status=dyno_metrics["multiair_status"],
+            wastegate_spool_health=dyno_metrics["wastegate_health_pct"],
+            wastegate_spool_gradient=dyno_metrics["spool_gradient"],
+            last_shift_score=dyno_metrics["latest_shift_score"],
+            last_shift_type=dyno_metrics["latest_shift_type"],
+            last_shift_delta=dyno_metrics["latest_shift_delta"],
+            avg_shift_score=dyno_metrics["avg_shift_score"]
         )
 
     def clear_dtcs(self) -> bool:

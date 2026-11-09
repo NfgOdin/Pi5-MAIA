@@ -475,6 +475,9 @@
       <div class="gauge-cluster-toolbar">
         <button class="cluster-action-btn" onclick="openConfigModal()">⚙️ GAUGE CLUSTER CONFIG</button>
         <button class="cluster-action-btn" id="btnGaugeFullscreen" onclick="toggleFullscreenGauges()" style="color:var(--accent-yellow); border-color:rgba(255,204,0,0.4);"><span style="font-size:14px;">⛶</span> FULLSCREEN (12-GAUGE)</button>
+        <div class="launch-stat-badge" id="dynoBadge" style="color:var(--accent-pink); border-color:rgba(255,64,129,0.4); cursor:pointer;" onclick="toggleDynoPeakView()" title="Tap to toggle Peak WHP">⚡ DYNO: 0 WHP • 0 WTQ</div>
+        <div class="launch-stat-badge" id="multiairBadge" style="color:var(--accent-green); border-color:rgba(0,230,118,0.4);" title="Fiat MultiAir UniAir Brick State">🛡️ MULTIAIR: PRIMED</div>
+        <div class="launch-stat-badge" id="shiftScoreBadge" style="display:none; color:var(--accent-yellow); border-color:rgba(255,204,0,0.4);" title="C635 Heel-Toe Rev-Match Rating">🎯 REV-MATCH: 100 PTS</div>
         <div class="launch-stat-badge" id="launchTimerBadge">⏱️ 0-60 MPH: READY</div>
         <button class="cluster-action-btn" onclick="toggleSpeedUnits()" id="unitToggleBtn">UNITS: MPH</button>
       </div>

@@ -37,6 +37,11 @@ class AICopilot:
         self.warmup_ready_spoken = False
         self.last_announced_0_60: Optional[float] = None
         self.announced_dtcs = set()
+        
+        # Phase 4: Virtual Dyno, Wastegate Slop & Shift Scoring Latches
+        self.last_shift_praise_time = 0.0
+        self.last_spool_warning_time = 0.0
+        self.last_dyno_praise_time = 0.0
 
     def set_voice_mode(self, mode: str):
         """Set voice mode: 'MUTED', 'ALERTS_ONLY', or 'COPILOT'."""
@@ -59,10 +64,18 @@ class AICopilot:
             # Overheat or active DTC warning
             target_valence = -0.65
             target_arousal = 0.85
+        elif getattr(frame, 'virtual_whp', 0.0) >= 150.0:
+            # High-power Virtual Dyno pull
+            target_valence = 0.95
+            target_arousal = 0.98
         elif boost >= 12.0 and throttle >= 70.0:
             # High-boost turbo pull
             target_valence = 0.92
             target_arousal = 0.95
+        elif getattr(frame, 'multiair_status', None) == 'COLD_PROTECT' and boost > 8.0:
+            # Cold oil boost concern
+            target_valence = -0.40
+            target_arousal = 0.70
         elif speed >= 45.0 and -14.0 <= boost <= -0.5 and 8.0 <= throttle <= 38.0:
             # Calm steady highway cruising
             target_valence = 0.82
@@ -169,8 +182,11 @@ class AICopilot:
 
         # --- THE FOLLOWING ONLY RUN IN "COPILOT" MODE ---
 
-        # 3. MultiAir Cold Boost Protection (ONCE PER TRIP)
-        if not frame.multiair_ready and frame.throttle_pct > 65.0:
+        # 3. MultiAir UniAir Brick Cold Protection
+        multiair_status = getattr(frame, 'multiair_status', 'WARM_OPTIMAL')
+        boost_val = getattr(frame, 'boost_psi', 0.0) or 0.0
+        oil_temp = getattr(frame, 'multiair_oil_temp_f', 120.0) or 120.0
+        if (not frame.multiair_ready or multiair_status == "COLD_PROTECT") and (frame.throttle_pct > 65.0 or boost_val > 7.5):
             if not self.cold_warning_spoken and time_since_speech > 6.0:
                 self.cold_warning_spoken = True
                 self.last_spoken_time = now
@@ -178,9 +194,62 @@ class AICopilot:
                     "type": "WARNING",
                     "priority": 2,
                     "emotion": "CONCERNED",
-                    "speech": f"{self.driver_name}, the oil is still chilly. Let's take it easy so our MultiAir doesn't get hurt, okay?",
-                    "hud_message": "COLD ENGINE: BOOST LIMITED"
+                    "speech": f"{self.driver_name}, easy on the throttle! Our MultiAir brick oil is still cold at {int(oil_temp)} degrees. Let's let the 5W-40 warm up before sending full boost, okay?",
+                    "hud_message": f"❄️ MULTIAIR COLD: {int(oil_temp)}°F (BOOST LIMITED)"
                 }
+
+        # 4. Garrett GT1446 Wastegate & Diverter Valve Slop Warning
+        wastegate_health = getattr(frame, 'wastegate_spool_health', 100.0)
+        spool_grad = getattr(frame, 'wastegate_spool_gradient', 9.8)
+        if wastegate_health < 70.0 and (now - self.last_spool_warning_time > 300.0) and time_since_speech > 8.0:
+            self.last_spool_warning_time = now
+            self.last_spoken_time = now
+            return {
+                "type": "WARNING",
+                "priority": 2,
+                "emotion": "THOUGHTFUL",
+                "speech": f"{self.driver_name}, our turbo boost spool rate is sluggish at {spool_grad} PSI per thousand RPM. The wastegate actuator arm might have slop, or our diverter valve has a split diaphragm!",
+                "hud_message": f"⚠️ TURBO SPOOL LAG: {spool_grad} PSI/1k RPM"
+            }
+
+        # 5. C635 Manual Rev-Match & Downshift Quality Feedback
+        shift_score = getattr(frame, 'last_shift_score', None)
+        shift_type = getattr(frame, 'last_shift_type', None)
+        shift_delta = getattr(frame, 'last_shift_delta', None)
+        if shift_score is not None:
+            if shift_type == "PERFECT_REV_MATCH" and (now - self.last_shift_praise_time > 60.0) and time_since_speech > 6.0:
+                self.last_shift_praise_time = now
+                self.last_spoken_time = now
+                return {
+                    "type": "PERFORMANCE",
+                    "priority": 3,
+                    "emotion": "HAPPY_PROUD",
+                    "speech": f"✨ Butter smooth heel-toe downshift, {self.driver_name}! Perfect rev-match!",
+                    "hud_message": f"🎯 PERFECT REV-MATCH: 100 PTS (Δ{int(shift_delta or 0)} RPM)"
+                }
+            elif shift_type == "CLUTCH_JERK" and (shift_delta or 0) > 550 and (now - self.last_shift_praise_time > 75.0) and time_since_speech > 6.0:
+                self.last_shift_praise_time = now
+                self.last_spoken_time = now
+                return {
+                    "type": "WARNING",
+                    "priority": 3,
+                    "emotion": "CONCERNED",
+                    "speech": f"Oof, clutch jerk! Give the throttle a tiny blip on that downshift so we don't shock the transaxle, {self.driver_name}!",
+                    "hud_message": f"⚠️ CLUTCH JERK: Δ{int(shift_delta or 0)} RPM"
+                }
+
+        # 6. Virtual Dyno Peak Pull Celebration
+        whp_val = getattr(frame, 'virtual_whp', 0.0) or 0.0
+        if whp_val >= 165.0 and (now - self.last_dyno_praise_time > 120.0) and time_since_speech > 8.0:
+            self.last_dyno_praise_time = now
+            self.last_spoken_time = now
+            return {
+                "type": "PERFORMANCE",
+                "priority": 2,
+                "emotion": "EXCITED",
+                "speech": f"Hold on! Our virtual dyno just clocked {int(whp_val)} wheel horsepower! The MultiAir is singing, {self.driver_name}!",
+                "hud_message": f"⚡ DYNO PULL: {int(whp_val)} WHP"
+            }
 
         # 4. MultiAir Warmup Ready (ONCE PER TRIP)
         if frame.multiair_ready and not self.warmup_ready_spoken and self.cold_warning_spoken:

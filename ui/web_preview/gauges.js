@@ -3359,6 +3359,50 @@ function connectTelemetryStream() {
 
     latestTelemetry = t;
 
+    // Phase 4: Live Virtual Dyno, MultiAir & Shift Quality Updates
+    updateDynoBadgeUI(t);
+
+    const maBadge = document.getElementById('multiairBadge');
+    if (maBadge && t.multiair_status) {
+      if (t.multiair_status === 'COLD_PROTECT') {
+        maBadge.innerText = '❄️ MULTIAIR: COLD PROTECT';
+        maBadge.style.color = '#38bdf8';
+        maBadge.style.borderColor = 'rgba(56,189,248,0.5)';
+      } else if (t.multiair_status === 'WARM_OPTIMAL') {
+        maBadge.innerText = '🛡️ MULTIAIR: PRIMED';
+        maBadge.style.color = 'var(--accent-green)';
+        maBadge.style.borderColor = 'rgba(0,230,118,0.4)';
+      } else if (t.multiair_status === 'THERMAL_ALERT') {
+        maBadge.innerText = '🔥 MULTIAIR: OIL HOT';
+        maBadge.style.color = '#ef4444';
+        maBadge.style.borderColor = 'rgba(239,68,68,0.5)';
+      }
+    }
+
+    const shiftBadge = document.getElementById('shiftScoreBadge');
+    if (shiftBadge && t.last_shift_score !== null && t.last_shift_score !== undefined) {
+      if (t.last_shift_score !== lastObservedShiftScore) {
+        lastObservedShiftScore = t.last_shift_score;
+        const typeLabel = (t.last_shift_type || 'SHIFT').replace(/_/g, ' ');
+        shiftBadge.innerText = `🎯 ${typeLabel}: ${t.last_shift_score} PTS`;
+        shiftBadge.style.display = 'inline-block';
+        if (t.last_shift_score >= 90) {
+          shiftBadge.style.color = 'var(--accent-green)';
+          shiftBadge.style.borderColor = 'var(--accent-green)';
+        } else if (t.last_shift_score >= 70) {
+          shiftBadge.style.color = 'var(--accent-yellow)';
+          shiftBadge.style.borderColor = 'var(--accent-yellow)';
+        } else {
+          shiftBadge.style.color = '#ef4444';
+          shiftBadge.style.borderColor = '#ef4444';
+        }
+        if (shiftScoreFadeTimer) clearTimeout(shiftScoreFadeTimer);
+        shiftScoreFadeTimer = setTimeout(() => {
+          if (shiftBadge) shiftBadge.style.display = 'none';
+        }, 5000);
+      }
+    }
+
     // Phase 2: Update Physical G-Force Coupling & Gauge Gaze Triggers
     const curSpeed = (t.speed !== undefined) ? t.speed : (t.speed_mph || 0);
     const curBoost = (t.boost_psi !== undefined) ? t.boost_psi : 0;
@@ -25014,6 +25058,36 @@ let latestCircadian = null;
 let latestMood = null;
 let isNightResting = false;
 let parkedIdleTimer = 0.0;
+
+// Phase 4: Virtual Dyno, MultiAir Hydraulic Protection & Shift Scoring
+let showDynoPeak = false;
+let lastObservedShiftScore = null;
+let shiftScoreFadeTimer = null;
+
+function toggleDynoPeakView() {
+  showDynoPeak = !showDynoPeak;
+  updateDynoBadgeUI();
+}
+
+function updateDynoBadgeUI(telemetryData) {
+  const badge = document.getElementById('dynoBadge');
+  if (!badge) return;
+  const t = telemetryData || latestTelemetry || {};
+  const curWhp = Math.round(t.virtual_whp || 0);
+  const curWtq = Math.round(t.virtual_wtq || 0);
+  const peakWhp = Math.round(t.peak_whp || 0);
+  const peakWtq = Math.round(t.peak_wtq || 0);
+
+  if (showDynoPeak && peakWhp > 0) {
+    badge.innerText = `⚡ PEAK: ${peakWhp} WHP • ${peakWtq} WTQ`;
+    badge.style.color = '#ff4081';
+    badge.style.borderColor = '#ff4081';
+  } else {
+    badge.innerText = `⚡ DYNO: ${curWhp} WHP • ${curWtq} WTQ`;
+    badge.style.color = 'var(--accent-pink)';
+    badge.style.borderColor = 'rgba(255,64,129,0.4)';
+  }
+}
 
 
 

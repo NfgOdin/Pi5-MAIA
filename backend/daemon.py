@@ -4489,6 +4489,92 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             return
 
+        elif parsed.path == "/api/telemetry/dyno":
+            dyno = state.obd_reader.dyno if state.telemetry_mode == "REAL" else state.simulator.dyno
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "whp": dyno.current_whp,
+                "wtq": dyno.current_wtq,
+                "peak_whp": dyno.peak_whp,
+                "peak_wtq": dyno.peak_wtq,
+                "peak_whp_rpm": dyno.peak_whp_rpm,
+                "peak_wtq_rpm": dyno.peak_wtq_rpm,
+                "vehicle": "2013 Dodge Dart 1.4L Turbo MultiAir",
+                "curb_weight_lbs": 3186
+            }).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/telemetry/spool_health":
+            dyno = state.obd_reader.dyno if state.telemetry_mode == "REAL" else state.simulator.dyno
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "turbo": "Garrett GT1446 Wastegate & Diverter System",
+                "health_pct": dyno.wastegate_health_pct,
+                "latest_gradient_psi_per_1000rpm": dyno.latest_spool_gradient,
+                "baseline_healthy_gradient": 9.5,
+                "status": "HEALTHY" if dyno.wastegate_health_pct >= 80.0 else ("ATTENTION" if dyno.wastegate_health_pct >= 65.0 else "WARNING_LEAK_OR_SLOP"),
+                "recent_spool_runs": [
+                    {
+                        "start_rpm": r.start_rpm,
+                        "peak_rpm": r.peak_rpm,
+                        "boost_delta": round(r.peak_boost - r.start_boost, 1),
+                        "gradient": r.gradient_psi_per_1000rpm,
+                        "health": r.health_score,
+                        "gear": r.gear
+                    } for r in dyno.recent_spool_runs
+                ]
+            }).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/telemetry/shift_quality":
+            dyno = state.obd_reader.dyno if state.telemetry_mode == "REAL" else state.simulator.dyno
+            avg_score = round(dyno.total_shift_score / max(1, dyno.total_shift_count), 1) if dyno.total_shift_count > 0 else 100.0
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "transmission": "Fiat C635 6-Speed Manual",
+                "latest_score": dyno.latest_shift_score,
+                "latest_classification": dyno.latest_shift_type,
+                "latest_delta_rpm": dyno.latest_shift_delta,
+                "avg_score": avg_score,
+                "total_shifts": dyno.total_shift_count,
+                "recent_shifts": [
+                    {
+                        "from_gear": s.from_gear,
+                        "to_gear": s.to_gear,
+                        "speed_mph": s.speed_mph,
+                        "delta_rpm": s.delta_rpm,
+                        "score": s.score,
+                        "classification": s.classification
+                    } for s in dyno.shift_history[-10:]
+                ]
+            }).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/telemetry/multiair_health":
+            dyno = state.obd_reader.dyno if state.telemetry_mode == "REAL" else state.simulator.dyno
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "system": "Magneti Marelli UniAir Electro-Hydraulic Actuator",
+                "oil_spec": "SAE 5W-40 Synthetic API SN / ACEA C3",
+                "estimated_oil_temp_f": round(dyno.estimated_oil_temp_f, 1),
+                "status": dyno.multiair_status,
+                "full_boost_authorized": dyno.multiair_status == "WARM_OPTIMAL",
+                "safe_boost_limit_psi": 7.0 if dyno.multiair_status == "COLD_PROTECT" else 22.0
+            }).encode("utf-8"))
+            return
+
 
 
 
