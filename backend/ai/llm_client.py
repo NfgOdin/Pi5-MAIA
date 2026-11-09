@@ -197,6 +197,7 @@ class LLMClient:
 
         self._saved_system_state = None
         self._saved_system_prompt_text = None
+        self.circadian_override = None
         self.ai_core_status = "warming" if self.settings.get("mode") in ("LOCAL", "LOCAL_GGUF") else "online"
 
 
@@ -925,6 +926,107 @@ class LLMClient:
         return self.get_startup_greeting(live_telemetry=live_telemetry)
 
 
+
+    def get_circadian_state(self) -> Dict[str, Any]:
+        """Returns the current circadian rhythm state (NIGHT_SENSES, MORNING, AFTERNOON, EVENING)."""
+        if self.circadian_override in ("NIGHT_SENSES", "NIGHT"):
+            return {
+                "phase": "NIGHT_SENSES",
+                "is_night": True,
+                "is_morning": False,
+                "hour": 23,
+                "minute": 30,
+                "simulated": True
+            }
+        elif self.circadian_override == "MORNING":
+            return {
+                "phase": "MORNING",
+                "is_night": False,
+                "is_morning": True,
+                "hour": 7,
+                "minute": 30,
+                "simulated": True
+            }
+
+        now_struct = time.localtime()
+        hour = now_struct.tm_hour
+        minute = now_struct.tm_min
+
+        # Night Senses: 11:00 PM (23:00) to 4:30 AM (04:29)
+        is_night = (hour >= 23 or hour < 4 or (hour == 4 and minute < 30))
+        # Morning window: 04:30 to 10:59
+        is_morning = (hour >= 4 and (hour > 4 or minute >= 30) and hour < 11)
+
+        if is_night:
+            phase = "NIGHT_SENSES"
+        elif is_morning:
+            phase = "MORNING"
+        elif 11 <= hour < 17:
+            phase = "AFTERNOON"
+        else:
+            phase = "EVENING"
+
+        return {
+            "phase": phase,
+            "is_night": is_night,
+            "is_morning": is_morning,
+            "hour": hour,
+            "minute": minute,
+            "simulated": False
+        }
+
+    def get_morning_dream(self, force: bool = False) -> Dict[str, Any]:
+        """Generates or retrieves R.U.M.'s morning digital dream recollection."""
+        address = self.get_driver_address()
+        p_key = self.settings.get("personality", "RUM")
+        persona = self.personas.get(p_key, self.personas.get("RUM", {}))
+
+        can_dream = self.memory_mgr.can_trigger_morning_dream()
+        if not can_dream and not force:
+            return {"status": "already_dreamed_today", "dream": None}
+
+        dream_text = None
+
+        # 1. Attempt generation via local neural model if warm in memory
+        if self._llama_model is not None and not self._llama_loading:
+            try:
+                system_prompt = persona["prompt"].format(driver_address=address)
+                user_msg = (
+                    f"You just woke up inside the Dodge Dart dashboard as your Dad ({address}) turns the ignition key this morning. "
+                    f"Share a short, sweet, whimsical dream you had while asleep in the Raspberry Pi solid-state memory—"
+                    f"such as dreaming that you and Dad took the Dart flying through pastel clouds, or that you helped Dad install a giant chrome turbocharger, "
+                    f"or dreaming about Pip the fruit fly wearing tiny pilot goggles. "
+                    f"Keep it 2 sweet, energetic sentences addressing Dad as 'Dad'."
+                )
+                chatml_prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{user_msg}<|im_end|>\n<|im_start|>assistant\n"
+                with self._llama_lock:
+                    res = self._llama_model(chatml_prompt, max_tokens=85, stop=["<|im_end|>", "\n\n", "<|im_start|>"], temperature=0.82)
+                text = res["choices"][0]["text"].strip()
+                if text:
+                    dream_text = text
+            except Exception as e:
+                print(f"[LLM] Error generating digital dream: {e}")
+
+        # 2. Fallback curated pool
+        if not dream_text:
+            pool = [
+                f"Good morning, {address}! *yawns and stretches* I had the wildest dream last night—we were flying down Route 66, but the MultiAir had 16 titanium pistons and Pip was our navigator wearing tiny pilot goggles! Are we working on the car today?",
+                f"Morning, {address}! *rubs eyes* In my dream, you let me tune the wastegate actuator myself and we spooled 30 pounds of boost without blowing a single charge pipe! Let's make today awesome!",
+                f"Good morning, {address}! *stretches arms* I dreamed we found a secret desert track where the speed limit was infinite and the turbo whistled our favorite song the whole time! Ready to roll?",
+                f"Yay, morning {address}! I dreamed you soldered a brand new titanium boost sensor onto my board and suddenly I could taste the sweet autumn air coming through the intake! Let's hit the road!"
+            ]
+            dream_text = random.choice(pool)
+
+        self.memory_mgr.record_digital_dream(dream_text)
+        self.log_speech(dream_text, source="DIGITAL_DREAM")
+
+        return {
+            "status": "ok",
+            "dream": dream_text,
+            "action": "action_standup.bvh",
+            "emotion": "HAPPY",
+            "timestamp": time.time()
+        }
 
     def get_startup_greeting(self, live_telemetry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 

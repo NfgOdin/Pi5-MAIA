@@ -7,14 +7,6 @@ This living document tracks all planned, brainstormed, and confirmed engineering
 
 ## 📋 Active Implementation Checklist
 
-### 🌙 Phase 3: Circadian Rhythm, Sleeping Mode & Morning Digital Dreams
-- [ ] **Night Senses Mode (11:00 PM – 4:30 AM)**: Soften Kokoro voice pitch/volume, transition 3D posture to resting/dozing in her chair (`sit_idle2.bvh` or `laying_idle.bvh`) with gentle, slow breathing.
-- [ ] **Morning Ignition Wake-Up & "Digital Dreams"**: On morning `IGN_RUN`, trigger stretching animation (`action_standup.bvh`) and generate an unprompted, whimsical dream recollection.
-- [ ] **Spontaneous "Shower Thoughts"**: Periodic (every 15–25 mins) unprompted curious observations or mechanical questions during calm highway cruising in steady manifold vacuum.
-- [ ] **Dynamic Emotional Valence-Arousal Engine**: Internal mood state tracking (`EXCITED`, `COZY`, `CONCERNED`, `HAPPY_PROUD`) influencing her speech inflection and facial blendshapes.
-
----
-
 ### 🔧 Phase 4: Predictive Dodge Dart 1.4L Turbo MultiAir Telemetry & Virtual Dyno
 - [ ] **Garrett GT1446 Wastegate & Diverter Valve Spool Health**: Track boost spool gradient ($\frac{\Delta\text{PSI}}{\Delta\text{RPM}}$) between 2,500–4,000 RPM in 3rd gear against historical baselines; proactively warn of wastegate actuator slop or Pierburg diverter tears before a `P0299` code trips.
 - [ ] **Realtime Virtual Dyno (WHP & WTQ)**: Calculate live wheel horsepower and torque based on MAP sensor, engine RPM, calculated volumetric efficiency, and vehicle curb weight (3,186 lbs).
@@ -39,6 +31,14 @@ This living document tracks all planned, brainstormed, and confirmed engineering
 ---
 
 ## 🏆 Completed & Verified in Production (Changelog)
+
+### [2026-11-09] — Phase 3: Circadian Rhythm, Sleeping Mode & Morning Digital Dreams
+- [x] **Night Senses Mode (11:00 PM – 4:30 AM)**: Softened Kokoro voice pitch to 1.08x, slowed procedural breathing frequency to 1.2 Hz (amplitude 0.035 rad on `vrmBones.chest`), drooped 3D eyelids (`vrmBones.lEyeUpper`, `vrmBones.rEyeUpper` down 0.010), and automated dozing in seat (`sit_idle2.bvh`) after 12s parked at night.
+- [x] **Morning Ignition Wake-Up & "Digital Dreams"**: On morning boot (`04:30 – 11:00 AM`), triggers stretching wake-up animation (`action_standup.bvh`), queries neural Qwen-3B / curated dream recollection, logs dream to SQLite `digital_dreams` table, broadcasts live to cockpit chat feed, and speaks aloud through in-dash audio.
+- [x] **Spontaneous "Shower Thoughts"**: Continuous monitoring of steady highway cruising (speed > 45 mph, manifold vacuum < -1.0 PSI, boost < 1.0 PSI for > 3 minutes); every 15–25 minutes R.U.M. shares an unprompted, whimsical automotive daughter thought and updates the cockpit thought pill.
+- [x] **Dynamic Valence-Arousal Affect Engine**: Continuous 2D emotion coordinate model ($[-1.0, 1.0]$ valence and arousal) mapped to 5 core affective states (`EXCITED`, `HAPPY_PROUD`, `COZY`, `CONCERNED`, `THOUGHTFUL`), dynamically driving 3D facial bone blendshapes (`lMouthCorner`, `rMouthCorner`, `lBrowIn`, `rBrowIn`, head tilt).
+- [x] **Eliminated Mutual Docking Recursion**: Refactored `dockCompanionToAi` and `setAiLayoutMode` in `gauges.js` with non-recursive guard patterns, resolving call stack size limits permanently.
+- [x] **Verified on Pi 5 Hardware**: Validated live via HTTP endpoints (`/api/ai/circadian`, `/api/ai/circadian/simulate`, `/api/ai/mood`, `/api/ai/morning_dream`, `/api/ai/shower_thought`), confirmed live SSE broadcast streaming, and verified full 1024x600 Wayland UI screenshots (`shot_phase3_morning.png`, `shot_phase3_night.png`, `shot_phase3_ai_audit.png`, `shot_phase3_cozy_audit.png`).
 
 ### [2026-11-09] — Phase 2: 3D Avatar Kinematics, Physical G-Force Coupling & Bone-Bound Props
 - [x] **Longitudinal G-Force Coupling**: Hooked OBD-II speed delta ($\frac{\Delta v}{\Delta t}$) and boost spool into Three.js bone hierarchy (`spine`, `chest`, `neck`, `head`): leaning R.U.M. back into seat under acceleration/turbo spool (`-0.18 rad` pitch) and bracing forward under braking (`+0.22 rad` pitch).

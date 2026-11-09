@@ -263,3 +263,34 @@ class MemoryManager:
         self.save_memory()
 
         return chosen
+
+    def get_last_digital_dream_date(self) -> Optional[str]:
+        """Returns the ISO date string (YYYY-MM-DD) of the last recorded morning digital dream."""
+        return self.memory.get("last_digital_dream_date")
+
+    def record_digital_dream(self, dream_text: str):
+        """Records a completed morning digital dream so it only fires once per day."""
+        today_str = date.today().isoformat()
+        self.memory["last_digital_dream_date"] = today_str
+        dreams = self.memory.get("digital_dreams", [])
+        dreams.append({
+            "date": today_str,
+            "timestamp": time.time(),
+            "dream": dream_text
+        })
+        if len(dreams) > 20:
+            dreams.pop(0)
+        self.memory["digital_dreams"] = dreams
+        self.save_memory()
+
+    def can_trigger_morning_dream(self) -> bool:
+        """Returns True if current time is within morning wake-up window (04:30 - 10:59) and not yet played today."""
+        now_struct = time.localtime()
+        hour = now_struct.tm_hour
+        minute = now_struct.tm_min
+        is_morning = (hour >= 4 and (hour > 4 or minute >= 30) and hour < 11)
+        if not is_morning:
+            return False
+        today_str = date.today().isoformat()
+        return self.get_last_digital_dream_date() != today_str
+

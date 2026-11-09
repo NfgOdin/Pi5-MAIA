@@ -1216,7 +1216,8 @@ def telemetry_loop():
 
 
 
-        ai_event = state.copilot.evaluate_frame(frame)
+        circ_state = state.llm.get_circadian_state()
+        ai_event = state.copilot.evaluate_frame(frame, dt=dt, is_night=circ_state["is_night"])
 
 
 
@@ -2495,6 +2496,10 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
                         "gps": state.gps.get_telemetry(),
 
+                        "circadian": state.llm.get_circadian_state(),
+
+                        "mood": state.copilot.get_current_mood(),
+
 
 
                         "ai_event": ai_dict if ai_dict != last_ai_id else None,
@@ -2506,6 +2511,10 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
 
                         "is_speaking": getattr(state.audio, "is_speaking", False),
+
+                "circadian": state.llm.get_circadian_state(),
+
+                "mood": state.copilot.get_current_mood(),
 
 
 
@@ -2966,6 +2975,41 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
 
 
+
+        elif parsed.path == "/api/ai/circadian":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(state.llm.get_circadian_state()).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/ai/mood":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(state.copilot.get_current_mood()).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/ai/morning_dream":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            dream_data = state.llm.get_morning_dream(force=True)
+            if dream_data.get("dream"):
+                if state.copilot.voice_mode != "MUTED":
+                    state.audio.speak(dream_data["dream"])
+                state.latest_ui_action = {
+                    "type": "MORNING_DREAM",
+                    "speech": dream_data["dream"],
+                    "action": dream_data.get("action", "action_standup.bvh"),
+                    "emotion": "HAPPY",
+                    "hud_message": "💭 R.U.M.'s Digital Dream"
+                }
+            self.wfile.write(json.dumps(dream_data).encode("utf-8"))
+            return
 
         elif parsed.path == "/api/ai/greeting/instant":
 
@@ -7231,6 +7275,59 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
         
 
 
+
+        elif parsed.path == "/api/ai/circadian/simulate":
+            mode = req_data.get("mode")
+            state.llm.circadian_override = None if mode in (None, "AUTO", "NONE") else mode
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "status": "ok",
+                "circadian": state.llm.get_circadian_state()
+            }).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/ai/morning_dream":
+            dream_data = state.llm.get_morning_dream(force=True)
+            if dream_data.get("dream"):
+                if state.copilot.voice_mode != "MUTED":
+                    state.audio.speak(dream_data["dream"])
+                state.latest_ui_action = {
+                    "type": "MORNING_DREAM",
+                    "speech": dream_data["dream"],
+                    "action": dream_data.get("action", "action_standup.bvh"),
+                    "emotion": "HAPPY",
+                    "hud_message": "💭 R.U.M.'s Digital Dream"
+                }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(dream_data).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/ai/shower_thought":
+            thought = state.copilot.generate_shower_thought()
+            if state.copilot.voice_mode != "MUTED":
+                state.audio.speak(thought)
+            state.latest_ui_action = {
+                "type": "SHOWER_THOUGHT",
+                "speech": thought,
+                "emotion": "THOUGHTFUL",
+                "hud_message": "💭 R.U.M. Shower Thought"
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "status": "ok",
+                "thought": thought,
+                "emotion": "THOUGHTFUL"
+            }).encode("utf-8"))
+            return
 
         elif parsed.path == "/api/ai/models/swap":
 

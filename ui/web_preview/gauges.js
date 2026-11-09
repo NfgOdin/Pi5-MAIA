@@ -1794,7 +1794,7 @@ function navigateTo(screenId) {
 
     }
 
-    if (typeof dockCompanionToAi === "function") dockCompanionToAi();
+    if (typeof dockCompanionToAi === "function") dockCompanionToAi(false);
 
     scrollChatToBottom();
 
@@ -3261,6 +3261,17 @@ function connectTelemetryStream() {
     const data = JSON.parse(e.data);
 
 
+
+    if (data.circadian) {
+      latestCircadian = data.circadian;
+    }
+
+    if (data.mood) {
+      latestMood = data.mood;
+      if (typeof setWaifuEmotion === 'function' && data.mood.emotion) {
+        setWaifuEmotion(data.mood.emotion);
+      }
+    }
 
     if (data.action) {
 
@@ -6712,6 +6723,21 @@ function handleAiAction(action) {
   
 
 
+
+  if (action.type === 'SHOWER_THOUGHT') {
+    showAiSpeechToast(action.speech);
+    setWaifuEmotion('THOUGHTFUL');
+    return;
+  }
+
+  if (action.type === 'MORNING_DREAM') {
+    showAiSpeechToast(action.speech);
+    setWaifuEmotion('HAPPY_PROUD');
+    if (typeof playVrmAction === 'function') {
+      playVrmAction('action_standup.bvh', 5000);
+    }
+    return;
+  }
 
   if (action.type === 'navigate') {
 
@@ -20029,7 +20055,7 @@ function setWaifuEmotion(emo) {
 
 
 
-  const validEmotions = ["DEVOTED", "FLIRTY", "EXCITED", "CONCERNED", "HAPPY"];
+  const validEmotions = ["DEVOTED", "FLIRTY", "EXCITED", "CONCERNED", "HAPPY", "COZY", "HAPPY_PROUD", "THOUGHTFUL"];
 
 
 
@@ -20173,6 +20199,24 @@ function setWaifuEmotion(emo) {
 
 
 
+        break;
+
+      case "COZY":
+        pill.innerText = `☕ ${pName} • COZY & SLEEPY`;
+        pill.style.color = "#a78bfa";
+        pill.style.borderColor = "#a78bfa";
+        break;
+
+      case "HAPPY_PROUD":
+        pill.innerText = `🌸 ${pName} • PROUD DAUGHTER`;
+        pill.style.color = "#34d399";
+        pill.style.borderColor = "#34d399";
+        break;
+
+      case "THOUGHTFUL":
+        pill.innerText = `💭 ${pName} • SHOWER THOUGHTS`;
+        pill.style.color = "#38bdf8";
+        pill.style.borderColor = "#38bdf8";
         break;
 
 
@@ -24965,6 +25009,12 @@ let isHoldingMultimeter = false;
 let isHoldingDropper = false;
 let pipDropperDetachTimer = 0;
 
+// Phase 3: Circadian Rhythm, Mood & Night Resting State
+let latestCircadian = null;
+let latestMood = null;
+let isNightResting = false;
+let parkedIdleTimer = 0.0;
+
 
 
 
@@ -28367,6 +28417,59 @@ function initVrmEngine() {
         vrmBones.rEyeball.rotation.x = THREE.MathUtils.clamp(rumCurrentGazePitch * 0.45, -0.25, 0.25);
       }
 
+      // Phase 3: Circadian Slow Breathing & Night Resting Idle
+      const isNightSenses = latestCircadian && latestCircadian.is_night;
+      const breathFreq = isNightSenses ? 1.2 : 2.6;
+      const breathAmp = isNightSenses ? 0.035 : 0.022;
+      const breathPitch = Math.sin(time * breathFreq) * breathAmp;
+      if (vrmBones.chest) {
+        vrmBones.chest.rotation.x += breathPitch;
+      }
+
+      // Night resting idle transition when parked/stopped
+      if (isNightSenses && !isSpeaking && !isReacting && vrmCurrentAction === 'neutral_idle') {
+        const spd = (latestTelemetry && (latestTelemetry.speed || latestTelemetry.speed_mph)) || 0;
+        if (spd < 2.0) {
+          parkedIdleTimer += delta;
+          if (parkedIdleTimer > 12.0 && !isNightResting) {
+            isNightResting = true;
+            if (typeof playVrmAction === 'function') {
+              playVrmAction('sit_idle2.bvh', 25000);
+            }
+          }
+        } else {
+          parkedIdleTimer = 0.0;
+          if (isNightResting) {
+            isNightResting = false;
+            if (typeof stopActiveVrmaClip === 'function') stopActiveVrmaClip(0.5);
+          }
+        }
+      }
+
+      // Phase 3: Dynamic Affective Facial Expressions
+      const curEmo = (latestMood && latestMood.emotion) ? latestMood.emotion : currentWaifuEmotion;
+      if (curEmo === 'EXCITED') {
+        if (vrmBones.lMouthCorner) vrmBones.lMouthCorner.position.y += 0.007;
+        if (vrmBones.rMouthCorner) vrmBones.rMouthCorner.position.y += 0.007;
+        if (vrmBones.lBrowIn) vrmBones.lBrowIn.position.y += 0.005;
+        if (vrmBones.rBrowIn) vrmBones.rBrowIn.position.y += 0.005;
+      } else if (curEmo === 'COZY' || isNightSenses) {
+        if (vrmBones.lEyeUpper && !vrmIsBlinking) vrmBones.lEyeUpper.position.y -= 0.010;
+        if (vrmBones.rEyeUpper && !vrmIsBlinking) vrmBones.rEyeUpper.position.y -= 0.010;
+        if (vrmBones.lMouthCorner) vrmBones.lMouthCorner.position.y += 0.003;
+        if (vrmBones.rMouthCorner) vrmBones.rMouthCorner.position.y += 0.003;
+      } else if (curEmo === 'CONCERNED') {
+        if (vrmBones.lBrowIn) vrmBones.lBrowIn.position.y += 0.012;
+        if (vrmBones.rBrowIn) vrmBones.rBrowIn.position.y += 0.012;
+        if (vrmBones.lBrowOut) vrmBones.lBrowOut.position.y -= 0.004;
+        if (vrmBones.rBrowOut) vrmBones.rBrowOut.position.y -= 0.004;
+      } else if (curEmo === 'HAPPY_PROUD') {
+        if (vrmBones.lMouthCorner) vrmBones.lMouthCorner.position.y += 0.008;
+        if (vrmBones.rMouthCorner) vrmBones.rMouthCorner.position.y += 0.008;
+      } else if (curEmo === 'THOUGHTFUL') {
+        if (vrmBones.head && !isGazingAtGauges) vrmBones.head.rotation.z += 0.05;
+      }
+
 
 
       }
@@ -28986,13 +29089,13 @@ function setAiLayoutMode(mode = 'SPLIT') {
 
     container.classList.add('ai-layout-room');
 
-    if (typeof dockCompanionToAi === 'function') dockCompanionToAi();
+    if (typeof dockCompanionToAi === 'function') dockCompanionToAi(false);
 
   } else {
 
     container.classList.add('ai-layout-split');
 
-    if (typeof dockCompanionToAi === 'function') dockCompanionToAi();
+    if (typeof dockCompanionToAi === 'function') dockCompanionToAi(false);
 
   }
 
@@ -29952,61 +30055,39 @@ function popOutFloatingCompanion(isAuto = false) {
 
 
 
-function dockCompanionToAi(goToAi = true) {
-
+function dockCompanionToAi(goToAi = false) {
   const canvas = document.getElementById('vrmCanvas');
-
   const stageContainer = document.getElementById('vrmStageContainer');
-
   const floatingHud = document.getElementById('vrmFloatingHud');
 
-
-
   if (shotgunAutoDismissTimer) {
-
     clearTimeout(shotgunAutoDismissTimer);
-
     shotgunAutoDismissTimer = null;
-
   }
-
   isShotgunAutoPopped = false;
-
   if (!canvas || !stageContainer || !floatingHud) return;
 
-
-
   floatingHud.style.display = 'none';
-
   stageContainer.appendChild(canvas);
-
   isCompanionFloating = false;
 
-
-
   // If currently in CHAT focus mode, docking restores SPLIT layout so Rum is immediately visible on screen!
-
   if (currentAiLayoutMode === 'CHAT') {
-
-    setAiLayoutMode('SPLIT');
-
+    currentAiLayoutMode = 'SPLIT';
+    localStorage.setItem('carpi5_ai_layout_mode', 'SPLIT');
+    const container = document.getElementById('screenAI');
+    if (container) {
+      container.classList.remove('ai-layout-chat', 'ai-layout-room');
+      container.classList.add('ai-layout-split');
+    }
   }
 
-
-
-  if (goToAi) {
-
+  if (goToAi && currentScreen !== 'ai') {
     navigateTo('ai');
-
   }
-
-
 
   resizeVrmToStage();
-
 }
-
-
 
 function dismissFloatingHud() {
 
