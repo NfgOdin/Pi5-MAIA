@@ -27,7 +27,7 @@ def detect_usb_drives() -> List[Dict[str, Any]]:
     """
     Detects removable storage devices and core system root locations.
     Lists:
-      - User Home (~ / /home/nfgodin)
+      - User Home (~)
       - CarPi5 App Directory
       - System Root (/)
       - Real Removable USB flash drives (/media/*, /mnt/*)
@@ -116,12 +116,16 @@ def detect_usb_drives() -> List[Dict[str, Any]]:
 
     # 5. Linux USB Auto-Mounts & Removable Drives (/media/*, /mnt/*)
     if sys.platform != "win32":
-        search_dirs = [Path("/media"), Path("/media/nfgodin"), Path("/media/pi"), Path("/mnt")]
+        import getpass
+        current_user = getpass.getuser()
+        search_dirs = [Path("/media"), Path("/mnt")]
+        if (Path("/media") / current_user).is_dir():
+            search_dirs.append(Path("/media") / current_user)
         seen_paths = set()
         for parent in search_dirs:
             if parent.exists():
                 for entry in parent.iterdir():
-                    if entry.is_dir() and entry.name not in ("pi", "nfgodin") and str(entry) not in seen_paths:
+                    if entry.is_dir() and entry.name not in ("pi", "root", current_user) and str(entry) not in seen_paths:
                         try:
                             total_b, used_b, free_b = shutil.disk_usage(entry)
                             seen_paths.add(str(entry))
@@ -217,10 +221,20 @@ def list_directory(target_path: str) -> Dict[str, Any]:
     List contents of any valid directory with detailed metadata,
     permission safety, sorting, and breadcrumb path hierarchy.
     """
-    if not target_path or not str(target_path).strip():
+    if not target_path or not str(target_path).strip() or target_path in ("~", "home"):
         p = Path.home()
+    elif target_path in ("carpi5", "project"):
+        p = BASE_DIR
+    elif target_path == "music":
+        p = Path.home() / "Music"
+    elif target_path == "roms":
+        p = Path.home() / "RetroPie" / "roms" if (Path.home() / "RetroPie" / "roms").exists() else Path.home() / "Roms"
+    elif target_path == "usb":
+        p = Path("/media") if Path("/media").exists() else Path.home()
+    elif target_path == "dashcam":
+        p = BASE_DIR / "storage" / "dashcam_videos"
     else:
-        p = Path(target_path)
+        p = Path(os.path.expanduser(str(target_path).strip()))
         if not p.exists() or not p.is_dir():
             p = Path.home()
 

@@ -65,8 +65,9 @@ PLATFORM_CONFIG = {
 class RomManager:
     def __init__(self, base_rom_dirs: Optional[List[str]] = None):
         self.rom_dirs = base_rom_dirs or [
-            "/home/nfgodin/Roms",
+            os.path.expanduser("~/RetroPie/roms"),
             os.path.expanduser("~/Roms"),
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "storage", "usb_drive", "snes_roms"),
             os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "roms")
         ]
         self.cached_roms: List[Dict[str, Any]] = []
@@ -120,11 +121,11 @@ class RomManager:
 
     def _get_sample_roms(self) -> List[Dict[str, Any]]:
         return [
-            {"title": "Super Mario World", "filename": "Super Mario World.sfc", "path": "/home/nfgodin/Roms/Nintendo - Super Nintendo/Super Mario World.sfc", "platform": "snes", "platform_name": "Super Nintendo", "icon": "🕹️", "size_mb": 0.5},
-            {"title": "The Legend of Zelda - A Link to the Past", "filename": "Zelda.sfc", "path": "/home/nfgodin/Roms/Nintendo - Super Nintendo/Zelda.sfc", "platform": "snes", "platform_name": "Super Nintendo", "icon": "🕹️", "size_mb": 1.0},
-            {"title": "Super Mario 64", "filename": "Super Mario 64.z64", "path": "/home/nfgodin/Roms/Nintendo - 64/Super Mario 64.z64", "platform": "n64", "platform_name": "Nintendo 64", "icon": "🎮", "size_mb": 8.0},
-            {"title": "Sonic The Hedgehog 2", "filename": "Sonic2.bin", "path": "/home/nfgodin/Roms/Sega - Genesis/Sonic2.bin", "platform": "genesis", "platform_name": "Sega Genesis", "icon": "⚡", "size_mb": 1.0},
-            {"title": "Pokemon - Emerald Version", "filename": "Pokemon Emerald.gba", "path": "/home/nfgodin/Roms/Nintendo - Gameboy Advanced/Pokemon Emerald.gba", "platform": "gba", "platform_name": "Game Boy Advance", "icon": "📱", "size_mb": 16.0}
+            {"title": "Super Mario World", "filename": "Super Mario World.sfc", "path": os.path.expanduser("~/Roms/Nintendo - Super Nintendo/Super Mario World.sfc"), "platform": "snes", "platform_name": "Super Nintendo", "icon": "🕹️", "size_mb": 0.5},
+            {"title": "The Legend of Zelda - A Link to the Past", "filename": "Zelda.sfc", "path": os.path.expanduser("~/Roms/Nintendo - Super Nintendo/Zelda.sfc"), "platform": "snes", "platform_name": "Super Nintendo", "icon": "🕹️", "size_mb": 1.0},
+            {"title": "Super Mario 64", "filename": "Super Mario 64.z64", "path": os.path.expanduser("~/Roms/Nintendo - 64/Super Mario 64.z64"), "platform": "n64", "platform_name": "Nintendo 64", "icon": "🎮", "size_mb": 8.0},
+            {"title": "Sonic The Hedgehog 2", "filename": "Sonic2.bin", "path": os.path.expanduser("~/Roms/Sega - Genesis/Sonic2.bin"), "platform": "genesis", "platform_name": "Sega Genesis", "icon": "⚡", "size_mb": 1.0},
+            {"title": "Pokemon - Emerald Version", "filename": "Pokemon Emerald.gba", "path": os.path.expanduser("~/Roms/Nintendo - Gameboy Advanced/Pokemon Emerald.gba"), "platform": "gba", "platform_name": "Game Boy Advance", "icon": "📱", "size_mb": 16.0}
         ]
 
     def launch_game(self, rom_path: str, platform_id: Optional[str] = None) -> Dict[str, Any]:

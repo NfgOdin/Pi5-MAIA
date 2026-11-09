@@ -90,7 +90,7 @@ class AICopilot:
                     "type": "WARNING",
                     "priority": 2,
                     "emotion": "CONCERNED",
-                    "speech": f"{self.driver_name}, MultiAir oil is still cold. Keep revs low until it warms up.",
+                    "speech": f"{self.driver_name}, the oil is still chilly. Let's take it easy so our engine doesn't get hurt, okay?",
                     "hud_message": "COLD ENGINE: BOOST LIMITED"
                 }
 
@@ -103,7 +103,7 @@ class AICopilot:
                     "type": "INFO",
                     "priority": 3,
                     "emotion": "HAPPY",
-                    "speech": "MultiAir oil is up to operating temperature. Full boost permitted.",
+                    "speech": f"{self.driver_name}, the engine oil is all warmed up and happy! Clear for full boost whenever you want!",
                     "hud_message": "MULTIAIR NOMINAL: FULL BOOST OK"
                 }
 
@@ -126,7 +126,7 @@ class AICopilot:
                     "type": "PERFORMANCE",
                     "priority": 2,
                     "emotion": "EXCITED",
-                    "speech": f"Peak boost hit {peak} PSI. Intake temp is {iat_str}.",
+                    "speech": f"Wheee! Look at that boost, {self.driver_name}! {peak} PSI peak and intake temp is {iat_str}! Go go go!",
                     "hud_message": f"PULL DEBRIEF: {peak} PSI PEAK"
                 }
 

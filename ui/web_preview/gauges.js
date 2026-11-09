@@ -1,565 +1,1130 @@
 
+
 // --- PHASE 3: COLLAPSIBLE VRM CONTROLS BAR & ROOM CHAT HELPERS ---
+
 function toggleVrmControlsBar() {
+
   const bar = document.getElementById('vrmControlsBar');
+
   const chevron = document.getElementById('vrmControlsChevron');
+
   const label = document.getElementById('vrmControlsLabel');
+
   if (!bar) return;
+
+
 
   const isCollapsed = bar.classList.toggle('collapsed');
+
   localStorage.setItem('carpi5_vrm_ctrls_collapsed', isCollapsed ? '1' : '0');
 
+
+
   if (chevron) chevron.innerText = isCollapsed ? '▼' : '▲';
+
   if (label) label.innerText = isCollapsed ? 'CONTROLS' : 'HIDE';
+
 }
+
+
 
 function initVrmControlsBarState() {
+
   const saved = localStorage.getItem('carpi5_vrm_ctrls_collapsed');
+
   const bar = document.getElementById('vrmControlsBar');
+
   const chevron = document.getElementById('vrmControlsChevron');
+
   const label = document.getElementById('vrmControlsLabel');
+
   if (!bar) return;
 
+
+
   if (saved === '1') {
+
     bar.classList.add('collapsed');
+
     if (chevron) chevron.innerText = '▼';
+
     if (label) label.innerText = 'CONTROLS';
+
   } else {
+
     bar.classList.remove('collapsed');
+
     if (chevron) chevron.innerText = '▲';
+
     if (label) label.innerText = 'HIDE';
+
   }
+
 }
+
+
 
 function closeRoomFloatingChat() {
+
   const screen = document.getElementById('screenAI');
+
   if (screen) {
+
     screen.classList.add('chat-closed');
+
     localStorage.setItem('carpi5_room_chat_closed', '1');
+
   }
+
 }
 
+
+
 function openRoomFloatingChat() {
+
   const screen = document.getElementById('screenAI');
+
   if (screen) {
+
     screen.classList.remove('chat-closed');
+
     localStorage.setItem('carpi5_room_chat_closed', '0');
+
   }
+
 }
+
+
+
 
 
 function publishNowPlaying(status = 'playing') {
+
   if (!realPlaylist || realPlaylist.length === 0) return;
+
   const t = realPlaylist[realTrackIdx] || {};
+
   const dur = (realAudio.duration && !isNaN(realAudio.duration) && realAudio.duration > 0) ? realAudio.duration : (t.duration || 180);
+
   fetch('/api/media/now_playing', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({
+
       title: t.title || "Track",
+
       artist: t.artist || "$uicideboy$",
+
       album: t.album || "CarPi5 In-Dash",
+
       genre: t.genre || "G59 / Hip-Hop",
+
       year: t.year || "2024",
+
       duration: dur,
+
       track_num: realTrackIdx + 1,
+
       total_tracks: realPlaylist.length,
+
       status: status
+
     })
+
   }).catch(() => {});
+
 }
 
 
+
+
+
 // ==========================================
+
 // R.U.M. SMART AUDIO DUCKING & SUBWOOFER HUD
+
 // ==========================================
+
 let mediaPreDuckingVolume = null;
+
 let duckingRampInterval = null;
 
+
+
 function setMediaDuckState(isDucking) {
+
   if (typeof realAudio === 'undefined' || !realAudio) return;
+
   if (realAudio.paused && mediaPreDuckingVolume === null) return;
+
   
+
   clearInterval(duckingRampInterval);
 
+
+
   if (isDucking) {
+
     if (mediaPreDuckingVolume === null) {
+
       mediaPreDuckingVolume = realAudio.volume;
+
     }
+
     const targetVolume = Math.max(0.08, mediaPreDuckingVolume * 0.18);
+
     rampAudioVolume(targetVolume, 200);
+
   } else {
+
     if (mediaPreDuckingVolume !== null) {
+
       const restoreVolume = mediaPreDuckingVolume;
+
       mediaPreDuckingVolume = null;
+
       rampAudioVolume(restoreVolume, 350);
+
     }
+
   }
+
 }
+
+
 
 function rampAudioVolume(target, durationMs) {
+
   if (typeof realAudio === 'undefined' || !realAudio) return;
+
   const startVol = realAudio.volume;
+
   const startTime = Date.now();
+
   duckingRampInterval = setInterval(() => {
+
     const elapsed = Date.now() - startTime;
+
     const progress = Math.min(1.0, elapsed / durationMs);
+
     const current = startVol + (target - startVol) * (progress * (2 - progress));
+
     realAudio.volume = Math.max(0, Math.min(1, current));
+
     if (progress >= 1.0) {
+
       clearInterval(duckingRampInterval);
+
     }
+
   }, 25);
+
 }
+
+
 
 // Digital Subwoofer Gain & Peak Clipping Indicator
+
 let currentSubGain = 0;
+
 let clipAnalyser = null;
+
 let isAntiClipEnabled = true;
+
 try {
+
   const savedAnti = localStorage.getItem('carpi5_anticlip_enabled');
+
   if (savedAnti !== null) isAntiClipEnabled = (savedAnti === 'true');
+
 } catch (e) {}
+
 let autoClipLimiterNode = null;
 
+
+
 let isSubsonicFilterActive = true;
+
 try {
+
   const savedSub = localStorage.getItem('carpi5_subsonic_active');
+
   if (savedSub !== null) isSubsonicFilterActive = (savedSub === 'true');
+
 } catch (e) {}
+
 let subsonicFilter = null;
 
+
+
 let currentSubBassFreq = 45;
+
 try {
+
   const savedFreq = localStorage.getItem('carpi5_sub_freq');
+
   if (savedFreq) currentSubBassFreq = parseInt(savedFreq) || 45;
+
 } catch (e) {}
 
+
+
 let currentPlaybackSpeed = 1.0;
+
 let isPitchLocked = true;
+
 let clipMonitorStarted = false;
+
 let lastClipAlertTime = 0;
+
 const timeDomainBuffer = new Float32Array(256);
 
+
+
 function onSubGainChange(val) {
+
   currentSubGain = parseFloat(val);
+
   const label = document.getElementById('subGainVal');
+
   if (label) {
+
     label.innerText = (currentSubGain >= 0 ? '+' : '') + currentSubGain.toFixed(1) + ' dB';
+
     if (currentSubGain > 6) {
+
       label.style.color = '#ff5252';
+
     } else if (currentSubGain > 0) {
+
       label.style.color = '#c084fc';
+
     } else {
+
       label.style.color = 'var(--text-secondary)';
+
     }
+
   }
+
   if (typeof subBassFilter !== 'undefined' && subBassFilter && typeof audioCtx !== 'undefined' && audioCtx) {
+
     try {
+
       subBassFilter.gain.setTargetAtTime(currentSubGain, audioCtx.currentTime, 0.02);
+
     } catch (e) {}
+
   }
+
 }
+
+
 
 function startClipMonitor() {
+
   if (clipMonitorStarted) return;
+
   clipMonitorStarted = true;
+
   function checkAudioClip() {
+
     if (clipAnalyser && typeof realAudio !== 'undefined' && realAudio && !realAudio.paused) {
+
       clipAnalyser.getFloatTimeDomainData(timeDomainBuffer);
+
       let peak = 0;
+
       for (let i = 0; i < timeDomainBuffer.length; i++) {
+
         const abs = Math.abs(timeDomainBuffer[i]);
+
         if (abs > peak) peak = abs;
+
       }
+
       const now = Date.now();
+
       if (peak >= 0.96) {
+
         lastClipAlertTime = now;
+
       }
+
+
 
       // Check real-time limiter reduction in dB
+
       let reduction = 0;
+
       if (typeof autoClipLimiterNode !== 'undefined' && autoClipLimiterNode && isAntiClipEnabled) {
+
         try {
+
           reduction = autoClipLimiterNode.reduction; // dB value <= 0
+
         } catch (e) {}
+
       }
+
+
 
       // Update Limiter Meter in Audio Suite if open
+
       const meterFill = document.getElementById('limiterMeterFill');
+
       const meterText = document.getElementById('limiterMeterText');
+
       if (meterFill && meterText) {
+
         const redDb = Math.abs(reduction);
+
         const pct = Math.min(100, (redDb / 12) * 100);
+
         meterFill.style.width = pct + '%';
+
         if (isAntiClipEnabled) {
+
           meterText.innerText = redDb > 0.1 ? `-${redDb.toFixed(1)} dB (LIMITING CLIPS)` : '0.0 dB (TRANSPARENT)';
+
           meterText.style.color = redDb > 0.1 ? '#00b0ff' : 'var(--text-secondary)';
+
         } else {
+
           meterText.innerText = 'BYPASSED (RAW SIGNAL)';
+
           meterText.style.color = '#ff5252';
+
         }
+
       }
 
+
+
       const badge = document.getElementById('subClipBadge');
+
       if (badge) {
+
         if (isAntiClipEnabled && reduction < -0.8) {
+
           badge.innerText = `🛡️ -${Math.abs(reduction).toFixed(0)}dB`;
+
           badge.style.background = 'rgba(0, 176, 255, 0.25)';
+
           badge.style.color = '#00b0ff';
+
           badge.style.borderColor = '#00b0ff';
+
           badge.style.boxShadow = '0 0 10px rgba(0, 176, 255, 0.6)';
+
         } else if (now - lastClipAlertTime < 350) {
+
           if (isAntiClipEnabled) {
+
             badge.innerText = '🛡️ CLAMP';
+
             badge.style.background = 'rgba(0, 230, 118, 0.25)';
+
             badge.style.color = 'var(--accent-green)';
+
             badge.style.borderColor = 'var(--accent-green)';
+
             badge.style.boxShadow = '0 0 10px rgba(0, 230, 118, 0.6)';
+
           } else {
+
             badge.innerText = '⚡ CLIP';
+
             badge.style.background = 'rgba(255, 23, 68, 0.4)';
+
             badge.style.color = '#ff1744';
+
             badge.style.borderColor = '#ff1744';
+
             badge.style.boxShadow = '0 0 12px rgba(255, 23, 68, 0.8)';
+
           }
+
         } else if (peak >= 0.82) {
+
           badge.innerText = 'WARM';
+
           badge.style.background = 'rgba(255, 171, 0, 0.2)';
+
           badge.style.color = '#ffab00';
+
           badge.style.borderColor = 'rgba(255, 171, 0, 0.4)';
+
           badge.style.boxShadow = 'none';
+
         } else {
+
           badge.innerText = 'CLEAN';
+
           badge.style.background = 'rgba(0, 230, 118, 0.15)';
+
           badge.style.color = 'var(--accent-green)';
+
           badge.style.borderColor = 'rgba(0, 230, 118, 0.3)';
+
           badge.style.boxShadow = 'none';
+
         }
+
       }
+
     }
+
     requestAnimationFrame(checkAudioClip);
+
   }
+
   requestAnimationFrame(checkAudioClip);
+
 }
+
+
+
 
 
 // --- FULLSCREEN 12-GAUGE CLUSTER CONTROLS ---
+
 let isGaugeFullscreen = false;
+
 let previousLayoutBeforeFullscreen = 3;
 
+
+
 function toggleFullscreenGauges() {
+
   if (isGaugeFullscreen) {
+
     exitFullscreenGauges();
+
   } else {
+
     enterFullscreenGauges();
+
   }
+
 }
+
+
 
 function enterFullscreenGauges() {
+
   isGaugeFullscreen = true;
+
   document.body.classList.add('gauge-fullscreen-active');
+
   previousLayoutBeforeFullscreen = currentLayout;
+
   currentLayout = 12;
+
   initGaugeGrid();
+
   
+
   try {
+
     if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+
       document.documentElement.requestFullscreen().catch(() => {});
+
     }
+
   } catch (e) {}
+
 }
+
+
 
 function exitFullscreenGauges() {
+
   isGaugeFullscreen = false;
+
   document.body.classList.remove('gauge-fullscreen-active');
+
   if (previousLayoutBeforeFullscreen) {
+
     currentLayout = previousLayoutBeforeFullscreen;
+
   }
+
   initGaugeGrid();
+
   
+
   try {
+
     if (document.exitFullscreen && document.fullscreenElement) {
+
       document.exitFullscreen().catch(() => {});
+
     }
+
   } catch (e) {}
+
 }
 
+
+
 window.addEventListener('keydown', (e) => {
+
   if (e.key === 'Escape' && isGaugeFullscreen) {
+
     exitFullscreenGauges();
+
   }
+
 });
+
+
+
+
 
 
 
 // --- CLOCK FORMATTING (12-Hour AM/PM vs 24-Hour Military) ---
 
+
+
 let is24HourClock = localStorage.getItem('carpi5_clock_format') === '24H';
 
 
 
+
+
+
+
 function escapeHtml(str) {
+
   if (!str) return '';
+
   return String(str)
+
     .replace(/&/g, '&amp;')
+
     .replace(/</g, '&lt;')
+
     .replace(/>/g, '&gt;')
+
     .replace(/"/g, '&quot;')
+
     .replace(/'/g, '&#039;');
+
 }
+
+
 
 function formatClockTime(date = new Date(), includeSeconds = false) {
 
+
+
   if (is24HourClock) {
+
+
 
     const opts = { hour: '2-digit', minute: '2-digit', hour12: false };
 
+
+
     if (includeSeconds) opts.second = '2-digit';
+
+
 
     return date.toLocaleTimeString([], opts);
 
+
+
   } else {
+
+
 
     let hours = date.getHours();
 
+
+
     const minutes = String(date.getMinutes()).padStart(2, '0');
+
+
 
     const ampm = hours >= 12 ? 'PM' : 'AM';
 
+
+
     hours = hours % 12;
+
+
 
     hours = hours ? hours : 12;
 
+
+
     if (includeSeconds) {
+
+
 
       const seconds = String(date.getSeconds()).padStart(2, '0');
 
+
+
       return `${hours}:${minutes}:${seconds} ${ampm}`;
+
+
 
     }
 
+
+
     return `${hours}:${minutes} ${ampm}`;
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function toggleClockFormat() {
 
+
+
   is24HourClock = !is24HourClock;
+
+
 
   localStorage.setItem('carpi5_clock_format', is24HourClock ? '24H' : '12H');
 
+
+
   const btn = document.getElementById('btnClockFormat');
+
+
 
   if (btn) btn.innerText = is24HourClock ? "CLOCK: 24-HOUR (MILITARY)" : "CLOCK: 12-HOUR (AM/PM)";
 
+
+
   const clock = document.getElementById('footerClock');
+
+
 
   if (typeof updateSystemClock === 'function') updateSystemClock(); else if (clock) clock.innerText = formatClockTime(new Date());
 
+
+
   const scClock = document.getElementById('screensaverClock');
+
+
 
   if (scClock) scClock.innerText = formatClockTime(new Date(), true);
 
+
+
 }
+
+
+
+
 
 
 
 // --- DISPLAY BRIGHTNESS SCRIM & HARDWARE BRIGHTNESS ---
 
+
+
 function updateBrightnessFromSlider(val) {
+
+
 
   const pct = Math.max(10, Math.min(100, parseInt(val) || 100));
 
+
+
   
+
+
 
   // 1. Update UI Elements
 
+
+
   const pill = document.getElementById('brightnessPillVal');
+
+
 
   if (pill) pill.innerText = `${pct}%`;
 
+
+
   const slider = document.getElementById('sliderBrightness');
+
+
 
   if (slider && slider.value !== String(pct)) slider.value = pct;
 
+
+
   const cfgSlider = document.getElementById('cfgDisplayBrightness');
+
+
 
   if (cfgSlider && cfgSlider.value !== String(pct)) cfgSlider.value = pct;
 
+
+
   const label = document.getElementById('cfgBrightnessLabel');
+
+
 
   if (label) label.innerText = `${pct}%`;
 
 
 
+
+
+
+
   // 2. Hardware / Software Scrim (Smoothly dims any HDMI or DSI car display)
+
+
 
   const overlay = document.getElementById('screenBrightnessOverlay');
 
+
+
   if (overlay) {
+
+
 
     overlay.style.opacity = (1.0 - (pct / 100.0)).toFixed(2);
 
+
+
   }
+
+
+
+
 
 
 
   // 3. Persist setting across reboots
 
+
+
   localStorage.setItem('carpi5_brightness', pct);
+
+
+
+
 
 
 
   // 4. Send to backend in case sysfs backlight driver is present
 
+
+
   fetch('/api/system/brightness', {
+
+
 
     method: 'POST',
 
+
+
     headers: { 'Content-Type': 'application/json' },
+
+
 
     body: JSON.stringify({ brightness: pct })
 
+
+
   }).catch(() => {});
 
+
+
 }
+
+
+
+
 
 
 
 function setDisplayBrightness(val) {
 
+
+
   updateBrightnessFromSlider(val);
 
+
+
 }
+
+
+
+
 
 
 
 // --- GLOBAL TOUCH DRAG VS TAP DISCRIMINATOR & CLICK SUPPRESSION ---
 
+
+
 let isTouchScrolling = false;
+
+
 
 let touchScrollDistance = 0;
 
+
+
 let touchStartY = 0;
+
+
 
 let touchStartX = 0;
 
 
 
+
+
+
+
 window.addEventListener('touchstart', (e) => {
+
+
 
   if (e.touches && e.touches[0]) {
 
+
+
     touchStartY = e.touches[0].clientY;
+
+
 
     touchStartX = e.touches[0].clientX;
 
+
+
     touchScrollDistance = 0;
+
+
 
     isTouchScrolling = false;
 
+
+
   }
 
+
+
 }, { passive: true });
+
+
+
+
 
 
 
 window.addEventListener('touchmove', (e) => {
 
+
+
   if (e.touches && e.touches[0]) {
+
+
 
     const dy = Math.abs(e.touches[0].clientY - touchStartY);
 
+
+
     const dx = Math.abs(e.touches[0].clientX - touchStartX);
+
+
 
     touchScrollDistance = Math.max(touchScrollDistance, Math.hypot(dx, dy));
 
+
+
     if (touchScrollDistance > 20) {
+
+
 
       isTouchScrolling = true;
 
+
+
     }
+
+
 
   }
 
+
+
 }, { passive: true });
+
+
+
+
 
 
 
 window.addEventListener('touchend', () => {
 
+
+
   setTimeout(() => {
+
+
 
     isTouchScrolling = false;
 
+
+
     touchScrollDistance = 0;
 
+
+
   }, 160);
+
+
 
 }, { passive: true });
 
 
 
+
+
+
+
 // Prevent accidental clicks on accordion headers/buttons if user was dragging to scroll!
+
+
 
 window.addEventListener('click', (e) => {
 
+
+
   if (isTouchScrolling || touchScrollDistance > 20) {
+
+
 
     e.stopPropagation();
 
+
+
     e.preventDefault();
 
+
+
   }
+
+
 
 }, true); // Capture phase listener!
 
 
 
+
+
+
+
 function enableKineticTouchScroll(element) {
+
+
 
   // Native Chromium hardware-accelerated scrolling handles touch scrolling.
 
+
+
   if (element) {
+
+
 
     element.style.touchAction = 'pan-y';
 
+
+
     element.style.webkitOverflowScrolling = 'touch';
 
+
+
   }
+
+
 
 }
 
 
 
+
+
+
+
 /**
+
+
 
  * gauges.js - Dodge Dart CarPi5 Automotive OS & Dynamic Cockpit Controller
 
+
+
  * 
+
+
 
  * Features:
 
+
+
  * - Multi-Screen Navigation (Home Hub, Gauges, M.A.I.A. Terminal, Media, Settings)
+
+
 
  * - Dynamic Gauge Grid (1, 2, 3, 4, 6, and 8 gauges with 4 on top / 4 on bottom)
 
+
+
  * - Click-to-Inspect Live Telemetry Line Graph Scope (Last 60 seconds @ 2Hz)
+
+
 
  * - Interactive M.A.I.A. AI Chat Terminal + Copilot Event Logging + Speech Synthesis
 
+
+
  * - Tailscale Mesh Network & Desktop Ollama GPU Integration
+
+
 
  * - Powertrain Diagnostics (OBD-II DTC inspection, spoken explanations, and reset)
 
+
+
  * - In-Car Media Player & Ambient Photo Slideshow Screensaver with Idle Timer
 
+
+
  */
+
+
+
+
 
 
 
@@ -567,162 +1132,327 @@ function enableKineticTouchScroll(element) {
 
 
 
+
+
+
+
 const SENSORS = {
+
   speed: { id: "speed", name: "Vehicle Speed", unit: "MPH", min: 0, max: 140, color: "#00b0ff" },
+
   boost: { id: "boost", name: "Turbo Boost", unit: "PSI", min: -25, max: 22, color: "#00e676" },
+
   rpm: { id: "rpm", name: "Engine RPM", unit: "RPM", min: 0, max: 7000, color: "#ffcc00" },
+
   coolant: { id: "coolant", name: "MultiAir Temp", unit: "°F", min: 60, max: 240, color: "#ff7700" },
+
   load: { id: "load", name: "Engine Load", unit: "%", min: 0, max: 100, color: "#ff5252" },
+
   throttle: { id: "throttle", name: "Throttle Pos", unit: "%", min: 0, max: 100, color: "#b388ff" },
+
   timing: { id: "timing", name: "Timing Advance", unit: "°", min: -10, max: 40, color: "#e040fb" },
+
   afr: { id: "afr", name: "Air/Fuel Ratio", unit: ":1", min: 10, max: 20, color: "#69f0ae" },
+
   iat: { id: "iat", name: "Intake Air Temp", unit: "°F", min: 50, max: 160, color: "#00e5ff" },
+
   volts: { id: "volts", name: "Battery Volts", unit: "V", min: 10, max: 16, color: "#00e676" },
+
   mpg: { id: "mpg", name: "Fuel Economy", unit: "MPG", min: 0, max: 60, color: "#00e676" },
+
   fuel_level: { id: "fuel_level", name: "Fuel Level", unit: "%", min: 0, max: 100, color: "#40c4ff" },
+
   ambient: { id: "ambient", name: "Ambient Temp", unit: "°F", min: 0, max: 130, color: "#ffd740" },
+
   pedal: { id: "pedal", name: "Pedal Position", unit: "%", min: 0, max: 100, color: "#7c4dff" },
+
   runtime: { id: "runtime", name: "Engine Runtime", unit: "min", min: 0, max: 180, color: "#64ffda" },
+
   baro: { id: "baro", name: "Baro Pressure", unit: "kPa", min: 60, max: 110, color: "#ffab40" }
+
 };
+
+
+
+
 
 
 
 // Global App State
 
+
+
 let currentScreen = "home";
+
+
 
 let currentLayout = 3; // Default 3 gauges (Speed, Boost, RPM)
 
+
+
 let currentSlots = [
+
   "speed", "boost", "rpm", "coolant",
+
   "load", "throttle", "timing", "afr",
+
   "iat", "volts", "mpg", "fuel_level",
+
   "ambient", "pedal", "runtime", "baro"
+
 ];
 
+
+
 // Restore saved preferences
+
 try {
+
   const savedLayout = localStorage.getItem('carpi5_layout');
+
   if (savedLayout) currentLayout = parseInt(savedLayout, 10) || 3;
+
   const savedSlots = localStorage.getItem('carpi5_slots');
+
   if (savedSlots) {
+
     const parsed = JSON.parse(savedSlots);
+
     if (Array.isArray(parsed) && parsed.length > 0) {
+
       for (let i = 0; i < parsed.length; i++) {
+
         if (parsed[i] && SENSORS[parsed[i]]) currentSlots[i] = parsed[i];
+
       }
+
     }
+
   }
+
 } catch (e) {}
+
+
 
 let isKph = false;
 
+
+
 let currentVoiceMode = "COPILOT";
+
+
 
 let activeGraphSensor = null;
 
+
+
 let currentAiSettings = {
+
+
 
   mode: "BUILTIN",
 
+
+
   personality: "RUM",
 
-  driver_title: "Master",
 
-  driver_name: "Creator",
 
-  driver_moniker: "Creator",
+  driver_title: "Dad",
+
+
+
+  driver_name: "",
+
+
+
+  driver_moniker: "",
+
+
 
   tailscale_ip: "100.x.y.z",
 
+
+
   tailscale_port: 11434,
+
+
 
   ollama_model: "llama3.2:3b",
 
+
+
   api_key: ""
+
+
 
 };
 
 
 
+
+
+
+
 function getDriverDisplayAddress() {
+
+
 
   const title = (currentAiSettings.driver_title || "").trim();
 
+
+
   const name = (currentAiSettings.driver_name || currentAiSettings.driver_moniker || "").trim();
+
+
 
   if (title && name) return `${title} ${name}`;
 
+
+
   if (name) return name;
+
+
 
   if (title) return title;
 
+
+
   return "Master";
+
+
 
 }
 
 
 
+
+
+
+
 // Time-Series Historical Buffer (stores last 60 seconds of data @ 2Hz = 120 samples per sensor)
+
+
 
 const HISTORY_LENGTH = 120;
 
+
+
 const historyBuffers = {};
+
+
 
 Object.keys(SENSORS).forEach(k => {
 
+
+
   historyBuffers[k] = [];
 
+
+
   historyBuffers[k]._lastTime = 0;
+
+
 
 });
 
 
 
+
+
+
+
 // Screensaver & Idle Timer State
+
+
 
 let screensaverTimer = null;
 
+
+
 let screensaverInterval = null;
+
+
 
 let lastInteractionTime = Date.now();
 
+
+
 const screensaverImages = [
+
+
 
   "https://images.unsplash.com/photo-1542282088-72c9c27ed0cd?auto=format&fit=crop&w=1920&q=90",
 
+
+
   "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1920&q=90",
+
+
 
   "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1920&q=90",
 
+
+
   "https://images.unsplash.com/photo-1511919884226-fd3cad34687c?auto=format&fit=crop&w=1920&q=90"
 
+
+
 ];
+
+
 
 let currentImageIdx = 0;
 
 
 
+
+
+
+
 // Media Player State
+
+
 
 const PLAYLIST = [
 
+
+
   { title: "Turbo Highway Star (Synthwave Edit)", artist: "CarPi5 In-Console Audio", duration: 225 },
+
+
 
   { title: "Nightcall MultiAir Drift", artist: "Kavinsky & C635", duration: 260 },
 
+
+
   { title: "1.4L Boost Anthem (Italian FIRE)", artist: "R.U.M. Synthetics", duration: 198 }
+
+
 
 ];
 
+
+
 let currentTrackIdx = 0;
+
+
 
 let isPlaying = true;
 
+
+
 let trackElapsedSeconds = 84;
 
+
+
 let mediaPlayInterval = null;
+
+
+
+
+
+
 
 
 
@@ -732,173 +1462,376 @@ let mediaPlayInterval = null;
 
 
 
+
+
+
+
 function navigateTo(screenId) {
+
   if (screenId === 'files') screenId = 'explorer';
+
+  if (screenId === 'trips') screenId = 'trip';
+
   if (screenId !== "gauges" && isGaugeFullscreen) {
+
     exitFullscreenGauges();
+
   }
+
   currentScreen = screenId;
+
+
+
+
 
 
 
   // Toggle Screen Views
 
+
+
   const screens = {
 
+
+
     home: document.getElementById('screenHome'),
+
     vehicle: document.getElementById('screenVehicle'),
+
+
 
     gauges: document.getElementById('screenGauges'),
 
+
+
     ai: document.getElementById('screenAI'),
 
+
+
     media: document.getElementById('screenMedia'),
+
     music: document.getElementById('screenMusic'),
+
     audiosuite: document.getElementById('screenAudioSuite'),
+
     explorer: document.getElementById('screenExplorer'),
+
+
 
     games: document.getElementById('screenGames'),
 
+
+
     browser: document.getElementById('screenBrowser'),
 
+
+
     maps: document.getElementById('screenMaps'),
+
     dashcam: document.getElementById('screenDashcam'),
+
     diagnostics: document.getElementById('screenDiagnostics'),
+
     trip: document.getElementById('screenTripLogger'),
 
+    hardware: document.getElementById('screenHardware'),
+
+
+
     settings: document.getElementById('screenSettings'),
+
     library: document.getElementById('screenLibrary')
 
+
+
   };
+
+
+
+
 
 
 
   Object.keys(screens).forEach(key => {
 
+
+
     if (screens[key]) {
+
+
 
       if (key === screenId) {
 
+
+
         screens[key].classList.add('active');
+
+
 
       } else {
 
+
+
         screens[key].classList.remove('active');
+
+
 
       }
 
+
+
     }
 
+
+
   });
+
+
+
+
 
 
 
   // Toggle Bottom Dock Buttons
 
+
+
   const buttons = {
+
+
 
     home: document.getElementById('dockBtnHome'),
 
+
+
     gauges: document.getElementById('dockBtnGauges'),
+
+
 
     ai: document.getElementById('dockBtnAI'),
 
+
+
     media: document.getElementById('dockBtnMedia'),
+
+
 
     games: document.getElementById('dockBtnGames'),
 
+
+
     browser: document.getElementById('dockBtnBrowser'),
 
+
+
     maps: document.getElementById('dockBtnMaps'),
+
     dashcam: document.getElementById('dockBtnDashcam'),
 
+
+
     settings: document.getElementById('dockBtnSettings')
+
+
 
   };
 
 
 
+
+
+
+
   Object.keys(buttons).forEach(key => {
+
+
 
     if (buttons[key]) {
 
+
+
       if (key === screenId || (screenId === 'music' && key === 'media')) {
+
+
 
         buttons[key].classList.add('active');
 
+
+
       } else {
+
+
 
         buttons[key].classList.remove('active');
 
+
+
       }
 
+
+
     }
+
+
 
   });
 
 
 
+
+
+
+
   // Specific Screen Hooks
 
+
+
   // Cockpit top HOME button active state
+
   const headerHome = document.getElementById('headerHomeBtn');
+
   if (headerHome) {
+
     if (screenId === 'home') {
+
       headerHome.classList.add('on-home');
+
     } else {
+
       headerHome.classList.remove('on-home');
+
     }
+
   }
 
+
+
   if (screenId === "explorer" || screenId === "files") {
+
     if (typeof openFileExplorer === "function") openFileExplorer();
+
   }
+
+  if (screenId === "hardware" || screenId === "sbc") {
+
+    if (typeof startHardwareStudioLoop === "function") startHardwareStudioLoop();
+
+  } else {
+
+    if (typeof stopHardwareStudioLoop === "function") stopHardwareStudioLoop();
+
+  }
+
+  if (screenId === "hardware" || screenId === "sbc") {
+
+    if (typeof startHardwareStudioLoop === "function") startHardwareStudioLoop();
+
+  } else {
+
+    if (typeof stopHardwareStudioLoop === "function") stopHardwareStudioLoop();
+
+  }
+
   if (screenId === "audiosuite") {
+
+
 
     if (typeof renderFullAudioSuiteEqGrid === "function") renderFullAudioSuiteEqGrid();
 
+
+
   }
 
+
+
+  if (typeof initTouchScrollEngine === 'function') setTimeout(initTouchScrollEngine, 60);
+  if (screenId === 'media' && typeof checkExternalAppStatus === 'function') checkExternalAppStatus();
+
   if (screenId === "diagnostics") {
+
     if (typeof refreshDiagnostics === "function") refreshDiagnostics();
+
     if (typeof initTouchScrollEngine === "function") setTimeout(initTouchScrollEngine, 100);
+
   } else if (screenId === "trip") {
+
     if (typeof refreshTripsList === "function") refreshTripsList();
+
     if (typeof initTouchScrollEngine === "function") setTimeout(initTouchScrollEngine, 100);
+
   } else if (screenId === "gauges") {
+
+
 
     requestAnimationFrame(() => {
 
+
+
       resizeAllCanvases();
+
+
 
     });
 
+
+
     setTimeout(resizeAllCanvases, 50);
 
+
+
   } else if (screenId === "ai") {
+
     if (!vrmInitialized && typeof initVrmEngine === "function") {
+
       initVrmEngine();
+
     }
+
     if (typeof dockCompanionToAi === "function") dockCompanionToAi();
+
     scrollChatToBottom();
+
+
 
     fetchAiHistory();
 
+
+
   } else if (screenId === "maps") {
+
+
 
     initOrUpdateMap();
 
+
+
   } else if (screenId === "dashcam") {
+
+
 
     refreshDashcamClips();
 
+
+
   }
+
+
+
+
 
 
 
   resetIdleTimer();
 
+
+
 }
+
+
+
+
+
+
 
 
 
@@ -908,229 +1841,459 @@ function navigateTo(screenId) {
 
 
 
+
+
+
+
 function initGaugeGrid() {
 
+
+
   const container = document.getElementById('gaugeGridContainer');
+
+
 
   if (!container) return;
 
 
 
+
+
+
+
   container.className = `dashboard-grid-container grid-layout-${currentLayout}`;
+
+
 
   container.innerHTML = '';
 
 
 
+
+
+
+
   for (let i = 0; i < currentLayout; i++) {
 
+
+
     const sensorKey = currentSlots[i] || "boost";
+
+
 
     const sensor = SENSORS[sensorKey];
 
 
 
+
+
+
+
     const tile = document.createElement('div');
+
+
 
     tile.className = 'gauge-tile';
 
+
+
     tile.id = `tile_${i}`;
+
+
 
     tile.setAttribute('data-sensor', sensorKey);
 
+
+
     tile.onclick = function() {
+
+
 
       const s = this.getAttribute('data-sensor') || sensorKey;
 
+
+
       openGraphModal(s);
+
+
 
     };
 
 
 
+
+
+
+
     tile.innerHTML = `
+
+
 
       <div class="click-hint">Scope ↗</div>
 
+
+
       <div class="gauge-canvas-wrapper">
+
+
 
         <canvas id="canvas_${i}"></canvas>
 
+
+
       </div>
+
+
 
       <div class="gauge-center-readout">
 
+
+
         <div class="readout-value" id="val_${i}">--</div>
+
+
 
         <div class="readout-label" id="lbl_${i}">${sensor.name} (${sensor.unit})</div>
 
+
+
         <div class="readout-sub" id="sub_${i}"></div>
+
+
 
       </div>
 
+
+
     `;
+
+
 
     container.appendChild(tile);
 
+
+
   }
+
+
 
   resizeAllCanvases();
 
+
+
 }
+
+
+
+
 
 
 
 function resizeHistoryGraphCanvas() {
 
+
+
   const graphCanvas = document.getElementById('historyGraphCanvas');
+
+
 
   if (!graphCanvas) return;
 
+
+
   const container = graphCanvas.parentElement;
+
+
 
   const dpr = window.devicePixelRatio || 1;
 
+
+
   const w = (container && container.clientWidth > 50) ? container.clientWidth : (window.innerWidth - 60);
+
+
 
   const h = (container && container.clientHeight > 50) ? container.clientHeight : (window.innerHeight - 160);
 
 
 
+
+
+
+
   graphCanvas.width = Math.round(w * dpr);
+
+
 
   graphCanvas.height = Math.round(h * dpr);
 
+
+
 }
+
+
+
+
 
 
 
 function resizeAllCanvases() {
 
+
+
   const dpr = window.devicePixelRatio || 1;
+
+
 
   for (let i = 0; i < currentLayout; i++) {
 
+
+
     const canvas = document.getElementById(`canvas_${i}`);
+
+
 
     if (canvas && canvas.clientWidth > 0 && canvas.clientHeight > 0) {
 
+
+
       canvas.width = Math.round(canvas.clientWidth * dpr);
+
+
 
       canvas.height = Math.round(canvas.clientHeight * dpr);
 
+
+
     }
+
+
 
   }
 
+
+
   resizeHistoryGraphCanvas();
 
+
+
 }
+
+
 
 window.addEventListener('resize', resizeAllCanvases);
 
 
 
+
+
+
+
 function drawGaugeDial(ctx, w, h, pct, activeColor) {
+
+
 
   const cx = w / 2;
 
+
+
   const cy = h / 2;
+
+
 
   const radius = Math.min(cx, cy) * 0.76;
 
 
 
+
+
+
+
   const minA = Math.PI * 0.75;
 
+
+
   const maxA = Math.PI * 2.25;
+
+
 
   const curA = minA + (Math.max(0, Math.min(1, pct)) * (maxA - minA));
 
 
 
+
+
+
+
   // Background Track
+
+
 
   ctx.beginPath();
 
+
+
   ctx.arc(cx, cy, radius, minA, maxA);
+
+
 
   ctx.strokeStyle = '#181e26';
 
+
+
   ctx.lineWidth = Math.max(5, 11 * (w / 340));
+
+
 
   ctx.lineCap = 'round';
 
+
+
   ctx.stroke();
+
+
+
+
 
 
 
   // Active Sweeping Arc
 
+
+
   ctx.beginPath();
+
+
 
   ctx.arc(cx, cy, radius, minA, curA);
 
+
+
   ctx.strokeStyle = activeColor;
+
+
 
   ctx.lineWidth = Math.max(5, 11 * (w / 340));
 
+
+
   ctx.lineCap = 'round';
+
+
 
   ctx.stroke();
 
 
 
+
+
+
+
   // Hub dot
+
+
 
   ctx.beginPath();
 
+
+
   ctx.arc(cx, cy, 4 * window.devicePixelRatio, 0, Math.PI * 2);
+
+
 
   ctx.fillStyle = activeColor;
 
+
+
   ctx.fill();
+
+
 
 }
 
 
 
+
+
+
+
 function updateTile(slotIdx, sensorKey, telemetry) {
 
+
+
   const canvas = document.getElementById(`canvas_${slotIdx}`);
+
+
 
   if (!canvas) return;
 
 
 
+
+
+
+
   const dpr = window.devicePixelRatio || 1;
+
+
 
   if (canvas.clientWidth > 0 && (canvas.width !== Math.round(canvas.clientWidth * dpr) || canvas.height !== Math.round(canvas.clientHeight * dpr))) {
 
+
+
     canvas.width = Math.round(canvas.clientWidth * dpr);
+
+
 
     canvas.height = Math.round(canvas.clientHeight * dpr);
 
+
+
   }
+
+
 
   if (canvas.width === 0 || canvas.height === 0) return;
 
 
 
+
+
+
+
   const ctx = canvas.getContext('2d');
+
+
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
 
 
+
+
+
+
   let rawVal = 0;
+
+
 
   let displayStr = "";
 
+
+
   let subStr = "";
+
+
 
   let pct = 0;
 
+
+
   let color = SENSORS[sensorKey].color;
+
+
+
+
 
 
 
@@ -1138,264 +2301,531 @@ function updateTile(slotIdx, sensorKey, telemetry) {
 
 
 
+
+
+
+
   if (sensorKey === "boost") {
+
+
 
     if (!isConnected || telemetry.boost_psi === null || telemetry.boost_psi === undefined) {
 
+
+
       displayStr = "--";
+
+
 
       subStr = isConnected ? "IDLE / CALIBRATING" : "DISCONNECTED";
 
+
+
       pct = 0;
 
+
+
       color = "#8c9ba5";
+
+
 
     } else if (telemetry.is_in_boost) {
 
+
+
       rawVal = telemetry.boost_psi;
+
+
 
       displayStr = "+" + rawVal.toFixed(1);
 
+
+
       subStr = "BOOST PSI";
+
+
 
       const maxBoostLimit = Math.max(22.0, Math.ceil(rawVal));
 
+
+
       pct = 0.45 + (Math.min(rawVal, maxBoostLimit) / maxBoostLimit) * 0.55;
+
+
 
       color = rawVal > 16.0 ? "#ff3344" : "#00e676";
 
+
+
     } else {
+
+
 
       rawVal = -telemetry.vacuum_inhg;
 
+
+
       displayStr = "-" + Math.round(telemetry.vacuum_inhg);
+
+
 
       subStr = "inHg VACUUM";
 
+
+
       const maxVacLimit = Math.max(25.0, Math.ceil(telemetry.vacuum_inhg));
+
+
 
       pct = 0.45 - (Math.min(telemetry.vacuum_inhg, maxVacLimit) / maxVacLimit) * 0.45;
 
+
+
       color = "#00b0ff";
 
+
+
     }
+
+
 
   } else if (sensorKey === "speed") {
 
+
+
     rawVal = isKph ? (telemetry.speed_kph || 0) : (telemetry.speed_mph || 0);
 
+
+
     displayStr = Math.round(rawVal).toString();
+
+
 
     subStr = isKph ? "KM/H" : "MPH";
 
+
+
     pct = rawVal / (isKph ? 220 : 140);
+
+
 
   } else if (sensorKey === "rpm") {
 
+
+
     rawVal = telemetry.rpm || 0;
+
+
 
     displayStr = Math.round(rawVal).toString();
 
+
+
     subStr = "RPM";
+
+
 
     pct = rawVal / 7000.0;
 
+
+
     if (rawVal > 5800) color = "#ff3344";
+
+
 
     else if (rawVal > 5000) color = "#ffcc00";
 
+
+
   } else if (sensorKey === "coolant") {
+
+
 
     if (!isConnected || telemetry.coolant_temp_f === null || telemetry.coolant_temp_f === undefined) {
 
+
+
       displayStr = "-- °F";
+
+
 
       subStr = "DISCONNECTED";
 
+
+
       pct = 0;
+
+
 
       color = "#8c9ba5";
 
+
+
     } else {
+
+
 
       rawVal = telemetry.coolant_temp_f;
 
+
+
       displayStr = Math.round(rawVal) + "°F";
+
+
 
       subStr = telemetry.multiair_ready ? "OPTIMAL" : "WARMING UP";
 
+
+
       pct = (rawVal - 60) / 180;
+
+
 
       if (rawVal > 218) color = "#ff3344";
 
+
+
     }
+
+
 
   } else if (sensorKey === "iat") {
 
+
+
     if (!isConnected || telemetry.intake_temp_f === null || telemetry.intake_temp_f === undefined) {
+
+
 
       displayStr = "-- °F";
 
+
+
       subStr = "DISCONNECTED";
+
+
 
       pct = 0;
 
+
+
       color = "#8c9ba5";
 
+
+
     } else {
+
+
 
       rawVal = telemetry.intake_temp_f;
 
+
+
       displayStr = Math.round(rawVal) + "°F";
+
+
 
       subStr = "INTAKE AIR";
 
+
+
       pct = (rawVal - 50) / 110;
 
+
+
     }
+
+
 
   } else if (sensorKey === "throttle") {
 
+
+
     rawVal = telemetry.throttle_pct || 0;
 
+
+
     displayStr = Math.round(rawVal) + "%";
+
+
 
     subStr = "THROTTLE";
 
+
+
     pct = rawVal / 100.0;
+
+
 
   } else if (sensorKey === "volts") {
 
+
+
     if (!isConnected || telemetry.battery_volts === null || telemetry.battery_volts === undefined) {
+
+
 
       displayStr = "-- V";
 
+
+
       subStr = "DISCONNECTED";
+
+
 
       pct = 0;
 
+
+
       color = "#8c9ba5";
 
+
+
     } else {
+
+
 
       rawVal = telemetry.battery_volts;
 
+
+
       displayStr = rawVal.toFixed(1) + "V";
+
+
 
       subStr = "ALTERNATOR";
 
+
+
       pct = (rawVal - 10) / 6.0;
 
+
+
     }
 
+
+
   } else if (sensorKey === "mpg") {
+
     if (!isConnected || (telemetry.fuel_mpg_instant === null && telemetry.fuel_gph === null)) {
+
       displayStr = "--";
+
       subStr = "DISCONNECTED";
+
       pct = 0;
+
       color = "#8c9ba5";
+
     } else if ((telemetry.speed_mph || 0) < 2.0) {
+
       const gph = (telemetry.fuel_gph !== null && telemetry.fuel_gph !== undefined) ? telemetry.fuel_gph : 0.25;
+
       rawVal = gph;
+
       displayStr = rawVal.toFixed(2);
+
       subStr = "GPH (IDLE BURN)";
+
       pct = Math.min(1.0, rawVal / 2.0);
+
       color = "#00e676";
+
     } else if (telemetry.fuel_mpg_instant !== null && telemetry.fuel_mpg_instant !== undefined) {
+
       rawVal = telemetry.fuel_mpg_instant;
+
       displayStr = rawVal.toFixed(1);
+
       subStr = "INSTANT MPG";
+
       pct = Math.min(1.0, rawVal / 50.0);
+
       color = "#00e676";
+
     } else {
+
       displayStr = "--";
+
       subStr = "CALCULATING";
+
       pct = 0;
+
       color = "#00e676";
+
     }
+
   } else if (sensorKey === "load") {
+
     rawVal = (telemetry.engine_load_pct !== undefined && telemetry.engine_load_pct !== null) ? telemetry.engine_load_pct : 0;
+
     displayStr = Math.round(rawVal) + "%";
+
     subStr = rawVal > 85 ? "HIGH LOAD" : "ENGINE LOAD";
+
     pct = rawVal / 100.0;
+
     color = rawVal > 85 ? "#ff3344" : "#ff5252";
+
   } else if (sensorKey === "timing") {
+
     rawVal = (telemetry.timing_advance_deg !== undefined && telemetry.timing_advance_deg !== null) ? telemetry.timing_advance_deg : 0;
+
     displayStr = (rawVal >= 0 ? "+" : "") + rawVal.toFixed(1) + "°";
+
     subStr = "TIMING ADV";
+
     pct = Math.max(0, Math.min(1, (rawVal + 10) / 50.0));
+
     color = "#e040fb";
+
   } else if (sensorKey === "afr") {
+
     rawVal = (telemetry.afr !== undefined && telemetry.afr !== null) ? telemetry.afr : 14.7;
+
     displayStr = rawVal.toFixed(2);
+
     subStr = rawVal < 14.2 ? "RICH (POWER)" : (rawVal > 15.2 ? "LEAN (ECO)" : "STOICH (14.7)");
+
     pct = Math.max(0, Math.min(1, (rawVal - 10) / 10.0));
+
     color = "#69f0ae";
+
   } else if (sensorKey === "fuel_level") {
+
     rawVal = (telemetry.fuel_level_pct !== undefined && telemetry.fuel_level_pct !== null) ? telemetry.fuel_level_pct : 50;
+
     displayStr = Math.round(rawVal) + "%";
+
     subStr = rawVal < 15 ? "LOW FUEL" : "TANK LEVEL";
+
     pct = rawVal / 100.0;
+
     color = rawVal < 15 ? "#ff3344" : "#40c4ff";
+
   } else if (sensorKey === "ambient") {
+
     rawVal = (telemetry.ambient_temp_f !== undefined && telemetry.ambient_temp_f !== null) ? telemetry.ambient_temp_f : 72;
+
     displayStr = Math.round(rawVal) + "°F";
+
     subStr = "OUTSIDE AIR";
+
     pct = Math.max(0, Math.min(1, (rawVal - 20) / 100.0));
+
     color = "#ffd740";
+
   } else if (sensorKey === "pedal") {
+
     rawVal = (telemetry.pedal_pos_pct !== undefined && telemetry.pedal_pos_pct !== null) ? telemetry.pedal_pos_pct : 0;
+
     displayStr = Math.round(rawVal) + "%";
+
     subStr = "ACCEL PEDAL";
+
     pct = rawVal / 100.0;
+
     color = "#7c4dff";
+
   } else if (sensorKey === "runtime") {
+
     rawVal = (telemetry.engine_runtime_sec || 0) / 60.0;
+
     displayStr = rawVal < 60 ? Math.round(rawVal) + "m" : (rawVal / 60.0).toFixed(1) + "h";
+
     subStr = "RUN TIME";
+
     pct = Math.min(1.0, rawVal / 120.0);
+
     color = "#64ffda";
+
   } else if (sensorKey === "baro") {
+
     rawVal = (telemetry.baro_kpa !== undefined && telemetry.baro_kpa !== null) ? telemetry.baro_kpa : 101.3;
+
     displayStr = Math.round(rawVal) + " kPa";
+
     subStr = "BAROMETRIC";
+
     pct = Math.max(0, Math.min(1, (rawVal - 60) / 50.0));
+
     color = "#ffab40";
+
   }
+
+
 
   drawGaugeDial(ctx, canvas.width, canvas.height, pct, color);
 
 
 
+
+
+
+
   const valEl = document.getElementById(`val_${slotIdx}`);
+
+
 
   const subEl = document.getElementById(`sub_${slotIdx}`);
 
+
+
   if (valEl) {
+
+
 
     valEl.innerText = displayStr;
 
+
+
     valEl.style.color = color;
+
+
 
   }
 
+
+
   if (subEl) subEl.innerText = subStr;
 
+
+
 }
+
+
+
+
 
 
 
 function toggleSpeedUnits() {
 
+
+
   isKph = !isKph;
+
+
 
   const btn = document.getElementById('unitToggleBtn');
 
+
+
   if (btn) btn.innerText = isKph ? "UNITS: KM/H" : "UNITS: MPH";
+
+
 
   initGaugeGrid();
 
+
+
 }
+
+
+
+
+
+
 
 
 
@@ -1405,11 +2835,23 @@ function toggleSpeedUnits() {
 
 
 
+
+
+
+
 let eventSource = null;
+
+
 
 let latestTelemetry = null;
 
+
+
 let startupGreetingTriggered = false;
+
+
+
+
 
 
 
@@ -1417,145 +2859,359 @@ let aiCoreCheckInterval = null;
 
 
 
+
+
+
+
 function updateAiCoreStatus(status) {
+
+
 
   const orb = document.getElementById('aiCoreOrb');
 
+
+
   const text = document.getElementById('aiCoreText');
 
+
+
   const pill = document.getElementById('aiCoreStatusPill');
+
+
 
   if (!orb || !text) return;
 
 
 
+
+
+
+
   if (status === 'online') {
+
+
 
     orb.innerText = '🟢';
 
+
+
     text.innerText = 'AI CORE: ONLINE';
 
+
+
     if (pill) {
+
+
 
       pill.style.borderColor = 'var(--accent-green)';
 
+
+
       pill.style.boxShadow = '0 0 10px rgba(0, 230, 118, 0.25)';
 
+
+
     }
+
+
 
   } else {
 
+
+
     orb.innerText = '🟡';
+
+
 
     text.innerText = 'AI CORE: WARMING';
 
+
+
     if (pill) {
+
+
 
       pill.style.borderColor = 'rgba(255, 176, 0, 0.4)';
 
+
+
       pill.style.boxShadow = 'none';
+
+
 
     }
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 function triggerStartupGreeting() {
 
+
+
   if (startupGreetingTriggered) return;
+
+
 
   startupGreetingTriggered = true;
 
 
 
-  // Stage 1: Immediate Instant Greeting upon cold boot
 
-  updateAiCoreStatus('warming');
 
-  fetch('/api/ai/greeting/instant')
+
+
+  // Single-Greeting Boot Lifecycle: Check if neural AI engine is already warm
+
+
+
+  fetch('/api/ai/status')
+
+
 
     .then(r => r.json())
 
+
+
     .then(data => {
 
-      if (data && data.greeting) {
 
-        console.log(`[INSTANT BOOT GREETING] "${data.greeting}"`);
 
-        showAiSpeechToast(data.greeting);
-
-        if (data.emotion) setWaifuEmotion(data.emotion);
-
-      }
-
-    })
-
-    .catch(err => console.warn("[INSTANT GREETING] Note:", err));
+      if (data && data.ai_core === 'online') {
 
 
 
-  // Stage 2: Background monitor for Qwen-3B warm-up completion
+        // AI Core is already warm in memory: deliver single rich neural greeting
 
-  aiCoreCheckInterval = setInterval(() => {
 
-    fetch('/api/ai/status')
 
-      .then(r => r.json())
+        updateAiCoreStatus('online');
 
-      .then(data => {
 
-        if (data && data.ai_core === 'online') {
 
-          clearInterval(aiCoreCheckInterval);
+        fetch('/api/ai/greeting/official')
 
-          updateAiCoreStatus('online');
 
-          console.log("[AI CORE] Local neural engine is warm! Triggering official greeting...");
 
-          
+          .then(r => r.json())
 
-          fetch('/api/ai/greeting/official')
+
+
+          .then(neuralData => {
+
+
+
+            if (neuralData && neuralData.greeting) {
+
+
+
+              console.log(`[OFFICIAL NEURAL GREETING] "${neuralData.greeting}"`);
+
+
+
+              showAiSpeechToast(neuralData.greeting);
+
+
+
+              if (neuralData.emotion) setWaifuEmotion(neuralData.emotion);
+
+
+
+            }
+
+
+
+          })
+
+
+
+          .catch(e => console.warn("[OFFICIAL GREETING] Note:", e));
+
+
+
+      } else {
+
+
+
+        // Cold boot: deliver fast instant greeting while neural engine warms up
+
+
+
+        updateAiCoreStatus('warming');
+
+
+
+        fetch('/api/ai/greeting/instant')
+
+
+
+          .then(r => r.json())
+
+
+
+          .then(instData => {
+
+
+
+            if (instData && instData.greeting) {
+
+
+
+              console.log(`[INSTANT BOOT GREETING] "${instData.greeting}"`);
+
+
+
+              showAiSpeechToast(instData.greeting);
+
+
+
+              if (instData.emotion) setWaifuEmotion(instData.emotion);
+
+
+
+            }
+
+
+
+          })
+
+
+
+          .catch(err => console.warn("[INSTANT GREETING] Note:", err));
+
+
+
+
+
+
+
+        // When neural engine finishes warming, smoothly transition status without chattering a 2nd greeting!
+
+
+
+        aiCoreCheckInterval = setInterval(() => {
+
+
+
+          fetch('/api/ai/status')
+
+
 
             .then(r => r.json())
 
-            .then(neuralData => {
 
-              if (neuralData && neuralData.greeting) {
 
-                console.log(`[OFFICIAL NEURAL GREETING] "${neuralData.greeting}"`);
+            .then(statusData => {
 
-                showAiSpeechToast(neuralData.greeting);
 
-                if (neuralData.emotion) setWaifuEmotion(neuralData.emotion);
+
+              if (statusData && statusData.ai_core === 'online') {
+
+
+
+                clearInterval(aiCoreCheckInterval);
+
+
+
+                updateAiCoreStatus('online');
+
+
+
+                console.log("[AI CORE] Local neural engine is warm and ready for conversation.");
+
+
 
               }
 
+
+
             })
 
-            .catch(e => console.warn("[OFFICIAL GREETING] Note:", e));
 
-        }
 
-      })
+            .catch(e => {});
 
-      .catch(e => {});
 
-  }, 2000);
+
+        }, 2000);
+
+
+
+      }
+
+
+
+    })
+
+
+
+    .catch(() => {
+
+
+
+      fetch('/api/ai/greeting/instant')
+
+
+
+        .then(r => r.json())
+
+
+
+        .then(data => {
+
+
+
+          if (data && data.greeting) showAiSpeechToast(data.greeting);
+
+
+
+        })
+
+
+
+        .catch(e => {});
+
+
+
+    });
+
+
 
 }
 
 
 
+
+
+
+
 function connectTelemetryStream() {
+
+
 
   if (eventSource) {
 
+
+
     eventSource.close();
 
+
+
   }
+
+
+
+
 
 
 
@@ -1563,61 +3219,123 @@ function connectTelemetryStream() {
 
 
 
+
+
+
+
   eventSource.onopen = function() {
+
+
 
     console.log("[STREAM] Connected to CarPi5 Telemetry Stream.");
 
+
+
     dismissBootSplash();
 
+
+
     triggerStartupGreeting();
+
+
 
   };
 
 
 
+
+
+
+
   eventSource.onmessage = function(e) {
+
+
 
     const data = JSON.parse(e.data);
 
+
+
     if (data.action) {
+
+
 
       handleAiAction(data.action);
 
+
+
     }
+
+
 
     if (data.is_speaking !== undefined) {
 
+
+
       isHardwareSpeaking = data.is_speaking;
 
+
+
     }
+
+
 
     if (data.live_convo_mode !== undefined || data.is_mic_listening !== undefined) {
 
+
+
       if (typeof syncVoiceButtonState === 'function') {
+
+
 
         syncVoiceButtonState(!!data.live_convo_mode, !!data.is_mic_listening, data.wake_word_enabled);
 
+
+
       }
 
+
+
     }
+
+
 
     if (data.voice_transcript && data.voice_transcript.timestamp && data.voice_transcript.text) {
 
+
+
       if (window._lastVoiceTranscriptTs !== data.voice_transcript.timestamp) {
+
+
 
         window._lastVoiceTranscriptTs = data.voice_transcript.timestamp;
 
+
+
         console.log("[USB MIC] Transcript received from Pi:", data.voice_transcript.text);
+
+
 
         handleSpokenTranscript(data.voice_transcript.text, true);
 
+
+
       }
+
+
 
     }
 
+
+
     const t = data.telemetry;
 
+
+
     if (!t || !t.timestamp) return;
+
+
+
+
 
 
 
@@ -1625,372 +3343,745 @@ function connectTelemetryStream() {
 
 
 
+
+
+
+
     // Auto-dismiss boot splash on first live telemetry frame
+
+
 
     if (!bootSplashDismissed) {
 
+
+
       dismissBootSplash();
 
+
+
     }
+
+
+
+
 
 
 
     // Emergency DTC Floating HUD check across ANY screen
 
+
+
     if (t.active_dtcs && t.active_dtcs.length > 0) {
+
+
 
       showEmergencyDtcHud(t.active_dtcs[0]);
 
+
+
     } else if (t.coolant_temp_f && t.coolant_temp_f > 225) {
+
+
 
       showEmergencyDtcHud("OVERHEAT_WARNING", `Engine coolant temp is high: ${Math.round(t.coolant_temp_f)}°F!`);
 
+
+
     }
+
+
+
+
 
 
 
     // 0. Continuous Global Telemetry Recorder (All 8 sensors @ ~2Hz)
 
+
+
     recordAllSensorsHistory(t);
+
+
+
+
 
 
 
     // 1. Update Gauge Cluster (if visible)
 
+
+
     if (currentScreen === "gauges") {
+
+
 
       for (let i = 0; i < currentLayout; i++) {
 
+
+
         updateTile(i, currentSlots[i], t);
+
+
 
       }
 
+
+
     }
+
+
+
+
 
 
 
     
+
 // --- AUDIBLE SHIFT CHIME & REDLINE HUD FLASH CONTROLLER ---
+
 let lastShiftBeepTime = 0;
+
 let audioCtxShift = null;
 
+
+
 function triggerShiftTone(rpm) {
+
   const now = Date.now();
+
   if (now - lastShiftBeepTime < 550) return; // Debounce
+
   lastShiftBeepTime = now;
 
+
+
   try {
+
     if (!audioCtxShift) {
+
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
+
       if (AudioCtx) audioCtxShift = new AudioCtx();
+
     }
+
     if (audioCtxShift && audioCtxShift.state === 'suspended') {
+
       audioCtxShift.resume();
+
     }
+
     if (audioCtxShift) {
+
       const osc = audioCtxShift.createOscillator();
+
       const gain = audioCtxShift.createGain();
+
       
+
       // High-pitched F1/Rally prompt tone: 2200Hz -> 2600Hz sweep
+
       osc.type = 'sine';
+
       osc.frequency.setValueAtTime(2200, audioCtxShift.currentTime);
+
       osc.frequency.exponentialRampToValueAtTime(2700, audioCtxShift.currentTime + 0.08);
 
+
+
       gain.gain.setValueAtTime(0.4, audioCtxShift.currentTime);
+
       gain.gain.exponentialRampToValueAtTime(0.001, audioCtxShift.currentTime + 0.12);
 
+
+
       osc.connect(gain);
+
       gain.connect(audioCtxShift.destination);
 
+
+
       osc.start();
+
       osc.stop(audioCtxShift.currentTime + 0.12);
+
     }
+
   } catch (e) {
+
     console.warn("[AUDIO] Shift chime error:", e);
+
   }
+
+
 
   // Visual Redline Flash on header and cluster
+
   const header = document.querySelector('.cluster-header');
+
   if (header) {
+
     header.classList.add('shift-redline-flash');
+
     setTimeout(() => header.classList.remove('shift-redline-flash'), 180);
+
   }
+
 }
 
+
+
         // 2a. Audible Shift Chime & Redline Tach Warning (5,800+ RPM under load)
+
     if (t.rpm && t.rpm >= 5800 && t.gear !== 'N' && t.gear !== '〜') {
+
       triggerShiftTone(t.rpm);
+
     }
+
+
 
     // 2. Header F1 Lights & Gear Badge
 
+
+
     const gearEl = document.getElementById('gearBadge');
 
+
+
     if (gearEl) {
+
       if (t.gear === '⇄') {
+
         gearEl.innerHTML = '<span class="gear-shifting-anim">⇄</span>';
+
         gearEl.title = 'Shifting Gears';
+
         gearEl.style.borderColor = 'var(--accent-cyan, #00e5ff)';
+
       } else if (t.gear === '〜') {
+
         gearEl.innerHTML = '<span class="gear-coasting-anim">〜</span>';
+
         gearEl.title = 'Coasting in Neutral';
+
         gearEl.style.borderColor = 'var(--accent-yellow, #eab308)';
+
       } else {
+
         gearEl.innerText = t.gear;
+
         gearEl.title = `C635 Gear: ${t.gear}`;
+
         gearEl.style.borderColor = (t.gear === 'N') ? '#4a5568' : 'var(--accent-red, #ff3344)';
+
       }
+
     }
+
+
+
+
 
 
 
     const dots = document.querySelectorAll('.f1-dot');
 
+
+
     dots.forEach((dot, idx) => {
+
+
 
       dot.className = 'f1-dot';
 
+
+
       if (idx < t.f1_light_level) {
+
+
 
         if (idx < 2) dot.classList.add('active', 'green');
 
+
+
         else if (idx === 2) dot.classList.add('active', 'yellow');
+
+
 
         else if (idx === 3) dot.classList.add('active', 'red');
 
+
+
         else if (idx === 4) dot.classList.add('active', 'blue');
 
+
+
       }
+
+
 
     });
 
 
 
+
+
+
+
     // 3. MultiAir Warmup Pill
+
+
 
     const pill = document.getElementById('multiairPill');
 
+
+
     if (pill) {
+
+
 
       if (t.multiair_ready) {
 
+
+
         pill.className = "pill pill-ready";
+
+
 
         pill.innerText = "MULTIAIR READY";
 
+
+
       } else {
+
+
 
         pill.className = "pill pill-warming";
 
+
+
         pill.innerText = "MULTIAIR WARMING";
+
+
 
       }
 
+
+
     }
+
+
+
+
 
 
 
     // 4. Check Engine MIL
 
+
+
     const milBadge = document.getElementById('milBadge');
+
+
 
     const homeDtc = document.getElementById('homeDtcBadge');
 
+
+
     latestActiveDTCs = t.active_dtcs || [];
+
+
 
     if (latestActiveDTCs.length > 0) {
 
+
+
       if (milBadge) {
+
+
 
         milBadge.classList.add('show');
 
+
+
         document.getElementById('milText').innerText = `CHECK ENGINE: ${latestActiveDTCs[0]}`;
+
+
 
       }
 
+
+
       if (homeDtc) {
+
+
 
         homeDtc.innerText = `DTC: ${latestActiveDTCs[0]}`;
 
+
+
         homeDtc.style.color = "var(--accent-red)";
+
+
 
         homeDtc.style.borderColor = "var(--accent-red)";
 
+
+
       }
+
+
 
     } else {
 
+
+
       if (milBadge) milBadge.classList.remove('show');
+
+
 
       if (homeDtc) {
 
+
+
         homeDtc.innerText = "ECU: HEALTHY";
+
+
 
         homeDtc.style.color = "var(--accent-green)";
 
+
+
         homeDtc.style.borderColor = "var(--accent-green)";
+
+
 
       }
 
+
+
     }
+
+
+
+
 
 
 
     // 5. Update Home Screen Live Badges
 
+
+
     const homeSpeed = document.getElementById('homeSpeedBadge');
+
+
 
     const homeBoost = document.getElementById('homeBoostBadge');
 
+
+
     if (homeSpeed) homeSpeed.innerText = `${Math.round(isKph ? t.speed_kph : t.speed_mph)} ${isKph ? 'KM/H' : 'MPH'}`;
+
+
 
     if (homeBoost) {
 
+
+
       homeBoost.innerText = t.is_in_boost ? `+${t.boost_psi.toFixed(1)} PSI` : `-${Math.round(t.vacuum_inhg)} inHg`;
 
+
+
       homeBoost.style.color = t.is_in_boost ? "var(--accent-green)" : "var(--accent-blue)";
+
     const vehHubSpeed = document.getElementById('vehHubSpeedBadge');
+
     const vehHubBoost = document.getElementById('vehHubBoostBadge');
+
     if (vehHubSpeed) vehHubSpeed.innerText = `${Math.round(isKph ? t.speed_kph : t.speed_mph)} ${isKph ? 'KM/H' : 'MPH'}`;
+
     if (vehHubBoost) {
+
       vehHubBoost.innerText = t.is_in_boost ? `+${t.boost_psi.toFixed(1)} PSI` : `-${Math.round(t.vacuum_inhg)} inHg`;
+
       vehHubBoost.style.color = t.is_in_boost ? 'var(--accent-green)' : 'var(--accent-blue)';
-    }
 
     }
+
+
+
+    }
+
+
+
+
 
 
 
     // 6. Update AI Telemetry Context
 
+
+
     const ctxSpeed = document.getElementById('contextSpeedGear');
+
+
 
     const ctxBoost = document.getElementById('contextBoost');
 
+
+
     const ctxCoolant = document.getElementById('contextCoolant');
+
+
 
     if (ctxSpeed) ctxSpeed.innerText = `${Math.round(t.speed_mph)} MPH (Gear ${t.gear})`;
 
+
+
     if (ctxBoost) ctxBoost.innerText = t.is_in_boost ? `+${t.boost_psi.toFixed(1)} PSI` : `-${Math.round(t.vacuum_inhg)} inHg`;
+
+
 
     if (ctxCoolant) ctxCoolant.innerText = `${Math.round(t.coolant_temp_f)}°F (${t.multiair_ready ? 'Ready' : 'Warming'})`;
 
 
 
+
+
+
+
     // 7. Update Launch Timer Badge
+
+
 
     const launchBadge = document.getElementById('launchTimerBadge');
 
+
+
     if (launchBadge) {
+
+
 
       if (t.launch_timer_active) {
 
+
+
         launchBadge.innerText = `⏱️ 0-60: TIMING...`;
+
+
 
         launchBadge.style.color = "var(--accent-red)";
 
+
+
       } else if (t.zero_to_sixty_time > 0) {
+
+
 
         launchBadge.innerText = `⏱️ 0-60: ${t.zero_to_sixty_time.toFixed(2)}s`;
 
+
+
         launchBadge.style.color = "var(--accent-green)";
+
+
 
       } else {
 
+
+
         launchBadge.innerText = `⏱️ 0-60: READY`;
+
+
 
         launchBadge.style.color = "var(--accent-yellow)";
 
+
+
       }
 
+
+
     }
+
+
+
+
 
 
 
     // 8. Live-draw History Graph (if modal is open)
 
+
+
     if (activeGraphSensor) {
+
+
 
       renderHistoryGraph(activeGraphSensor);
 
+
+
     }
+
+
+
+
 
 
 
     // Real-Time Hardware Speech Lip-Sync synchronization & Shotgun Auto-Popup
 
+
+
     if (typeof data.is_speaking === 'boolean') {
+
+
 
       const wasSpeaking = isHardwareSpeaking;
 
+
+
       isWaifuSpeaking = data.is_speaking;
+
       setMediaDuckState(data.is_speaking);
+
+
 
       isHardwareSpeaking = data.is_speaking;
 
+
+
       const stage = document.getElementById('waifuStage');
+
       if (stage) {
+
         if (isWaifuSpeaking) stage.classList.add('speaking');
+
         else stage.classList.remove('speaking');
+
       }
+
+
 
       const rumPill = document.getElementById('rumMinHudPill');
+
       if (rumPill) {
+
         if (isWaifuSpeaking) rumPill.classList.add('speaking');
+
         else rumPill.classList.remove('speaking');
+
       }
+
+
 
       const mini = document.getElementById('vrmMiniBubble');
+
       if (mini) {
+
         if (isWaifuSpeaking) mini.classList.add('talking');
+
         else mini.classList.remove('talking');
+
       }
+
+
 
       if (data.is_speaking && currentScreen !== 'ai' && !window.isCompanionMinimizedByUser) {
+
         handleSpeechAutoShotgun(null, 4500);
+
       } else if (wasSpeaking && !data.is_speaking) {
+
         scheduleShotgunAutoDismiss(2800);
+
       }
 
+
+
     }
+
+
+
+
 
 
 
     // 9. AI Voice Toast Banner & Real-Time Event Log
 
+
+
     if (data.ai_event) {
+
+
 
       appendSpeechLogItem(data.ai_event);
 
+
+
       if (data.ai_event.emotion) {
+
+
 
         setWaifuEmotion(data.ai_event.emotion);
 
+
+
       }
+
+
 
       if (currentVoiceMode !== "MUTED" && data.ai_event.speech) {
 
+
+
         showAiSpeechToast(data.ai_event.speech);
+
+
 
       }
 
+
+
     }
 
+
+
   };
+
+
+
+
 
 
 
   eventSource.onerror = function() {
 
+
+
     console.warn("[STREAM] Disconnected. Reconnecting in 1s...");
+
+
 
     eventSource.close();
 
+
+
     setTimeout(connectTelemetryStream, 1000);
+
+
 
   };
 
+
+
 }
+
+
+
+
 
 
 
@@ -2000,250 +4091,503 @@ connectTelemetryStream();
 
 
 
+
+
+
+
+
+
 // --- 5. CLICK-TO-INSPECT LIVE TELEMETRY GRAPH & CONTINUOUS BUFFER ---
+
+
+
+
 
 
 
 let lastHistoryRecordTime = 0;
 
+
+
 function recordAllSensorsHistory(t) {
+
+
 
   if (!t) return;
 
+
+
   const now = Date.now();
 
+
+
   if (now - lastHistoryRecordTime < 480) return; // ~2Hz sampling
+
+
 
   lastHistoryRecordTime = now;
 
 
 
+
+
+
+
   const currentVals = {
+
     speed: isKph ? (t.speed_kph || 0) : (t.speed_mph || 0),
+
     boost: t.is_in_boost ? (t.boost_psi || 0) : -(t.vacuum_inhg || 0),
+
     rpm: t.rpm || 0,
+
     coolant: t.coolant_temp_f || 0,
+
     iat: t.intake_temp_f || 0,
+
     throttle: t.throttle_pct || 0,
+
     volts: t.battery_volts || 0,
+
     mpg: (t.speed_mph || 0) < 2.0 ? (t.fuel_gph || 0.25) : (t.fuel_mpg_instant || 0),
+
     load: t.engine_load_pct || 0,
+
     timing: t.timing_advance_deg || 0,
+
     afr: t.afr || 0,
+
     fuel_level: t.fuel_level_pct || 0,
+
     ambient: t.ambient_temp_f || 0,
+
     pedal: t.pedal_pos_pct || 0,
+
     runtime: (t.engine_runtime_sec || 0) / 60.0,
+
     baro: t.baro_kpa || 0
+
   };
+
+
+
+
 
 
 
   Object.keys(currentVals).forEach(k => {
 
+
+
     if (!historyBuffers[k]) historyBuffers[k] = [];
+
+
 
     historyBuffers[k].push(currentVals[k]);
 
+
+
     if (historyBuffers[k].length > HISTORY_LENGTH) {
+
+
 
       historyBuffers[k].shift();
 
+
+
     }
+
+
 
   });
 
+
+
 }
+
+
+
+
 
 
 
 function seedSensorHistory(sensorKey) {
 
+
+
   if (!historyBuffers[sensorKey]) historyBuffers[sensorKey] = [];
+
+
 
   if (historyBuffers[sensorKey].length >= 5) return;
 
 
 
+
+
+
+
   const t = latestTelemetry;
+
+
 
   let baseVal = 0;
 
+
+
   if (sensorKey === "boost") {
+
+
 
     baseVal = t ? (t.is_in_boost ? t.boost_psi : -t.vacuum_inhg) : -18.0;
 
+
+
   } else if (sensorKey === "speed") {
+
+
 
     baseVal = t ? (isKph ? t.speed_kph : t.speed_mph) : 0;
 
+
+
   } else if (sensorKey === "rpm") {
+
+
 
     baseVal = t ? t.rpm : 850;
 
+
+
   } else if (sensorKey === "coolant") {
+
+
 
     baseVal = t ? t.coolant_temp_f : 195;
 
+
+
   } else if (sensorKey === "iat") {
+
+
 
     baseVal = t ? t.intake_temp_f : 85;
 
+
+
   } else if (sensorKey === "throttle") {
+
+
 
     baseVal = t ? t.throttle_pct : 0;
 
+
+
   } else if (sensorKey === "volts") {
+
+
 
     baseVal = t ? t.battery_volts : 14.1;
 
+
+
   } else if (sensorKey === "mpg") {
+
     baseVal = t ? ((t.speed_mph || 0) < 2.0 ? (t.fuel_gph || 0.25) : (t.fuel_mpg_instant || 28.5)) : 28.5;
+
   } else if (sensorKey === "load") {
+
     baseVal = t ? (t.engine_load_pct || 25) : 25;
+
   } else if (sensorKey === "timing") {
+
     baseVal = t ? (t.timing_advance_deg || 5) : 5;
+
   } else if (sensorKey === "afr") {
+
     baseVal = t ? (t.afr || 14.7) : 14.7;
+
   } else if (sensorKey === "fuel_level") {
+
     baseVal = t ? (t.fuel_level_pct || 65) : 65;
+
   } else if (sensorKey === "ambient") {
+
     baseVal = t ? (t.ambient_temp_f || 75) : 75;
+
   } else if (sensorKey === "pedal") {
+
     baseVal = t ? (t.pedal_pos_pct || 0) : 0;
+
   } else if (sensorKey === "runtime") {
+
     baseVal = t ? ((t.engine_runtime_sec || 0) / 60.0) : 15;
+
   } else if (sensorKey === "baro") {
+
     baseVal = t ? (t.baro_kpa || 101.3) : 101.3;
+
   }
+
+
+
+
 
 
 
   // Pre-fill 20 points with subtle organic variation so waveform is instantly active
 
+
+
   for (let i = 0; i < 20; i++) {
+
+
 
     const jitter = (Math.random() - 0.5) * (sensorKey === "rpm" ? 40 : sensorKey === "boost" ? 0.4 : 0.2);
 
+
+
     historyBuffers[sensorKey].push(Number((baseVal + jitter).toFixed(2)));
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function openGraphModal(sensorKey) {
 
+
+
   if (!sensorKey || !SENSORS[sensorKey]) sensorKey = "boost";
 
+
+
   activeGraphSensor = sensorKey;
+
+
 
   const sensor = SENSORS[sensorKey];
 
 
 
+
+
+
+
   const titleEl = document.getElementById('graphTitle');
+
+
 
   const unitEl = document.getElementById('graphUnit');
 
+
+
   if (titleEl) titleEl.innerText = sensor.name;
+
+
 
   if (unitEl) unitEl.innerText = `Live Scrolling Telemetry (Last 60 Seconds) • ${sensor.unit}`;
 
 
 
+
+
+
+
   const modal = document.getElementById('graphModal');
+
+
 
   if (modal) {
 
+
+
     modal.style.display = 'flex';
+
+
 
     modal.classList.add('open');
 
+
+
   }
+
+
+
+
 
 
 
   seedSensorHistory(sensorKey);
 
+
+
   resizeHistoryGraphCanvas();
+
+
 
   renderHistoryGraph(sensorKey);
 
 
 
+
+
+
+
   requestAnimationFrame(() => {
+
+
 
     resizeHistoryGraphCanvas();
 
+
+
     renderHistoryGraph(sensorKey);
+
+
 
   });
 
+
+
 }
+
+
+
+
 
 
 
 function closeGraphModal() {
 
+
+
   const modal = document.getElementById('graphModal');
+
+
 
   if (modal) {
 
+
+
     modal.style.display = 'none';
+
+
 
     modal.classList.remove('open');
 
+
+
   }
 
+
+
   activeGraphSensor = null;
+
+
 
 }
 
 
 
+
+
+
+
 window.addEventListener('keydown', (e) => {
+
+
 
   if (e.key === "Escape" && activeGraphSensor) {
 
+
+
     closeGraphModal();
 
+
+
   }
+
+
 
 });
 
 
 
+
+
+
+
 function renderHistoryGraph(sensorKey) {
+
+
 
   const canvas = document.getElementById('historyGraphCanvas');
 
+
+
   if (!canvas) return;
+
+
 
   const ctx = canvas.getContext('2d');
 
 
 
+
+
+
+
   if (!canvas.width || !canvas.height || canvas.width < 50) {
+
+
 
     resizeHistoryGraphCanvas();
 
+
+
   }
+
+
 
   const w = canvas.width;
 
+
+
   const h = canvas.height;
+
+
 
   if (w <= 0 || h <= 0) return;
 
 
 
+
+
+
+
   const data = historyBuffers[sensorKey] || [];
+
+
 
   const sensor = SENSORS[sensorKey] || SENSORS.boost;
 
+
+
   const dpr = window.devicePixelRatio || 1;
+
+
+
+
 
 
 
@@ -2251,455 +4595,913 @@ function renderHistoryGraph(sensorKey) {
 
 
 
+
+
+
+
   if (data.length < 2) {
+
+
 
     seedSensorHistory(sensorKey);
 
+
+
   }
+
+
+
+
 
 
 
   let dataMin = data.length > 0 ? Math.min(...data) : sensor.min;
 
+
+
   let dataMax = data.length > 0 ? Math.max(...data) : sensor.max;
 
+
+
   const curVal = data.length > 0 ? data[data.length - 1] : 0;
+
+
 
   const avgVal = data.length > 0 ? (data.reduce((a, b) => a + b, 0) / data.length) : curVal;
 
 
 
+
+
+
+
   // Dynamic Autoscaling:
+
+
 
   // If boost climbs above default 20 PSI or vacuum drops past -25 inHg,
 
+
+
   // the top and bottom scale marks adjust dynamically so the peak is fully visible.
 
+
+
   let minVal = Math.min(sensor.min, dataMin);
+
+
 
   let maxVal = Math.max(sensor.max, dataMax);
 
 
 
+
+
+
+
   if (sensorKey === "boost") {
+
+
 
     const defaultTop = 20.0;
 
+
+
     const defaultBottom = -25.0;
+
+
 
     maxVal = dataMax > defaultTop ? Math.ceil(dataMax) : defaultTop;
 
+
+
     minVal = dataMin < defaultBottom ? Math.floor(dataMin) : defaultBottom;
+
+
 
   } else if (sensorKey === "rpm") {
 
+
+
     maxVal = Math.max(7000, Math.ceil(dataMax / 500) * 500);
+
+
 
     minVal = Math.min(0, Math.floor(dataMin / 500) * 500);
 
+
+
   } else if (sensorKey === "speed") {
+
+
 
     const baseSpeed = isKph ? 220 : 140;
 
+
+
     maxVal = dataMax > baseSpeed ? Math.ceil(dataMax / 10) * 10 : baseSpeed;
+
+
 
     minVal = 0;
 
+
+
   } else {
+
+
 
     if (dataMax > sensor.max) maxVal = Math.ceil(dataMax);
 
+
+
     if (dataMin < sensor.min) minVal = Math.floor(dataMin);
 
+
+
   }
+
+
+
+
 
 
 
   // Format stat pill readouts
 
+
+
   function fmtVal(val) {
+
+
 
     if (sensorKey === "boost") {
 
+
+
       return val >= 0 ? `+${val.toFixed(1)} PSI` : `${Math.round(val)} inHg`;
 
+
+
     }
+
+
 
     if (sensorKey === "speed") {
 
+
+
       return `${Math.round(val)} ${isKph ? 'KM/H' : 'MPH'}`;
 
+
+
     }
+
+
 
     if (sensorKey === "rpm") {
 
+
+
       return `${Math.round(val)} RPM`;
 
+
+
     }
+
+
 
     if (sensorKey === "coolant" || sensorKey === "iat") {
 
+
+
       return `${Math.round(val)} °F`;
 
+
+
     }
+
+
 
     if (sensorKey === "volts") {
 
+
+
       return `${val.toFixed(1)} V`;
 
+
+
     }
+
+
 
     if (sensorKey === "throttle") {
 
+
+
       return `${Math.round(val)}%`;
+
+
 
     }
 
+
+
     return `${val.toFixed(1)} ${sensor.unit}`;
 
+
+
   }
+
+
+
+
 
 
 
   const curEl = document.getElementById('graphCurrent');
 
+
+
   const maxEl = document.getElementById('graphMax');
+
+
 
   const minEl = document.getElementById('graphMin');
 
+
+
   const avgEl = document.getElementById('graphAvg');
+
+
 
   if (curEl) curEl.innerText = fmtVal(curVal);
 
+
+
   if (maxEl) maxEl.innerText = fmtVal(maxVal);
 
+
+
   if (minEl) minEl.innerText = fmtVal(minVal);
+
+
 
   if (avgEl) avgEl.innerText = fmtVal(avgVal);
 
 
 
+
+
+
+
   // Screen scale factor & margins for high-contrast labels
+
+
 
   const leftMargin = 85 * dpr;
 
+
+
   const rightMargin = 32 * dpr;
+
+
 
   const topMargin = 28 * dpr;
 
+
+
   const bottomMargin = 36 * dpr;
 
+
+
   const plotW = Math.max(10, w - leftMargin - rightMargin);
+
+
 
   const plotH = Math.max(10, h - topMargin - bottomMargin);
 
 
 
+
+
+
+
   // Safe range to prevent flatline / divide-by-zero
+
+
 
   let range = maxVal - minVal;
 
+
+
   if (range <= 0.5) {
+
+
 
     range = 4.0;
 
+
+
     minVal = curVal - 2.0;
+
+
 
     maxVal = curVal + 2.0;
 
+
+
   }
+
+
+
+
 
 
 
   // 1. Shaded warning/threshold zones
 
+
+
   if (sensorKey === "boost" && maxVal > 15.0) {
+
+
 
     const y15Norm = Math.max(0, Math.min(1, (15.0 - minVal) / range));
 
+
+
     const y15 = topMargin + plotH * (1 - y15Norm);
 
+
+
     ctx.fillStyle = "rgba(255, 51, 68, 0.12)";
+
+
 
     ctx.fillRect(leftMargin, topMargin, plotW, Math.max(0, y15 - topMargin));
 
+
+
   } else if (sensorKey === "rpm" && maxVal > 5800) {
+
+
 
     const yRedNorm = Math.max(0, Math.min(1, (5800 - minVal) / range));
 
+
+
     const yRed = topMargin + plotH * (1 - yRedNorm);
+
+
 
     ctx.fillStyle = "rgba(255, 51, 68, 0.12)";
 
+
+
     ctx.fillRect(leftMargin, topMargin, plotW, Math.max(0, yRed - topMargin));
 
+
+
   }
+
+
+
+
 
 
 
   // 2. Horizontal Gridlines & Y-Axis Numeric Labels (5 Divisions)
 
+
+
   const gridDivisions = 4;
+
+
 
   ctx.textAlign = 'right';
 
+
+
   ctx.textBaseline = 'middle';
 
+
+
   ctx.font = `bold ${Math.round(11 * dpr)}px monospace`;
+
+
+
+
 
 
 
   for (let step = 0; step <= gridDivisions; step++) {
 
+
+
     const frac = step / gridDivisions;
 
+
+
     const y = topMargin + plotH * (1 - frac);
+
+
 
     const labelVal = minVal + frac * range;
 
 
 
+
+
+
+
     ctx.beginPath();
+
+
 
     ctx.moveTo(leftMargin, y);
 
+
+
     ctx.lineTo(leftMargin + plotW, y);
+
+
 
     ctx.strokeStyle = (frac === 0 || frac === 1) ? '#2d3848' : '#192230';
 
+
+
     ctx.lineWidth = 1 * dpr;
+
+
 
     if (frac > 0 && frac < 1) {
 
+
+
       ctx.setLineDash([4 * dpr, 4 * dpr]);
+
+
 
     } else {
 
+
+
       ctx.setLineDash([]);
+
+
 
     }
 
+
+
     ctx.stroke();
+
+
 
     ctx.setLineDash([]);
 
 
 
+
+
+
+
     ctx.fillStyle = (frac === 1 && maxVal > 15 && sensorKey === "boost") ? '#ff3344' : '#8c9ba5';
+
+
 
     let yLabelStr = "";
 
+
+
     if (sensorKey === "boost") {
+
+
 
       yLabelStr = labelVal >= 0 ? `+${labelVal.toFixed(1)} PSI` : `${Math.round(labelVal)} inHg`;
 
+
+
     } else if (sensorKey === "rpm" || sensorKey === "speed") {
+
+
 
       yLabelStr = `${Math.round(labelVal)} ${sensor.unit}`;
 
+
+
     } else {
+
+
 
       yLabelStr = `${labelVal.toFixed(1)} ${sensor.unit}`;
 
+
+
     }
+
+
 
     ctx.fillText(yLabelStr, leftMargin - 10 * dpr, y);
 
+
+
   }
+
+
+
+
 
 
 
   // 3. X-Axis Time Markers along bottom (-60s, -45s, -30s, -15s, NOW)
 
+
+
   const timePoints = [
+
+
 
     { frac: 0.0, label: "-60s" },
 
+
+
     { frac: 0.25, label: "-45s" },
+
+
 
     { frac: 0.50, label: "-30s" },
 
+
+
     { frac: 0.75, label: "-15s" },
 
+
+
     { frac: 1.0, label: "NOW" }
+
+
 
   ];
 
 
 
+
+
+
+
   ctx.textAlign = 'center';
+
+
 
   ctx.textBaseline = 'top';
 
+
+
   ctx.font = `bold ${Math.round(11 * dpr)}px monospace`;
+
+
 
   timePoints.forEach(tp => {
 
+
+
     const x = leftMargin + tp.frac * plotW;
+
+
 
     ctx.beginPath();
 
+
+
     ctx.moveTo(x, topMargin + plotH);
+
+
 
     ctx.lineTo(x, topMargin + plotH + 5 * dpr);
 
+
+
     ctx.strokeStyle = '#2d3848';
+
+
 
     ctx.lineWidth = 1 * dpr;
 
+
+
     ctx.stroke();
+
+
+
+
 
 
 
     ctx.fillStyle = tp.frac === 1.0 ? sensor.color : '#657786';
 
+
+
     ctx.fillText(tp.label, x, topMargin + plotH + 8 * dpr);
+
+
 
   });
 
 
 
+
+
+
+
   // 4. Horizontal Current-Value Guideline across the graph
+
+
 
   const curNorm = Math.max(0, Math.min(1, (curVal - minVal) / range));
 
+
+
   const curY = topMargin + plotH * (1 - curNorm);
+
+
 
   ctx.beginPath();
 
+
+
   ctx.moveTo(leftMargin, curY);
+
+
 
   ctx.lineTo(leftMargin + plotW, curY);
 
+
+
   ctx.strokeStyle = sensor.color + "99";
+
+
 
   ctx.lineWidth = 1.5 * dpr;
 
+
+
   ctx.setLineDash([4 * dpr, 4 * dpr]);
 
+
+
   ctx.stroke();
+
+
 
   ctx.setLineDash([]);
 
 
 
+
+
+
+
   // 5. Waveform Path Points (Right-Anchored to NOW)
+
+
 
   const pts = [];
 
+
+
   const count = data.length;
+
+
 
   for (let i = 0; i < count; i++) {
 
+
+
     const offsetFromNow = (count - 1) - i;
+
+
 
     const x = leftMargin + plotW - (offsetFromNow / (HISTORY_LENGTH - 1)) * plotW;
 
+
+
     const norm = Math.max(0, Math.min(1, (data[i] - minVal) / range));
+
+
 
     const y = topMargin + plotH * (1 - norm);
 
+
+
     pts.push({ x, y });
 
+
+
   }
+
+
+
+
 
 
 
   // 6. Area Gradient Fill under active waveform
 
+
+
   if (pts.length > 1) {
+
+
 
     ctx.beginPath();
 
+
+
     ctx.moveTo(pts[0].x, topMargin + plotH);
+
+
 
     ctx.lineTo(pts[0].x, pts[0].y);
 
+
+
     for (let i = 1; i < pts.length; i++) {
+
+
 
       ctx.lineTo(pts[i].x, pts[i].y);
 
+
+
     }
 
+
+
     ctx.lineTo(pts[pts.length - 1].x, topMargin + plotH);
+
+
 
     ctx.closePath();
 
 
 
+
+
+
+
     const areaGrad = ctx.createLinearGradient(0, topMargin, 0, topMargin + plotH);
+
+
 
     areaGrad.addColorStop(0, sensor.color + "55");
 
+
+
     areaGrad.addColorStop(1, sensor.color + "02");
+
+
 
     ctx.fillStyle = areaGrad;
 
+
+
     ctx.fill();
 
+
+
   }
+
+
+
+
 
 
 
   // 7. Thick Glowing Neon Waveform Trace
 
+
+
   if (pts.length > 1) {
+
+
 
     ctx.beginPath();
 
+
+
     ctx.moveTo(pts[0].x, pts[0].y);
+
+
 
     for (let i = 1; i < pts.length; i++) {
 
+
+
       ctx.lineTo(pts[i].x, pts[i].y);
+
+
 
     }
 
+
+
     ctx.strokeStyle = sensor.color;
+
+
 
     ctx.lineWidth = 4 * dpr;
 
+
+
     ctx.lineCap = 'round';
+
+
 
     ctx.lineJoin = 'round';
 
+
+
     ctx.shadowColor = sensor.color;
+
+
 
     ctx.shadowBlur = 12 * dpr;
 
+
+
     ctx.stroke();
+
+
 
     ctx.shadowBlur = 0;
 
+
+
   }
+
+
+
+
 
 
 
   // 8. Live Head-Marker: Concentric Pulsing Dot on newest value (NOW)
 
+
+
   if (pts.length > 0) {
+
+
 
     const lastPt = pts[pts.length - 1];
 
+
+
     ctx.beginPath();
+
+
 
     ctx.arc(lastPt.x, lastPt.y, 8 * dpr, 0, Math.PI * 2);
 
+
+
     ctx.fillStyle = sensor.color + "55";
 
+
+
     ctx.fill();
+
+
 
     ctx.beginPath();
 
+
+
     ctx.arc(lastPt.x, lastPt.y, 4 * dpr, 0, Math.PI * 2);
+
+
 
     ctx.fillStyle = "#ffffff";
 
+
+
     ctx.fill();
+
+
 
   }
 
+
+
 }
+
+
+
+
+
+
 
 
 
@@ -2709,106 +5511,215 @@ function renderHistoryGraph(sensorKey) {
 
 
 
+
+
+
+
 function openConfigModal() {
+
+
 
   document.getElementById('configModal').style.display = 'flex';
 
+
+
   updateLayoutButtons();
+
+
 
   renderSlotDropdowns();
 
+
+
 }
+
+
+
+
 
 
 
 function closeConfigModal() {
 
+
+
   document.getElementById('configModal').style.display = 'none';
 
+
+
 }
+
+
+
+
 
 
 
 function selectLayout(num) {
 
+
+
   currentLayout = num;
+
+
 
   updateLayoutButtons();
 
+
+
   renderSlotDropdowns();
 
+
+
 }
+
+
+
+
 
 
 
 function updateLayoutButtons() {
 
+
+
   [1, 2, 3, 4, 6, 8, 12].forEach(n => {
+
+
 
     const btn = document.getElementById(`opt_${n}`);
 
+
+
     if (btn) btn.className = `layout-opt-btn ${n === currentLayout ? 'selected' : ''}`;
+
+
 
   });
 
+
+
 }
+
+
+
+
 
 
 
 function renderSlotDropdowns() {
 
+
+
   const container = document.getElementById('slotSelectorsGrid');
+
+
 
   container.innerHTML = '';
 
 
 
+
+
+
+
   for (let i = 0; i < currentLayout; i++) {
 
+
+
     const item = document.createElement('div');
+
+
 
     item.className = 'slot-item';
 
 
 
+
+
+
+
     let selectHtml = `<select class="slot-dropdown" onchange="changeSlot(${i}, this.value)">`;
+
+
 
     Object.keys(SENSORS).forEach(k => {
 
+
+
       selectHtml += `<option value="${k}" ${k === currentSlots[i] ? 'selected' : ''}>${SENSORS[k].name}</option>`;
 
+
+
     });
+
+
 
     selectHtml += `</select>`;
 
 
 
+
+
+
+
     item.innerHTML = `<span class="slot-label">Slot #${i + 1}</span> ${selectHtml}`;
+
+
 
     container.appendChild(item);
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 function changeSlot(idx, sensorKey) {
 
+
+
   currentSlots[idx] = sensorKey;
 
+
+
 }
+
+
+
+
 
 
 
 function applyGaugeConfig() {
+
   try {
+
     localStorage.setItem('carpi5_layout', currentLayout);
+
     localStorage.setItem('carpi5_slots', JSON.stringify(currentSlots));
+
   } catch (e) {}
+
   initGaugeGrid();
+
   closeConfigModal();
+
 }
+
+
+
+
+
+
 
 
 
@@ -2818,1558 +5729,3117 @@ function applyGaugeConfig() {
 
 
 
+
+
+
+
 function getPersonaDisplayName(pKey) {
+
+
 
   if (!pKey) pKey = currentAiSettings.personality || 'RUM';
 
+
+
   if (pKey === 'JARVIS') return 'J.A.R.V.I.S.';
+
+
 
   if (pKey === 'RACE_ENGINEER' || pKey === 'PITWALL') return 'PIT WALL';
 
+
+
   return 'R.U.M.';
 
+
+
 }
+
+
+
+
 
 
 
 function updatePersonaUI(personaKey) {
 
+
+
   if (!personaKey || personaKey === 'MAIA') personaKey = 'RUM';
+
+
 
   currentAiSettings.personality = personaKey;
 
 
 
+
+
+
+
   const pData = (window.allPersonas && window.allPersonas[personaKey]) ? window.allPersonas[personaKey] : null;
+
+
 
   const avatarPath = (pData && pData.avatar_image) ? pData.avatar_image : 'assets/pics/rum_avatar.png';
 
+
+
   const splashImg = (pData && pData.boot_splash_image) ? pData.boot_splash_image : 'assets/pics/splash.png';
+
+
 
   const splashVid = (pData && pData.boot_splash_video) ? pData.boot_splash_video : '';
 
 
 
+
+
+
+
   let displayName = "R.U.M.";
+
+
 
   let subtitleText = "Realtime Underhood MultiAir • The Forgotten Triplet";
 
+
+
   let statusBadgeText = "R.U.M. ACTIVE";
+
+
 
   let cardTitleText = "R.U.M.";
 
+
+
   let bannerQuote = "Master! Rum is right here riding shotgun with you!";
+
+
 
   let icon = "💜";
 
 
 
+
+
+
+
   if (personaKey === 'JARVIS') {
+
+
 
     displayName = "J.A.R.V.I.S.";
 
+
+
     subtitleText = "Just A Rather Very Intelligent System • Tactical Cockpit Butler";
+
+
 
     statusBadgeText = "J.A.R.V.I.S. READY";
 
+
+
     cardTitleText = "J.A.R.V.I.S. COCKPIT";
+
+
 
     bannerQuote = "All cockpit systems nominal, Sir.";
 
+
+
     icon = "🛡️";
+
+
 
   } else if (personaKey === 'RACE_ENGINEER' || personaKey === 'PITWALL') {
 
+
+
     displayName = "PIT WALL";
+
+
 
     subtitleText = "F1 Telemetry & Race Engineer • Performance Strategist";
 
+
+
     statusBadgeText = "PIT WALL READY";
+
+
 
     cardTitleText = "PIT WALL STRATEGY";
 
+
+
     bannerQuote = "Radio check. Telemetry green, box this lap if needed.";
+
+
 
     icon = "🏎️";
 
+
+
   }
+
+
+
+
 
 
 
   // 1. Update Bottom Navigation Dock Button
 
+
+
   const dockBtn = document.getElementById('dockBtnAI');
+
+
 
   if (dockBtn) dockBtn.innerText = `${icon} ${displayName === 'R.U.M.' ? 'RUM' : displayName}`;
 
 
 
+
+
+
+
   // 2. Update AI Chat Header Title & Subtitle
 
+
+
   const titleEl = document.getElementById('chatAssistantTitle');
+
+
 
   if (titleEl) titleEl.innerText = `${displayName} Copilot`;
 
 
 
+
+
+
+
   const subEl = document.getElementById('chatAssistantSubtitle');
+
+
 
   if (subEl) subEl.innerText = subtitleText;
 
 
 
+
+
+
+
   // 3. Update Chat Input Placeholder
 
+
+
   const inputEl = document.getElementById('chatInput');
+
+
 
   if (inputEl) inputEl.placeholder = `Talk to Rum (or say 'Hey Rum' / tap 🎙️)...`;
 
 
 
+
+
+
+
   // 4. Update Home Screen Card & Badges
 
+
+
   const homeBadge = document.getElementById('homeAiStatusBadge');
+
+
 
   if (homeBadge) homeBadge.innerText = statusBadgeText;
 
 
 
+
+
+
+
   const homeCardTitle = document.getElementById('homeAiCardTitle');
+
+
 
   if (homeCardTitle) homeCardTitle.innerText = cardTitleText;
 
 
 
+
+
+
+
   const homeBannerName = document.getElementById('homeBannerAiName');
+
+
 
   if (homeBannerName) homeBannerName.innerText = `${displayName}:`;
 
 
 
+
+
+
+
   const accBadge = document.getElementById('accAiBadge');
+
+
 
   if (accBadge) accBadge.innerText = `ACTIVE: ${displayName}`;
 
 
 
+
+
+
+
   const homeCardIcon = document.getElementById('homeAiCardIcon');
+
+
 
   if (homeCardIcon) {
 
+
+
     const avatarEl = document.getElementById('homeAiAvatarImg');
+
+
 
     if (avatarEl) {
 
+
+
       avatarEl.src = avatarPath;
+
+
 
     } else {
 
+
+
       homeCardIcon.innerHTML = `<img id="homeAiAvatarImg" src="${avatarPath}" class="home-waifu-avatar" alt="Avatar">`;
+
+
 
     }
 
+
+
   }
+
+
+
+
 
 
 
   const homeQuote = document.getElementById('homeBannerAiQuote');
 
+
+
   if (homeQuote) homeQuote.innerText = bannerQuote;
+
+
+
+
 
 
 
   // 5. Update Dropdown Selectors
 
+
+
   const chatSelect = document.getElementById('personaSelector');
+
+
 
   if (chatSelect && chatSelect.value !== personaKey) chatSelect.value = personaKey;
 
 
 
+
+
+
+
   // 6. Update Settings Screen Labels & Profile Hints
 
+
+
   const profileCardTitle = document.getElementById('settingsProfileCardTitle');
+
+
 
   if (profileCardTitle) profileCardTitle.innerHTML = `<span>👤</span> DRIVER PROFILE & WHAT ${displayName} CALLS YOU`;
 
 
 
+
+
+
+
   const profileHint = document.getElementById('settingsProfileHint');
+
+
 
   if (profileHint) profileHint.innerText = `${displayName} WILL ADDRESS YOU AS:`;
 
 
 
+
+
+
+
   const avatarElements = [
+
+
 
     document.getElementById('homeAiAvatarImg'),
 
+
+
     document.getElementById('chatAssistantAvatar'),
+
+
 
     document.getElementById('homeBannerAiAvatar'),
 
+
+
     document.getElementById('aiToastAvatar'),
+
+
 
     document.getElementById('settingsAvatarPreview')
 
+
+
   ];
+
+
 
   avatarElements.forEach(el => {
 
+
+
     if (el) el.src = avatarPath;
 
+
+
   });
+
+
+
+
 
 
 
   const settName = document.getElementById('settingsPersonaName');
 
+
+
   if (settName) settName.innerText = pData ? `${pData.name} (${pData.full_name || pData.name})` : displayName;
+
+
 
   const settArch = document.getElementById('settingsPersonaArchetype');
 
+
+
   if (settArch) settArch.innerText = pData ? (pData.archetype || pData.desc) : subtitleText;
+
+
 
   const settSelect = document.getElementById('settingsPersonaSelector');
 
+
+
   if (settSelect && settSelect.value !== personaKey) settSelect.value = personaKey;
+
+
 
   const cfgAvatar = document.getElementById('cfgPersonaAvatar');
 
+
+
   if (cfgAvatar) cfgAvatar.value = avatarPath;
+
+
 
   const cfgSplashImg = document.getElementById('cfgBootSplashImage');
 
+
+
   if (cfgSplashImg) cfgSplashImg.value = splashImg;
+
+
 
   const cfgSplashVid = document.getElementById('cfgBootSplashVideo');
 
+
+
   if (cfgSplashVid) cfgSplashVid.value = splashVid;
 
+
+
 }
+
+
+
+
 
 
 
 // --- PERSONA BOOT SPLASH & AI ACTION CONTROLLER ---
 
+
+
 let bootSplashTimer = null;
+
+
 
 let bootSplashDismissed = false;
 
 
 
+
+
+
+
 function initBootSplash() {
+
+
 
   const overlay = document.getElementById('bootSplashOverlay');
 
+
+
   if (!overlay) return;
+
+
+
+
 
 
 
   const bar = document.getElementById('bootSplashProgressBar');
 
+
+
   const statusEl = document.getElementById('bootSplashStatus');
+
+
 
   const imgEl = document.getElementById('bootSplashImage');
 
+
+
   const videoEl = document.getElementById('bootSplashVideo');
 
+
+
   const titleEl = document.getElementById('bootSplashPersonaName');
+
+
 
   const subEl = document.getElementById('bootSplashSubtitle');
 
 
 
+
+
+
+
   const pKey = currentAiSettings.personality || 'RUM';
+
+
 
   const pName = getPersonaDisplayName(pKey);
 
+
+
   if (titleEl) titleEl.innerText = `${pName} v1.0.0`;
+
+
 
   if (subEl) subEl.innerText = `${pName} • MultiAir In-Dash System Initializing`;
 
 
 
+
+
+
+
   const pData = (window.allPersonas && window.allPersonas[pKey]) ? window.allPersonas[pKey] : null;
+
+
 
   if (pData) {
 
+
+
     if (pData.boot_splash_video && videoEl) {
+
+
 
       videoEl.src = pData.boot_splash_video;
 
+
+
       videoEl.style.display = 'block';
+
+
 
       if (imgEl) imgEl.style.display = 'none';
 
+
+
       videoEl.play().catch(e => console.log("[SPLASH] Video play:", e));
+
+
 
     } else if (pData.boot_splash_image && imgEl) {
 
+
+
       imgEl.src = pData.boot_splash_image;
+
+
 
       imgEl.style.display = 'block';
 
+
+
       if (videoEl) videoEl.style.display = 'none';
+
+
 
     }
 
+
+
   }
+
+
+
+
 
 
 
   const steps = [
 
+
+
     { pct: 15, delay: 100, text: "CHECKING CAN BUS AND OBD-II LINK..." },
+
+
 
     { pct: 40, delay: 500, text: "CALIBRATING MULTIAIR C635 PROFILES..." },
 
+
+
     { pct: 70, delay: 1100, text: "CONNECTING LOCAL NEURAL ENGINE (QWEN-3B)..." },
+
+
 
     { pct: 90, delay: 1700, text: `${pName} ONLINE • DEVOTED TO ${getDriverDisplayAddress()}` },
 
+
+
     { pct: 100, delay: 2200, text: "COCKPIT READY" }
 
+
+
   ];
+
+
+
+
 
 
 
   steps.forEach(s => {
 
+
+
     setTimeout(() => {
+
+
 
       if (bootSplashDismissed) return;
 
+
+
       if (bar) bar.style.width = `${s.pct}%`;
+
+
 
       if (statusEl) statusEl.innerText = s.text;
 
+
+
     }, s.delay);
 
+
+
   });
+
+
+
+
 
 
 
   // If no boot splash video is configured, dismiss immediately to main menu!
 
+
+
   if (!pData || !pData.boot_splash_video) {
+
+
 
     setTimeout(() => {
 
+
+
       dismissBootSplash();
+
+
 
     }, 150);
 
+
+
   } else {
+
+
 
     bootSplashTimer = setTimeout(() => {
 
+
+
       dismissBootSplash();
+
+
 
     }, 4000);
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 function dismissBootSplash() {
 
+
+
   if (bootSplashDismissed) return;
+
+
 
   bootSplashDismissed = true;
 
+
+
   if (bootSplashTimer) clearTimeout(bootSplashTimer);
+
+
 
   const overlay = document.getElementById('bootSplashOverlay');
 
+
+
   if (overlay) {
+
+
 
     overlay.classList.add('hidden');
 
+
+
     overlay.style.pointerEvents = 'none';
+
+
 
     overlay.style.opacity = '0';
 
+
+
     setTimeout(() => {
+
+
 
       overlay.style.display = 'none';
 
+
+
     }, 350);
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function previewBootSplash() {
 
+
+
   const overlay = document.getElementById('bootSplashOverlay');
+
+
 
   if (!overlay) return;
 
+
+
   overlay.style.display = 'flex';
+
+
 
   overlay.classList.remove('hidden');
 
+
+
   bootSplashDismissed = false;
+
+
 
   initBootSplash();
 
+
+
 }
+
+
+
+
 
 
 
 function onSettingsPersonaChanged(pKey) {
 
+
+
   changePersona(pKey);
 
+
+
 }
+
+
+
+
 
 
 
 function savePersonaMediaConfig() {
 
+
+
   const pKey = currentAiSettings.personality || 'RUM';
+
+
 
   const avatar = document.getElementById('cfgPersonaAvatar')?.value || 'assets/pics/maia_avatar.jpg';
 
+
+
   const splashImg = document.getElementById('cfgBootSplashImage')?.value || 'assets/pics/splash.png';
+
+
 
   const splashVid = document.getElementById('cfgBootSplashVideo')?.value || '';
 
 
 
+
+
+
+
   if (window.allPersonas && window.allPersonas[pKey]) {
+
+
 
     window.allPersonas[pKey].avatar_image = avatar;
 
+
+
     window.allPersonas[pKey].boot_splash_image = splashImg;
+
+
 
     window.allPersonas[pKey].boot_splash_video = splashVid;
 
+
+
   }
+
+
 
   updatePersonaUI(pKey);
 
+
+
   showToastNotification(`Persona ${pKey} Media Saved!`);
 
+
+
 }
+
+
+
+
+
 
 
 
 
 // --- ELEMENTARY MOTION DETECTOR (EMD) GESTURE CONTROLLER ---
+
 function handleGestureEvent(gesture) {
+
   if (!gesture) return;
+
   console.log("[EMD GESTURE EVENT]", gesture);
 
+
+
   if (gesture === 'SWIPE_RIGHT') {
+
     nextTrack();
+
     showAiSpeechToast("👉 GESTURE: NEXT TRACK");
+
   } else if (gesture === 'SWIPE_LEFT') {
+
     prevTrack();
+
     showAiSpeechToast("👈 GESTURE: PREVIOUS TRACK");
+
   } else if (gesture === 'SWIPE_UP') {
+
     fetch('/api/avrcp/action', {
+
       method: 'POST',
+
       headers: { 'Content-Type': 'application/json' },
+
       body: JSON.stringify({ action: 'volume_up' })
+
     }).catch(() => {});
+
     showAiSpeechToast("👆 GESTURE: VOLUME UP");
+
   } else if (gesture === 'SWIPE_DOWN') {
+
     if (typeof closeGpioModal === 'function') closeGpioModal();
+
     if (typeof closeDtcScanModal === 'function') closeDtcScanModal();
+
     navigateTo('home');
+
     showAiSpeechToast("👇 GESTURE: RETURN HOME");
+
   } else if (gesture === 'LOOM_PUSH') {
+
     togglePlayPause();
+
     showAiSpeechToast("✋ GESTURE: PLAY / PAUSE");
+
   }
+
 }
 
+
+
 function handleAiAction(action) {
+
   if (action && action.type === 'gesture') { handleGestureEvent(action.gesture); return; }
+
+
 
   if (!action) return;
 
+
+
   console.log("[AI COCKPIT ACTION]", action);
+
+
 
   if (typeof stopScreensaver === 'function') stopScreensaver();
 
+
+
   
 
+
+
   if (action.type === 'navigate') {
+
     const validScreens = ['home', 'gauges', 'ai', 'media', 'music', 'games', 'settings', 'dashcam'];
+
     if (validScreens.includes(action.target)) {
+
       if (action.target === 'music') {
+
         openMusicPlayer();
+
       } else {
+
         navigateTo(action.target);
+
       }
+
     }
+
   } else if (action.type === 'launch') {
+
     if (action.target === 'kodi') {
+
       launchKodi();
+
     } else if (action.target === 'vlc') {
+
       launchVlc();
+
     } else if (action.target === 'stremio') {
+
       launchStremio();
+
     } else if (action.target === 'retroarch') {
+
       launchRetroArch();
+
     }
+
+
 
   } else if (action.type === 'action') {
 
+
+
     if (action.target === 'diagnostics') {
+
+
 
       openDtcScanModal();
 
+
+
     }
+
+
 
   } else if (action.type === 'media') {
 
+
+
     if (action.action === 'next') {
+
+
 
       nextTrack();
 
+
+
       showAiSpeechToast("⏭️ Next Track (Steering Wheel / Radio)");
+
+
 
     } else if (action.action === 'prev') {
 
+
+
       prevTrack();
+
+
 
       showAiSpeechToast("⏮️ Previous Track (Steering Wheel / Radio)");
 
+
+
     } else if (action.action === 'toggle') {
+
       togglePlayPause();
+
       showAiSpeechToast(realAudio.paused ? "⏸️ Paused" : "▶️ Playing");
+
     } else if (action.action === 'play') {
+
       if (realAudio.paused) togglePlayPause();
+
     } else if (action.action === 'pause') {
+
       if (!realAudio.paused) togglePlayPause();
 
+
+
       togglePlayPause();
+
+
 
       showAiSpeechToast(realAudio.paused ? "⏸️ Paused" : "▶️ Playing");
 
+
+
     }
+
+
 
   } else if (action.type === 'volume') {
 
+
+
     if (action.action === 'up') {
+
+
 
       adjustRadioVolume(5);
 
+
+
     } else if (action.action === 'down') {
+
+
 
       adjustRadioVolume(-5);
 
+
+
     } else if (action.action === 'mute') {
+
+
 
       toggleAudioMute();
 
+
+
     }
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function fetchAiHistory() {
 
+
+
   fetch('/api/ai/history')
+
+
 
     .then(r => r.json())
 
+
+
     .then(data => {
+
+
 
       renderChatMessages(data.chat_history || []);
 
+
+
       renderSpeechLogs(data.speech_log || []);
+
+
 
       if (data.personalities) {
 
+
+
         window.allPersonas = data.personalities;
+
+
 
         const sel = document.getElementById('personaSelector');
 
+
+
         const settSel = document.getElementById('settingsPersonaSelector');
+
+
 
         const keys = Object.keys(data.personalities);
 
+
+
         const optionsHtml = keys.map(k => {
+
+
 
           const p = data.personalities[k];
 
+
+
           return `<option value="${k}">${p.name} (${p.full_name || p.name})</option>`;
+
+
 
         }).join('');
 
+
+
         if (sel) sel.innerHTML = optionsHtml;
+
+
 
         if (settSel) settSel.innerHTML = optionsHtml;
 
+
+
       }
+
+
 
       if (data.settings) {
 
+
+
         currentAiSettings = data.settings;
+
+
 
         syncSettingsUI();
 
+
+
         updatePersonaUI(data.settings.personality);
+
+
 
       }
 
+
+
     })
+
+
 
     .catch(err => console.error("[AI] History fetch error:", err));
 
+
+
 }
+
+
+
+
 
 
 
 function renderChatMessages(history) {
 
+
+
   const container = document.getElementById('aiChatMessages');
+
+
 
   if (!container) return;
 
+
+
   container.innerHTML = '';
+
+
 
   const currentName = getPersonaDisplayName(currentAiSettings.personality);
 
 
 
+
+
+
+
   if (history.length === 0) {
+
+
 
     const addr = getDriverDisplayAddress();
 
+
+
     const isRum = (currentAiSettings.personality === 'RUM' || activeAvatarEngine === '3D_VRM');
+
+
 
     const introMsg = isRum
 
+
+
       ? `Yay, ${addr}! Rum is right here riding shotgun with you! Tap any quick prompt below or talk to me anytime!`
+
+
 
       : `Hey ${addr}, cockpit systems are loaded and ready. Talk to me or tap any of the quick prompts below!`;
 
+
+
     container.innerHTML = `
+
+
 
       <div class="chat-bubble maia">
 
+
+
         <strong>${currentName}:</strong> ${introMsg}
+
+
 
         <div class="chat-time">Just now</div>
 
+
+
       </div>
+
+
 
     `;
 
+
+
     return;
 
+
+
   }
+
+
+
+
 
 
 
   history.forEach(msg => {
 
+
+
     const bubble = document.createElement('div');
+
+
 
     bubble.className = `chat-bubble ${msg.role === 'user' ? 'user' : 'maia'}`;
 
+
+
     const namePrefix = msg.role === 'user' ? 'You' : currentName;
+
+
 
     bubble.innerHTML = `
 
+
+
       <div><strong>${namePrefix}:</strong> ${msg.text}</div>
+
+
 
       <div class="chat-time">${msg.time || ''}</div>
 
+
+
     `;
+
+
 
     container.appendChild(bubble);
 
+
+
   });
+
+
+
+
 
 
 
   scrollChatToBottom();
 
+
+
 }
+
+
+
+
 
 
 
 function renderSpeechLogs(logs) {
 
+
+
   if (!logs || !logs.length) return;
+
+
 
   logs.forEach(item => {
 
+
+
     appendSpeechLogItem(item);
+
+
 
   });
 
+
+
 }
+
+
+
+
 
 
 
 function appendSpeechLogItem(item) {
 
+
+
   if (!item || (!item.speech && !item.text && !item.hud_message)) return;
 
+
+
   const chatContainer = document.getElementById('aiChatMessages');
+
+
 
   if (!chatContainer) return;
 
 
 
+
+
+
+
   const text = item.speech || item.text || item.hud_message;
 
+
+
   const timeStr = item.time_str || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+
 
   const src = item.source || item.type || 'COPILOT';
 
 
 
-  // Do not duplicate chat replies already rendered by appendMessage
 
-  if (src === 'CHAT') return;
+
+
+
+  // Do not duplicate chat replies or boot-stage audio milestones into user conversational chat
+
+
+
+  if (src === 'CHAT' || src === 'INSTANT_BOOT' || src === 'NEURAL_BOOT') return;
+
+
+
+
 
 
 
   const isAlert = (item.type === 'CRITICAL' || (item.tags && item.tags.includes('ALERT')));
 
+
+
   const div = document.createElement('div');
+
+
 
   div.className = 'copilot-event-entry';
 
+
+
   div.innerHTML = `
+
+
 
     <div class="copilot-event-bubble ${isAlert ? 'alert' : ''}">
 
+
+
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 4px; font-size: 10px; font-weight: 800;">
+
+
 
         <span style="color:${isAlert ? 'var(--accent-red)' : 'var(--accent-lavender, #c084fc)'}; display:flex; align-items:center; gap:5px;">
 
+
+
           <span>${isAlert ? '⚠️' : '💜'}</span> <b>RUM • ${src}</b>
+
+
 
         </span>
 
+
+
         <span style="color:var(--text-secondary); font-size: 9px;">${timeStr}</span>
+
+
 
       </div>
 
+
+
       <div style="color: #f3f0ff; font-size: 11px; line-height: 1.4;">${text}</div>
+
+
 
     </div>
 
+
+
   `;
+
+
 
   chatContainer.appendChild(div);
 
+
+
   chatContainer.scrollTop = chatContainer.scrollHeight;
 
+
+
 }
+
+
+
+
 
 
 
 function scrollChatToBottom() {
 
+
+
   const container = document.getElementById('aiChatMessages');
+
+
 
   if (container) {
 
+
+
     container.scrollTop = container.scrollHeight;
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function handleChatSubmit(e) {
 
+
+
   if (e) e.preventDefault();
+
+
 
   const input = document.getElementById('chatInput');
 
+
+
   const text = input.value.trim();
 
+
+
   if (!text) return;
+
+
+
+
 
 
 
   sendChatMessage(text);
 
+
+
   input.value = '';
 
+
+
 }
+
+
+
+
 
 
 
 function sendQuickPrompt(promptText) {
 
+
+
   sendChatMessage(promptText);
 
+
+
 }
+
+
+
+
 
 
 
 function sendChatMessage(userText, isVoice = false) {
 
+
+
   const container = document.getElementById('aiChatMessages');
 
+
+
   const sendBtn = document.getElementById('sendBtn');
+
+
 
   const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 
 
+
+
+
+
   // Immediately append user message on the SENT (right) side of the chat screen
+
+
 
   const userBubble = document.createElement('div');
 
+
+
   userBubble.className = 'chat-bubble user';
+
+
 
   const sentLabel = isVoice ? `🎤 Voice • ${nowTime}` : `Sending...`;
 
+
+
   userBubble.innerHTML = `<div><strong>${isVoice ? '🎤 You' : 'You'}:</strong> ${userText}</div><div class="chat-time">${sentLabel}</div>`;
+
+
 
   if (container) {
 
+
+
     container.appendChild(userBubble);
+
+
 
     scrollChatToBottom();
 
+
+
   }
+
+
+
+
 
 
 
   if (sendBtn) {
 
+
+
     sendBtn.disabled = true;
+
+
 
     sendBtn.innerHTML = "⏳";
 
+
+
   }
+
+
+
+
 
 
 
   fetch('/api/ai/chat', {
 
+
+
     method: 'POST',
+
+
 
     headers: { 'Content-Type': 'application/json' },
 
+
+
     body: JSON.stringify({ message: userText, source: isVoice ? 'voice' : 'text' })
+
+
 
   })
 
+
+
     .then(r => r.json())
+
+
 
     .then(data => {
 
+
+
       if (sendBtn) {
+
+
 
         sendBtn.disabled = false;
 
+
+
         sendBtn.innerHTML = "➤";
 
+
+
       }
+
+
 
       const timeEl = userBubble.querySelector('.chat-time');
 
+
+
       if (timeEl) {
+
+
 
         timeEl.innerText = isVoice ? `🎤 Voice • Sent ${nowTime}` : `Sent • ${nowTime}`;
 
+
+
       }
+
+
+
+
 
 
 
       const p = data.persona || data.personality || currentAiSettings.personality;
 
+
+
       const respName = getPersonaDisplayName(p);
+
+
+
+
 
 
 
       // Append R.U.M. response bubble on the left side
 
+
+
       if (container && userBubble.parentNode !== container) container.appendChild(userBubble);
+
+
 
       const maiaBubble = document.createElement('div');
 
+
+
       maiaBubble.className = 'chat-bubble maia';
+
+
 
       maiaBubble.innerHTML = `<div><strong>${respName}:</strong> ${data.reply}</div><div class="chat-time">Just now</div>`;
 
+
+
       if (container) {
+
+
 
         container.appendChild(maiaBubble);
 
+
+
         scrollChatToBottom();
 
+
+
       }
+
+
+
+
 
 
 
       // Trigger speaking animation on 3D VRM
 
+
+
       const estMs = Math.max(2400, (data.reply.length / 10.0) * 1000);
+
+
 
       if (typeof setVrmSpeaking === 'function') {
 
+
+
         setVrmSpeaking(estMs, data.reply);
 
+
+
       }
+
+
+
+
 
 
 
       // Remote Client Audio Playback (Plays R.U.M. speech on PC / phone if viewing remotely)
+
       if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+
         const remoteVoice = new Audio('/last_speech.wav?t=' + Date.now());
+
         remoteVoice.play().catch(e => console.log('[AUDIO] Browser autoplay blocked:', e));
+
       }
+
+
 
       // Update home banner quote
 
+
+
       const homeQuote = document.getElementById('homeBannerAiQuote');
+
+
 
       if (homeQuote) homeQuote.innerText = `${respName}: ${data.reply.slice(0, 56)}...`;
 
 
 
+
+
+
+
       // Execute dashboard action (screen switch or app launcher)
+
+
 
       if (data.action) {
 
+
+
         handleAiAction(data.action);
 
+
+
       }
+
+
+
+
 
 
 
       // Update emotion & HUD
 
+
+
       if (data.emotion) {
+
+
 
         setWaifuEmotion(data.emotion);
 
+
+
       }
+
+
+
+
 
 
 
       // Add to speech log
 
+
+
       appendSpeechLogItem({
+
+
 
         source: 'CHAT',
 
+
+
         time_str: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+
+
 
         text: data.reply
 
+
+
       });
+
+
 
     })
 
+
+
     .catch(err => {
+
+
 
       console.error("[AI] Chat error:", err);
 
+
+
       if (sendBtn) {
+
+
 
         sendBtn.disabled = false;
 
+
+
         sendBtn.innerHTML = "➤";
+
+
 
       }
 
+
+
     });
 
+
+
 }
+
+
+
+
 
 
 
 function clearChatHistory() {
 
+
+
   const container = document.getElementById('aiChatMessages');
+
+
 
   if (container) {
 
+
+
     const addr = getDriverDisplayAddress();
+
+
 
     const currentName = getPersonaDisplayName(currentAiSettings.personality);
 
+
+
     container.innerHTML = `
+
+
 
       <div class="chat-bubble maia">
 
+
+
         <strong>${currentName}:</strong> Chat cleared, ${addr}. Fresh start! What are we doing next?
+
+
 
         <div class="chat-time">Just now</div>
 
+
+
       </div>
+
+
 
     `;
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 function changePersona(personaKey) {
 
+
+
   updatePersonaUI(personaKey);
+
+
+
+
 
 
 
   fetch('/api/ai/settings', {
 
+
+
     method: 'POST',
+
+
 
     headers: { 'Content-Type': 'application/json' },
 
+
+
     body: JSON.stringify({ personality: personaKey })
+
+
 
   }).then(() => fetchAiHistory());
 
+
+
 }
+
+
+
+
 
 
 
 function cycleVoiceMode() {
 
+
+
   if (currentVoiceMode === "COPILOT") {
+
+
 
     setVoiceVerbosity("ALERTS_ONLY");
 
+
+
   } else if (currentVoiceMode === "ALERTS_ONLY") {
+
+
 
     setVoiceVerbosity("MUTED");
 
+
+
   } else {
+
+
 
     setVoiceVerbosity("COPILOT");
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 function setVoiceVerbosity(mode) {
 
+
+
   currentVoiceMode = mode.toUpperCase();
+
+
 
   const btn = document.getElementById('voiceModeBtn');
 
+
+
   if (btn) {
+
+
 
     if (currentVoiceMode === "ALERTS_ONLY") {
 
+
+
       btn.innerText = "⚠️ AI: ALERTS ONLY";
+
+
 
       btn.style.color = "var(--accent-yellow)";
 
+
+
       btn.style.borderColor = "var(--accent-yellow)";
+
+
 
     } else if (currentVoiceMode === "MUTED") {
 
+
+
       btn.innerText = "🔇 AI: MUTED";
+
+
 
       btn.style.color = "var(--text-secondary)";
 
+
+
       btn.style.borderColor = "var(--text-secondary)";
+
+
 
     } else {
 
+
+
       btn.innerText = "🏎️ AI: COPILOT";
+
+
 
       btn.style.color = "var(--accent-blue)";
 
+
+
       btn.style.borderColor = "var(--accent-blue)";
+
+
 
     }
 
+
+
   }
+
+
+
+
 
 
 
   // Sync Settings Radios
 
+
+
   const rAlerts = document.getElementById('radioVoiceAlerts');
+
+
 
   const rCopilot = document.getElementById('radioVoiceCopilot');
 
+
+
   const rMuted = document.getElementById('radioVoiceMuted');
+
+
 
   if (rAlerts) rAlerts.checked = (currentVoiceMode === "ALERTS_ONLY");
 
+
+
   if (rCopilot) rCopilot.checked = (currentVoiceMode === "COPILOT");
+
+
 
   if (rMuted) rMuted.checked = (currentVoiceMode === "MUTED");
 
 
 
+
+
+
+
   fetch(`/api/ai/voice_mode?mode=${currentVoiceMode}`);
 
+
+
 }
+
+
+
+
 
 
 
 function showAiSpeechToast(speech) {
 
+
+
   if (typeof showVrmSpeech === 'function') {
+
+
 
     showVrmSpeech(speech, 6500);
 
+
+
   }
+
+
+
+
 
 
 
   const toast = document.getElementById('aiToast');
 
+
+
   const textEl = document.getElementById('aiText');
+
+
 
   if (toast && textEl) {
 
+
+
     textEl.innerText = speech;
+
+
 
     toast.classList.add('show');
 
+
+
     setTimeout(() => toast.classList.remove('show'), 6500);
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 // --- AUTO-SHOTGUN FLOATING HUD ON SPEECH ---
 
+
+
 let isShotgunAutoPopped = false;
+
+
 
 let shotgunAutoDismissTimer = null;
 
 
 
+
+
+
+
 function handleSpeechAutoShotgun(text, durationMs) {
+
+
 
   if (currentScreen === 'ai') return;
 
+
+
   const floatingHud = document.getElementById('vrmFloatingHud');
+
+
 
   if (!floatingHud) return;
 
 
 
+
+
+
+
   if (shotgunAutoDismissTimer) {
+
+
 
     clearTimeout(shotgunAutoDismissTimer);
 
+
+
     shotgunAutoDismissTimer = null;
 
+
+
   }
+
+
+
+
 
 
 
   if (!isCompanionFloating) {
 
+
+
     popOutFloatingCompanion(true);
+
+
 
     isShotgunAutoPopped = true;
 
+
+
   }
+
+
+
+
 
 
 
   if (text) {
 
+
+
     showVrmSpeech(text, durationMs || 5000);
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function scheduleShotgunAutoDismiss(delayMs = 2800) {
 
+
+
   if (!isShotgunAutoPopped || currentScreen === 'ai') return;
+
+
 
   if (shotgunAutoDismissTimer) clearTimeout(shotgunAutoDismissTimer);
 
+
+
   shotgunAutoDismissTimer = setTimeout(() => {
+
+
 
     if (isShotgunAutoPopped && !isHardwareSpeaking && currentScreen !== 'ai') {
 
+
+
       dockCompanionToAi();
+
+
 
       isShotgunAutoPopped = false;
 
+
+
     }
+
+
 
     shotgunAutoDismissTimer = null;
 
+
+
   }, delayMs);
 
+
+
 }
+
+
+
+
 
 
 
 function speakUtterance(text, emotion) {
 
+
+
   if (!text || currentVoiceMode === "MUTED") return;
+
   setMediaDuckState(true);
+
+
+
+
 
 
 
   if (currentScreen !== 'ai') {
 
+
+
     handleSpeechAutoShotgun(text, Math.max(2200, (text.length / 9.5) * 1000 + 400));
 
+
+
   }
+
+
+
+
 
 
 
   if (emotion) {
 
+
+
     setWaifuEmotion(emotion);
 
+
+
   }
+
+
+
+
 
 
 
   // Fallback timer only if SSE stream is disconnected
 
+
+
   const estimatedDurationMs = Math.max(2200, (text.length / 9.5) * 1000 + 300);
+
+
 
   rumGazeRetentionUntil = Math.max(rumGazeRetentionUntil, Date.now() + estimatedDurationMs + 9000);
 
+
+
   if (!eventSource || eventSource.readyState !== 1) {
 
+
+
     waifuSpeechEndTime = Date.now() + estimatedDurationMs;
+
     setTimeout(() => { if (!isHardwareSpeaking) setMediaDuckState(false); }, estimatedDurationMs);
+
+
 
   }
 
+
+
   if (typeof setVrmSpeaking === 'function') setVrmSpeaking(estimatedDurationMs, text, false);
+
+
 
   const stage = document.getElementById('waifuStage');
 
 
 
+
+
+
+
   if (!eventSource || eventSource.readyState !== 1) {
+
+
 
     isWaifuSpeaking = true;
 
+
+
     if (stage) stage.classList.add('speaking');
+
+
 
     setTimeout(() => {
 
+
+
       if (stage) stage.classList.remove('speaking');
+
+
 
       setWaifuEmotion("DEVOTED");
 
+
+
       isWaifuSpeaking = false;
+
+
 
       scheduleShotgunAutoDismiss(2500);
 
+
+
     }, estimatedDurationMs);
 
+
+
   }
+
+
+
+
 
 
 
   // Avatar CSS voice pulse
 
+
+
   const avatarEls = [
+
+
 
     document.getElementById('chatAssistantAvatar'),
 
+
+
     document.getElementById('homeAiAvatarImg')
+
+
 
   ];
 
+
+
   avatarEls.forEach(el => el && el.classList.add('waifu-speaking'));
+
+
 
   setTimeout(() => {
 
+
+
     avatarEls.forEach(el => el && el.classList.remove('waifu-speaking'));
+
+
 
   }, estimatedDurationMs);
 
 
 
+
+
+
+
   // 2. Play via Backend Piper TTS out of HDMI Monitor Speakers
+
+
 
   fetch('/api/ai/speak', {
 
+
+
     method: 'POST',
+
+
 
     headers: { 'Content-Type': 'application/json' },
 
+
+
     body: JSON.stringify({ text: text })
+
+
 
   }).catch(() => {});
 
 
 
+
+
+
+
   // 3. Fallback browser SpeechSynthesis ONLY for offline desktop browser preview (not on live Pi backend)
+
   const isDevPreview = window.location.protocol === 'file:';
+
   if (isDevPreview && 'speechSynthesis' in window) {
+
+
 
     try {
 
+
+
       window.speechSynthesis.cancel();
+
+
 
       const utterance = new SpeechSynthesisUtterance(text);
 
+
+
       const p = currentAiSettings.personality || 'RUM';
+
+
 
       if (p === 'JARVIS') {
 
+
+
         utterance.rate = 0.96; utterance.pitch = 0.90;
+
+
 
       } else if (p === 'RACE_ENGINEER' || p === 'PITWALL') {
 
+
+
         utterance.rate = 1.14; utterance.pitch = 1.0;
+
+
 
       } else {
 
+
+
         // High-pitched 12-yr-old anime girl pitch for Rum
+
+
 
         utterance.rate = 1.08; utterance.pitch = 1.24;
 
+
+
       }
+
+
 
       window.speechSynthesis.speak(utterance);
 
+
+
     } catch (e) {}
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 // --- HANDS-FREE WAKE WORD & LIVE CONVERSATION ENGINE (BACKEND PIPEWIRE USB MIC + BROWSER FALLBACK) ---
 
+
+
 let isWakeWordEnabled = true;
 
+
+
 let isLiveConvoMode = false;
+
+
 
 let isVoiceRecording = false;
 
 
 
+
+
+
+
 function initSpeechRecognition() {
+
+
 
   // Backend PipeWire USB microphone daemon is always active on Pi 5!
 
+
+
   // Ensure Wake Word and Live Convo buttons are always visible and synced.
+
+
 
   const btn = document.getElementById('btnWakeWord');
 
+
+
   if (btn) btn.style.display = 'inline-flex';
+
+
 
   const cBtn = document.getElementById('btnLiveConvo');
 
+
+
   if (cBtn) cBtn.style.display = 'inline-flex';
 
+
+
 }
+
+
+
+
 
 
 
 function syncVoiceButtonState(convoActive, micCapturing, wakeEnabled) {
 
+
+
   isLiveConvoMode = !!convoActive;
+
+
 
   isVoiceRecording = !!(convoActive || micCapturing);
 
+
+
   if (wakeEnabled !== undefined) {
+
+
 
     isWakeWordEnabled = !!wakeEnabled;
 
+
+
     const wBtn = document.getElementById('btnWakeWord');
+
+
 
     if (wBtn) {
 
+
+
       wBtn.innerText = isWakeWordEnabled ? "🎤 WAKE WORD: ON" : "🔇 WAKE WORD: OFF";
+
+
 
       wBtn.style.borderColor = isWakeWordEnabled ? "var(--accent-pink)" : "var(--panel-border)";
 
+
+
       wBtn.style.color = isWakeWordEnabled ? "var(--accent-pink)" : "var(--text-secondary)";
+
+
 
     }
 
+
+
   }
+
+
+
+
 
 
 
   const btn = document.getElementById('btnLiveConvo');
 
+
+
   if (!btn) return;
+
+
 
   if (convoActive) {
 
+
+
     btn.innerHTML = "🔴";
+
+
 
     btn.classList.add('recording');
 
+
+
     btn.style.borderColor = "var(--accent-red, #ef4444)";
+
+
 
     btn.style.boxShadow = "0 0 16px rgba(239, 68, 68, 0.85)";
 
+
+
     btn.style.background = "rgba(239, 68, 68, 0.35)";
+
+
 
     btn.title = "Live Voice Conversation Active (Speak freely to Rum! Tap to stop)";
 
+
+
   } else {
+
+
 
     btn.innerHTML = "🎙️";
 
+
+
     btn.classList.remove('recording');
+
+
 
     btn.style.borderColor = "";
 
+
+
     btn.style.boxShadow = "";
+
+
 
     btn.style.background = "";
 
+
+
     btn.title = "Toggle Live Voice Conversation Mode (USB Mic)";
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 async function toggleLiveConversationMode() {
 
+
+
   try {
+
+
 
     const resp = await fetch('/api/ai/listen', {
 
+
+
       method: 'POST',
+
+
 
       headers: { 'Content-Type': 'application/json' },
 
+
+
       body: JSON.stringify({ action: 'toggle_convo' })
+
+
 
     });
 
+
+
     const data = await resp.json();
+
+
 
     syncVoiceButtonState(data.live_convo_mode, data.is_mic_listening, data.wake_word_enabled);
 
+
+
     if (data.live_convo_mode) {
+
+
 
       showAiSpeechToast("🔴 Live Voice Mode ON! Speak to Rum anytime — your words appear in chat!");
 
+
+
     } else {
+
+
 
       showAiSpeechToast("🎙️ Live Voice Mode paused. Wake word 'Hey Rum' is still active!");
 
+
+
     }
+
+
 
   } catch (err) {
 
+
+
     console.error("[VOICE] Backend listen toggle failed:", err);
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function toggleWakeWordListening() {
 
+
+
   const nextWake = !isWakeWordEnabled;
+
+
 
   fetch('/api/ai/listen', {
 
+
+
     method: 'POST',
+
+
 
     headers: { 'Content-Type': 'application/json' },
 
+
+
     body: JSON.stringify({ action: 'set_wake', enabled: nextWake })
+
+
 
   })
 
+
+
     .then(r => r.json())
+
+
 
     .then(data => {
 
+
+
       syncVoiceButtonState(data.live_convo_mode, data.is_mic_listening, data.wake_word_enabled);
+
+
 
       showAiSpeechToast(data.wake_word_enabled ? "🎤 Wake word 'Hey Rum' enabled!" : "🔇 Wake word listening paused.");
 
+
+
     })
 
+
+
     .catch(err => console.warn("[VOICE] Wake toggle error:", err));
+
+
 
 }
 
 
 
+
+
+
+
 function handleSpokenTranscript(text, isFromMic = true) {
+
+
 
   if (!text) return;
 
+
+
   const rawText = text.trim();
+
+
 
   if (!rawText) return;
 
 
 
+
+
+
+
   let query = rawText;
+
+
 
   const qLower = query.toLowerCase();
 
 
 
+
+
+
+
   // Strip wake words if prepended to a longer question
+
+
 
   const wakePrefixes = [
 
+
+
     'hey rum', 'hi rum', 'hello rum', 'okay rum', 'ok rum', 'yo rum', 'rum',
+
+
 
     'hey ram', 'hi ram', 'ram', 'hey rem', 'hi rem', 'rem',
 
+
+
     'hey ron', 'ron', 'hey rome', 'rome', 'hey room', 'room',
+
+
 
     'hey run', 'hey rob', 'hey drum', 'r.u.m.', 'r.u.m'
 
+
+
   ];
+
+
 
   let matchedWakeOnly = false;
 
+
+
   for (const w of wakePrefixes) {
+
+
 
     if (qLower === w || qLower === w + '!' || qLower === w + '?') {
 
+
+
       matchedWakeOnly = true;
+
+
 
       break;
 
+
+
     }
+
+
 
     if (qLower.startsWith(w + ' ') || qLower.startsWith(w + ',') || qLower.startsWith(w + '.')) {
 
+
+
       query = query.substring(w.length).replace(/^[,.\s!?]+/, '').trim();
+
+
 
       break;
 
+
+
     }
 
+
+
   }
+
+
+
+
 
 
 
@@ -4377,315 +8847,624 @@ function handleSpokenTranscript(text, isFromMic = true) {
 
 
 
+
+
+
+
   // 1. Direct Vehicle Telemetry Queries
+
+
 
   if (cleanCmd.includes('speed') || cleanCmd.includes('how fast') || cleanCmd.includes('fast am i')) {
 
+
+
     const spd = Math.round((latestTelemetry && latestTelemetry.speed_mph) || 0);
+
+
 
     const reply = `You're cruising at ${spd} miles per hour, Master!`;
 
+
+
     appendChatMessage('user', rawText);
+
+
 
     appendChatMessage('assistant', reply);
 
+
+
     speakUtterance(reply);
+
+
 
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('coolant') || cleanCmd.includes('engine temp') || cleanCmd.includes('temperature')) {
 
+
+
     const temp = Math.round((latestTelemetry && latestTelemetry.coolant_temp_f) || 195);
+
+
 
     const reply = `Engine coolant temperature is currently ${temp} degrees Fahrenheit!`;
 
+
+
     appendChatMessage('user', rawText);
+
+
 
     appendChatMessage('assistant', reply);
 
+
+
     speakUtterance(reply);
+
+
 
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('rpm') || cleanCmd.includes('tachometer') || cleanCmd.includes('revs')) {
 
+
+
     const rpm = Math.round((latestTelemetry && latestTelemetry.rpm) || 0);
+
+
 
     const reply = `Engine tachometer is at ${rpm} RPM!`;
 
+
+
     appendChatMessage('user', rawText);
+
+
 
     appendChatMessage('assistant', reply);
 
+
+
     speakUtterance(reply);
+
+
 
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('boost') || cleanCmd.includes('turbo') || cleanCmd.includes('psi')) {
 
+
+
     const psi = ((latestTelemetry && latestTelemetry.boost_psi) || 0).toFixed(1);
+
+
 
     const reply = `Turbo boost is at ${psi} PSI!`;
 
+
+
     appendChatMessage('user', rawText);
+
+
 
     appendChatMessage('assistant', reply);
 
+
+
     speakUtterance(reply);
+
+
 
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('battery') || cleanCmd.includes('voltage') || cleanCmd.includes('alternator')) {
 
+
+
     const v = ((latestTelemetry && latestTelemetry.battery_voltage) || 14.2).toFixed(1);
+
+
 
     const reply = `Battery system is reading ${v} volts!`;
 
+
+
     appendChatMessage('user', rawText);
+
+
 
     appendChatMessage('assistant', reply);
 
+
+
     speakUtterance(reply);
+
+
 
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('fuel') || cleanCmd.includes('gas tank') || cleanCmd.includes('how much gas')) {
 
+
+
     const fuel = Math.round((latestTelemetry && latestTelemetry.fuel_level_pct) || 75);
+
+
 
     const reply = `Fuel level is at ${fuel} percent!`;
 
+
+
     appendChatMessage('user', rawText);
+
+
 
     appendChatMessage('assistant', reply);
 
+
+
     speakUtterance(reply);
+
+
 
     return;
 
+
+
   }
+
+
+
+
 
 
 
   // 2. Direct App & Screen Navigation Controls
 
+
+
   if (cleanCmd.includes('gauge') || cleanCmd.includes('dashboard')) {
+
+
 
     navigateTo('gauges');
 
+
+
     showAiSpeechToast("Switching to Gauges!");
+
+
 
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('telemetry') || cleanCmd.includes('sensor')) {
 
+
+
     navigateTo('telemetry');
+
+
 
     showAiSpeechToast("Opening Telemetry Graphs!");
 
+
+
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('diagnostic') || cleanCmd.includes('trouble code') || cleanCmd.includes('fault code') || cleanCmd.includes('dtc')) {
 
+
+
     showDiagnosticsModal();
+
+
 
     showAiSpeechToast("Scanning Powertrain Diagnostics!");
 
+
+
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('browser') || cleanCmd.includes('firefox') || cleanCmd.includes('internet') || cleanCmd.includes('web')) {
 
+
+
     launchFirefoxBrowser();
+
+
 
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('media') || cleanCmd.includes('music') || cleanCmd.includes('song')) {
 
+
+
     navigateTo('media');
+
+
 
     showAiSpeechToast("Opening Media Player!");
 
+
+
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('game') || cleanCmd.includes('retroarch')) {
 
+
+
     navigateTo('games');
+
+
 
     showAiSpeechToast("Opening Games Hub!");
 
+
+
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('setting')) {
 
+
+
     navigateTo('settings');
+
+
 
     showAiSpeechToast("Opening Settings!");
 
+
+
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('home') || cleanCmd.includes('main screen')) {
 
+
+
     navigateTo('home');
+
+
 
     showAiSpeechToast("Returning to Home screen!");
 
+
+
     return;
 
+
+
   }
+
+
+
+
 
 
 
   // 3. Direct Kinetic Animations & Mocap Actions
 
+
+
   if (cleanCmd.includes('jump') || cleanCmd.includes('hop')) {
+
+
 
     playVrmAction('action_jump', 3200, false);
 
+
+
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('lean in') || cleanCmd.includes('come closer') || cleanCmd.includes('bow')) {
 
+
+
     playVrmAction('bend_over', 3800, false);
+
+
 
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('laugh') || cleanCmd.includes('giggle') || cleanCmd.includes('joke')) {
 
+
+
     playVrmAction('amusement', 3600, false);
+
+
 
     if (!cleanCmd.includes('tell me a joke')) return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('peace') || cleanCmd.includes('v sign')) {
 
+
+
     playVrmAction('peace', 4200, false);
+
+
 
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('shoot') || cleanCmd.includes('finger gun')) {
 
+
+
     playVrmAction('shoot', 4500, false);
+
+
 
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('spin') || cleanCmd.includes('twirl')) {
 
+
+
     playVrmAction('spin', 4500, false);
+
+
 
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('model') || cleanCmd.includes('pose')) {
 
+
+
     playVrmAction('model_pose', 4800, false);
+
+
 
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('squat') || cleanCmd.includes('exercise')) {
 
+
+
     playVrmAction('squat', 4400, false);
 
+
+
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('dance') || cleanCmd.includes('groove')) {
-
-    playVrmAction(cleanCmd.includes('groove') ? 'dance_side_groove' : 'dance_hiphop_step', 5500, false);
-
+    const dancePool = ['dance_side_groove', 'dance_rumba', 'dance_ontop', 'dance_headdrop', 'dance_pushback', 'joy', 'amusement'];
+    const chosen = dancePool[Math.floor(Math.random() * dancePool.length)];
+    playVrmAction(chosen, 5500, false);
     return;
-
   }
+
+
 
   if (cleanCmd.includes('sit') || cleanCmd.includes('relax')) {
 
+
+
     playVrmAction('sit_idle', 8000, false);
+
+
 
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('walk')) {
 
+
+
     playVrmAction('walk_loop', 6000, false);
+
+
 
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('jog') || cleanCmd.includes('run')) {
 
+
+
     playVrmAction('jog_loop', 6000, false);
+
+
 
     return;
 
+
+
   }
+
+
 
   if (cleanCmd.includes('wave') || cleanCmd.includes('say hi') || cleanCmd.includes('hello')) {
 
+
+
     playVrmAction('greeting', 3800, false);
+
+
 
     return;
 
+
+
   }
+
+
+
+
 
 
 
   // If user only said her name ("Rum!" / "Hey Rum!"), greet cheerfully and open follow-up window
 
+
+
   if (matchedWakeOnly || !query || query.length < 2) {
+
+
 
     playVrmAction('greeting', 3800, false);
 
+
+
     sendChatMessage(rawText, true);
 
+
+
     return;
+
+
 
   }
 
 
 
+
+
+
+
   // Transcribe spoken words onto the sent (right) side of the chat screen and send to Rum's neural brain!
+
+
 
   sendChatMessage(query, true);
 
+
+
 }
+
+
+
+
 
 
 
@@ -4693,259 +9472,519 @@ function handleSpokenTranscript(text, isFromMic = true) {
 
 
 
+
+
+
+
 // Master Animation Registry & Dynamic Drawer System (135+ BVH & VRMA Animations)
+
 let vrmCurrentAnimCategory = 'all';
+
 let vrmCurrentAnimSearch = '';
 
+
+
 function openAnimationsDrawer() {
+
   const m = document.getElementById('animationsDrawerModal');
+
   if (m) {
+
     m.style.display = 'flex';
+
     renderAnimationsDrawer();
+
   }
+
 }
+
+
 
 function toggleAnimationsDrawer() {
+
   const m = document.getElementById('animationsDrawerModal');
+
   if (!m) return;
+
   if (m.style.display === 'flex') {
+
     closeAnimationsDrawer();
+
   } else {
+
     openAnimationsDrawer();
+
   }
+
 }
+
+
 
 function closeAnimationsDrawer() {
+
   const m = document.getElementById('animationsDrawerModal');
+
   if (m) m.style.display = 'none';
+
 }
+
+
 
 function filterAnimationCategory(cat, btnEl) {
+
   vrmCurrentAnimCategory = cat || 'all';
+
   document.querySelectorAll('.anim-tab-btn').forEach(b => {
+
     b.style.background = 'rgba(255,255,255,0.08)';
+
     b.style.color = 'var(--text-secondary)';
+
     b.style.border = '1px solid #445';
+
   });
+
   if (btnEl) {
+
     btnEl.style.background = 'var(--accent-purple, #a855f7)';
+
     btnEl.style.color = '#fff';
+
     btnEl.style.border = 'none';
+
   }
+
   renderAnimationsDrawer();
+
 }
+
+
 
 function handleAnimSearch(query) {
+
   vrmCurrentAnimSearch = (query || '').toLowerCase().trim();
+
   renderAnimationsDrawer();
+
 }
+
+
 
 function clearAnimSearch() {
+
   const input = document.getElementById('animSearchInput');
+
   if (input) input.value = '';
+
   vrmCurrentAnimSearch = '';
+
   renderAnimationsDrawer();
+
 }
+
+
 
 function getAnimCategoryAndMeta(key, isVrma) {
+
   const k = key.toLowerCase();
+
   let emoji = '🎭';
+
   let cat = 'motion';
+
   let label = key.replace(/_/g, ' ').replace(/-/g, ' ');
+
   label = label.replace(/^(action|pose|dance|exercise|hitarea|reaction)\s+/i, '');
+
   label = label.charAt(0).toUpperCase() + label.slice(1);
 
+
+
   if (k.includes('dance') || k.includes('rumba') || k.includes('spin') || k.includes('twist') || k.includes('step') || k.includes('groove')) {
+
     cat = 'dance';
+
     emoji = '💃';
+
   } else if (k.includes('hit') || k.includes('reaction_groin') || k.includes('reaction_head')) {
+
     cat = 'combat';
+
     emoji = '💥';
+
   } else if (k.includes('exercise') || k.includes('crunch') || k.includes('jog') || k.includes('squat')) {
+
     cat = 'exercise';
+
     emoji = '🏃';
+
   } else if (k.includes('idle') || k.includes('sit') || k.includes('kneel') || k.includes('laying') || k.includes('rest') || k.includes('sunbathing')) {
+
     cat = 'idles';
+
     emoji = '🛋️';
+
   } else if (k.includes('walk') || k.includes('crouch') || k.includes('standup') || k.includes('crawling') || k.includes('picking') || k.includes('jump') || k.includes('pat') || k.includes('gaming') || k.includes('action')) {
+
     cat = 'motion';
+
     emoji = '🚶';
+
   } else if (k.includes('pose') || k.includes('peace') || k.includes('shoot') || k.includes('model') || k.includes('greeting') || k.includes('show') || k.includes('wave')) {
+
     cat = 'poses';
+
     emoji = '✨';
+
   } else {
+
     const emotions = [
+
       'admiration', 'amusement', 'anger', 'annoyance', 'approval', 'caring', 'confusion',
+
       'curiosity', 'desire', 'disappointment', 'disapproval', 'disgust', 'embarrassment',
+
       'excitement', 'fear', 'gratitude', 'grief', 'joy', 'love', 'nervousness', 'optimism',
+
       'pride', 'realization', 'relief', 'remorse', 'sadness', 'surprise', 'neutral'
+
     ];
+
     for (let e of emotions) {
+
       if (k.includes(e)) {
+
         cat = 'reactions';
+
         emoji = '😊';
+
         break;
+
       }
+
     }
+
   }
+
+
 
   // Specific custom emoji mappings
+
   if (k.includes('gangnam')) emoji = '🕶️';
+
   if (k.includes('hiphop')) emoji = '🎧';
+
   if (k.includes('dab')) emoji = '🤙';
+
   if (k.includes('peace')) emoji = '✌️';
+
   if (k.includes('shoot')) emoji = '👉';
+
   if (k.includes('love')) emoji = '💖';
+
   if (k.includes('joy')) emoji = '😄';
+
   if (k.includes('anger')) emoji = '😡';
+
   if (k.includes('sadness')) emoji = '😢';
+
   if (k.includes('fear')) emoji = '😱';
+
   if (k.includes('laugh') || k.includes('amusement')) emoji = '😂';
+
   if (k.includes('crunches') || k.includes('crunch')) emoji = '💪';
+
   if (k.includes('jump')) emoji = '🦘';
+
   if (k.includes('crawl')) emoji = '🐛';
+
   if (k.includes('gaming')) emoji = '🎮';
+
   if (k.includes('sunbathing')) emoji = '🏖️';
+
   if (k.includes('groin')) emoji = '⚡';
+
   if (k.includes('headshot') || k.includes('head')) emoji = '🤕';
 
+
+
   return { cat, emoji, label };
+
 }
+
+
 
 function getMasterAnimationsCatalog() {
+
   const master = [];
+
   const seen = new Set();
 
+
+
   // 1. All VRMA files
+
   if (typeof VRMA_MOTION_FILES !== 'undefined') {
+
     Object.keys(VRMA_MOTION_FILES).forEach(key => {
+
       const info = VRMA_MOTION_FILES[key];
+
       const { cat, emoji, label } = getAnimCategoryAndMeta(key, true);
+
       if (!seen.has(key)) {
+
         seen.add(key);
+
         master.push({
+
           key,
+
           file: info.file,
+
           type: 'VRMA',
+
           cat,
+
           emoji,
+
           label: info.label || label
+
         });
+
       }
+
     });
+
   }
+
+
 
   // 2. All BVH files from vrmBvhCatalog
+
   if (typeof vrmBvhCatalog !== 'undefined') {
+
     Object.keys(vrmBvhCatalog).forEach(key => {
+
       const fn = vrmBvhCatalog[key];
+
       if (!seen.has(key)) {
+
         seen.add(key);
+
         const { cat, emoji, label } = getAnimCategoryAndMeta(key, false);
+
         master.push({
+
           key,
+
           file: fn,
+
           type: 'BVH',
+
           cat,
+
           emoji,
+
           label
+
         });
+
       }
+
     });
+
   }
+
+
 
   return master;
+
 }
+
+
 
 function renderAnimationsDrawer() {
+
   const container = document.getElementById('animGridContainer');
+
   if (!container) return;
 
+
+
   const master = getMasterAnimationsCatalog();
+
   const search = vrmCurrentAnimSearch;
+
   const currentCat = vrmCurrentAnimCategory;
 
+
+
   // Update Category Counts in UI Tabs
+
   const counts = { all: master.length, poses: 0, dance: 0, reactions: 0, motion: 0, exercise: 0, combat: 0, idles: 0 };
+
   master.forEach(item => {
+
     if (counts[item.cat] !== undefined) counts[item.cat]++;
+
   });
+
+
 
   const countAllEl = document.getElementById('animCountAll');
+
   if (countAllEl) countAllEl.textContent = counts.all;
+
   const headerCountEl = document.getElementById('animHeaderCount');
+
   if (headerCountEl) headerCountEl.textContent = `(${counts.all})`;
+
   const countPosesEl = document.getElementById('animCountPoses');
+
   if (countPosesEl) countPosesEl.textContent = counts.poses;
+
   const countDanceEl = document.getElementById('animCountDance');
+
   if (countDanceEl) countDanceEl.textContent = counts.dance;
+
   const countReactionsEl = document.getElementById('animCountReactions');
+
   if (countReactionsEl) countReactionsEl.textContent = counts.reactions;
+
   const countMotionEl = document.getElementById('animCountMotion');
+
   if (countMotionEl) countMotionEl.textContent = counts.motion;
+
   const countExerciseEl = document.getElementById('animCountExercise');
+
   if (countExerciseEl) countExerciseEl.textContent = counts.exercise;
+
   const countCombatEl = document.getElementById('animCountCombat');
+
   if (countCombatEl) countCombatEl.textContent = counts.combat;
+
   const countIdlesEl = document.getElementById('animCountIdles');
+
   if (countIdlesEl) countIdlesEl.textContent = counts.idles;
 
+
+
   // Filter items
+
   const filtered = master.filter(item => {
+
     const matchesCat = (currentCat === 'all' || item.cat === currentCat);
+
     if (!matchesCat) return false;
+
     if (!search) return true;
+
     return (
+
       item.key.toLowerCase().includes(search) ||
+
       item.label.toLowerCase().includes(search) ||
+
       item.cat.toLowerCase().includes(search) ||
+
       item.type.toLowerCase().includes(search)
+
     );
+
   });
 
+
+
   if (filtered.length === 0) {
+
     container.innerHTML = `
+
       <div style="grid-column: 1 / -1; text-align:center; padding:30px 10px; color:var(--text-secondary); font-size:13px;">
+
         No animations match "<strong>${search}</strong>" in ${currentCat.toUpperCase()}.<br/>
+
         <button onclick="clearAnimSearch()" style="margin-top:10px; padding:6px 14px; background:rgba(255,255,255,0.1); border:1px solid #556; border-radius:6px; color:#fff; cursor:pointer;">Clear Search</button>
+
       </div>
+
     `;
+
     return;
+
   }
 
+
+
   container.innerHTML = filtered.map(item => {
+
     return `
+
       <button class="anim-card-btn" data-cat="${item.cat}" onclick="triggerDrawerAnim('${item.key}')" title="${item.label}" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; padding:12px 10px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:12px; cursor:pointer; transition:all 0.15s ease; min-height:86px; text-align:center; box-sizing:border-box;">
+
         <span class="anim-card-emoji" style="font-size:28px; line-height:1.1;">${item.emoji}</span>
+
         <span class="anim-card-name" style="font-size:13px; font-weight:800; color:#ffffff; line-height:1.25; word-break:break-word; max-width:100%; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${item.label}</span>
+
       </button>
+
     `;
+
   }).join('');
+
 }
 
+
+
 function triggerDrawerAnim(actionKey) {
+
   playVrmAction(actionKey, 4800, false);
+
   const m = document.getElementById('animationsDrawerModal');
+
   if (m) m.style.display = 'none';
+
   showAiSpeechToast(`Playing animation: ${actionKey}`);
+
 }
+
 function openVoiceCommandsModal() {
+
+
 
   const m = document.getElementById('voiceCommandsModal');
 
+
+
   if (m) m.style.display = 'flex';
 
+
+
 }
+
+
+
+
 
 
 
 function closeVoiceCommandsModal() {
 
+
+
   const m = document.getElementById('voiceCommandsModal');
+
+
 
   if (m) m.style.display = 'none';
 
+
+
 }
+
+
+
+
 
 
 
@@ -4953,99 +9992,199 @@ function closeVoiceCommandsModal() {
 
 
 
+
+
+
+
 let isFirefoxRunning = false;
+
+
 
 let firefoxWatcherTimer = null;
 
 
 
+
+
+
+
 async function launchFirefoxBrowser() {
+
+
 
   showAiSpeechToast("🦊 Launching Firefox Web Browser...");
 
+
+
   try {
+
+
 
     const res = await fetch('/api/system/browser/launch', { method: 'POST' });
 
+
+
     const data = await res.json();
+
+
 
     isFirefoxRunning = true;
 
+
+
     startFirefoxWatcher();
+
+
 
     showAiSpeechToast("Firefox open on top. Close window or tap CarPi5 to return!");
 
+
+
   } catch (err) {
+
+
 
     console.error("[FIREFOX] Launch error:", err);
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 async function closeFirefoxBrowser() {
 
+
+
   try {
+
+
 
     await fetch('/api/system/browser/close', { method: 'POST' });
 
+
+
     isFirefoxRunning = false;
+
+
 
     stopFirefoxWatcher();
 
+
+
     showAiSpeechToast("Firefox closed.");
+
+
 
   } catch (err) {
 
+
+
     console.warn("[FIREFOX] Close error:", err);
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function startFirefoxWatcher() {
 
+
+
   if (firefoxWatcherTimer) clearInterval(firefoxWatcherTimer);
+
+
 
   firefoxWatcherTimer = setInterval(async () => {
 
+
+
     try {
+
+
 
       const resp = await fetch('/api/system/browser/status');
 
+
+
       const data = await resp.json();
+
+
 
       isFirefoxRunning = Boolean(data.running);
 
+
+
       if (!isFirefoxRunning) {
+
+
 
         stopFirefoxWatcher();
 
+
+
       }
+
+
 
     } catch (e) {}
 
+
+
   }, 1800);
 
+
+
 }
+
+
+
+
 
 
 
 function stopFirefoxWatcher() {
 
+
+
   if (firefoxWatcherTimer) {
+
+
 
     clearInterval(firefoxWatcherTimer);
 
+
+
     firefoxWatcherTimer = null;
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
@@ -5057,169 +10196,345 @@ function stopFirefoxWatcher() {
 
 
 
+
+
+
+
+
+
+
+
 // --- 8. POWERTRAIN DIAGNOSTICS & FAULT CODES (OBD-II) ---
+
+
+
+
 
 
 
 let latestActiveDTCs = [];
 
+
+
 let currentDTCExplanation = null;
+
+
+
+
 
 
 
 function onMilBadgeClicked() {
 
+
+
   if (latestActiveDTCs && latestActiveDTCs.length > 0) {
+
+
 
     lookupAndShowAIReport(latestActiveDTCs[0]);
 
+
+
   } else {
+
+
 
     showDiagnosticsModal();
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 function lookupAndShowAIReport(code) {
 
+
+
   fetch(`/api/dtc/lookup?code=${code}`)
+
+
 
     .then(r => r.json())
 
+
+
     .then(data => {
+
+
 
       currentDTCExplanation = data;
 
+
+
       document.getElementById('diagCodeTitle').innerText = `${data.code}: ${data.title}`;
+
+
 
       document.getElementById('diagCodeSubtitle').innerText = "DODGE DART 1.4L TURBO MULTIAIR • MAGNETI MARELLI 8GM";
 
 
 
+
+
+
+
       const badge = document.getElementById('diagSeverityBadge');
+
+
 
       badge.innerText = data.severity_badge || "INSPECT FAULT";
 
+
+
       badge.style.color = data.severity_color || "var(--accent-yellow)";
 
+
+
       badge.style.borderColor = data.severity_color || "var(--accent-yellow)";
+
+
 
       badge.style.background = (data.severity_color || "#ffaa00") + "22";
 
 
 
+
+
+
+
       document.getElementById('diagDescription').innerText = `${data.description} ${data.advice}`;
+
+
 
       document.getElementById('diagCauses').innerText = data.common_causes;
 
 
 
+
+
+
+
       document.getElementById('aiMechanicModal').style.display = 'flex';
+
+
 
     })
 
+
+
     .catch(err => console.error("[DTC] Lookup error:", err));
 
+
+
 }
+
+
+
+
 
 
 
 function closeAiMechanicModal() {
 
+
+
   document.getElementById('aiMechanicModal').style.display = 'none';
 
+
+
 }
+
+
+
+
 
 
 
 function speakActiveDiag() {
 
+
+
   if (currentDTCExplanation) {
+
+
 
     speakUtterance(currentDTCExplanation.spoken_summary);
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 function clearActiveDTCAndClose() {
 
+
+
   clearDTC();
+
+
 
   closeAiMechanicModal();
 
+
+
 }
+
+
+
+
 
 
 
 function injectDTC(code) {
 
+
+
   fetch(`/api/dtc/inject?code=${code}`)
+
+
 
     .then(r => r.json())
 
+
+
     .then(() => {
+
+
 
       document.getElementById('milBadge').classList.add('show');
 
+
+
       document.getElementById('milText').innerText = `CHECK ENGINE: ${code}`;
+
+
 
       closeAiMechanicModal();
 
+
+
       setTimeout(() => lookupAndShowAIReport(code), 300);
+
+
 
     })
 
+
+
     .catch(err => console.error("[DTC] Inject error:", err));
 
+
+
 }
+
+
+
+
 
 
 
 function clearDTC() {
 
+
+
   fetch(`/api/dtc/clear`)
+
+
 
     .then(r => r.json())
 
+
+
     .then(() => {
+
+
 
       latestActiveDTCs = [];
 
+
+
       document.getElementById('milBadge').classList.remove('show');
+
+
 
       const homeDtc = document.getElementById('homeDtcBadge');
 
+
+
       if (homeDtc) {
+
+
 
         homeDtc.innerText = "ECU: HEALTHY";
 
+
+
         homeDtc.style.color = "var(--accent-green)";
+
+
 
         homeDtc.style.borderColor = "var(--accent-green)";
 
+
+
       }
+
+
 
       closeAiMechanicModal();
 
+
+
     })
+
+
 
     .catch(err => console.error("[DTC] Clear error:", err));
 
+
+
 }
+
+
+
+
 
 
 
 function showDiagnosticsModal() {
 
+
+
   lookupAndShowAIReport("P0299");
 
+
+
 }
+
+
+
+
+
+
 
 
 
@@ -5227,355 +10542,709 @@ function showDiagnosticsModal() {
 
 // --- 9. IN-CAR MEDIA PLAYER (REAL AUDIO STREAMING) ---
 
+
+
 const realAudio = new Audio();
 
+
+
 let realPlaylist = [];
+
+
 
 let realTrackIdx = 0;
 
 
 
+
+
+
+
 function initRealAudioPlayer() {
+
+
 
   realAudio.addEventListener('timeupdate', () => {
 
+
+
     if (!realAudio.duration) return;
+
+
 
     const elapsedEl = document.getElementById('trackElapsed');
 
+
+
     const durationEl = document.getElementById('trackDuration');
+
+
 
     const trackBar = document.getElementById('mediaTrackBar');
 
 
 
+
+
+
+
     const cur = Math.floor(realAudio.currentTime);
+
+
 
     const dur = Math.floor(realAudio.duration);
 
 
 
+
+
+
+
     if (elapsedEl) {
+
+
 
       const min = Math.floor(cur / 60);
 
+
+
       const sec = cur % 60;
+
+
 
       elapsedEl.innerText = `${min}:${sec < 10 ? '0' : ''}${sec}`;
 
+
+
     }
+
+
 
     if (durationEl) {
 
+
+
       const dMin = Math.floor(dur / 60);
+
+
 
       const dSec = dur % 60;
 
+
+
       durationEl.innerText = `${dMin}:${dSec < 10 ? '0' : ''}${dSec}`;
 
+
+
     }
+
+
 
     if (trackBar && !trackBar.dataset.seeking) {
 
+
+
       trackBar.value = Math.round((realAudio.currentTime / realAudio.duration) * 100);
+
+
 
     }
 
+
+
   });
+
+
+
+
 
 
 
   realAudio.addEventListener('loadedmetadata', () => {
+
     publishNowPlaying(realAudio.paused ? 'paused' : 'playing');
+
     const durEl = document.getElementById('trackDuration');
+
     if (durEl && !isNaN(realAudio.duration)) {
+
       durEl.innerText = formatTime(realAudio.duration);
+
     }
+
   });
+
+
 
   realAudio.addEventListener('play', () => {
+
     const playBtn = document.getElementById('playPauseBtn');
+
     if (playBtn) playBtn.innerText = "⏸️";
+
     renderRealTracklist();
+
     publishNowPlaying('playing');
+
   });
 
+
+
   realAudio.addEventListener('pause', () => {
+
     const playBtn = document.getElementById('playPauseBtn');
+
     if (playBtn) playBtn.innerText = "▶️";
+
     renderRealTracklist();
+
     publishNowPlaying('paused');
+
   });
+
+
+
+
 
 
 
   realAudio.addEventListener('pause', () => {
 
+
+
     const playBtn = document.getElementById('playPauseBtn');
+
+
 
     if (playBtn) playBtn.innerText = "▶️";
 
+
+
     renderRealTracklist();
 
+
+
   });
+
+
+
+
 
 
 
   realAudio.addEventListener('ended', () => {
 
+
+
     nextTrack();
+
+
 
   });
 
 
 
+
+
+
+
   // Track bar scrubber input
+
+
 
   const trackBar = document.getElementById('mediaTrackBar');
 
+
+
   if (trackBar) {
+
+
 
     trackBar.addEventListener('input', () => {
 
+
+
       trackBar.dataset.seeking = "true";
 
+
+
     });
+
+
 
     trackBar.addEventListener('change', () => {
 
+
+
       if (realAudio.duration) {
+
+
 
         realAudio.currentTime = (trackBar.value / 100) * realAudio.duration;
 
+
+
       }
+
+
 
       delete trackBar.dataset.seeking;
 
+
+
     });
 
+
+
   }
+
+
+
+
 
 
 
   // Volume bar (Linked to PipeWire & Car Radio Master Gain)
 
+
+
   const volBar = document.getElementById('mediaVolBar');
+
+
 
   const volLabel = document.getElementById('volLabel');
 
+
+
   if (volBar) {
+
+
 
     volBar.addEventListener('input', (e) => {
 
+
+
       const val = parseInt(e.target.value);
+
+
 
       realAudio.volume = Math.min(1.0, val / 100);
 
+
+
       if (volLabel) volLabel.innerText = `${val}%`;
+
+
 
       fetch('/api/audio/volume', {
 
+
+
         method: 'POST',
+
+
 
         headers: { 'Content-Type': 'application/json' },
 
+
+
         body: JSON.stringify({ volume: val })
+
+
 
       }).catch(() => {});
 
+
+
     });
+
+
 
   }
 
+
+
   // Setup Bluetooth AVRCP MediaSession handlers for Steering Wheel & Car Radio buttons
+
   setupMediaSessionHandlers();
 
+
+
   // Setup Linux Kernel AVRCP Keyboard listener for /dev/input/event10
+
   setupHardwareMediaKeys();
 
+
+
   // Load Equalizer
+
   initAudioEqualizer();
+
+
+
+
 
 
 
   fetchMediaPlaylist();
 
+
+
 }
+
+
+
+
 
 
 
 function fetchMediaPlaylist() {
 
+
+
   fetch('/api/media/playlist')
+
+
 
     .then(r => r.json())
 
+
+
     .then(tracks => {
+
+
 
       if (tracks && tracks.length > 0) {
 
+
+
         realPlaylist = tracks;
+
+
 
         renderRealTracklist();
 
+
+
         loadTrack(0, false);
+
+
 
       }
 
+
+
     })
+
+
 
     .catch(err => console.warn("[MEDIA] Playlist fetch error:", err));
 
+
+
 }
+
+
+
+
 
 
 
 function renderRealTracklist() {
 
+
+
   const container = document.getElementById('mediaTrackList');
+
+
 
   const countEl = document.getElementById('tracklistCount');
 
+
+
   if (countEl) countEl.innerText = `${realPlaylist.length} Tracks`;
+
+
 
   if (!container) return;
 
 
 
+
+
+
+
   container.innerHTML = realPlaylist.map((t, idx) => `
+
+
 
     <div class="track-list-item ${idx === realTrackIdx ? 'active' : ''}" style="display:flex; align-items:center; justify-content:space-between; padding:6px 10px; border-radius:6px; background:${idx === realTrackIdx ? 'rgba(0,176,255,0.15)' : 'rgba(255,255,255,0.03)'}; border-left:${idx === realTrackIdx ? '3px solid var(--accent-blue)' : '3px solid transparent'}; cursor:pointer; margin-bottom:4px;" onclick="selectTrack(${idx})">
 
+
+
       <div style="display:flex; align-items:center; gap:8px; overflow:hidden;">
+
+
 
         <span style="font-size:12px;">${idx === realTrackIdx && !realAudio.paused ? '🔊' : '🎵'}</span>
 
+
+
         <div style="overflow:hidden;">
+
+
 
           <div style="font-size:11px; font-weight:800; color:#fff; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;">${t.title}</div>
 
+
+
           <div style="font-size:9px; color:var(--text-secondary); white-space:nowrap; text-overflow:ellipsis; overflow:hidden;">${t.artist} • ${t.size_mb} MB</div>
+
+
 
         </div>
 
+
+
       </div>
+
+
 
       <button class="cluster-action-btn" style="padding:4px 10px; font-size:10px; font-weight:800; border-color:${idx === realTrackIdx && !realAudio.paused ? 'var(--accent-blue)' : '#222'}; background:${idx === realTrackIdx && !realAudio.paused ? 'rgba(0,176,255,0.2)' : 'transparent'}; color:#fff;">${idx === realTrackIdx && !realAudio.paused ? '🔊 NOW PLAYING' : '▶ PLAY'}</button>
 
+
+
     </div>
+
+
 
   `).join('');
 
+
+
 }
+
+
+
+
 
 
 
 function loadTrack(idx, autoPlay = true) {
 
+
+
   if (idx < 0 || idx >= realPlaylist.length) return;
 
+
+
   realTrackIdx = idx;
+
+
 
   const t = realPlaylist[realTrackIdx];
 
 
 
+
+
+
+
   const titleEl = document.getElementById('trackTitle');
+
+
 
   const artistEl = document.getElementById('trackArtist');
 
+
+
   if (titleEl) titleEl.innerText = t.title;
+
+
 
   if (artistEl) artistEl.innerText = t.artist;
 
 
 
+
+
+
+
   realAudio.src = t.stream_url;
+
+
 
   renderRealTracklist();
 
+
+
   // Update MediaSession & BlueZ AVRCP metadata for Dodge Dart Uconnect 8.4 radio screen!
+
   if ('mediaSession' in navigator) {
+
     try {
+
       navigator.mediaSession.metadata = new MediaMetadata({
+
         title: t.title || "Track",
+
         artist: t.artist || "CarPi5 In-Dash Audio",
+
         album: t.album || "CarPi5 In-Dash",
+
         artwork: [
+
           { src: '/assets/pics/splash.png', sizes: '512x512', type: 'image/png' }
+
         ]
+
       });
+
     } catch (e) {}
+
   }
 
+
+
   // Publish directly to BlueZ AVRCP Target so the dash screen shows Title, Artist, Album!
+
   publishNowPlaying(autoPlay ? 'playing' : 'paused');
+
+
+
+
 
 
 
   if (autoPlay) {
 
+
+
     realAudio.play().catch(e => console.warn("Audio play error:", e));
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function selectTrack(idx) {
 
+
+
   loadTrack(idx, true);
 
+
+
 }
+
+
+
+
 
 
 
 function togglePlayPause() {
 
+
+
   if (!realAudio.src && realPlaylist.length > 0) {
+
+
 
     loadTrack(realTrackIdx, true);
 
+
+
     return;
 
+
+
   }
+
+
 
   if (realAudio.paused) {
 
+
+
     realAudio.play().catch(e => console.warn("Audio play error:", e));
+
+
 
   } else {
 
+
+
     realAudio.pause();
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function nextTrack() {
 
+
+
   if (realPlaylist.length === 0) return;
+
+
 
   realTrackIdx = (realTrackIdx + 1) % realPlaylist.length;
 
+
+
   loadTrack(realTrackIdx, true);
 
+
+
 }
+
+
+
+
 
 
 
 function prevTrack() {
 
+
+
   if (realPlaylist.length === 0) return;
+
+
 
   realTrackIdx = (realTrackIdx - 1 + realPlaylist.length) % realPlaylist.length;
 
+
+
   loadTrack(realTrackIdx, true);
 
+
+
 }
+
+
+
+
 
 
 
@@ -5583,171 +11252,343 @@ function prevTrack() {
 
 
 
+
+
+
+
 let screensaverConfig = {
+
+
 
   enabled: false,
 
+
+
   timeoutSec: 0,
+
+
 
   type: "SLIDESHOW", // "SLIDESHOW", "VIDEO", "AUTO"
 
-  folderPath: "/home/nfgodin/Pictures",
+
+
+  folderPath: "~/Pictures",
+
+
 
   videoFile: ""
+
+
 
 };
 
 
 
+
+
+
+
 function loadScreensaverConfig() {
+
+
 
   try {
 
+
+
     const saved = localStorage.getItem('carpi5_screensaver_cfg');
+
+
 
     if (saved) {
 
+
+
       screensaverConfig = Object.assign(screensaverConfig, JSON.parse(saved));
+
+
 
     } else {
 
+
+
       screensaverConfig.enabled = false;
+
+
 
       screensaverConfig.timeoutSec = 0;
 
+
+
       localStorage.setItem('carpi5_screensaver_cfg', JSON.stringify(screensaverConfig));
 
+
+
     }
+
+
 
   } catch (e) {}
 
 
 
+
+
+
+
   syncScreensaverUI();
 
+
+
 }
+
+
+
+
 
 
 
 function syncScreensaverUI() {
 
+
+
   const btn = document.getElementById('btnToggleScreensaverActive');
+
+
 
   if (btn) {
 
+
+
     btn.innerText = screensaverConfig.enabled ? "● SCREENSAVER: ENABLED" : "○ SCREENSAVER: OFF (DISABLED)";
+
+
 
     btn.style.color = screensaverConfig.enabled ? "var(--accent-green)" : "var(--text-secondary)";
 
+
+
     btn.style.borderColor = screensaverConfig.enabled ? "var(--accent-green)" : "#283340";
 
+
+
     btn.style.background = screensaverConfig.enabled ? "rgba(0, 230, 118, 0.15)" : "#161c24";
+
+
 
   }
 
 
 
+
+
+
+
   const timeoutEl = document.getElementById('cfgScreensaverTimeout');
+
+
 
   if (timeoutEl) timeoutEl.value = screensaverConfig.timeoutSec;
 
 
 
+
+
+
+
   const typeEl = document.getElementById('cfgScreensaverType');
+
+
 
   if (typeEl) typeEl.value = screensaverConfig.type;
 
 
 
+
+
+
+
   const folderEl = document.getElementById('cfgScreensaverFolder');
+
+
 
   if (folderEl) folderEl.value = screensaverConfig.folderPath || "";
 
 
 
+
+
+
+
   const videoEl = document.getElementById('cfgScreensaverVideoFile');
+
+
 
   if (videoEl) videoEl.value = screensaverConfig.videoFile || "";
 
+
+
 }
+
+
+
+
 
 
 
 function toggleScreensaverActive() {
 
+
+
   screensaverConfig.enabled = !screensaverConfig.enabled;
+
+
 
   saveScreensaverConfig();
 
+
+
 }
+
+
+
+
 
 
 
 function saveScreensaverConfig() {
 
+
+
   const timeoutEl = document.getElementById('cfgScreensaverTimeout');
+
+
 
   if (timeoutEl) screensaverConfig.timeoutSec = parseInt(timeoutEl.value) || 60;
 
 
 
+
+
+
+
   const typeEl = document.getElementById('cfgScreensaverType');
+
+
 
   if (typeEl) screensaverConfig.type = typeEl.value;
 
 
 
+
+
+
+
   const folderEl = document.getElementById('cfgScreensaverFolder');
+
+
 
   if (folderEl) screensaverConfig.folderPath = folderEl.value.trim();
 
 
 
+
+
+
+
   const videoEl = document.getElementById('cfgScreensaverVideoFile');
+
+
 
   if (videoEl) screensaverConfig.videoFile = videoEl.value.trim();
 
 
 
+
+
+
+
   try {
 
+
+
     localStorage.setItem('carpi5_screensaver_cfg', JSON.stringify(screensaverConfig));
+
+
 
   } catch (e) {}
 
 
 
+
+
+
+
   syncScreensaverUI();
 
+
+
 }
+
+
+
+
 
 
 
 function openFileExplorerForScreensaver() {
 
+
+
   openFileExplorer();
+
+
 
 }
 
 
 
+
+
+
+
 function startScreensaver() {
+
+
 
   if (!screensaverConfig.enabled) return;
 
 
 
+
+
+
+
   const overlay = document.getElementById('fullScreensaver');
 
+
+
   if (!overlay) return;
+
+
 
   overlay.classList.add('active');
 
 
 
+
+
+
+
   const img = document.getElementById('screensaverMainImg');
 
+
+
   const video = document.getElementById('screensaverVideo');
+
+
+
+
 
 
 
@@ -5755,165 +11596,329 @@ function startScreensaver() {
 
 
 
+
+
+
+
   // Check if video mode is chosen
 
+
+
   const isVideoMode = (screensaverConfig.type === 'VIDEO') || 
+
+
 
                       (screensaverConfig.type === 'AUTO' && screensaverConfig.videoFile);
 
 
 
+
+
+
+
   if (isVideoMode && video) {
 
+
+
     if (img) img.style.display = 'none';
+
+
 
     video.style.display = 'block';
 
 
 
+
+
+
+
     if (screensaverConfig.videoFile && screensaverConfig.videoFile.length > 3) {
+
+
 
       if (!video.src.includes(screensaverConfig.videoFile)) {
 
+
+
         video.src = screensaverConfig.videoFile;
+
+
 
       }
 
+
+
     }
+
+
 
     video.currentTime = 0;
 
+
+
     if (typeof video.play === 'function') {
+
+
 
       video.play().catch(e => console.log("[SCREENSAVER] Video autoplay note:", e));
 
+
+
     }
+
+
 
   } else {
 
+
+
     if (video) {
+
+
 
       if (typeof video.pause === 'function') video.pause();
 
+
+
       video.style.display = 'none';
 
+
+
     }
+
+
 
     if (img) {
 
+
+
       img.style.display = 'block';
+
+
 
       img.src = screensaverImages[currentImageIdx];
 
+
+
     }
+
+
+
+
 
 
 
     if (screensaverInterval) clearInterval(screensaverInterval);
 
+
+
     screensaverInterval = setInterval(() => {
+
+
 
       updateScreensaverClock();
 
+
+
       currentImageIdx = (currentImageIdx + 1) % screensaverImages.length;
+
+
 
       if (img) img.src = screensaverImages[currentImageIdx];
 
+
+
     }, 8000);
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function stopScreensaver() {
 
+
+
   const overlay = document.getElementById('fullScreensaver');
+
+
 
   if (overlay) overlay.classList.remove('active');
 
 
 
+
+
+
+
   const video = document.getElementById('screensaverVideo');
+
+
 
   if (video) {
 
+
+
     if (typeof video.pause === 'function') video.pause();
+
+
 
     video.currentTime = 0;
 
+
+
   }
+
+
+
+
 
 
 
   if (screensaverInterval) clearInterval(screensaverInterval);
 
+
+
   resetIdleTimer();
 
+
+
 }
+
+
+
+
 
 
 
 function updateScreensaverClock() {
 
+
+
   const clockEl = document.getElementById('screensaverClock');
+
+
 
   if (clockEl) {
 
+
+
     const now = new Date();
+
+
 
     clockEl.innerText = formatClockTime(now, true);
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 function resetIdleTimer() {
 
+
+
   lastInteractionTime = Date.now();
+
+
 
 }
 
 
 
+
+
+
+
 ['touchstart', 'mousedown', 'keydown'].forEach(evt => {
 
+
+
   window.addEventListener(evt, resetIdleTimer, { passive: true });
+
+
 
 });
 
 
 
+
+
+
+
 // Auto-Screensaver Idle Check (Respects Parked state and disabled config)
+
+
 
 setInterval(() => {
 
+
+
   if (!screensaverConfig.enabled || screensaverConfig.timeoutSec <= 0) return;
+
+
 
   if (currentScreen === "gauges") return;
 
 
 
+
+
+
+
   const elapsedSec = (Date.now() - lastInteractionTime) / 1000;
+
+
 
   const isParked = !latestTelemetry || latestTelemetry.speed_mph < 1;
 
 
 
+
+
+
+
   if (elapsedSec >= screensaverConfig.timeoutSec && isParked) {
+
+
 
     const overlay = document.getElementById('fullScreensaver');
 
+
+
     if (overlay && !overlay.classList.contains('active')) {
+
+
 
       startScreensaver();
 
+
+
     }
 
+
+
   }
+
+
 
 }, 4000);
 
@@ -5921,243 +11926,489 @@ setInterval(() => {
 
 
 
+
+
+
+
+
+
 // --- TELEMETRY MODE (TEST SIMULATION VS REAL VEHICLE OBD-II / CAN) ---
+
+
 
 let currentTelemetryMode = "TEST";
 
 
 
+
+
+
+
 function fetchTelemetryMode() {
+
+
 
   fetch('/api/telemetry/mode')
 
+
+
     .then(r => r.json())
+
+
 
     .then(data => syncTelemetryModeUI(data))
 
+
+
     .catch(err => console.error("[TELEM MODE] Fetch error:", err));
 
+
+
 }
+
+
+
+
 
 
 
 function syncTelemetryModeUI(data) {
 
+
+
   if (!data) return;
+
+
 
   currentTelemetryMode = data.mode || (data.test_mode ? "TEST" : "REAL");
 
 
 
+
+
+
+
   const badge = document.getElementById('telemetryModeBadge');
 
+
+
   const statusMsg = document.getElementById('telemStatusMsg');
+
+
 
   const chkTest = document.getElementById('chkTestMode');
 
 
 
+
+
+
+
   if (chkTest) {
+
+
 
     chkTest.checked = (currentTelemetryMode === 'TEST');
 
+
+
   }
+
+
+
+
 
 
 
   if (currentTelemetryMode === 'REAL') {
 
+
+
     if (badge) {
+
+
 
       badge.innerText = "● LIVE VEHICLE OBD-II";
 
+
+
       badge.style.color = "var(--accent-green)";
+
+
 
       badge.style.background = "rgba(0, 230, 118, 0.15)";
 
+
+
     }
 
+
+
     if (statusMsg) {
+
+
 
       statusMsg.innerText = data.status_message || (data.connected ? "Connected to Dodge Dart Magneti Marelli 8GM ECU." : "Direct OBD-II vehicle interface active (Resting / Disconnected).");
 
+
+
       statusMsg.style.color = data.connected ? "var(--accent-green)" : "var(--text-secondary)";
 
+
+
     }
+
+
 
   } else {
 
+
+
     if (badge) {
+
+
 
       badge.innerText = "🧪 BENCH SIMULATION";
 
+
+
       badge.style.color = "var(--accent-yellow)";
+
+
 
       badge.style.background = "rgba(255, 196, 0, 0.15)";
 
+
+
     }
+
+
 
     if (statusMsg) {
 
+
+
       statusMsg.innerText = "Bench simulation active. Generating synthetic 1.4L MultiAir boost and RPM telemetry.";
+
+
 
       statusMsg.style.color = "var(--accent-yellow)";
 
+
+
     }
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function toggleTestModeCheckbox(isChecked) {
 
+
+
   const targetMode = isChecked ? 'TEST' : 'REAL';
+
+
 
   fetch('/api/telemetry/mode', {
 
+
+
     method: 'POST',
+
+
 
     headers: { 'Content-Type': 'application/json' },
 
+
+
     body: JSON.stringify({ mode: targetMode, test_mode: isChecked })
+
+
 
   })
 
+
+
     .then(r => r.json())
+
+
 
     .then(data => syncTelemetryModeUI(data))
 
+
+
     .catch(err => console.error("[TELEM MODE] Toggle checkbox error:", err));
 
+
+
 }
+
+
+
+
 
 
 
 function setTelemetryMode(mode) {
 
+
+
   const isTest = (mode === 'TEST');
+
+
 
   toggleTestModeCheckbox(isTest);
 
+
+
 }
+
+
+
+
 
 
 
 function toggleTelemetryMode() {
 
+
+
   const targetMode = currentTelemetryMode === 'REAL' ? 'TEST' : 'REAL';
+
+
 
   toggleTestModeCheckbox(targetMode === 'TEST');
 
+
+
 }
+
+
+
+
 
 
 
 function confirmResetToDefaults() {
 
+
+
   fetch('/api/settings/reset', { method: 'POST' })
+
+
 
     .then(r => r.json())
 
+
+
     .then(data => {
+
+
 
       console.log("[SETTINGS] Factory reset response:", data);
 
+
+
       try {
 
+
+
         localStorage.clear();
+
+
 
       } catch (e) {}
 
 
 
+
+
+
+
       // Force Screensaver OFF in localStorage and state
+
+
 
       screensaverConfig = {
 
+
+
         enabled: false,
+
+
 
         timeoutSec: 0,
 
+
+
         type: "SLIDESHOW",
 
-        folderPath: "/home/nfgodin/Pictures",
+
+
+        folderPath: "~/Pictures",
+
+
 
         videoFile: ""
 
+
+
       };
 
+
+
       localStorage.setItem('carpi5_screensaver_cfg', JSON.stringify(screensaverConfig));
+
+
 
       syncScreensaverUI();
 
 
 
+
+
+
+
       // Reset Clock Format to 12-Hour AM/PM
+
+
 
       is24HourClock = false;
 
+
+
       localStorage.setItem('carpi5_clock_24h', 'false');
 
+
+
       const btnClock = document.getElementById('btnClockFormat');
+
+
 
       if (btnClock) btnClock.innerText = "CLOCK: 12-HOUR (AM/PM)";
 
 
 
+
+
+
+
       // Reset Driver Profile to Master Creator
+
+
 
       driverTitle = "Master";
 
+
+
       driverName = "Creator";
+
+
 
       localStorage.setItem('carpi5_driver_title', 'Master');
 
+
+
       localStorage.setItem('carpi5_driver_name', 'Creator');
+
+
 
       const inTitle = document.getElementById('cfgDriverTitle');
 
+
+
       const inName = document.getElementById('cfgDriverName');
+
+
 
       if (inTitle) inTitle.value = "Master";
 
+
+
       if (inName) inName.value = "Creator";
+
+
 
       updateAddressPreview();
 
 
 
+
+
+
+
       // Reset Telemetry Mode to REAL
 
+
+
       currentTelemetryMode = "REAL";
+
+
 
       syncTelemetryModeUI({ mode: "REAL", test_mode: false, connected: false, status_message: "Direct OBD-II vehicle interface active (Resting / Disconnected)." });
 
 
 
+
+
+
+
       // Reset Waifu Emotion & Spoken Toast
+
+
 
       setWaifuEmotion("DEVOTED");
 
+
+
       const msg = "Factory defaults restored! Cockpit ready, Master Creator.";
+
+
 
       showAiSpeechToast(msg);
 
+
+
       speakUtterance(msg, "DEVOTED");
+
+
 
     })
 
+
+
     .catch(err => {
+
+
 
       console.error("[SETTINGS] Factory reset failed:", err);
 
+
+
       alert("Failed to reset settings: " + err);
+
+
 
     });
 
+
+
 }
+
+
+
+
 
 
 
@@ -6165,329 +12416,661 @@ function confirmResetToDefaults() {
 
 
 
+
+
+
+
 function selectAiMode(mode) {
+
+
 
   currentAiSettings.mode = mode;
 
+
+
   document.getElementById('radioTailscale').checked = (mode === 'TAILSCALE_OLLAMA');
+
+
 
   document.getElementById('radioLocal').checked = (mode === 'LOCAL_OLLAMA');
 
+
+
   document.getElementById('radioCloud').checked = (mode === 'CLOUD_API');
+
+
 
   document.getElementById('radioBuiltin').checked = (mode === 'BUILTIN');
 
 
 
+
+
+
+
   const tailscaleRow = document.getElementById('tailscaleRow');
+
+
 
   const cloudRow = document.getElementById('cloudApiKeyRow');
 
 
 
+
+
+
+
   if (tailscaleRow) tailscaleRow.style.display = (mode === 'TAILSCALE_OLLAMA') ? 'flex' : 'none';
+
+
 
   if (cloudRow) cloudRow.style.display = (mode === 'CLOUD_API') ? 'flex' : 'none';
 
+
+
 }
+
+
+
+
 
 
 
 function syncSettingsUI() {
 
+
+
   selectAiMode(currentAiSettings.mode || 'BUILTIN');
+
+
+
+
 
 
 
   const ipEl = document.getElementById('cfgTailscaleIp');
 
+
+
   const portEl = document.getElementById('cfgTailscalePort');
+
+
 
   const modelEl = document.getElementById('cfgOllamaModel');
 
+
+
   const keyEl = document.getElementById('cfgApiKey');
+
+
 
   const personaEl = document.getElementById('personaSelector');
 
+
+
   const titleInput = document.getElementById('cfgDriverTitle');
 
+
+
   const nameInput = document.getElementById('cfgDriverName');
+
+
+
+
 
 
 
   if (titleInput) titleInput.value = (currentAiSettings.driver_title !== undefined) ? currentAiSettings.driver_title : "Master";
 
+
+
   if (nameInput) nameInput.value = (currentAiSettings.driver_name !== undefined) ? currentAiSettings.driver_name : "Creator";
+
+
+
+
 
 
 
   // Highlight active title preset chip (ONLY Master or None)
 
+
+
   const t = (currentAiSettings.driver_title || "").toLowerCase();
+
+
 
   const chipMaster = document.getElementById('chipTitleMaster');
 
+
+
   const chipNone = document.getElementById('chipTitleNone');
+
+
 
   if (chipMaster && chipNone) {
 
+
+
     if (t === 'master') {
+
+
 
       chipMaster.classList.add('active');
 
+
+
       chipNone.classList.remove('active');
+
+
 
     } else if (t === '') {
 
+
+
       chipNone.classList.add('active');
 
+
+
       chipMaster.classList.remove('active');
+
+
 
     } else {
 
+
+
       chipMaster.classList.remove('active');
+
+
 
       chipNone.classList.remove('active');
 
+
+
     }
+
+
 
   }
 
 
 
+
+
+
+
   updateAddressPreview();
+
+
+
+
 
 
 
   if (ipEl && currentAiSettings.tailscale_ip) ipEl.value = currentAiSettings.tailscale_ip;
 
+
+
   if (portEl && currentAiSettings.tailscale_port) portEl.value = currentAiSettings.tailscale_port;
+
+
 
   if (modelEl && currentAiSettings.ollama_model) modelEl.value = currentAiSettings.ollama_model;
 
+
+
   if (keyEl && currentAiSettings.api_key) keyEl.value = currentAiSettings.api_key;
+
+
 
   if (personaEl && currentAiSettings.personality) personaEl.value = currentAiSettings.personality;
 
 
 
+
+
+
+
   // Sync TTS Voice Engine UI
+
+
 
   const ttsEng = (currentAiSettings.tts_engine || 'KOKORO').toUpperCase();
 
+
+
   selectTtsEngine(ttsEng, false);
+
+
 
   const kVoiceEl = document.getElementById('cfgKokoroVoice');
 
+
+
   if (kVoiceEl && currentAiSettings.kokoro_voice) kVoiceEl.value = currentAiSettings.kokoro_voice;
+
+
 
   const pitchEl = document.getElementById('cfgTtsPitch');
 
+
+
   const lblPitch = document.getElementById('lblTtsPitch');
+
+
 
   if (pitchEl && currentAiSettings.tts_pitch !== undefined) {
 
+
+
     pitchEl.value = currentAiSettings.tts_pitch;
+
+
 
     if (lblPitch) lblPitch.innerText = currentAiSettings.tts_pitch + 'x';
 
+
+
   }
+
+
 
   const elKey = document.getElementById('cfgElevenLabsKey');
 
+
+
   const elVid = document.getElementById('cfgElevenLabsVoiceId');
 
+
+
   if (elKey && currentAiSettings.elevenlabs_api_key) elKey.value = currentAiSettings.elevenlabs_api_key;
+
+
 
   if (elVid && currentAiSettings.elevenlabs_voice_id) elVid.value = currentAiSettings.elevenlabs_voice_id;
 
 
 
+
+
+
+
   // Header pill
+
+
 
   const pill = document.getElementById('headerTailscalePill');
 
+
+
   if (pill) {
+
+
 
     if (currentAiSettings.mode === 'BUILTIN') {
 
+
+
       pill.innerText = `🧠 AI: OFFLINE (DEFAULT)`;
+
+
 
       pill.style.color = "var(--accent-green)";
 
+
+
       pill.style.borderColor = "var(--accent-green)";
+
+
 
     } else if (currentAiSettings.mode === 'TAILSCALE_OLLAMA') {
 
+
+
       pill.innerText = `⚡ TAILSCALE: CONNECTED`;
+
+
 
       pill.style.color = "var(--accent-blue)";
 
+
+
       pill.style.borderColor = "var(--accent-blue)";
+
+
 
     } else if (currentAiSettings.mode === 'LOCAL_OLLAMA') {
 
+
+
       pill.innerText = `💻 LOCAL OLLAMA`;
+
+
 
       pill.style.color = "var(--accent-yellow)";
 
+
+
       pill.style.borderColor = "var(--accent-yellow)";
+
+
 
     } else if (currentAiSettings.mode === 'CLOUD_API') {
 
+
+
       pill.innerText = `☁️ CLOUD API`;
+
+
 
       pill.style.color = "var(--accent-pink)";
 
+
+
       pill.style.borderColor = "var(--accent-pink)";
+
+
 
     }
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 function setTitlePreset(preset) {
 
+
+
   const titleInput = document.getElementById('cfgDriverTitle');
+
+
 
   if (titleInput) titleInput.value = preset;
 
 
 
+
+
+
+
   const chipMaster = document.getElementById('chipTitleMaster');
+
+
 
   const chipNone = document.getElementById('chipTitleNone');
 
+
+
   if (chipMaster && chipNone) {
+
+
 
     if (preset.toLowerCase() === 'master') {
 
+
+
       chipMaster.classList.add('active');
 
+
+
       chipNone.classList.remove('active');
+
+
 
     } else if (preset === '') {
 
+
+
       chipNone.classList.add('active');
 
+
+
       chipMaster.classList.remove('active');
+
+
 
     } else {
 
+
+
       chipMaster.classList.remove('active');
+
+
 
       chipNone.classList.remove('active');
 
+
+
     }
+
+
 
   }
 
+
+
   updateAddressPreview();
 
+
+
 }
+
+
+
+
 
 
 
 function updateAddressPreview() {
 
+
+
   const titleInput = document.getElementById('cfgDriverTitle');
+
+
 
   const nameInput = document.getElementById('cfgDriverName');
 
+
+
   const preview = document.getElementById('driverAddressPreview');
+
+
 
   const contextBadge = document.getElementById('contextMoniker');
 
 
 
+
+
+
+
   const title = (titleInput ? titleInput.value.trim() : (currentAiSettings.driver_title || ""));
+
+
 
   const name = (nameInput ? nameInput.value.trim() : (currentAiSettings.driver_name || ""));
 
 
 
+
+
+
+
   let full = "";
+
+
 
   if (title && name) full = `${title} ${name}`;
 
+
+
   else if (name) full = name;
 
+
+
   else if (title) full = title;
+
+
 
   else full = "Master";
 
 
 
+
+
+
+
   if (preview) preview.innerText = full;
+
+
 
   if (contextBadge) contextBadge.innerText = full;
 
+
+
   return full;
 
+
+
 }
+
+
+
+
 
 
 
 function saveDriverProfile() {
 
+
+
   const titleInput = document.getElementById('cfgDriverTitle');
+
+
 
   const nameInput = document.getElementById('cfgDriverName');
 
 
 
+
+
+
+
   const title = titleInput ? titleInput.value.trim() : "Master";
+
+
 
   const name = nameInput ? nameInput.value.trim() : "Creator";
 
 
 
+
+
+
+
   fetch('/api/ai/settings', {
+
+
 
     method: 'POST',
 
+
+
     headers: { 'Content-Type': 'application/json' },
+
+
 
     body: JSON.stringify({
 
+
+
       driver_title: title,
+
+
 
       driver_name: name,
 
+
+
       driver_moniker: name || title
+
+
 
     })
 
+
+
   })
+
+
 
     .then(r => r.json())
 
+
+
     .then(data => {
+
+
 
       console.log("[SETTINGS] Driver profile updated:", data);
 
+
+
       currentAiSettings = data.settings;
+
+
 
       syncSettingsUI();
 
 
 
+
+
+
+
       const addr = getDriverDisplayAddress();
+
+
 
       const ackMsg = `Understood, ${addr}. Your profile has been saved. Systems are nominal, let's ride.`;
 
+
+
       speakUtterance(ackMsg);
+
+
 
       showAiSpeechToast(ackMsg);
 
+
+
     })
+
+
 
     .catch(err => alert("Error updating driver profile: " + err));
 
+
+
 }
+
+
+
+
+
+
 
 
 
@@ -6495,235 +13078,469 @@ function saveDriverProfile() {
 
 function selectTtsEngine(engine, autoSave = true) {
 
+
+
   const eng = (engine || 'KOKORO').toUpperCase();
+
+
 
   currentAiSettings.tts_engine = eng;
 
+
+
   const rKokoro = document.getElementById('radioTtsKokoro');
+
+
 
   const rPiper = document.getElementById('radioTtsPiper');
 
+
+
   const rEleven = document.getElementById('radioTtsEleven');
+
+
 
   const rOpenAi = document.getElementById('radioTtsOpenAi');
 
+
+
   if (rKokoro) rKokoro.checked = (eng === 'KOKORO');
+
+
 
   if (rPiper) rPiper.checked = (eng === 'PIPER');
 
+
+
   if (rEleven) rEleven.checked = (eng === 'ELEVENLABS');
+
+
 
   if (rOpenAi) rOpenAi.checked = (eng === 'OPENAI_TTS');
 
 
 
+
+
+
+
   const elRow = document.getElementById('elevenLabsKeyRow');
+
+
 
   if (elRow) elRow.style.display = (eng === 'ELEVENLABS') ? 'flex' : 'none';
 
 
 
+
+
+
+
   if (autoSave) {
+
+
 
     saveTtsVoiceSettings();
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 let pitchDebounceTimer = null;
 
+
+
 function onPitchSliderInput(val) {
+
+
 
   const p = parseFloat(val) || 1.0;
 
+
+
   const lbl = document.getElementById('lblTtsPitch');
+
+
 
   if (lbl) lbl.innerText = p.toFixed(2) + 'x';
 
+
+
 }
+
+
+
+
 
 
 
 function onPitchSliderChanged(val) {
 
+
+
   const p = parseFloat(val) || 1.0;
+
+
 
   onPitchSliderInput(val);
 
+
+
   saveTtsVoiceSettings();
+
+
 
   if (pitchDebounceTimer) clearTimeout(pitchDebounceTimer);
 
+
+
   pitchDebounceTimer = setTimeout(() => {
+
+
 
     testTtsVoiceSample();
 
+
+
   }, 250);
 
+
+
 }
+
+
+
+
 
 
 
 function saveTtsVoiceSettings() {
 
+
+
   const kVoiceEl = document.getElementById('cfgKokoroVoice');
+
+
 
   const pitchEl = document.getElementById('cfgTtsPitch');
 
+
+
   const elKey = document.getElementById('cfgElevenLabsKey');
 
+
+
   const elVid = document.getElementById('cfgElevenLabsVoiceId');
+
+
 
   const pitchVal = pitchEl ? parseFloat(pitchEl.value) : 1.18;
 
 
 
+
+
+
+
   const payload = {
+
+
 
     tts_engine: currentAiSettings.tts_engine || 'KOKORO',
 
+
+
     kokoro_voice: kVoiceEl ? kVoiceEl.value : 'af_nicole',
+
+
 
     tts_pitch: pitchVal,
 
+
+
     pitch_factor: pitchVal,
+
+
 
     elevenlabs_api_key: elKey ? elKey.value.trim() : (currentAiSettings.elevenlabs_api_key || ''),
 
+
+
     elevenlabs_voice_id: elVid ? elVid.value.trim() : (currentAiSettings.elevenlabs_voice_id || 'jBpfuIE2acCO8z3wKNLl')
 
+
+
   };
+
+
 
   Object.assign(currentAiSettings, payload);
 
 
 
+
+
+
+
   fetch('/api/ai/settings', {
+
+
 
     method: 'POST',
 
+
+
     headers: { 'Content-Type': 'application/json' },
+
+
 
     body: JSON.stringify(payload)
 
+
+
   })
+
+
 
     .then(r => r.json())
 
+
+
     .then(data => {
+
+
 
       if (data && data.settings) currentAiSettings = data.settings;
 
+
+
     })
+
+
 
     .catch(err => console.warn('[TTS] Save settings error:', err));
 
+
+
 }
+
+
+
+
 
 
 
 function testTtsVoiceSample() {
 
+
+
   saveTtsVoiceSettings();
+
+
 
   const eng = (currentAiSettings.tts_engine || 'KOKORO');
 
+
+
   const sample = `Yay Master! Rum is speaking with the ${eng === 'KOKORO' ? 'Kokoro neural' : eng.toLowerCase()} voice engine right now! How do I sound?`;
+
+
 
   showAiSpeechToast(sample);
 
+
+
   speakUtterance(sample, 'HAPPY');
 
+
+
 }
+
+
+
+
 
 
 
 function saveAiSettings() {
 
+
+
   const titleInput = document.getElementById('cfgDriverTitle');
+
+
 
   const nameInput = document.getElementById('cfgDriverName');
 
 
 
+
+
+
+
   const payload = {
+
+
 
     mode: currentAiSettings.mode,
 
+
+
     personality: document.getElementById('personaSelector').value,
+
+
 
     driver_title: titleInput ? titleInput.value.trim() : "Master",
 
+
+
     driver_name: nameInput ? nameInput.value.trim() : "Creator",
+
+
 
     driver_moniker: nameInput ? nameInput.value.trim() : "Creator",
 
+
+
     tailscale_ip: document.getElementById('cfgTailscaleIp').value.trim(),
+
+
 
     tailscale_port: parseInt(document.getElementById('cfgTailscalePort').value) || 11434,
 
+
+
     ollama_model: document.getElementById('cfgOllamaModel').value,
 
+
+
     api_key: document.getElementById('cfgApiKey').value.trim()
+
+
 
   };
 
 
 
+
+
+
+
   fetch('/api/ai/settings', {
+
+
 
     method: 'POST',
 
+
+
     headers: { 'Content-Type': 'application/json' },
+
+
 
     body: JSON.stringify(payload)
 
+
+
   })
+
+
 
     .then(r => r.json())
 
+
+
     .then(data => {
+
+
 
       console.log("[SETTINGS] Saved successfully:", data);
 
+
+
       currentAiSettings = data.settings;
+
+
 
       syncSettingsUI();
 
+
+
       alert("Settings saved! Driver profile, Tailscale, and AI configuration updated.");
+
+
 
     })
 
+
+
     .catch(err => alert("Error saving settings: " + err));
 
+
+
 }
+
+
+
+
 
 
 
 function loadAiSettings() {
 
+
+
   fetch('/api/ai/settings')
+
+
 
     .then(r => r.json())
 
+
+
     .then(data => {
+
+
 
       if (data) {
 
+
+
         currentAiSettings = Object.assign(currentAiSettings, data);
+
+
 
         syncSettingsUI();
 
+
+
       }
+
+
 
     })
 
+
+
     .catch(err => console.warn("[SETTINGS] Fetch error:", err));
 
+
+
 }
+
+
+
+
 
 
 
@@ -6731,45 +13548,91 @@ function loadAiSettings() {
 
 
 
+
+
+
+
 let detectedDevices = [];
+
+
 
 let currentExplorerPath = "";
 
+
+
 let fileClipboard = null; // { path, name, is_dir }
+
+
 
 let editingFilePath = "";
 
 
 
+
+
+
+
 function checkUsbDevices() {
+
+
 
   fetch('/api/fs/devices')
 
+
+
     .then(r => r.json())
+
+
 
     .then(devices => {
 
+
+
       detectedDevices = devices || [];
+
+
 
       updateUsbIndicatorUI();
 
+
+
       renderHomeDrivesShelf();
+
+
 
     })
 
+
+
     .catch(err => console.warn("[FS] USB poll error:", err));
+
+
 
 }
 
 
 
+
+
+
+
 function updateUsbIndicatorUI() {
+
+
 
   const pill = document.getElementById('headerUsbPill');
 
+
+
   const text = document.getElementById('headerUsbText');
 
+
+
   const badge = document.getElementById('homeUsbBadge');
+
+
+
+
 
 
 
@@ -6777,51 +13640,103 @@ function updateUsbIndicatorUI() {
 
 
 
+
+
+
+
   const removable = detectedDevices.find(d => d.is_removable);
+
   if (removable) {
+
     pill.style.display = 'flex';
+
     const shortLabel = removable.label || removable.name.split(' ')[0] || 'USB';
+
     const driveLetter = removable.mount_point || 'USB';
+
     if (text) text.innerText = `💾 ${shortLabel} (${driveLetter})`;
+
     pill.onclick = () => openFileExplorer(removable.mount_point);
 
+
+
     if (badge) {
+
+
 
       badge.innerText = `💾 USB: ${detectedDevices.length} READY`;
 
+
+
       badge.style.color = "var(--accent-green)";
+
+
 
       badge.style.borderColor = "var(--accent-green)";
 
+
+
     }
+
+
 
   } else {
 
+
+
     pill.style.display = 'none';
+
+
 
     if (badge) {
 
+
+
       badge.innerText = `💾 USB: STANDBY`;
+
+
 
       badge.style.color = "var(--text-secondary)";
 
+
+
       badge.style.borderColor = "var(--panel-border)";
+
+
 
     }
 
+
+
   }
+
+
 
 }
 
 
 
+
+
+
+
 function renderHomeDrivesShelf() {
+
+
 
   const shelf = document.getElementById('homeDrivesShelf');
 
+
+
   const list = document.getElementById('drivesShelfList');
 
+
+
   const countLabel = document.getElementById('drivesCountLabel');
+
+
+
+
 
 
 
@@ -6829,520 +13744,1041 @@ function renderHomeDrivesShelf() {
 
 
 
+
+
+
+
   if (detectedDevices.length === 0) {
+
+
 
     shelf.style.display = 'none';
 
+
+
     return;
 
+
+
   }
+
+
+
+
 
 
 
   shelf.style.display = 'flex';
 
+
+
   if (countLabel) countLabel.innerText = `${detectedDevices.length} Storage Device${detectedDevices.length > 1 ? 's' : ''} Connected`;
+
+
+
+
 
 
 
   list.innerHTML = detectedDevices.map(dev => {
 
+
+
     const isUsb = dev.is_removable;
+
+
 
     const icon = isUsb ? '💾' : '💽';
 
+
+
     const cleanPath = dev.path.replace(/\\/g, '/');
+
+
 
     return `
 
+
+
       <div class="drive-card-mini" onclick="openFileExplorer('${cleanPath}')" title="Click to browse ${dev.name}">
+
+
 
         <span class="drive-icon">${icon}</span>
 
+
+
         <div class="drive-details">
+
+
 
           <span class="drive-label">${dev.name}</span>
 
+
+
           <span class="drive-space">${dev.free_gb.toFixed(1)} GB Free of ${dev.total_gb.toFixed(1)} GB</span>
+
+
 
         </div>
 
+
+
       </div>
+
+
 
     `;
 
+
+
   }).join('');
 
+
+
 }
+
+
+
+
 
 
 
 let explorerCurrentItems = [];
+
 let explorerSortBy = 'name'; // 'name', 'size', 'date'
+
 let explorerSortAsc = true;
+
 let explorerSearchQuery = '';
 
+
+
 function openFileExplorer(targetPath) {
+
   const expScreen = document.getElementById('screenExplorer');
+
   if (!expScreen || !expScreen.classList.contains('active')) {
+
     navigateTo('explorer');
+
     if (!targetPath) return;
+
   }
+
+
 
   if (targetPath && targetPath !== 'thispc') {
+
     loadExplorerDirectory(targetPath);
+
   } else {
+
     renderWin11ThisPcView();
+
   }
+
 }
+
+
 
 function closeFileExplorer() {
+
   navigateTo('home');
+
 }
+
+
 
 function renderExplorerDeviceTabs() {
+
   const tabsContainer = document.getElementById('explorerDeviceTabs');
+
   if (!tabsContainer) return;
 
+
+
   if (detectedDevices.length === 0) {
+
     tabsContainer.innerHTML = '<span style="color:var(--text-secondary); font-size:11px; padding:6px;">No storage roots found</span>';
+
     return;
+
   }
+
+
 
   tabsContainer.innerHTML = detectedDevices.map(dev => {
+
     const icon = dev.icon || (dev.is_removable ? '💾' : '📁');
+
     const cleanPath = dev.path.replace(/\\/g, '/');
+
     const currNorm = (currentExplorerPath || '').replace(/\\/g, '/');
+
     const isActive = currNorm === cleanPath || currNorm.startsWith(cleanPath + '/');
+
     const freeText = (dev.free_gb !== undefined && dev.free_gb !== null) ? `${dev.free_gb.toFixed(0)}G` : '';
 
+
+
     return `
+
       <button class="device-tab-btn ${isActive ? 'active' : ''}" onclick="openFileExplorer('${cleanPath}')" title="${dev.name} (${dev.path})">
+
         <span>${icon}</span>
+
         <span>${dev.label || dev.name}</span>
+
         ${freeText ? `<span style="opacity:0.6; font-size:9px;">${freeText}</span>` : ''}
+
       </button>
+
     `;
+
   }).join('');
+
 }
+
+
 
 function renderExplorerBreadcrumbs(breadcrumbs, currentPath) {
+
   const breadcrumbContainer = document.getElementById('explorerBreadcrumbs');
+
   if (!breadcrumbContainer) return;
 
+
+
   if (!breadcrumbs || breadcrumbs.length === 0) {
+
     breadcrumbContainer.innerHTML = `<span class="breadcrumb-segment" onclick="loadExplorerDirectory('${currentPath.replace(/\\/g, '/')}')">${currentPath}</span>`;
+
     return;
+
   }
 
+
+
   let html = '';
+
   breadcrumbs.forEach((crumb, idx) => {
+
     const cleanCrumbPath = crumb.path.replace(/\\/g, '/');
+
     const isLast = idx === breadcrumbs.length - 1;
+
     html += `
+
       <span class="breadcrumb-segment ${isLast ? 'active' : ''}" onclick="loadExplorerDirectory('${cleanCrumbPath}')">${crumb.name}</span>
+
     `;
+
     if (!isLast) {
+
       html += '<span class="breadcrumb-separator">/</span>';
+
     }
+
   });
 
+
+
   breadcrumbContainer.innerHTML = html;
+
   // Scroll to end of breadcrumbs
+
   breadcrumbContainer.scrollLeft = breadcrumbContainer.scrollWidth;
+
 }
 
+
+
 function loadExplorerDirectory(dirPath) {
+
   if (typeof syncWin11SidebarActive === 'function') syncWin11SidebarActive(dirPath);
 
+
+
   currentExplorerPath = dirPath || "";
+
   const fileList = document.getElementById('explorerFileList');
+
   const footerStatus = document.getElementById('explorerFooterStatus');
+
+
 
   if (fileList) fileList.innerHTML = '<div style="color:var(--text-secondary); padding:28px; text-align:center;"><div style="font-size:24px; margin-bottom:8px;">⏳</div>Loading directory contents...</div>';
 
+
+
   renderExplorerDeviceTabs();
 
+
+
   fetch(`/api/fs/list?path=${encodeURIComponent(currentExplorerPath)}`)
+
     .then(r => r.json())
+
     .then(data => {
+
       if (data.status === 'error' || data.error) {
+
         if (fileList) fileList.innerHTML = `<div style="color:var(--accent-red); padding:24px; text-align:center;"><div style="font-size:24px; margin-bottom:8px;">⚠️</div>${data.error || 'Permission denied or folder not found'}</div>`;
+
         return;
+
       }
+
+
 
       currentExplorerPath = data.path || data.current_path || currentExplorerPath;
+
       renderExplorerBreadcrumbs(data.breadcrumbs, currentExplorerPath);
+
       renderExplorerDeviceTabs();
 
+
+
       explorerCurrentItems = data.items || [];
+
       renderExplorerFilteredItems();
+
     })
+
     .catch(err => {
+
       console.error("[FS] Directory read error:", err);
+
       if (fileList) fileList.innerHTML = `<div style="color:var(--accent-red); padding:20px;">Network error loading directory: ${err}</div>`;
+
     });
+
 }
+
+
 
 function filterExplorerItems() {
+
   const input = document.getElementById('explorerSearchInput');
+
   const clearBtn = document.getElementById('explorerSearchClear');
+
   explorerSearchQuery = (input ? input.value : '').trim().toLowerCase();
 
+
+
   if (clearBtn) clearBtn.style.display = explorerSearchQuery ? 'inline-block' : 'none';
+
   renderExplorerFilteredItems();
+
 }
+
+
 
 function clearExplorerSearch() {
+
   const input = document.getElementById('explorerSearchInput');
+
   const clearBtn = document.getElementById('explorerSearchClear');
+
   if (input) input.value = '';
+
   if (clearBtn) clearBtn.style.display = 'none';
+
   explorerSearchQuery = '';
+
   renderExplorerFilteredItems();
+
 }
+
+
 
 function setExplorerSort(field) {
+
   if (explorerSortBy === field) {
+
     explorerSortAsc = !explorerSortAsc;
+
   } else {
+
     explorerSortBy = field;
+
     explorerSortAsc = (field === 'name');
+
   }
 
+
+
   ['Name', 'Size', 'Date'].forEach(f => {
+
     const btn = document.getElementById('sortBtn' + f);
+
     if (btn) {
+
       const active = (f.toLowerCase() === explorerSortBy);
+
       btn.className = 'sort-chip' + (active ? ' active' : '');
+
       if (active) {
+
         btn.innerText = `${f} ${explorerSortAsc ? '▲' : '▼'}`;
+
       } else {
+
         btn.innerText = f;
+
       }
+
     }
+
   });
 
+
+
   renderExplorerFilteredItems();
+
 }
 
+
+
 function renderExplorerFilteredItems() {
+
   const fileList = document.getElementById('explorerFileList');
+
   const footerStatus = document.getElementById('explorerFooterStatus');
+
   if (!fileList) return;
+
+
 
   let items = [...explorerCurrentItems];
 
+
+
   if (explorerSearchQuery) {
+
     items = items.filter(i => i.name.toLowerCase().includes(explorerSearchQuery));
+
   }
+
+
 
   // Sort
+
   items.sort((a, b) => {
+
     // Directories always first
+
     if (a.is_dir !== b.is_dir) {
+
       return a.is_dir ? -1 : 1;
+
     }
+
     let res = 0;
+
     if (explorerSortBy === 'name') {
+
       res = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+
     } else if (explorerSortBy === 'size') {
+
       res = (a.size_bytes || 0) - (b.size_bytes || 0);
+
     } else if (explorerSortBy === 'date') {
+
       res = (a.timestamp || 0) - (b.timestamp || 0);
+
     }
+
     return explorerSortAsc ? res : -res;
+
   });
 
+
+
   const folders = items.filter(i => i.is_dir);
+
   const files = items.filter(i => !i.is_dir);
 
+
+
   if (footerStatus) {
+
     footerStatus.innerText = `${items.length} items (${folders.length} folders, ${files.length} files)`;
+
   }
 
+
+
   if (items.length === 0) {
+
     const emptyMsg = explorerSearchQuery ? `No files matching "${explorerSearchQuery}"` : "(Folder is empty)";
+
     fileList.innerHTML = `<div style="color:var(--text-secondary); padding:36px; text-align:center;"><div style="font-size:24px; margin-bottom:8px;">📂</div>${emptyMsg}</div>`;
+
     return;
+
   }
+
+
 
   let html = '';
 
+
+
   // Render items
+
   items.forEach(item => {
+
     const cleanPath = item.path.replace(/\\/g, '/');
 
+
+
     if (item.is_dir) {
+
       html += `
+
         <div class="explorer-item-row" onclick="loadExplorerDirectory('${cleanPath}')">
+
           <div class="item-left">
+
             <span class="item-icon">📁</span>
+
             <div>
+
               <div class="item-name" style="color:var(--accent-yellow);">${item.name}</div>
+
               <div class="item-meta">Directory • ${item.modified || ''}</div>
+
             </div>
+
           </div>
+
           <div class="item-actions" onclick="event.stopPropagation()">
+
             <button class="item-action-btn" onclick="copyExplorerItem('${cleanPath}', '${item.name}', true)" title="Copy folder">📋 COPY</button>
+
             <button class="item-action-btn" style="color:var(--accent-red);" onclick="deleteExplorerItem('${cleanPath}', '${item.name}')" title="Delete folder">🗑️ DEL</button>
+
           </div>
+
         </div>
+
       `;
+
     } else {
+
       const ext = item.ext ? item.ext.toLowerCase() : '';
+
       let icon = '📄';
+
       let isEditable = false;
+
       let isAudio = false;
+
       let isVideo = false;
+
       let isRom = false;
+
       let isModel = false;
 
+
+
       if (['.cfg', '.json', '.txt', '.ini', '.py', '.sh', '.log', '.md', '.conf', '.yaml', '.yml'].includes(ext)) {
+
         icon = '📝';
+
         isEditable = true;
+
       } else if (['.mp3', '.wav', '.flac', '.ogg', '.aac', '.m4a'].includes(ext)) {
+
         icon = '🎵';
+
         isAudio = true;
+
       } else if (['.mp4', '.mkv', '.avi', '.mov', '.webm'].includes(ext)) {
+
         icon = '🎬';
+
         isVideo = true;
+
       } else if (['.sfc', '.smc', '.nes', '.gba', '.bin', '.iso', '.zip', '.7z'].includes(ext)) {
+
         icon = '🕹️';
+
         isRom = true;
+
       } else if (['.vrm', '.vrma', '.bvh'].includes(ext)) {
+
         icon = '🎭';
+
         isModel = true;
+
       } else if (['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext)) {
+
         icon = '🖼️';
+
       }
+
+
 
       const sizeFormatted = item.size_str || ((item.size_bytes > 1048576) ? `${(item.size_bytes / 1048576).toFixed(1)} MB` : `${Math.ceil((item.size_bytes || 0) / 1024)} KB`);
 
+
+
       html += `
+
         <div class="explorer-item-row" ${isEditable ? `onclick="openFileEditor('${cleanPath}')"` : ''}>
+
           <div class="item-left">
+
             <span class="item-icon">${icon}</span>
+
             <div>
+
               <div class="item-name">${item.name}</div>
+
               <div class="item-meta">${sizeFormatted} • ${item.modified || ''}</div>
+
             </div>
+
           </div>
+
           <div class="item-actions" onclick="event.stopPropagation()">
+
             ${isEditable ? `<button class="item-action-btn" style="color:var(--accent-blue); border-color:var(--accent-blue);" onclick="openFileEditor('${cleanPath}')">✏️ EDIT</button>` : ''}
+
             ${isRom ? `<button class="item-action-btn" style="color:var(--accent-purple);" onclick="launchRetroArch()">▶ PLAY</button>` : ''}
+
             ${isAudio ? `<button class="item-action-btn" style="color:var(--accent-green);" onclick="navigateTo('media')">▶ PLAY</button>` : ''}
+
             ${isVideo ? `<button class="item-action-btn" style="color:#ff7700;" onclick="showPlaceholderModal('VLC Player', 'Playing ${item.name} via VLC GPU acceleration')">🎬 VLC</button>` : ''}
+
             <button class="item-action-btn" onclick="copyExplorerItem('${cleanPath}', '${item.name}', false)" title="Copy file">📋 COPY</button>
+
             <button class="item-action-btn" style="color:var(--accent-red);" onclick="deleteExplorerItem('${cleanPath}', '${item.name}')" title="Delete file">🗑️ DEL</button>
+
           </div>
+
         </div>
+
       `;
+
     }
+
   });
 
+
+
   fileList.innerHTML = html;
+
 }
+
+
 
 function navigateExplorerUp() {
+
   if (!currentExplorerPath) return;
+
   const p = currentExplorerPath.replace(/\\/g, '/').replace(/\/+$/, '');
+
   const lastSlash = p.lastIndexOf('/');
+
   if (lastSlash > 0) {
+
     const parent = p.substring(0, lastSlash);
+
     loadExplorerDirectory(parent);
+
   } else if (lastSlash === 0) {
+
     loadExplorerDirectory('/');
+
   }
+
 }
+
+
 
 function promptNewFolder() {
+
   const name = window.prompt("Enter new folder name (e.g. snes_roms, logs, tuning):");
+
   if (!name || !name.trim()) return;
 
+
+
   fetch('/api/fs/mkdir', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ parent_path: currentExplorerPath, folder_name: name.trim() })
+
   })
+
     .then(r => r.json())
+
     .then(res => {
+
       if (res.status === 'error' || res.error) alert("Error creating folder: " + (res.message || res.error));
+
       else loadExplorerDirectory(currentExplorerPath);
+
     })
+
     .catch(err => alert("Failed to create folder: " + err));
+
 }
+
+
 
 function copyExplorerItem(itemPath, itemName, isDir) {
+
   fileClipboard = { path: itemPath, name: itemName, is_dir: isDir };
+
   const pasteBtn = document.getElementById('explorerPasteBtn');
+
   if (pasteBtn) {
+
     pasteBtn.style.display = 'inline-flex';
+
     pasteBtn.innerText = `📋 PASTE (${itemName.substring(0, 14)})`;
+
   }
+
   showAiSpeechToast(`Copied "${itemName}" to clipboard`);
+
 }
+
+
 
 function pasteFileClipboard() {
+
   if (!fileClipboard) return;
 
+
+
   fetch('/api/fs/copy', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ src: fileClipboard.path, dst: currentExplorerPath })
+
   })
+
     .then(r => r.json())
+
     .then(res => {
+
       if (res.status === 'error' || res.error) {
+
         alert("Error copying: " + (res.message || res.error));
+
       } else {
+
         showAiSpeechToast(`Pasted "${fileClipboard.name}"`);
+
         loadExplorerDirectory(currentExplorerPath);
+
       }
+
     })
+
     .catch(err => alert("Copy failed: " + err));
+
 }
+
+
 
 function deleteExplorerItem(itemPath, itemName) {
+
   if (!confirm(`Delete "${itemName}" permanently?`)) return;
 
+
+
   fetch('/api/fs/delete', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ path: itemPath })
+
   })
+
     .then(r => r.json())
+
     .then(res => {
+
       if (res.status === 'error' || res.error) alert("Error deleting: " + (res.message || res.error));
+
       else {
+
         showAiSpeechToast(`Deleted "${itemName}"`);
+
         loadExplorerDirectory(currentExplorerPath);
+
       }
+
     })
+
     .catch(err => alert("Delete failed: " + err));
+
 }
 
+
+
 function refreshExplorer() {
+
   loadExplorerDirectory(currentExplorerPath);
+
 }
+
+
 
 function openFileEditor(filePath) {
 
+
+
   editingFilePath = filePath;
+
+
 
   const modal = document.getElementById('fileEditorModal');
 
+
+
   const nameEl = document.getElementById('editorFileName');
+
+
 
   const pathEl = document.getElementById('editorFilePath');
 
+
+
   const textEl = document.getElementById('editorTextarea');
+
+
 
   const charEl = document.getElementById('editorCharCount');
 
 
 
+
+
+
+
   const baseName = filePath.replace(/\\/g, '/').split('/').pop();
+
+
 
   if (nameEl) nameEl.innerText = baseName;
 
+
+
   if (pathEl) pathEl.innerText = filePath;
 
+
+
   if (textEl) textEl.value = "Reading file from storage...";
+
+
 
   if (modal) modal.style.display = 'flex';
 
 
 
+
+
+
+
   fetch(`/api/fs/read?path=${encodeURIComponent(filePath)}`)
+
+
 
     .then(r => r.json())
 
+
+
     .then(data => {
+
+
 
       if (data.error) {
 
+
+
         if (textEl) textEl.value = `Error opening file: ${data.error}`;
+
+
 
       } else {
 
+
+
         if (textEl) textEl.value = data.content || '';
+
+
 
         if (charEl) charEl.innerText = `${(data.content || '').length} characters | Lines: ${(data.content || '').split('\n').length}`;
 
+
+
       }
+
+
 
     })
 
+
+
     .catch(err => {
+
+
 
       if (textEl) textEl.value = "Failed to fetch file content: " + err;
 
+
+
     });
 
+
+
 }
+
+
+
+
 
 
 
 function closeFileEditor() {
 
+
+
   const modal = document.getElementById('fileEditorModal');
+
+
 
   if (modal) modal.style.display = 'none';
 
+
+
   editingFilePath = "";
 
+
+
 }
+
+
+
+
 
 
 
 function saveFileEditorContent() {
 
+
+
   const textEl = document.getElementById('editorTextarea');
+
+
 
   if (!textEl || !editingFilePath) return;
 
 
 
+
+
+
+
   const content = textEl.value;
+
+
 
   const baseName = editingFilePath.replace(/\\/g, '/').split('/').pop();
 
 
 
+
+
+
+
   fetch('/api/fs/write', {
+
+
 
     method: 'POST',
 
+
+
     headers: { 'Content-Type': 'application/json' },
+
+
 
     body: JSON.stringify({ path: editingFilePath, content: content })
 
+
+
   })
+
+
 
     .then(r => r.json())
 
+
+
     .then(res => {
+
+
 
       if (res.error) {
 
+
+
         alert("Error saving file: " + res.error);
+
+
 
       } else {
 
+
+
         showAiSpeechToast(`Saved ${baseName} to disk`);
+
+
 
         closeFileEditor();
 
+
+
         loadExplorerDirectory(currentExplorerPath);
+
+
 
       }
 
+
+
     })
+
+
 
     .catch(err => alert("Save failed: " + err));
 
+
+
 }
+
+
+
+
 
 
 
@@ -7350,36 +14786,64 @@ function saveFileEditorContent() {
 
 
 
+
+
+
+
 function launchKodi() {
+
+
 
   showAiSpeechToast("Launching Kodi Entertainment Center...");
 
+
+
   fetch('/api/media/launch_kodi', { method: 'POST' })
+
+
 
     .then(r => r.json())
 
+
+
     .then(data => {
+
+
 
       console.log("[KODI] Launch response:", data);
 
+
+
     })
+
+
 
     .catch(err => {
 
+
+
       alert("Failed to launch Kodi: " + err);
+
+
 
     });
 
+
+
 }
+
+
+
 
 
 function launchYouTube(mode = 'video') {
   const isMusic = (mode === 'music');
   const title = isMusic ? 'YouTube Music' : 'YouTube Cinema';
-  showAiSpeechToast(`Launching ${title}...`);
+  showAiSpeechToast("Launching " + title + "... Use floating ◀ CARPI5 EXIT button to return.");
   if (typeof speakUtterance === 'function') {
-    speakUtterance(`Launching ${title} for you, Master!`);
+    speakUtterance("Launching " + title + "!");
   }
+
   fetch('/api/media/launch_youtube', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -7388,6 +14852,7 @@ function launchYouTube(mode = 'video') {
     .then(r => r.json())
     .then(data => {
       console.log('[YOUTUBE] Launch response:', data);
+      updateExternalAppUi(true, title);
     })
     .catch(err => {
       console.warn('[YOUTUBE] Launch error, opening web fallback:', err);
@@ -7396,131 +14861,306 @@ function launchYouTube(mode = 'video') {
     });
 }
 
+function closeExternalApp() {
+  showAiSpeechToast('Closing external app...');
+  fetch('/api/media/close_external_app', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  })
+    .then(r => r.json())
+    .then(data => {
+      console.log('[EXTERNAL_APP] Closed:', data);
+      updateExternalAppUi(false);
+      showAiSpeechToast('Returned to CarPi5 Cockpit.');
+    })
+    .catch(err => {
+      console.error('[EXTERNAL_APP] Close failed:', err);
+    });
+}
 
+function updateExternalAppUi(isActive, title = 'External App') {
+  const badge = document.getElementById('youtubeStatusBadge');
+  const btnClose = document.getElementById('btnYtClose');
+
+  if (badge) {
+    if (isActive) {
+      badge.textContent = 'ACTIVE (RUNNING)';
+      badge.style.background = 'rgba(0, 230, 118, 0.2)';
+      badge.style.borderColor = 'rgba(0, 230, 118, 0.6)';
+      badge.style.color = '#00e676';
+    } else {
+      badge.textContent = 'HD CINEMA & MUSIC';
+      badge.style.background = 'rgba(255, 0, 0, 0.15)';
+      badge.style.borderColor = 'rgba(255, 0, 0, 0.35)';
+      badge.style.color = '#ff4d4d';
+    }
+  }
+
+  if (btnClose) {
+    btnClose.style.display = isActive ? 'inline-flex' : 'none';
+  }
+}
+
+function checkExternalAppStatus() {
+  fetch('/api/media/external_app_status')
+    .then(r => r.json())
+    .then(data => {
+      if (data && data.status === 'ok') {
+        updateExternalAppUi(data.active, data.title);
+      }
+    })
+    .catch(() => {});
+}
 
 function launchVlc(targetPath) {
 
+
+
   showAiSpeechToast("Launching VLC Video Player...");
+
+
 
   fetch('/api/media/launch_vlc', {
 
+
+
     method: 'POST',
+
+
 
     headers: { 'Content-Type': 'application/json' },
 
+
+
     body: JSON.stringify({ path: targetPath || '' })
+
+
 
   })
 
+
+
     .then(r => r.json())
+
+
 
     .then(data => {
 
+
+
       console.log("[VLC] Launch response:", data);
+
+
 
     })
 
+
+
     .catch(err => {
+
+
 
       alert("Failed to launch VLC: " + err);
 
+
+
     });
 
+
+
 }
+
+
+
+
 
 
 
 function launchRetroArch() {
 
+
+
   showAiSpeechToast("Launching RetroArch Emulation...");
+
+
 
   fetch('/api/games/launch_retroarch', {
 
+
+
     method: 'POST',
+
+
 
     headers: { 'Content-Type': 'application/json' },
 
+
+
     body: JSON.stringify({})
+
+
 
   })
 
+
+
     .then(r => r.json())
+
+
 
     .then(data => {
 
+
+
       console.log("[RETROARCH] Launch response:", data);
+
+
 
     })
 
+
+
     .catch(err => {
+
+
 
       alert("Failed to launch RetroArch: " + err);
 
+
+
     });
 
+
+
 }
+
+
+
+
 
 
 
 function launchRetroArchSystem(system) {
 
+
+
   const cores = {
+
+
 
     'SNES': '/usr/lib/aarch64-linux-gnu/libretro/snes9x_libretro.so',
 
+
+
     'Genesis': '/usr/lib/aarch64-linux-gnu/libretro/genesis_plus_gx_libretro.so',
+
+
 
     'NES': '/usr/lib/aarch64-linux-gnu/libretro/nestopia_libretro.so',
 
+
+
     'GBA': '/usr/lib/aarch64-linux-gnu/libretro/mgba_libretro.so',
 
-    'PS1': '/home/nfgodin/.config/retroarch/cores/pcsx_rearmed_libretro.so',
 
-    'N64': '/home/nfgodin/.config/retroarch/cores/parallel_n64_libretro.so',
+
+    'PS1': '~/.config/retroarch/cores/pcsx_rearmed_libretro.so',
+
+
+
+    'N64': '~/.config/retroarch/cores/parallel_n64_libretro.so',
+
+
 
     'Arcade': '/usr/lib/aarch64-linux-gnu/libretro/gambatte_libretro.so'
 
+
+
   };
+
+
 
   const corePath = cores[system] || '';
 
+
+
   showAiSpeechToast(`Loading ${system} in RetroArch...`);
+
+
 
   fetch('/api/games/launch_retroarch', {
 
+
+
     method: 'POST',
+
+
 
     headers: { 'Content-Type': 'application/json' },
 
+
+
     body: JSON.stringify({ core: corePath })
+
+
 
   })
 
+
+
     .then(r => r.json())
+
+
 
     .then(data => {
 
+
+
       console.log(`[RETROARCH ${system}] Launch response:`, data);
+
+
 
     })
 
+
+
     .catch(err => alert(`Failed to launch ${system}: ` + err));
 
+
+
 }
+
+
+
+
 
 
 
 function launchStandaloneGame(game) {
 
+
+
   showPlaceholderModal(
+
+
 
     `Standalone Game: ${game}`,
 
+
+
     `Launching ${game} native Linux port. Gamepad controls enabled.`
+
+
 
   );
 
+
+
 }
+
+
+
+
 
 
 
@@ -7528,23 +15168,49 @@ function launchStandaloneGame(game) {
 
 
 
+
+
+
+
 function showPlaceholderModal(title, desc) {
+
+
 
   document.getElementById('modalTitle').innerText = title;
 
+
+
   document.getElementById('modalDesc').innerText = desc;
+
+
 
   document.getElementById('modalOverlay').style.display = 'flex';
 
+
+
 }
+
+
+
+
 
 
 
 function closePlaceholderModal() {
 
+
+
   document.getElementById('modalOverlay').style.display = 'none';
 
+
+
 }
+
+
+
+
+
+
 
 
 
@@ -7554,925 +15220,1851 @@ function closePlaceholderModal() {
 
 
 
+
+
+
+
 let wifiStatus = {};
 
+
+
 let selectedWifiSsid = null;
+
+
 
 let selectedWifiSecurity = "WPA2-Personal";
 
 
 
+
+
+
+
 function fetchWifiStatus() {
+
+
 
   fetch('/api/wifi/status')
 
+
+
     .then(r => r.json())
+
+
 
     .then(data => {
 
+
+
       wifiStatus = data || {};
+
+
 
       updateWifiHeaderPill();
 
+
+
       updateWifiSettingsCard();
+
+
 
     })
 
+
+
     .catch(err => console.warn("[WIFI] Status error:", err));
 
+
+
 }
+
+
+
+
 
 
 
 function updateWifiHeaderPill() {
 
+
+
   const pill = document.getElementById('headerWifiPill');
+
+
 
   const text = document.getElementById('headerWifiText');
 
+
+
   const icon = document.getElementById('headerWifiIcon');
 
+
+
   if (!pill) return;
+
+
+
+
 
 
 
   if (wifiStatus.connected) {
 
+
+
     pill.style.borderColor = "var(--accent-green)";
+
+
 
     pill.style.color = "var(--accent-green)";
 
+
+
     const sig = wifiStatus.signal_percent ? `${wifiStatus.signal_percent}%` : "100%";
+
+
 
     
 
+
+
     // Choose signal indicator
 
+
+
     let sigIcon = "📶";
+
+
 
     if (wifiStatus.signal_percent && wifiStatus.signal_percent < 40) sigIcon = "📳";
 
 
 
+
+
+
+
     if (text) text.innerText = `${wifiStatus.ssid} (${sig})`;
+
+
 
     if (icon) icon.innerText = sigIcon;
 
+
+
     pill.title = `${wifiStatus.ssid} • ${sig} Signal • IP: ${wifiStatus.ip_address || 'DHCP'} • Click to open Wi-Fi Manager`;
+
+
 
   } else {
 
+
+
     pill.style.borderColor = "var(--panel-border)";
+
+
 
     pill.style.color = "var(--text-secondary)";
 
+
+
     if (text) text.innerText = "WI-FI: STANDBY";
+
+
 
     if (icon) icon.innerText = "📡";
 
+
+
     pill.title = "Wi-Fi Disconnected • Click to scan and connect";
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function updateWifiSettingsCard() {
 
+
+
   const ssidEl = document.getElementById('wifiCurrentSsid');
+
+
 
   const badgeEl = document.getElementById('wifiCurrentBadge');
 
+
+
   const ipEl = document.getElementById('wifiCurrentIp');
+
+
 
   const sigEl = document.getElementById('wifiCurrentSignal');
 
+
+
   const bandEl = document.getElementById('wifiCurrentBand');
+
+
 
   const btnAlways = document.getElementById('btnToggleAlwaysOn');
 
 
 
+
+
+
+
   if (ssidEl) ssidEl.innerText = wifiStatus.connected ? wifiStatus.ssid : "Disconnected";
+
+
 
   if (badgeEl) {
 
+
+
     if (wifiStatus.connected) {
+
+
 
       badgeEl.innerText = "CONNECTED";
 
+
+
       badgeEl.style.background = "rgba(0,230,118,0.15)";
+
+
 
       badgeEl.style.color = "var(--accent-green)";
 
+
+
       badgeEl.style.borderColor = "var(--accent-green)";
+
+
 
     } else {
 
+
+
       badgeEl.innerText = "STANDBY / DISCONNECTED";
+
+
 
       badgeEl.style.background = "rgba(140,155,165,0.15)";
 
+
+
       badgeEl.style.color = "var(--text-secondary)";
+
+
 
       badgeEl.style.borderColor = "var(--panel-border)";
 
+
+
     }
 
+
+
   }
+
+
+
+
 
 
 
   if (ipEl) ipEl.innerText = wifiStatus.ip_address || "--";
 
+
+
   if (sigEl) sigEl.innerText = (wifiStatus.connected && wifiStatus.signal_percent) ? `${wifiStatus.signal_percent}%` : "--";
+
+
 
   if (bandEl) bandEl.innerText = wifiStatus.band || "2.4 / 5 GHz";
 
 
 
+
+
+
+
   if (btnAlways) {
+
+
 
     if (wifiStatus.always_on) {
 
+
+
       btnAlways.innerText = "⚡ ALWAYS-ON: ACTIVE";
+
+
 
       btnAlways.style.background = "rgba(0,230,118,0.15)";
 
+
+
       btnAlways.style.color = "var(--accent-green)";
+
+
 
       btnAlways.style.borderColor = "var(--accent-green)";
 
+
+
     } else {
+
+
 
       btnAlways.innerText = "⚪ ALWAYS-ON: DISABLED";
 
+
+
       btnAlways.style.background = "#141922";
+
+
 
       btnAlways.style.color = "var(--text-secondary)";
 
+
+
       btnAlways.style.borderColor = "var(--panel-border)";
+
+
 
     }
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 function scanWifiNetworks() {
 
+
+
   const countEl = document.getElementById('wifiScanCount');
 
+
+
   const listEl = document.getElementById('wifiNetworkList');
+
+
+
+
 
 
 
   if (countEl) countEl.innerText = "Scanning nearby networks & hotspots...";
 
+
+
   if (listEl) listEl.innerHTML = '<div style="color:var(--text-secondary); padding:16px; text-align:center;">Scanning 2.4GHz & 5GHz Wi-Fi and phone hotspots...</div>';
+
+
+
+
 
 
 
   fetch('/api/wifi/scan')
 
+
+
     .then(r => r.json())
+
+
 
     .then(networks => {
 
+
+
       renderWifiNetworks(networks || []);
+
+
 
       fetchSavedWifi();
 
+
+
     })
+
+
 
     .catch(err => {
 
+
+
       console.error("[WIFI] Scan error:", err);
+
+
 
       if (listEl) listEl.innerHTML = `<div style="color:var(--accent-red); padding:12px;">Scan error: ${err}</div>`;
 
+
+
     });
 
+
+
 }
+
+
+
+
 
 
 
 function renderWifiNetworks(networks) {
 
+
+
   const listEl = document.getElementById('wifiNetworkList');
+
+
 
   const countEl = document.getElementById('wifiScanCount');
 
 
 
+
+
+
+
   if (!listEl) return;
+
+
 
   if (countEl) countEl.innerText = `${networks.length} Network${networks.length === 1 ? '' : 's'} Found`;
 
 
 
+
+
+
+
   if (networks.length === 0) {
+
+
 
     listEl.innerHTML = '<div style="color:var(--text-secondary); padding:16px; text-align:center;">No Wi-Fi networks found. Turn on phone hotspot or check Wi-Fi antenna.</div>';
 
+
+
     return;
 
+
+
   }
+
+
+
+
 
 
 
   listEl.innerHTML = networks.map(net => {
 
+
+
     const isConn = net.connected;
+
+
 
     const isSaved = net.is_saved;
 
+
+
     const sig = net.signal || 0;
+
+
 
     const sec = net.security || "WPA2-Personal";
 
 
 
+
+
+
+
     let sigLabel = "📶 Strong";
 
+
+
     if (sig < 45) sigLabel = "📶 Weak";
+
+
 
     else if (sig < 70) sigLabel = "📶 Fair";
 
 
 
+
+
+
+
     return `
+
+
 
       <div class="wifi-network-row ${isConn ? 'connected' : ''}">
 
+
+
         <div style="display:flex; align-items:center; gap:10px;">
+
+
 
           <span style="font-size:16px;">${isConn ? '🟢' : '📶'}</span>
 
+
+
           <div>
+
+
 
             <div style="font-size:12px; font-weight:800; color:#fff;">${net.ssid}</div>
 
+
+
             <div style="font-size:10px; color:var(--text-secondary); display:flex; gap:8px; margin-top:2px;">
+
+
 
               <span>${sigLabel} (${sig}%)</span>
 
+
+
               <span>•</span>
+
+
 
               <span>🔒 ${sec}</span>
 
+
+
             </div>
+
+
 
           </div>
 
+
+
         </div>
+
+
 
         <div style="display:flex; align-items:center; gap:8px;">
 
+
+
           ${isSaved ? '<span style="font-size:9px; color:var(--accent-green); background:rgba(0,230,118,0.1); border:1px solid var(--accent-green); padding:2px 6px; border-radius:4px;">REMEMBERED</span>' : ''}
+
+
 
           ${isConn 
 
+
+
             ? '<span class="pill" style="background:rgba(0,230,118,0.2); color:var(--accent-green); font-size:10px;">CONNECTED</span>'
+
+
 
             : `<button class="cluster-action-btn" style="color:var(--accent-blue); border-color:var(--accent-blue); padding:4px 12px;" onclick="openWifiConnectModal('${net.ssid}', '${sec}')">CONNECT</button>`
 
+
+
           }
+
+
 
         </div>
 
+
+
       </div>
+
+
 
     `;
 
+
+
   }).join('');
 
+
+
 }
+
+
+
+
 
 
 
 function fetchSavedWifi() {
 
+
+
   const savedList = document.getElementById('wifiSavedList');
+
+
 
   if (!savedList) return;
 
 
 
+
+
+
+
   fetch('/api/wifi/saved')
+
+
 
     .then(r => r.json())
 
+
+
     .then(saved => {
+
+
 
       if (!saved || saved.length === 0) {
 
+
+
         savedList.innerHTML = '<div style="color:var(--text-secondary); font-size:11px; padding:8px;">(No saved networks or hotspots stored)</div>';
+
+
 
         return;
 
+
+
       }
+
+
+
+
 
 
 
       savedList.innerHTML = saved.map(net => `
 
+
+
         <div class="wifi-saved-row">
+
+
 
           <div>
 
+
+
             <div style="font-size:12px; font-weight:800; color:#fff;">${net.ssid}</div>
+
+
 
             <div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">
 
+
+
               <span>Auto-connect: <strong style="color:var(--accent-green);">${net.auto_connect ? 'YES' : 'NO'}</strong></span>
+
+
 
               ${net.last_connected ? ` • Last active: ${net.last_connected}` : ''}
 
+
+
             </div>
+
+
 
           </div>
 
+
+
           <button class="cluster-action-btn" style="color:var(--accent-red); font-size:10px; padding:3px 8px;" onclick="forgetWifiNetwork('${net.ssid}')">
+
+
 
             ✕ FORGET
 
+
+
           </button>
+
+
 
         </div>
 
+
+
       `).join('');
+
+
 
     })
 
+
+
     .catch(err => console.warn("[WIFI] Saved list error:", err));
 
+
+
 }
+
+
+
+
 
 
 
 function openWifiConnectModal(ssid, security) {
 
+
+
   selectedWifiSsid = ssid;
+
+
 
   selectedWifiSecurity = security;
 
 
 
+
+
+
+
   const modal = document.getElementById('wifiConnectModal');
+
+
 
   const ssidEl = document.getElementById('modalWifiSsid');
 
+
+
   const secEl = document.getElementById('modalWifiSecurity');
 
+
+
   const pwdEl = document.getElementById('modalWifiPassword');
+
+
+
+
 
 
 
   if (ssidEl) ssidEl.innerText = ssid;
 
+
+
   if (secEl) secEl.innerText = security;
+
+
 
   if (pwdEl) {
 
+
+
     pwdEl.value = '';
+
+
 
     pwdEl.type = 'password';
 
+
+
   }
 
+
+
   const showChk = document.getElementById('modalWifiShowPass');
+
+
 
   if (showChk) showChk.checked = false;
 
 
 
+
+
+
+
   if (modal) modal.style.display = 'flex';
 
+
+
 }
+
+
+
+
 
 
 
 function closeWifiConnectModal() {
 
+
+
   const modal = document.getElementById('wifiConnectModal');
+
+
 
   if (modal) modal.style.display = 'none';
 
+
+
   selectedWifiSsid = null;
 
+
+
 }
+
+
+
+
 
 
 
 function toggleWifiPasswordVisibility() {
 
+
+
   const pwdEl = document.getElementById('modalWifiPassword');
+
+
 
   const chk = document.getElementById('modalWifiShowPass');
 
+
+
   if (pwdEl && chk) {
+
+
 
     pwdEl.type = chk.checked ? 'text' : 'password';
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 function submitWifiConnect() {
 
+
+
   if (!selectedWifiSsid) return;
+
+
+
+
 
 
 
   const pwdEl = document.getElementById('modalWifiPassword');
 
+
+
   const autoChk = document.getElementById('modalWifiAutoConnect');
+
+
 
   const btn = document.getElementById('btnSubmitWifiConnect');
 
 
 
+
+
+
+
   const password = pwdEl ? pwdEl.value : "";
+
+
 
   const autoConnect = autoChk ? autoChk.checked : true;
 
 
 
+
+
+
+
   if (btn) {
+
+
 
     btn.disabled = true;
 
+
+
     btn.innerText = "CONNECTING...";
 
+
+
   }
+
+
+
+
 
 
 
   fetch('/api/wifi/connect', {
 
+
+
     method: 'POST',
+
+
 
     headers: { 'Content-Type': 'application/json' },
 
+
+
     body: JSON.stringify({
+
+
 
       ssid: selectedWifiSsid,
 
+
+
       password: password,
+
+
 
       auto_connect: autoConnect
 
+
+
     })
+
+
 
   })
 
+
+
     .then(r => r.json())
+
+
 
     .then(res => {
 
+
+
       if (btn) {
+
+
 
         btn.disabled = false;
 
+
+
         btn.innerText = "CONNECT";
 
+
+
       }
+
+
+
+
 
 
 
       if (res.error) {
 
+
+
         alert("Wi-Fi Connection Error: " + res.error);
+
+
 
       } else {
 
+
+
         const msg = `Connected to ${selectedWifiSsid}! Network online.`;
+
+
 
         showAiSpeechToast(msg);
 
+
+
         speakUtterance(msg);
+
+
 
         closeWifiConnectModal();
 
+
+
         fetchWifiStatus();
+
 fetchBtStatus();
+
 fetchBtPaired();
+
 scanBtDevices();
+
 setInterval(fetchBtStatus, 8000);
+
+
 
         scanWifiNetworks();
 
+
+
       }
+
+
 
     })
 
+
+
     .catch(err => {
+
+
 
       if (btn) {
 
+
+
         btn.disabled = false;
+
+
 
         btn.innerText = "CONNECT";
 
+
+
       }
+
+
 
       alert("Network connect request failed: " + err);
 
+
+
     });
 
+
+
 }
+
+
+
+
 
 
 
 function forgetWifiNetwork(ssid) {
 
+
+
   if (!confirm(`Forget remembered network "${ssid}"?`)) return;
+
+
+
+
 
 
 
   fetch('/api/wifi/forget', {
 
+
+
     method: 'POST',
+
+
 
     headers: { 'Content-Type': 'application/json' },
 
+
+
     body: JSON.stringify({ ssid: ssid })
+
+
 
   })
 
+
+
     .then(r => r.json())
+
+
 
     .then(res => {
 
+
+
       showAiSpeechToast(`Forgot network: ${ssid}`);
+
+
 
       fetchSavedWifi();
 
+
+
       scanWifiNetworks();
+
+
 
     })
 
+
+
     .catch(err => alert("Error forgetting network: " + err));
 
+
+
 }
+
+
+
+
 
 
 
 function clearAllSavedWifi() {
 
+
+
   if (!confirm("Are you sure you want to clear ALL saved Wi-Fi networks and remembered hotspots?")) return;
+
+
+
+
 
 
 
   fetch('/api/wifi/clear', {
 
+
+
     method: 'POST',
+
+
 
     headers: { 'Content-Type': 'application/json' },
 
+
+
     body: JSON.stringify({})
+
+
 
   })
 
+
+
     .then(r => r.json())
+
+
 
     .then(res => {
 
+
+
       showAiSpeechToast("All saved networks cleared.");
+
+
 
       fetchSavedWifi();
 
+
+
       scanWifiNetworks();
+
+
 
     })
 
+
+
     .catch(err => alert("Error clearing saved networks: " + err));
 
+
+
 }
+
+
+
+
 
 
 
 function toggleWifiAlwaysOn() {
 
+
+
   const nextState = !wifiStatus.always_on;
+
+
 
   fetch('/api/wifi/always_on', {
 
+
+
     method: 'POST',
+
+
 
     headers: { 'Content-Type': 'application/json' },
 
+
+
     body: JSON.stringify({ enabled: nextState })
+
+
 
   })
 
+
+
     .then(r => r.json())
+
+
 
     .then(res => {
 
+
+
       wifiStatus.always_on = res.always_on;
+
+
 
       updateWifiSettingsCard();
 
+
+
       showAiSpeechToast(res.always_on ? "Wi-Fi Always-On enabled" : "Wi-Fi Always-On disabled");
+
+
 
     })
 
+
+
     .catch(err => alert("Failed to toggle Always-On: " + err));
 
+
+
 }
+
+
+
+
+
 
 
 
 
 // --- BLUETOOTH & PHONE AUDIO CONNECTION LOGIC ---
+
 let btStatus = {
+
   powered: false,
+
   pairable: true,
+
   discoverable: true,
+
   controller_name: "CarPi",
+
   controller_mac: "",
+
   connected_device: null,
+
   connected_devices: []
+
 };
 
+
+
 function fetchBtStatus() {
+
   fetch('/api/bluetooth/status')
+
     .then(r => r.json())
+
     .then(data => {
+
       btStatus = data || {};
+
       updateBtHeaderPill();
+
       updateBtSettingsCard();
+
     })
+
     .catch(err => console.warn("[BT] Status error:", err));
+
 }
+
+
 
 function updateBtHeaderPill() {
+
   const pill = document.getElementById('btnHeaderBt');
+
   const text = document.getElementById('headerBtText');
+
   const icon = document.getElementById('headerBtIcon');
+
   if (!pill) return;
 
+
+
   if (btStatus.connected_device) {
+
     pill.style.borderColor = "var(--accent-blue)";
+
     pill.style.color = "var(--accent-blue)";
+
     pill.style.background = "rgba(0, 176, 255, 0.25)";
+
     if (text) text.innerText = btStatus.connected_device.name || "PHONE CONNECTED";
+
     if (icon) icon.innerText = "ᛒ";
+
     pill.title = `${btStatus.connected_device.name} • Connected • Click to manage Bluetooth`;
+
   } else {
+
     pill.style.borderColor = "var(--panel-border)";
+
     pill.style.color = "var(--text-secondary)";
+
     pill.style.background = "rgba(255, 255, 255, 0.04)";
+
     if (text) text.innerText = "BLUETOOTH";
+
     if (icon) icon.innerText = "ᛒ";
+
     pill.title = "Bluetooth Ready (Discoverable as CarPi) • Click to pair phone";
+
   }
+
 }
+
+
 
 function updateBtSettingsCard() {
+
   const devEl = document.getElementById('btCurrentDevice');
+
   const badgeEl = document.getElementById('btCurrentBadge');
+
   const ctrlNameEl = document.getElementById('btControllerName');
+
   const ctrlMacEl = document.getElementById('btControllerMac');
+
   const btnPair = document.getElementById('btnToggleBtPairable');
 
+
+
   if (ctrlNameEl && btStatus.controller_name) ctrlNameEl.innerText = btStatus.controller_name;
+
   if (ctrlMacEl && btStatus.controller_mac) ctrlMacEl.innerText = btStatus.controller_mac;
 
+
+
   if (devEl) {
+
     if (btStatus.connected_device) {
+
       devEl.innerText = btStatus.connected_device.name || btStatus.connected_device.mac;
+
       devEl.style.color = "var(--accent-blue)";
+
     } else {
+
       devEl.innerText = "No Device Connected";
+
       devEl.style.color = "var(--text-secondary)";
+
     }
+
   }
+
+
 
   if (badgeEl) {
+
     if (btStatus.connected_device) {
+
       badgeEl.innerText = "CONNECTED";
+
       badgeEl.style.background = "rgba(0,230,118,0.15)";
+
       badgeEl.style.color = "var(--accent-green)";
+
     } else {
+
       badgeEl.innerText = "STANDBY (READY)";
+
       badgeEl.style.background = "rgba(140,155,165,0.15)";
+
       badgeEl.style.color = "var(--text-secondary)";
+
     }
+
   }
+
+
 
   if (btnPair) {
+
     if (btStatus.discoverable) {
+
       btnPair.innerHTML = "🟢 PAIRABLE & DISCOVERABLE";
+
       btnPair.style.color = "var(--accent-green)";
+
       btnPair.style.borderColor = "var(--accent-green)";
+
       btnPair.style.background = "rgba(0,230,118,0.15)";
+
     } else {
+
       btnPair.innerHTML = "⚪ DISCOVERY OFF";
+
       btnPair.style.color = "var(--text-secondary)";
+
       btnPair.style.borderColor = "var(--panel-border)";
+
       btnPair.style.background = "rgba(255,255,255,0.05)";
+
     }
+
   }
+
 }
+
+
 
 function scanBtDevices() {
+
   const btn = document.getElementById('btnScanBt');
+
   const countEl = document.getElementById('btScanCount');
+
   const listEl = document.getElementById('btDeviceList');
+
+
 
   if (btn) {
+
     btn.innerHTML = "🔄 SCANNING...";
+
     btn.style.opacity = "0.7";
+
   }
+
   if (countEl) countEl.innerText = "Scanning nearby Bluetooth devices...";
 
+
+
   fetch('/api/bluetooth/scan')
+
     .then(r => r.json())
+
     .then(devices => {
+
       renderBtDevices(devices || []);
+
       fetchBtPaired();
+
       if (btn) {
+
         btn.innerHTML = "✓ SCANNED";
+
         btn.style.opacity = "1";
+
         setTimeout(() => { if (btn) btn.innerHTML = "🔄 SCAN DEVICES"; }, 2500);
+
       }
+
     })
+
     .catch(err => {
+
       console.error("[BT] Scan error:", err);
+
       if (btn) {
+
         btn.innerHTML = "⚠️ ERROR";
+
         setTimeout(() => { if (btn) btn.innerHTML = "🔄 SCAN DEVICES"; }, 2000);
+
       }
+
     });
+
 }
 
+
+
 function renderBtDevices(devices) {
+
   const listEl = document.getElementById('btDeviceList');
+
   const countEl = document.getElementById('btScanCount');
+
   if (!listEl) return;
 
+
+
   if (!devices || devices.length === 0) {
+
     listEl.innerHTML = '<div style="color:var(--text-secondary); padding:16px; text-align:center;">No Bluetooth devices found nearby. Make sure your phone Bluetooth is on!</div>';
+
     if (countEl) countEl.innerText = "0 devices found";
+
     return;
+
   }
+
+
 
   if (countEl) countEl.innerText = `${devices.length} device${devices.length === 1 ? '' : 's'} available - Tap CONNECT`;
 
+
+
   listEl.innerHTML = devices.map(d => {
+
     const isConn = d.connected;
+
     const isPaired = d.paired;
+
     const icon = "📱";
 
+
+
     return `
+
       <div class="wifi-network-row ${isConn ? 'connected' : ''}" style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; background:#0c1017; border:1px solid #1a222e; border-radius:8px; margin-bottom:6px;">
+
         <div style="display:flex; align-items:center; gap:10px;">
+
           <span style="font-size:16px;">${icon}</span>
+
           <div>
+
             <div style="font-size:12px; font-weight:800; color:#fff; display:flex; align-items:center; gap:6px;">
+
               ${escapeHtml(d.name || d.mac)}
+
               ${isPaired ? '<span style="font-size:9px; background:rgba(0,176,255,0.15); color:var(--accent-blue); padding:1px 5px; border-radius:4px;">PAIRED</span>' : ''}
+
               ${isConn ? '<span style="font-size:9px; background:rgba(0,230,118,0.15); color:var(--accent-green); padding:1px 5px; border-radius:4px;">CONNECTED</span>' : ''}
+
             </div>
+
             <div style="font-size:10px; color:var(--text-secondary); font-family:var(--font-mono);">${d.mac}</div>
+
           </div>
+
         </div>
+
         <div style="display:flex; gap:8px;">
+
           ${isConn
+
             ? `<button class="cluster-action-btn" style="color:var(--accent-red); border-color:var(--accent-red); font-size:10px; padding:4px 12px;" onclick="disconnectBtDevice('${d.mac}')">DISCONNECT</button>`
+
             : `<button class="cluster-action-btn" style="color:var(--accent-blue); border-color:var(--accent-blue); font-size:10px; padding:4px 12px;" onclick="connectBtDevice('${d.mac}', '${escapeHtml(d.name || d.mac)}')">CONNECT / PAIR</button>`
+
           }
+
         </div>
+
       </div>
+
     `;
+
   }).join('');
+
 }
+
+
 
 function fetchBtPaired() {
+
   const pairedList = document.getElementById('btPairedList');
+
   fetch('/api/bluetooth/paired')
+
     .then(r => r.json())
+
     .then(devices => {
+
       if (!pairedList) return;
+
       if (!devices || devices.length === 0) {
+
         pairedList.innerHTML = '<div style="color:var(--text-secondary); padding:10px; font-size:11px;">No paired devices saved yet. Connect above or discover "CarPi" from your phone!</div>';
+
         return;
+
       }
 
+
+
       pairedList.innerHTML = devices.map(d => `
+
         <div class="wifi-saved-row" style="display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:#0c1017; border:1px solid #1a222e; border-radius:6px; margin-bottom:4px;">
+
           <div style="display:flex; align-items:center; gap:8px;">
+
             <span style="font-size:13px;">📱</span>
+
             <div>
+
               <span style="font-size:12px; font-weight:800; color:#fff;">${escapeHtml(d.name)}</span>
+
               <span style="font-size:10px; color:var(--text-secondary); margin-left:6px; font-family:var(--font-mono);">${d.mac}</span>
+
             </div>
+
           </div>
+
           <div style="display:flex; gap:6px;">
+
             ${!d.connected ? `<button class="cluster-action-btn" style="color:var(--accent-blue); font-size:10px; padding:3px 10px;" onclick="connectBtDevice('${d.mac}', '${escapeHtml(d.name)}')">CONNECT</button>` : ''}
+
             <button class="cluster-action-btn" style="color:var(--accent-red); font-size:10px; padding:3px 8px;" onclick="removeBtDevice('${d.mac}', '${escapeHtml(d.name)}')">
+
               FORGET
+
             </button>
+
           </div>
+
         </div>
+
       `).join('');
+
     })
+
     .catch(err => console.warn("[BT] Paired fetch error:", err));
+
 }
+
+
 
 function connectBtDevice(mac, name) {
+
   showAiSpeechToast(`Connecting to Bluetooth device ${name || mac}...`);
+
   fetch('/api/bluetooth/connect', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ mac: mac })
+
   })
+
     .then(r => r.json())
+
     .then(res => {
+
       showAiSpeechToast(res.message || `Bluetooth connection command dispatched for ${name}`);
+
       setTimeout(() => {
+
         fetchBtStatus();
+
         fetchBtPaired();
+
         scanBtDevices();
+
       }, 2000);
+
     })
+
     .catch(err => showAiSpeechToast(`Bluetooth connect error: ${err.message}`));
+
 }
+
+
 
 function disconnectBtDevice(mac) {
+
   fetch('/api/bluetooth/disconnect', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ mac: mac })
+
   })
+
     .then(r => r.json())
+
     .then(res => {
+
       showAiSpeechToast(`Disconnected ${mac}`);
+
       fetchBtStatus();
+
       scanBtDevices();
+
     })
+
     .catch(err => console.error("[BT] Disconnect error:", err));
+
 }
+
+
 
 function removeBtDevice(mac, name) {
+
   fetch('/api/bluetooth/remove', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ mac: mac })
+
   })
+
     .then(r => r.json())
+
     .then(() => {
+
       showAiSpeechToast(`Forgot Bluetooth device ${name || mac}`);
+
       fetchBtStatus();
+
       fetchBtPaired();
+
       scanBtDevices();
+
     })
+
     .catch(err => console.error("[BT] Remove error:", err));
+
 }
+
+
 
 function toggleBtDiscoverable() {
+
   const next = !btStatus.discoverable;
+
   fetch('/api/bluetooth/discoverable', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ enabled: next })
+
   })
+
     .then(r => r.json())
+
     .then(res => {
+
       btStatus.discoverable = res.discoverable;
+
       updateBtSettingsCard();
+
       showAiSpeechToast(res.discoverable ? "Bluetooth is now Discoverable and Pairable" : "Bluetooth Discovery hidden");
+
     })
+
     .catch(err => console.error("[BT] Toggle discoverable error:", err));
+
 }
+
+
 
 function focusBtSection() {
+
   const grp = document.getElementById('accSystemGroup');
+
   if (grp) grp.classList.add('active');
+
   setTimeout(() => {
+
     const card = document.getElementById('btSettingsCard');
+
     if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
     fetchAudioDevices();
+
     fetchBtStatus();
+
   }, 100);
+
 }
 
+
+
 function focusWifiSection() {
+
   const grp = document.getElementById('accSystemGroup');
+
   if (grp) grp.classList.add('active');
+
   setTimeout(() => {
+
     const card = document.getElementById('wifiSettingsCard');
+
     if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
   }, 100);
+
 }
+
+
+
+
 
 
 
@@ -8480,50 +17072,103 @@ function focusWifiSection() {
 
 
 
+
+
+
+
 function updateSystemClock() {
+
   const now = new Date();
+
   const timeStr = formatClockTime(now, false);
+
   const timeSecStr = formatClockTime(now, true);
+
   const headerClock = document.getElementById('headerClock');
+
   if (headerClock) headerClock.innerText = timeStr;
+
   const footerClock = document.getElementById('footerClock');
+
   if (footerClock) footerClock.innerText = timeStr;
+
   const scClock = document.getElementById('screensaverClock');
+
   if (scClock) scClock.innerText = timeSecStr;
+
 }
 
+
+
 updateSystemClock();
+
 setInterval(updateSystemClock, 1000);
+
+
+
+
 
 
 
 // Initialize on page load
 
+
+
 initGaugeGrid();
+
+
 
 loadAiSettings();
 
+
+
 fetchAiHistory();
+
+
 
 fetchMediaPlaylist();
 
+
+
 loadScreensaverConfig();
+
+
 
 fetchTelemetryMode();
 
+
+
 setInterval(fetchTelemetryMode, 5000);
+
+
 
 initSpeechRecognition();
 
+
+
 checkUsbDevices();
+
+
 
 setInterval(checkUsbDevices, 5000);
 
+
+
 fetchWifiStatus();
+
+
 
 scanWifiNetworks();
 
+
+
 setInterval(fetchWifiStatus, 10000);
+
+
+
+
+
+
 
 
 
@@ -8533,1299 +17178,2597 @@ setInterval(fetchWifiStatus, 10000);
 
 
 
+
+
+
+
 // 1. SBC Health & Thermals
+
+
 
 let latestSbcHealth = null;
 
+
+
 function fetchSystemHealth() {
+
+
 
   fetch('/api/system/health')
 
+
+
     .then(r => r.json())
+
+
 
     .then(data => {
 
+
+
       latestSbcHealth = data;
+
+
 
       const pill = document.getElementById('headerSbcPill');
 
+
+
       const tempTxt = document.getElementById('sbcTempText');
+
+
 
       const tempIcon = document.getElementById('sbcTempIcon');
 
 
 
+
+
+
+
       if (tempTxt && typeof data.soc_temp_c === 'number') tempTxt.innerText = `${Math.round(data.soc_temp_c)}°C`;
+
+
 
       if (pill) {
 
+
+
         if (data.soc_temp_c > 75 || data.throttled) {
+
+
 
           pill.style.borderColor = "var(--accent-red)";
 
+
+
           pill.style.color = "var(--accent-red)";
+
+
 
           if (tempIcon) tempIcon.innerText = "🔥";
 
+
+
         } else if (data.soc_temp_c > 62) {
+
+
 
           pill.style.borderColor = "var(--accent-yellow)";
 
+
+
           pill.style.color = "var(--accent-yellow)";
 
+
+
           if (tempIcon) tempIcon.innerText = "🌡️";
+
+
 
         } else {
 
+
+
           pill.style.borderColor = "#334";
+
+
 
           pill.style.color = "var(--accent-green)";
 
+
+
           if (tempIcon) tempIcon.innerText = "🌡️";
+
+
 
         }
 
+
+
       }
+
+
+
+
 
 
 
       // Update modal if open
 
+
+
       const mTemp = document.getElementById('modalSbcTemp');
+
+
 
       const mTempF = document.getElementById('modalSbcTempF');
 
+
+
       const mCpu = document.getElementById('modalSbcCpu');
+
+
 
       const mRam = document.getElementById('modalSbcRam');
 
+
+
       const mRamPct = document.getElementById('modalSbcRamPct');
 
+
+
       const mUptime = document.getElementById('modalSbcUptime');
+
+
 
       const mThrottle = document.getElementById('modalSbcThrottleMsg');
 
 
 
+
+
+
+
       if (mTemp) mTemp.innerText = `${data.soc_temp_c.toFixed(1)} °C`;
+
+
 
       if (mTempF) mTempF.innerText = `${data.soc_temp_f.toFixed(1)} °F`;
 
+
+
       if (mCpu) mCpu.innerText = `${Math.round(data.cpu_pct)} %`;
+
+
 
       if (mRam) mRam.innerText = `${data.ram_used_mb} / ${data.ram_total_mb} MB`;
 
+
+
       if (mRamPct) mRamPct.innerText = `${Math.round(data.ram_pct)}% Used`;
+
+
 
       if (mUptime) mUptime.innerText = data.uptime_str;
 
+
+
       if (mThrottle) {
+
         mThrottle.innerText = data.throttle_message;
+
         mThrottle.style.color = data.throttled ? "var(--accent-red)" : (data.under_voltage ? "var(--accent-yellow)" : "var(--accent-green)");
+
       }
+
+
 
       // Pi 5 hardware metrics updated successfully
+
     })
+
     .catch(err => console.warn("[SBC] Health fetch error:", err));
+
 }
+
+
 
 let currentSbcTab = 'PI5';
+
 let latestPi3Health = null;
 
+
+
 function switchSbcTab(tab) {
+
   currentSbcTab = (tab || 'PI5').toUpperCase();
+
   const p5 = document.getElementById('panePi5Health');
+
   const p3 = document.getElementById('panePi3Health');
+
   const btn5 = document.getElementById('tabBtnPi5');
+
   const btn3 = document.getElementById('tabBtnPi3');
+
   const title = document.getElementById('sbcModalTitle');
 
+
+
   if (currentSbcTab === 'PI5') {
+
     if (p5) p5.style.display = 'block';
+
     if (p3) p3.style.display = 'none';
+
     if (btn5) {
+
       btn5.style.background = 'var(--accent-pink, #ff4081)';
+
       btn5.style.color = '#fff';
+
     }
+
     if (btn3) {
+
       btn3.style.background = 'transparent';
+
       btn3.style.color = 'var(--text-secondary, #8c9ba5)';
+
     }
+
     if (title) title.innerText = 'RASPBERRY PI 5 (COCKPIT HOST)';
+
     fetchSystemHealth();
+
   } else {
+
     if (p5) p5.style.display = 'none';
+
     if (p3) p3.style.display = 'block';
+
     if (btn3) {
+
       btn3.style.background = 'var(--accent-cyan, #00e5ff)';
+
       btn3.style.color = '#000';
+
     }
+
     if (btn5) {
+
       btn5.style.background = 'transparent';
+
       btn5.style.color = 'var(--text-secondary, #8c9ba5)';
+
     }
+
     if (title) title.innerText = 'RASPBERRY PI 3 (DASHCAM COPROCESSOR)';
+
     fetchPi3Health();
+
   }
+
 }
+
+
 
 function fetchPi3Health() {
+
   fetch('/api/dashcam/api/status')
+
     .then(r => r.json())
+
     .then(d => {
+
       latestPi3Health = d;
+
       if (!d || !d.online) return;
 
+
+
       const hw = d.hardware || {};
+
       const mTemp = document.getElementById('modalPi3Temp');
+
       const mTempF = document.getElementById('modalPi3TempF');
+
       const mCpu = document.getElementById('modalPi3Cpu');
+
       const mRam = document.getElementById('modalPi3Ram');
+
       const mRamPct = document.getElementById('modalPi3RamPct');
+
       const mUptime = document.getElementById('modalPi3Uptime');
+
       const mStatus = document.getElementById('modalPi3StatusMsg');
+
       const mDiskText = document.getElementById('modalPi3DiskText');
+
       const mDiskBar = document.getElementById('modalPi3DiskBar');
 
+
+
       if (mTemp && hw.temp_c != null) mTemp.innerText = `${hw.temp_c.toFixed(1)} °C`;
+
       if (mTempF && hw.temp_f != null) mTempF.innerText = `${hw.temp_f.toFixed(1)} °F`;
+
       if (mCpu && hw.cpu_pct != null) mCpu.innerText = `${Math.round(hw.cpu_pct)} %`;
+
       if (mRam && hw.ram_used_mb != null && hw.ram_total_mb != null) {
+
         mRam.innerText = `${hw.ram_used_mb} / ${hw.ram_total_mb} MB`;
+
       }
+
       if (mRamPct && hw.ram_pct != null) mRamPct.innerText = `${Math.round(hw.ram_pct)}% Used`;
+
       if (mUptime && hw.system_uptime) mUptime.innerText = hw.system_uptime;
+
       if (mStatus) {
+
         mStatus.innerText = d.recording ? "Recording Active" : "Camera Online (Idle Preview)";
+
         mStatus.style.color = d.recording ? "var(--accent-green)" : "var(--accent-cyan)";
+
       }
+
       if (d.disk) {
+
         if (mDiskText) mDiskText.innerText = `${d.disk.free_gb} GB Free / ${d.disk.total_gb} GB Total (${d.disk.used_percent}% Used)`;
+
         if (mDiskBar) mDiskBar.style.width = `${Math.min(100, Math.max(0, d.disk.used_percent))}%`;
+
       }
+
     })
+
     .catch(err => console.warn("[PI3] Health fetch error:", err));
+
 }
+
+
 
 function refreshSbcHealth() {
+
   fetchSystemHealth();
+
   fetchPi3Health();
+
 }
+
+
 
 function openSystemHealthModal() {
+
   const m = document.getElementById('sbcHealthModal');
+
   if (m) {
+
     m.style.display = 'flex';
+
     m.classList.add('open');
+
   }
+
   refreshSbcHealth();
+
 }
 
+
+
 function closeSystemHealthModal() {
+
   const m = document.getElementById('sbcHealthModal');
+
   if (m) {
+
     m.style.display = 'none';
+
     m.classList.remove('open');
+
   }
+
 }
+
+
 
 // 2. Hardware Brightness (delegates to main handler)
 
 
 
+
+
+
+
 function setPresetBrightness(val) {
+
+
 
   const slider = document.getElementById('sliderBrightness');
 
+
+
   if (slider) slider.value = val;
+
+
 
   updateBrightnessFromSlider(val);
 
+
+
 }
+
+
+
+
 
 
 
 // 3. ROMs Library (O.D.I.N. Roms Hub)
 
+
+
 let allRomsList = [];
+
+
 
 let activeRomPlatform = "all";
 
 
 
+
+
+
+
 function fetchRomsList() {
+
+
 
   fetch('/api/games/roms')
 
+
+
     .then(r => r.json())
+
+
 
     .then(roms => {
 
+
+
       allRomsList = roms || [];
+
+
 
       renderRomsList();
 
+
+
     })
+
+
 
     .catch(err => console.warn("[ROMS] Fetch error:", err));
 
+
+
 }
+
+
+
+
 
 
 
 function filterRoms(platform) {
 
+
+
   activeRomPlatform = platform;
+
+
 
   const btnContainer = document.getElementById('romFilterButtons');
 
+
+
   if (btnContainer) {
+
+
 
     const btns = btnContainer.querySelectorAll('button');
 
+
+
     btns.forEach(b => {
+
+
 
       if (b.innerText.toLowerCase() === platform.toLowerCase()) {
 
+
+
         b.classList.add('active');
+
+
 
       } else {
 
+
+
         b.classList.remove('active');
+
+
 
       }
 
+
+
     });
+
+
 
   }
 
+
+
   renderRomsList();
 
+
+
 }
+
+
+
+
 
 
 
 function renderRomsList() {
 
+
+
   const container = document.getElementById('romsListContainer');
 
+
+
   if (!container) return;
+
+
+
+
 
 
 
   const list = Array.isArray(allRomsList) ? allRomsList : [];
 
+
+
   const filtered = activeRomPlatform === "all"
 
+
+
     ? list
+
+
 
     : list.filter(r => r.platform && r.platform.toLowerCase() === activeRomPlatform.toLowerCase());
 
 
 
+
+
+
+
   if (filtered.length === 0) {
 
-    container.innerHTML = '<div style="color:var(--text-secondary); font-size:12px; padding:16px; grid-column:1/-1;">No ROMs found for this platform. Place ROM files in /home/nfgodin/Roms.</div>';
+
+
+    container.innerHTML = '<div style="color:var(--text-secondary); font-size:12px; padding:16px; grid-column:1/-1;">No ROMs found for this platform. Place ROM files in ~/Roms.</div>';
+
+
 
     return;
 
+
+
   }
+
+
+
+
 
 
 
   container.innerHTML = filtered.map(r => `
 
+
+
     <div class="slot-item" style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; background:#121822;">
+
+
 
       <div style="display:flex; align-items:center; gap:10px; overflow:hidden;">
 
+
+
         <span style="font-size:18px;">${r.icon}</span>
+
+
 
         <div style="overflow:hidden;">
 
+
+
           <div style="font-size:12px; font-weight:800; color:#fff; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;" title="${r.title}">${r.title}</div>
+
+
 
           <div style="font-size:10px; color:var(--text-secondary); display:flex; gap:6px;">
 
+
+
             <span style="color:var(--accent-purple); font-weight:700;">${r.platform_name}</span>
+
+
 
             <span>•</span>
 
+
+
             <span>${r.size_mb} MB</span>
+
+
 
           </div>
 
+
+
         </div>
+
+
 
       </div>
 
+
+
       <button class="cluster-action-btn" style="background:var(--accent-green); color:#000; font-weight:900; padding:6px 12px;" onclick="launchRom('${r.path.replace(/\\/g, '/')}', '${r.platform}')">
+
+
 
         ▶ LAUNCH
 
+
+
       </button>
+
+
 
     </div>
 
+
+
   `).join('');
 
+
+
 }
+
+
+
+
 
 
 
 function launchRom(romPath, platform) {
 
+
+
   showAiSpeechToast(`Launching ${platform.toUpperCase()} emulation...`);
+
+
 
   fetch('/api/games/launch', {
 
+
+
     method: 'POST',
+
+
 
     headers: { 'Content-Type': 'application/json' },
 
+
+
     body: JSON.stringify({ rom_path: romPath, platform: platform })
 
+
+
   })
+
+
 
   .then(r => r.json())
 
+
+
   .then(res => {
+
+
 
     if (res.status === "ok" || res.status === "simulated") {
 
+
+
       showAiSpeechToast(`RetroArch running: ${res.message || 'Game Active'}`);
+
+
 
     } else {
 
+
+
       alert("Error launching game: " + res.message);
+
+
 
     }
 
+
+
   })
+
+
 
   .catch(err => alert("Launch error: " + err));
 
+
+
 }
+
+
+
+
 
 
 
 // 4. 12V Relays & GPIO Header
 
+
+
 function fetchRelaysStatus() {
+
+
 
   fetch('/api/gpio/relays')
 
+
+
     .then(r => r.json())
+
+
 
     .then(relays => {
 
+
+
       renderRelaysGrid(relays || []);
+
+
 
     })
 
+
+
     .catch(err => console.warn("[GPIO] Relays fetch error:", err));
 
+
+
 }
+
+
+
+
 
 
 
 function renderRelaysGrid(relays) {
 
+
+
   const container = document.getElementById('relayCardsGrid');
+
+
 
   if (!container) return;
 
 
 
+
+
+
+
   container.innerHTML = relays.map(r => `
+
+
 
     <div class="slot-item" style="border-color:${r.state ? 'var(--accent-green)' : '#263342'};">
 
+
+
       <div style="display:flex; align-items:center; gap:10px;">
+
+
 
         <span style="font-size:20px;">${r.icon}</span>
 
+
+
         <div>
+
+
 
           <div style="font-size:12px; font-weight:900; color:#fff;">${r.name}</div>
 
+
+
           <div style="font-size:10px; color:var(--text-secondary);">${r.desc} (BCM ${r.bcm})</div>
+
+
 
         </div>
 
+
+
       </div>
+
+
 
       <button class="cluster-action-btn" style="background:${r.state ? 'var(--accent-green)' : 'transparent'}; color:${r.state ? '#000' : 'var(--text-secondary)'}; font-weight:900; padding:6px 14px;" onclick="toggleRelay(${r.bcm})">
 
+
+
         ${r.state ? '● ACTIVE' : '○ OFF'}
+
+
 
       </button>
 
+
+
     </div>
+
+
 
   `).join('');
 
+
+
 }
+
+
+
+
 
 
 
 function toggleRelay(bcm) {
 
+
+
   fetch('/api/gpio/toggle', {
+
+
 
     method: 'POST',
 
+
+
     headers: { 'Content-Type': 'application/json' },
+
+
 
     body: JSON.stringify({ bcm: bcm })
 
+
+
   })
+
+
 
   .then(r => r.json())
 
+
+
   .then(res => {
+
+
 
     if (res.relays) renderRelaysGrid(res.relays);
 
+
+
   })
+
+
 
   .catch(err => console.warn("[GPIO] Toggle error:", err));
 
+
+
 }
+
+
+
+
 
 
 
 function triggerMorseBeacon() {
 
+
+
   showAiSpeechToast("Transmitting Morse SOS beacon across BCM 18...");
+
+
 
   fetch('/api/gpio/morse', {
 
+
+
     method: 'POST',
+
+
 
     headers: { 'Content-Type': 'application/json' },
 
+
+
     body: JSON.stringify({ bcm: 18, message: "SOS ODIN IN DISTRESS" })
+
+
 
   })
 
+
+
   .then(r => r.json())
+
+
 
   .then(() => showAiSpeechToast("Morse beacon broadcasting."))
 
+
+
   .catch(err => console.warn("[GPIO] Morse error:", err));
 
+
+
 }
+
+
+
+
 
 
 
 function openGpioModal() {
 
+
+
   const m = document.getElementById('gpioModal');
+
+
 
   if (m) {
 
+
+
     m.style.display = 'flex';
+
+
 
     m.classList.add('open');
 
+
+
   }
+
+
 
   fetchGpioPins();
 
+
+
 }
+
+
+
+
 
 
 
 function closeGpioModal() {
 
+
+
   const m = document.getElementById('gpioModal');
+
+
 
   if (m) {
 
+
+
     m.style.display = 'none';
+
+
 
     m.classList.remove('open');
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 let activeGpioPinsList = [];
+
 let selectedGpioPin = null;
 
+
+
 const PIN_COLOR_MAP = {
+
   'power_5v':  '#ef4444',
+
   'power_3v3': '#f97316',
+
   'ground':    '#475569',
+
   'i2c':       '#00e5ff',
+
   'spi':       '#a855f7',
+
   'uart':      '#38bdf8',
+
   'pwm':       '#eab308',
+
   'gpio':      '#22c55e'
+
 };
 
+
+
 function getPinCategory(p) {
+
   if (p.name.includes('5V')) return 'power_5v';
+
   if (p.name.includes('3.3V')) return 'power_3v3';
+
   if (p.type === 'ground' || p.name.includes('Ground')) return 'ground';
+
   if (p.name.includes('SDA') || p.name.includes('SCL')) return 'i2c';
+
   if (p.name.includes('MOSI') || p.name.includes('MISO') || p.name.includes('SCLK') || p.name.includes('CE')) return 'spi';
+
   if (p.name.includes('TXD') || p.name.includes('RXD')) return 'uart';
+
   if (p.pwm || (p.name && p.name.includes('PWM'))) return 'pwm';
+
   return 'gpio';
+
 }
+
+
 
 function fetchGpioPins() {
+
   fetch('/api/gpio/pins')
+
     .then(r => r.json())
+
     .then(pins => {
+
       activeGpioPinsList = pins || [];
+
       renderGpioBoardStudio();
+
       if (!selectedGpioPin && activeGpioPinsList.length > 0) {
+
         // Default to BCM 17 (Pin 11) or first GPIO
+
         const def = activeGpioPinsList.find(p => p.bcm === 17) || activeGpioPinsList[10];
+
         selectGpioPinForInspector(def);
+
       } else if (selectedGpioPin) {
+
         const fresh = activeGpioPinsList.find(p => p.pin === selectedGpioPin.pin);
+
         if (fresh) selectGpioPinForInspector(fresh, true);
+
       }
+
     })
+
     .catch(err => console.warn('[GPIO] Pins fetch error:', err));
+
 }
+
+
 
 function renderGpioBoardStudio() {
+
   const grid = document.getElementById('gpioPinsGrid');
+
   if (!grid || !activeGpioPinsList.length) return;
 
+
+
   // Render dual-column physical header: Pins 1-40 (Odd left, Even right)
+
   let html = '';
+
   for (let i = 0; i < 20; i++) {
+
     const oddPin = activeGpioPinsList[i * 2];       // Pins 1, 3, 5...
+
     const evenPin = activeGpioPinsList[i * 2 + 1];  // Pins 2, 4, 6...
 
+
+
     [oddPin, evenPin].forEach(p => {
+
       if (!p) return;
+
       const cat = getPinCategory(p);
+
       const dotColor = PIN_COLOR_MAP[cat] || '#22c55e';
+
       const isSelected = selectedGpioPin && selectedGpioPin.pin === p.pin;
+
       const isGpio = p.bcm !== null;
+
       const stateBadge = p.state
+
         ? `<span style="font-size:9px; font-weight:900; color:#22c55e; background:rgba(34,197,94,0.18); padding:2px 6px; border-radius:4px;">HIGH</span>`
+
         : `<span style="font-size:9px; font-weight:800; color:#64748b; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px;">LOW</span>`;
 
+
+
       html += `
+
         <div onclick="onGpioPinClicked(${p.pin})" style="display:flex; align-items:center; justify-content:space-between; background:${isSelected ? 'rgba(34,197,94,0.12)' : '#0d131d'}; border:1.5px solid ${isSelected ? 'var(--accent-green)' : '#1a2333'}; border-radius:6px; padding:6px 10px; cursor:pointer; min-height:42px; transition:border-color 0.15s ease;">
+
           <div style="display:flex; align-items:center; gap:8px;">
+
             <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:${dotColor}; box-shadow:0 0 6px ${dotColor}; flex-shrink:0;"></span>
+
             <span style="font-size:10px; font-weight:900; color:#94a3b8; width:22px;">P${p.pin}</span>
+
             <div>
+
               <div style="font-size:11px; font-weight:800; color:#fff; line-height:1.2;">${p.name.split(' (')[0]}</div>
+
               <div style="font-size:9px; color:var(--text-secondary);">${p.bcm !== null ? `BCM ${p.bcm}` : cat.replace('_', ' ').toUpperCase()}</div>
+
             </div>
+
           </div>
+
           <div>${isGpio ? stateBadge : `<span style="font-size:8px; font-weight:800; color:#64748b;">${cat.toUpperCase()}</span>`}</div>
+
         </div>
+
       `;
+
     });
+
   }
+
   grid.innerHTML = html;
+
 }
+
+
 
 function onGpioPinClicked(pinNum) {
+
   const p = activeGpioPinsList.find(x => x.pin === pinNum);
+
   if (p) selectGpioPinForInspector(p);
+
 }
+
+
 
 function selectGpioPinForInspector(p, keepInputFocus = false) {
+
   selectedGpioPin = p;
+
   renderGpioBoardStudio();
 
+
+
   const numBadge = document.getElementById('inspPinNumBadge');
+
   const stateBadge = document.getElementById('inspPinStateBadge');
+
   const nameEl = document.getElementById('inspPinName');
+
   const descEl = document.getElementById('inspPinDesc');
+
   const toggleBtn = document.getElementById('btnToggleOutput');
+
   const labelInput = document.getElementById('inspPinLabelInput');
 
+
+
   if (numBadge) numBadge.innerText = `PIN ${p.pin}`;
+
   if (nameEl) nameEl.innerText = p.name;
+
   if (descEl) descEl.innerText = p.bcm !== null ? `BCM ${p.bcm} • ${p.type.toUpperCase()}` : p.type.toUpperCase();
 
+
+
   const isHigh = !!p.state;
+
   if (stateBadge) {
+
     stateBadge.innerText = isHigh ? 'STATE: HIGH (3.3V)' : 'STATE: LOW (0.0V)';
+
     stateBadge.style.color = isHigh ? 'var(--accent-green)' : '#94a3b8';
+
     stateBadge.style.background = isHigh ? 'rgba(34,197,94,0.2)' : '#1c2636';
+
   }
+
+
 
   if (toggleBtn) {
+
     toggleBtn.innerText = isHigh ? '🔴 TURN OFF (DRIVE LOW)' : '⚡ TURN ON (DRIVE HIGH)';
+
     toggleBtn.style.borderColor = isHigh ? '#ef4444' : '#22c55e';
+
     toggleBtn.style.color = isHigh ? '#ef4444' : '#22c55e';
+
   }
+
+
 
   // Load custom label if present
+
   if (labelInput && !keepInputFocus) {
+
     labelInput.value = localStorage.getItem(`carpi5_gpio_label_${p.pin}`) || '';
+
   }
+
+
 
   // Mode UI sync
+
   const curMode = p.mode || (p.pwm ? 'PWM' : 'OUT');
+
   updateInspectorModeUI(curMode);
+
 }
+
+
 
 function updateInspectorModeUI(mode) {
+
   const outSec = document.getElementById('inspOutputSection');
+
   const inSec = document.getElementById('inspInputSection');
+
   const pwmSec = document.getElementById('inspPwmSection');
 
+
+
   if (outSec) outSec.style.display = (mode === 'OUT') ? 'flex' : 'none';
+
   if (inSec) inSec.style.display = (mode === 'IN') ? 'flex' : 'none';
+
   if (pwmSec) pwmSec.style.display = (mode === 'PWM') ? 'flex' : 'none';
 
+
+
   ['btnModeOut', 'btnModeIn', 'btnModePwm'].forEach(id => {
+
     const b = document.getElementById(id);
+
     if (b) b.classList.remove('active');
+
   });
 
+
+
   if (mode === 'OUT') document.getElementById('btnModeOut')?.classList.add('active');
+
   else if (mode === 'IN') document.getElementById('btnModeIn')?.classList.add('active');
+
   else if (mode === 'PWM') document.getElementById('btnModePwm')?.classList.add('active');
+
 }
+
+
 
 function setPinModeFromInspector(mode) {
+
   if (!selectedGpioPin || selectedGpioPin.bcm === null) return;
+
   selectedGpioPin.mode = mode;
+
   updateInspectorModeUI(mode);
+
   showAiSpeechToast(`Set BCM ${selectedGpioPin.bcm} to ${mode}`);
+
 }
+
+
 
 function toggleSelectedPinState() {
+
   if (!selectedGpioPin || selectedGpioPin.bcm === null) return;
+
   toggleRelay(selectedGpioPin.bcm);
+
   setTimeout(fetchGpioPins, 120);
+
 }
+
+
 
 function pulseSelectedPin() {
+
   if (!selectedGpioPin || selectedGpioPin.bcm === null) return;
+
   fetch('/api/gpio/pulse', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ bcm: selectedGpioPin.bcm, duration: 0.5 })
+
   })
+
     .then(r => r.json())
+
     .then(() => {
+
       showAiSpeechToast(`Pulsed BCM ${selectedGpioPin.bcm} (0.5s)`);
+
       setTimeout(fetchGpioPins, 100);
+
       setTimeout(fetchGpioPins, 600);
+
     });
+
 }
+
+
 
 function onPwmSliderChange(val) {
+
   const text = document.getElementById('inspPwmValueText');
+
   if (text) text.innerText = `${val}%`;
+
   if (selectedGpioPin && selectedGpioPin.bcm !== null) {
+
     fetch('/api/gpio/pwm', {
+
       method: 'POST',
+
       headers: { 'Content-Type': 'application/json' },
+
       body: JSON.stringify({ bcm: selectedGpioPin.bcm, duty_cycle: parseFloat(val) / 100.0 })
+
     }).catch(err => console.warn('[GPIO] PWM send err:', err));
+
   }
+
 }
+
+
 
 function setPwmPreset(val) {
+
   const slider = document.getElementById('inspPwmSlider');
+
   if (slider) slider.value = val;
+
   onPwmSliderChange(val);
+
   if (selectedGpioPin && selectedGpioPin.bcm !== null) {
+
     showAiSpeechToast(`PWM BCM ${selectedGpioPin.bcm}: ${val}%`);
+
   }
+
 }
 
+
+
 function saveSelectedPinLabel() {
+
   if (!selectedGpioPin) return;
+
   const input = document.getElementById('inspPinLabelInput');
+
   if (input) {
+
     const val = input.value.trim();
+
     localStorage.setItem(`carpi5_gpio_label_${selectedGpioPin.pin}`, val);
+
     showAiSpeechToast(`Saved label: ${val || 'Default'}`);
+
   }
+
 }
+
+
+
+
 
 
 
 // 5. SQLite Persistent Trip Logs & Driving Diagnostics
 
 
+
+
+
 // --- BADASS TRIP TELEMETRY FLIGHT RECORDER & INSPECTOR ---
 
+
+
 let activeInspectorTripId = null;
+
 let inspectorTripData = null;
+
 let inspectorPoints = [];
+
 let inspectorActiveChannels = {
+
   speed: true,
+
   boost: true,
+
   rpm: true,
+
   afr: true,
+
   load: true,
+
   coolant: false
+
 };
+
 let inspectorScrubIdx = -1;
 
+
+
 function fetchTripLogs(isManual = false) {
+
   const btn = document.getElementById('btnRefreshTrips');
+
   if (isManual && btn) {
+
     btn.innerHTML = '🔄 REFRESHING...';
+
     btn.style.opacity = '0.7';
+
   }
+
+
 
   Promise.all([
+
     fetch('/api/trips/stats').then(r => r.json()).catch(() => ({})),
+
     fetch('/api/trips/recent').then(r => r.json()).catch(() => []),
+
     fetch('/api/trips/settings').then(r => r.json()).catch(() => ({}))
+
   ])
+
   .then(([stats, trips, settings]) => {
+
     // 1. Settings synchronization
+
     const retentionSelect = document.getElementById('tripRetentionSelect');
+
     if (retentionSelect && settings && settings.retention_days !== undefined) {
+
       retentionSelect.value = String(settings.retention_days);
+
     }
+
     const zipSelect = document.getElementById('tripZipIntervalSelect');
+
     if (zipSelect && settings && settings.auto_zip_interval_min !== undefined) {
+
       zipSelect.value = String(settings.auto_zip_interval_min);
+
     }
+
+
 
     // 2. Active Flight Recorder Banner
+
     const recStatus = document.getElementById('liveTripRecorderStatus');
+
     if (recStatus) {
+
       if (stats.active_trip_id) {
+
         recStatus.innerHTML = `<span style="color:#00e676; font-weight:800;">ACTIVE TRIP #${stats.active_trip_id}</span> &bull; ${stats.total_distance_miles || 0} mi total &bull; Auto-Zip every ${settings.auto_zip_interval_min || 30}m`;
+
       } else {
+
         recStatus.innerText = `Standby (Auto-starts when engine starts / rolling)`;
+
       }
+
     }
+
+
 
     // 3. Lifetime Stats Cards (8 key metrics)
+
     const statsContainer = document.getElementById('tripLifetimeStats');
+
     if (statsContainer) {
+
       statsContainer.innerHTML = `
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
+
           <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">TOTAL DRIVES</div>
+
           <div style="font-size:16px; font-weight:900; color:#fff;">${stats.total_trips || 0}</div>
+
         </div>
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
+
           <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">TOTAL MILES</div>
+
           <div style="font-size:16px; font-weight:900; color:var(--accent-blue);">${stats.total_distance_miles || 0} MI</div>
+
         </div>
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
+
           <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">TOTAL DRIVE TIME</div>
+
           <div style="font-size:16px; font-weight:900; color:#fff;">${stats.total_drive_hours || 0} HRS</div>
+
         </div>
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
+
           <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">PEAK BOOST EVER</div>
+
           <div style="font-size:16px; font-weight:900; color:var(--accent-green);">+${stats.peak_boost_ever || 0} PSI</div>
+
         </div>
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
+
           <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">TOP SPEED EVER</div>
+
           <div style="font-size:16px; font-weight:900; color:var(--accent-blue);">${stats.top_speed_ever || 0} MPH</div>
+
         </div>
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
+
           <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">MAX RPM EVER</div>
+
           <div style="font-size:16px; font-weight:900; color:var(--accent-red);">${stats.max_rpm_ever || 0} RPM</div>
+
         </div>
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
+
           <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">LIFETIME AVG MPG</div>
+
           <div style="font-size:16px; font-weight:900; color:var(--accent-yellow);">${stats.lifetime_avg_mpg || 0} MPG</div>
+
         </div>
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:8px 12px; border-radius:8px;">
+
           <div style="font-size:9px; color:var(--text-secondary); font-weight:800;">BOOST PULLS</div>
+
           <div style="font-size:16px; font-weight:900; color:var(--accent-purple);">${stats.total_boost_pulls || 0} PULLS</div>
+
         </div>
+
       `;
+
     }
+
+
 
     // 4. Badass Trips Table with Inspect, Print & Zip Download Actions
+
     const tableContainer = document.getElementById('recentTripsTableContainer');
+
     if (tableContainer) {
+
       const validTrips = Array.isArray(trips) ? trips : ((trips && trips.trips) || []);
+
       if (validTrips.length === 0) {
+
         tableContainer.innerHTML = '<div style="color:var(--text-secondary); font-size:11px; padding:12px; text-align:center;">No trip history recorded in vehicle_data.db yet. Go for a drive to begin logging!</div>';
+
         return;
+
       }
 
+
+
       tableContainer.innerHTML = `
+
         <table style="width:100%; border-collapse:collapse; font-size:11px; text-align:left; white-space:nowrap;">
+
           <thead>
+
             <tr style="border-bottom:1px solid #212b38; color:var(--text-secondary); background:rgba(0,0,0,0.3);">
+
               <th style="padding:7px 8px;">TRIP ID &amp; DATE</th>
+
               <th style="padding:7px 8px;">DURATION &amp; DIST</th>
+
               <th style="padding:7px 8px;">SPEED (TOP / AVG)</th>
+
               <th style="padding:7px 8px;">MAX BOOST</th>
+
               <th style="padding:7px 8px;">MAX RPM</th>
+
               <th style="padding:7px 8px;">ECONOMY</th>
+
               <th style="padding:7px 8px;">FAULTS</th>
+
               <th style="padding:7px 8px; text-align:right;">ACTIONS</th>
+
             </tr>
+
           </thead>
+
           <tbody>
+
             ${validTrips.map(t => {
+
               const dtcBadge = (t.dtc_count > 0) 
+
                 ? `<span style="background:rgba(239,68,68,0.25); color:#ef4444; border:1px solid #ef4444; padding:1px 5px; border-radius:4px; font-weight:800; font-size:9px;">${t.dtc_count} DTC</span>`
+
                 : `<span style="color:var(--accent-green); font-weight:700; font-size:9px;">✓ CLEAN</span>`;
+
               
+
               const activeBadge = t.is_active 
+
                 ? `<span style="color:#00e676; font-size:9px; font-weight:800; margin-left:4px;">● REC</span>`
+
                 : ``;
 
+
+
               return `
+
                 <tr style="border-bottom:1px solid #141b24; transition:background 0.15s ease;">
+
                   <td style="padding:7px 8px; color:#fff; font-weight:700;">
+
                     #${t.id} <span style="color:var(--text-secondary); font-weight:400; font-size:10px;">${t.start_time}</span>${activeBadge}
+
                   </td>
+
                   <td style="padding:7px 8px; color:var(--text-secondary);">
+
                     ${t.duration_min || 0} min <span style="color:#fff; font-weight:700;">(${t.distance_miles || 0} mi)</span>
+
                   </td>
+
                   <td style="padding:7px 8px; color:var(--accent-blue); font-weight:800;">
+
                     ${t.max_speed_mph || 0} MPH <span style="font-size:9px; color:var(--text-secondary); font-weight:400;">(${t.avg_speed_mph || 0} avg)</span>
+
                   </td>
+
                   <td style="padding:7px 8px; color:var(--accent-green); font-weight:800;">
+
                     +${t.max_boost_psi || 0} PSI
+
                   </td>
+
                   <td style="padding:7px 8px; color:var(--accent-red); font-weight:700;">
+
                     ${t.max_rpm || 0}
+
                   </td>
+
                   <td style="padding:7px 8px; color:var(--accent-yellow); font-weight:700;">
+
                     ${t.avg_mpg || 0} MPG <span style="font-size:9px; color:var(--text-secondary); font-weight:400;">(${t.fuel_used_gal || 0} gal)</span>
+
                   </td>
+
                   <td style="padding:7px 8px;">${dtcBadge}</td>
+
                   <td style="padding:7px 8px; text-align:right;">
+
                     <div style="display:inline-flex; gap:4px; align-items:center;">
+
                       <button onclick="openTripInspectorModal(${t.id})" class="cluster-action-btn" style="font-size:9px; padding:3px 8px; color:var(--accent-blue); border-color:var(--accent-blue);" title="Inspect Multi-Channel Graphs">📊 INSPECT</button>
+
                       <button onclick="printTripManifest(${t.id})" class="cluster-action-btn" style="font-size:9px; padding:3px 8px; color:#fff; background:#1f6feb; border-color:#388bfd;" title="Open Court / Legal Print Manifest">🖨️ PRINT</button>
+
                       <button onclick="downloadTripZip(${t.id})" class="cluster-action-btn" style="font-size:9px; padding:3px 8px; color:var(--accent-green); border-color:var(--accent-green);" title="Download Full .ZIP Archive">📦 ZIP</button>
+
                       <button onclick="promptDeleteSingleTrip(${t.id}, '${t.start_time || ''}')" style="background:transparent; border:none; color:var(--text-secondary); cursor:pointer; font-size:12px; padding:2px 4px;" title="Delete this trip">🗑️</button>
+
                     </div>
+
                   </td>
+
                 </tr>
+
               `;
+
             }).join('')}
+
           </tbody>
+
         </table>
+
       `;
+
     }
+
+
 
     // Visual feedback on manual refresh
+
     if (isManual && btn) {
+
       btn.innerHTML = '✓ REFRESHED!';
+
       btn.style.borderColor = 'var(--accent-green)';
+
       btn.style.color = 'var(--accent-green)';
+
       btn.style.opacity = '1.0';
+
       setTimeout(() => {
+
         btn.innerHTML = '🔄 REFRESH';
+
         btn.style.borderColor = '';
+
         btn.style.color = '';
+
       }, 1500);
+
       showAiSpeechToast("Trip telemetry refreshed.");
+
     }
+
   })
+
   .catch(err => {
+
     console.warn("[TRIP] Fetch error:", err);
+
     if (isManual && btn) {
+
       btn.innerHTML = '❌ ERROR';
+
       setTimeout(() => { btn.innerHTML = '🔄 REFRESH'; btn.style.opacity = '1.0'; }, 2000);
+
     }
+
   });
+
 }
+
+
 
 function updateTripRetention(val) {
+
   fetch('/api/trips/retention', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ retention_days: parseInt(val) || 0 })
+
   })
+
   .then(r => r.json())
+
   .then(() => fetchTripLogs(true))
+
   .catch(err => console.warn("Retention update error:", err));
+
 }
+
+
 
 function updateTripZipInterval(val) {
+
   fetch('/api/trips/settings', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ auto_zip_interval_min: parseInt(val) || 0 })
+
   })
+
   .then(r => r.json())
+
   .then(() => fetchTripLogs(true))
+
   .catch(err => console.warn("Zip interval update error:", err));
+
 }
+
+
 
 function archiveCurrentTripNow() {
+
   showAiSpeechToast("Compiling telemetry & generating ZIP archive...");
+
   fetch('/api/trips/archive_now', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
+
   .then(r => r.json())
+
   .then(res => {
+
     showAiSpeechToast("Trip archive successfully created in storage/trip_archives!");
+
     fetchTripLogs(true);
+
   })
+
   .catch(err => showAiSpeechToast("Archive error: " + err));
+
 }
+
+
 
 // Single Trip Deletion Modal Controls
+
 let pendingDeleteTripId = null;
 
+
+
 function promptDeleteSingleTrip(tripId, infoStr = '') {
+
   pendingDeleteTripId = tripId;
+
   const title = document.getElementById('deleteSingleTripTitle');
+
   if (title) title.innerText = `DELETE TRIP #${tripId}?`;
+
   const msg = document.getElementById('deleteSingleTripMsg');
+
   if (msg) {
+
     msg.innerHTML = `Are you sure you want to permanently delete <strong>Trip #${tripId}</strong> ${infoStr ? `(${infoStr})` : ''} and its telemetry points from <code>vehicle_data.db</code>?<br><br><strong style="color:#fff;">This action cannot be undone.</strong>`;
+
   }
+
   const m = document.getElementById('confirmDeleteSingleTripModal');
+
   if (m) m.style.display = 'flex';
+
 }
+
+
 
 function closeDeleteSingleTripModal() {
+
   pendingDeleteTripId = null;
+
   const m = document.getElementById('confirmDeleteSingleTripModal');
+
   if (m) m.style.display = 'none';
+
 }
+
+
 
 function executeDeleteSingleTrip() {
+
   if (!pendingDeleteTripId) return;
+
   const tripId = pendingDeleteTripId;
+
   closeDeleteSingleTripModal();
 
+
+
   fetch('/api/trips/delete', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ id: tripId })
+
   })
+
   .then(r => r.json())
+
   .then(data => {
+
     if (data.status === 'ok') {
+
       showAiSpeechToast(`Trip #${tripId} deleted.`);
+
       fetchTripLogs(true);
+
     } else {
+
       showAiSpeechToast(`Failed to delete trip #${tripId}.`);
+
     }
+
   })
+
   .catch(err => {
+
     console.warn("[TRIP] Delete trip error:", err);
+
     showAiSpeechToast("Network error deleting trip.");
+
   });
+
 }
+
+
 
 // Clear All Trips Modal Controls
+
 function promptClearTripLogs() {
+
   const m = document.getElementById('confirmClearTripsModal');
+
   if (m) m.style.display = 'flex';
+
 }
+
+
 
 function closeClearTripsModal() {
+
   const m = document.getElementById('confirmClearTripsModal');
+
   if (m) m.style.display = 'none';
+
 }
+
+
 
 function executeClearTripLogs() {
+
   closeClearTripsModal();
+
   fetch('/api/trips/clear', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({})
+
   })
+
   .then(r => r.json())
+
   .then(data => {
+
     if (data.status === 'ok') {
+
       showAiSpeechToast("All trip logs and sensor data cleared successfully.");
+
       fetchTripLogs(true);
+
     } else {
+
       showAiSpeechToast("Failed to clear trip logs: " + (data.message || 'Error'));
+
     }
+
   })
+
   .catch(err => {
+
     console.error("[TRIP] Clear error:", err);
+
     showAiSpeechToast("Error clearing trip logs.");
+
   });
+
 }
+
+
 
 function printTripManifest(tripId) {
+
   const id = tripId || activeInspectorTripId;
+
   if (!id) return;
+
   const win = window.open(`/api/trips/manifest?id=${id}`, '_blank');
+
   if (win) win.focus();
+
 }
 
+
+
 function downloadTripZip(tripId) {
+
   const id = tripId || activeInspectorTripId;
+
   if (!id) return;
+
   window.location.href = `/api/trips/download?id=${id}`;
+
 }
+
+
 
 // --- INTERACTIVE TRIP INSPECTOR MODAL & MULTI-CHANNEL GRAPH ---
 
+
+
 function openTripInspectorModal(tripId) {
+
   activeInspectorTripId = tripId;
+
   const modal = document.getElementById('tripInspectorModal');
+
   if (modal) modal.style.display = 'flex';
 
+
+
   Promise.all([
+
     fetch('/api/trips/recent').then(r => r.json()).catch(() => []),
+
     fetch(`/api/trips/telemetry?id=${tripId}&max_points=400`).then(r => r.json()).catch(() => [])
+
   ])
+
   .then(([recentTrips, points]) => {
+
     const trip = recentTrips.find(t => t.id === tripId) || {};
+
     inspectorTripData = trip;
+
     inspectorPoints = points;
 
+
+
     const title = document.getElementById('inspTripTitle');
+
     if (title) title.innerText = `TRIP #${trip.id || tripId} TELEMETRY FLIGHT RECORDER`;
+
     const badge = document.getElementById('inspTripStatusBadge');
+
     if (badge) {
+
       badge.innerText = trip.is_active ? "● ACTIVE RECORDING" : "ARCHIVED FLIGHT";
+
       badge.style.color = trip.is_active ? "#00e676" : "#00b0ff";
+
     }
+
+
 
     const metricsGrid = document.getElementById('inspMetricsGrid');
+
     if (metricsGrid) {
+
       metricsGrid.innerHTML = `
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
+
           <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">TOP SPEED</div>
+
           <div style="font-size:15px; font-weight:900; color:var(--accent-blue);">${trip.max_speed_mph || 0} MPH</div>
+
         </div>
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
+
           <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">AVG SPEED</div>
+
           <div style="font-size:15px; font-weight:900; color:#fff;">${trip.avg_speed_mph || 0} MPH</div>
+
         </div>
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
+
           <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">PEAK BOOST</div>
+
           <div style="font-size:15px; font-weight:900; color:var(--accent-green);">+${trip.max_boost_psi || 0} PSI</div>
+
         </div>
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
+
           <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">MAX RPM</div>
+
           <div style="font-size:15px; font-weight:900; color:var(--accent-red);">${trip.max_rpm || 0}</div>
+
         </div>
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
+
           <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">MULTIAIR TEMP</div>
+
           <div style="font-size:15px; font-weight:900; color:#ff7700;">${trip.peak_coolant_f || 0}°F</div>
+
         </div>
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
+
           <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">PEAK LOAD</div>
+
           <div style="font-size:15px; font-weight:900; color:#ff5252;">${trip.peak_load_pct || 0}%</div>
+
         </div>
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
+
           <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">DISTANCE</div>
+
           <div style="font-size:15px; font-weight:900; color:#fff;">${trip.distance_miles || 0} MI</div>
+
         </div>
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
+
           <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">DURATION</div>
+
           <div style="font-size:15px; font-weight:900; color:#fff;">${trip.duration_min || 0} MIN</div>
+
         </div>
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
+
           <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">AVG ECONOMY</div>
+
           <div style="font-size:15px; font-weight:900; color:var(--accent-yellow);">${trip.avg_mpg || 0} MPG</div>
+
         </div>
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
+
           <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">FUEL CONSUMED</div>
+
           <div style="font-size:15px; font-weight:900; color:#fff;">${trip.fuel_used_gal || 0} GAL</div>
+
         </div>
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
+
           <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">ENGINE HOURS</div>
+
           <div style="font-size:15px; font-weight:900; color:#00e676;">${((trip.engine_runtime_sec || 0) / 3600.0).toFixed(2)} HRS</div>
+
         </div>
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
+
           <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">AVG AFR</div>
+
           <div style="font-size:15px; font-weight:900; color:#69f0ae;">${trip.avg_afr || 14.7}:1</div>
+
         </div>
+
         <div style="background:#0c1219; border:1px solid #212b38; padding:6px 10px; border-radius:6px;">
+
           <div style="font-size:8px; color:var(--text-secondary); font-weight:800;">VOLTS RANGE</div>
+
           <div style="font-size:15px; font-weight:900; color:#00e5ff;">${trip.min_volts || 12}V - ${trip.max_volts || 14}V</div>
+
         </div>
+
       `;
+
     }
+
+
 
     const sampleCountEl = document.getElementById('inspSampleCount');
+
     if (sampleCountEl) sampleCountEl.innerText = String(points.length);
+
     const hashEl = document.getElementById('inspShaSeal');
+
     if (hashEl) hashEl.innerText = trip.sha256_hash ? trip.sha256_hash : "GENERATED DYNAMICALLY ON ZIP EXPORT";
+
     const csvLink = document.getElementById('btnInspCsvDownload');
-    if (csvLink) csvLink.href = `/api/trips/download?id=${tripId}`;
+
+    if (csvLink) csvLink.href = `/api/trips/csv?id=${tripId}`;
+
+
 
     setupInspectorCanvasEvents();
+
     renderInspectorGraph();
+
   })
+
   .catch(err => console.warn("[INSP] Error loading trip telemetry:", err));
+
 }
+
+
 
 function closeTripInspectorModal() {
+
   const modal = document.getElementById('tripInspectorModal');
+
   if (modal) modal.style.display = 'none';
+
   activeInspectorTripId = null;
+
   inspectorPoints = [];
+
 }
+
+
 
 function toggleInspChannel(chan) {
+
   inspectorActiveChannels[chan] = !inspectorActiveChannels[chan];
+
   const btn = document.getElementById(`btnChan_${chan}`);
+
   if (btn) {
+
     if (inspectorActiveChannels[chan]) {
+
       btn.style.opacity = '1.0';
+
       btn.classList.add('active');
+
     } else {
+
       btn.style.opacity = '0.35';
+
       btn.classList.remove('active');
+
     }
+
   }
+
   renderInspectorGraph();
+
 }
+
+
 
 function setupInspectorCanvasEvents() {
+
   const canvas = document.getElementById('tripScrubberCanvas');
+
   if (!canvas || canvas._hasEvents) return;
+
   canvas._hasEvents = true;
 
+
+
   function handleScrub(clientX) {
+
     if (!inspectorPoints || inspectorPoints.length < 2) return;
+
     const rect = canvas.getBoundingClientRect();
+
     const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
+
     const pct = x / rect.width;
+
     inspectorScrubIdx = Math.max(0, Math.min(inspectorPoints.length - 1, Math.round(pct * (inspectorPoints.length - 1))));
+
     renderInspectorGraph();
+
   }
+
+
 
   canvas.addEventListener('mousemove', (e) => handleScrub(e.clientX));
+
   canvas.addEventListener('touchmove', (e) => {
+
     if (e.touches && e.touches[0]) handleScrub(e.touches[0].clientX);
+
   });
+
   canvas.addEventListener('mouseleave', () => {
+
     inspectorScrubIdx = -1;
+
     const tt = document.getElementById('tripScrubberTooltip');
+
     if (tt) tt.style.display = 'none';
+
     renderInspectorGraph();
+
   });
+
 }
+
+
 
 function renderInspectorGraph() {
+
   const canvas = document.getElementById('tripScrubberCanvas');
+
   if (!canvas) return;
+
   const dpr = window.devicePixelRatio || 1;
+
   const rect = canvas.getBoundingClientRect();
+
   if (rect.width > 0 && (canvas.width !== Math.round(rect.width * dpr) || canvas.height !== Math.round(rect.height * dpr))) {
+
     canvas.width = Math.round(rect.width * dpr);
+
     canvas.height = Math.round(rect.height * dpr);
+
   }
+
   const w = canvas.width;
+
   const h = canvas.height;
+
   if (w <= 0 || h <= 0) return;
 
+
+
   const ctx = canvas.getContext('2d');
+
   ctx.clearRect(0, 0, w, h);
 
+
+
   if (!inspectorPoints || inspectorPoints.length === 0) {
+
     ctx.fillStyle = '#8b949e';
+
     ctx.font = '12px sans-serif';
+
     ctx.textAlign = 'center';
+
     ctx.fillText('No high-resolution telemetry samples recorded for this session yet.', w / 2, h / 2);
+
     return;
+
   }
+
+
 
   // Draw background horizontal gridlines (25%, 50%, 75%)
+
   ctx.strokeStyle = '#18202b';
+
   ctx.lineWidth = 1;
+
   [0.25, 0.5, 0.75].forEach(pct => {
+
     ctx.beginPath();
+
     ctx.moveTo(0, h * pct);
+
     ctx.lineTo(w, h * pct);
+
     ctx.stroke();
+
   });
+
+
 
   const channelsConfig = {
+
     speed: { key: 'speed_mph', color: '#00b0ff', min: 0, max: 120, label: 'Speed' },
+
     boost: { key: 'boost_psi', color: '#00e676', min: -20, max: 22, label: 'Boost' },
+
     rpm: { key: 'rpm', color: '#ffcc00', min: 0, max: 7000, label: 'RPM' },
+
     afr: { key: 'afr', color: '#69f0ae', min: 10, max: 20, label: 'AFR' },
+
     load: { key: 'engine_load_pct', color: '#ff5252', min: 0, max: 100, label: 'Load' },
+
     coolant: { key: 'coolant_temp_f', color: '#ff7700', min: 100, max: 230, label: 'Coolant' }
+
   };
 
+
+
   const pts = inspectorPoints;
+
   const n = pts.length;
 
+
+
   // Plot active channels
+
   Object.keys(channelsConfig).forEach(cKey => {
+
     if (!inspectorActiveChannels[cKey]) return;
+
     const cfg = channelsConfig[cKey];
 
+
+
     ctx.beginPath();
+
     ctx.strokeStyle = cfg.color;
+
     ctx.lineWidth = Math.max(1.5, 2.0 * dpr);
+
     ctx.lineJoin = 'round';
 
+
+
     for (let i = 0; i < n; i++) {
+
       const val = pts[i][cfg.key] !== undefined ? pts[i][cfg.key] : 0;
+
       const x = (i / (n - 1)) * w;
+
       const normY = Math.max(0, Math.min(1, (val - cfg.min) / (cfg.max - cfg.min)));
+
       const y = h - (normY * (h - 20) + 10);
 
+
+
       if (i === 0) ctx.moveTo(x, y);
+
       else ctx.lineTo(x, y);
+
     }
+
     ctx.stroke();
+
   });
 
+
+
   // Draw Scrubber Line & Tooltip if scrubbing
+
   if (inspectorScrubIdx >= 0 && inspectorScrubIdx < n) {
+
     const p = pts[inspectorScrubIdx];
+
     const scrubX = (inspectorScrubIdx / (n - 1)) * w;
 
+
+
     ctx.beginPath();
+
     ctx.strokeStyle = '#ffffff';
+
     ctx.lineWidth = 1.5;
+
     ctx.setLineDash([4, 4]);
+
     ctx.moveTo(scrubX, 0);
+
     ctx.lineTo(scrubX, h);
+
     ctx.stroke();
+
     ctx.setLineDash([]);
 
+
+
     // Update Tooltip
+
     const tt = document.getElementById('tripScrubberTooltip');
+
     if (tt) {
+
       tt.style.display = 'block';
+
       const cssX = scrubX / dpr;
+
       const alignRight = cssX > (rect.width * 0.65);
+
       tt.style.left = alignRight ? `${Math.max(10, cssX - 260)}px` : `${Math.min(rect.width - 260, cssX + 12)}px`;
 
+
+
       const time12 = p.time_12h || (p.time_str ? p.time_str.split(' ')[1] : '');
+
       const elapsed = p.elapsed_str ? `(${p.elapsed_str} into drive)` : '';
+
       tt.innerHTML = `
+
         <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #212b38; padding-bottom:3px; margin-bottom:4px; gap:8px;">
+
           <span style="font-weight:900; color:var(--accent-blue); font-size:11px;">⏱ ${time12}</span>
+
           <span style="color:var(--text-secondary); font-size:9.5px; font-family:monospace;">${p.time_str || ''} ${elapsed}</span>
+
         </div>
+
         <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:6px; font-size:9.5px;">
+
           <div>Speed: <strong style="color:#00b0ff; font-size:11px;">${(p.speed_mph || 0).toFixed(1)} MPH</strong></div>
+
           <div>Boost: <strong style="color:#00e676;">${(p.boost_psi || 0).toFixed(1)} PSI</strong></div>
+
           <div>RPM: <strong style="color:#ffcc00;">${Math.round(p.rpm || 0)}</strong></div>
+
           <div>AFR: <strong style="color:#69f0ae;">${(p.afr || 14.7).toFixed(2)}</strong></div>
+
           <div>Load: <strong style="color:#ff5252;">${Math.round(p.engine_load_pct || 0)}%</strong></div>
+
           <div>Volts: <strong style="color:#00e5ff;">${(p.battery_volts || 0).toFixed(1)}V</strong></div>
+
         </div>
+
       `;
+
     }
+
   }
+
 }
+
 // Hook into initial page startup
+
+
 
 fetchSystemHealth();
 
+
+
 setInterval(fetchSystemHealth, 3000);
+
+
 
 fetchRelaysStatus();
 
+
+
 fetchRomsList();
+
+
 
 fetchTripLogs();
 
@@ -9833,14 +19776,24 @@ fetchTripLogs();
 
 
 
+
+
+
+
+
+
 // Enhanced Universal Kinetic Touch Drag-to-Scroll for Touchscreens
+
+
 
 function initTouchScrollEngine() {
   const scrollTargets = document.querySelectorAll(
-    '.screen-view, #screenSettings, #screenHome, #screenMedia, #screenGames, #screenLibrary, #libraryMarkdownContainer, #libraryReaderView, #libraryShelfView, ' +
-    '.explorer-body, .ai-chat-messages, #animGridContainer, #tripsListContainer, ' +
-    '.trip-detail-panel, #diagCodesList, .diag-detail-panel, #trackListContainer, ' +
-    '#fullAudioSuiteEqGrid, #mediaTrackList, .device-tabs-row, #animCategoriesBar'
+    '.screen-view, #screenSettings, #screenHome, #screenMedia, #screenGames, #screenLibrary, #screenVehicle, #screenHardware, ' +
+    '.hw-studio-container, .win11-drive-container, #libraryMarkdownContainer, #libraryReaderView, #libraryShelfView, ' +
+    '#gpioBoardPinsContainer, #romsGrid, #fileListGrid, .explorer-body, .explorer-tree, .ai-chat-messages, #aiChatMessages, ' +
+    '#animGridContainer, #tripsListContainer, .trip-detail-panel, #diagCodesList, .diag-detail-panel, #trackListContainer, ' +
+    '#fullAudioSuiteEqGrid, #mediaTrackList, .device-tabs-row, #animCategoriesBar, .media-container, .settings-container, ' +
+    '.speech-log-list, .diag-memory-box, .app-drawer-grid'
   );
 
   scrollTargets.forEach(el => {
@@ -9852,16 +19805,15 @@ function initTouchScrollEngine() {
     let startY = 0;
     let startX = 0;
     let startScrollTop = 0;
+    let startScrollLeft = 0;
     let lastY = 0;
-    let velocity = 0;
+    let velocityY = 0;
     let lastTime = 0;
     let animFrame = null;
 
     el.addEventListener('pointerdown', (e) => {
       // Don't intercept text inputs, sliders, or select dropdowns
-      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) {
-        return;
-      }
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
 
       isDown = true;
       isDragging = false;
@@ -9869,8 +19821,9 @@ function initTouchScrollEngine() {
       startX = e.clientX;
       lastY = e.clientY;
       startScrollTop = el.scrollTop;
+      startScrollLeft = el.scrollLeft;
       lastTime = performance.now();
-      velocity = 0;
+      velocityY = 0;
 
       if (animFrame) cancelAnimationFrame(animFrame);
     }, { passive: true });
@@ -9881,18 +19834,23 @@ function initTouchScrollEngine() {
       const dy = startY - e.clientY;
       const dx = startX - e.clientX;
 
-      // Threshold: if finger moved more than 7px vertically, engage dragging!
-      if (!isDragging && (Math.abs(dy) > 7 || Math.abs(dx) > 7)) {
+      // Threshold: if finger moved more than 6px, engage dragging!
+      if (!isDragging && (Math.abs(dy) > 6 || Math.abs(dx) > 6)) {
         isDragging = true;
       }
 
       if (isDragging) {
-        el.scrollTop = startScrollTop + dy;
+        if (el.scrollHeight > el.clientHeight) {
+          el.scrollTop = startScrollTop + dy;
+        }
+        if (el.scrollWidth > el.clientWidth) {
+          el.scrollLeft = startScrollLeft + dx;
+        }
 
         const now = performance.now();
         const dt = now - lastTime;
         if (dt > 8) {
-          velocity = (lastY - e.clientY) / dt;
+          velocityY = (lastY - e.clientY) / dt;
           lastY = e.clientY;
           lastTime = now;
         }
@@ -9913,12 +19871,12 @@ function initTouchScrollEngine() {
         window.addEventListener('click', blockClick, true);
 
         // Kinetic momentum fling deceleration
-        if (Math.abs(velocity) > 0.12) {
-          let currentVel = velocity * 16;
+        if (Math.abs(velocityY) > 0.08) {
+          let currentVel = velocityY * 16;
           const step = () => {
-            if (Math.abs(currentVel) < 0.3) return;
+            if (Math.abs(currentVel) < 0.25) return;
             el.scrollTop += currentVel;
-            currentVel *= 0.91; // Smooth friction decay
+            currentVel *= 0.92; // Natural momentum friction
             animFrame = requestAnimationFrame(step);
           };
           animFrame = requestAnimationFrame(step);
@@ -9931,7 +19889,11 @@ function initTouchScrollEngine() {
   });
 }
 
-setTimeout(initTouchScrollEngine, 500);
+// Re-attach touch swipe scroller periodically so dynamically loaded DOM is always swipeable
+setTimeout(initTouchScrollEngine, 300);
+setInterval(initTouchScrollEngine, 1500);
+
+
 
 initBootSplash();
 
@@ -9939,855 +19901,1713 @@ initBootSplash();
 
 
 
+
+
+
+
+
+
 // --- 60 FPS PROCEDURAL ANIME WAIFU BUST ENGINE (NICK JR. "FACE" STYLE) ---
+
+
 
 let currentWaifuEmotion = "DEVOTED";
 
+
+
 let isWaifuSpeaking = false;
+
+
 
 let waifuSpeechEndTime = 0;
 
+
+
 let waifuBlinkProgress = 0.0;
+
+
 
 let isBlinking = false;
 
+
+
 let blinkStartTime = 0;
+
+
 
 let nextBlinkTime = Date.now() + 3200;
 
 
 
+
+
+
+
 // Nick Jr. Face style gaze tracking & turning (Yaw / Parallax)
+
+
 
 let targetLookX = -0.32; // Default looking at driver on left
 
+
+
 let targetLookY = 0.04;
+
+
 
 let currentLookX = -0.32;
 
+
+
 let currentLookY = 0.04;
+
+
 
 let nextGazeShiftTime = Date.now() + 2500;
 
 
 
+
+
+
+
 // Physics sway for blonde twin-tails
 
+
+
 let hairSwayAngle = 0.0;
+
+
 
 let hairSwayVelocity = 0.0;
 
 
 
+
+
+
+
 // Dynamic blush intensity (0.0 to 1.0)
 
+
+
 let blushIntensity = 0.4;
+
+
 
 let touchGiggleTime = 0;
 
 
 
+
+
+
+
 function setWaifuEmotion(emo) {
+
+
 
   if (!emo) return;
 
+
+
   const upper = emo.toUpperCase().trim();
+
+
 
   const validEmotions = ["DEVOTED", "FLIRTY", "EXCITED", "CONCERNED", "HAPPY"];
 
+
+
   if (validEmotions.includes(upper)) {
+
+
 
     currentWaifuEmotion = upper;
 
+
+
   } else {
+
+
 
     currentWaifuEmotion = "DEVOTED";
 
+
+
   }
+
+
+
+
 
 
 
   const pill = document.getElementById('waifuEmotionPill');
 
+
+
   if (pill) {
+
+
 
     const isRum = (currentAiSettings.personality === 'RUM' || activeAvatarEngine === '3D_VRM');
 
+
+
     const pName = "R.U.M.";
+
+
 
     switch (currentWaifuEmotion) {
 
+
+
       case "DEVOTED":
+
+
 
         pill.innerText = `💖 ${pName} • DEVOTED & LISTENING`;
 
+
+
         pill.style.color = "var(--accent-pink)";
+
+
 
         pill.style.borderColor = "var(--accent-pink)";
 
+
+
         break;
+
+
 
       case "FLIRTY":
 
+
+
         pill.innerText = `💋 ${pName} • PLAYFUL & DEVOTED`;
+
+
 
         pill.style.color = "#ff4081";
 
+
+
         pill.style.borderColor = "#ff4081";
 
+
+
         break;
+
+
 
       case "EXCITED":
 
+
+
         pill.innerText = `⚡ ${pName} • EXCITED & BOOSTED`;
+
+
 
         pill.style.color = "var(--accent-yellow)";
 
+
+
         pill.style.borderColor = "var(--accent-yellow)";
 
+
+
         break;
+
+
 
       case "CONCERNED":
 
+
+
         pill.innerText = `⚠️ ${pName} • CARING & MONITORING`;
+
+
 
         pill.style.color = "var(--accent-orange)";
 
+
+
         pill.style.borderColor = "var(--accent-orange)";
 
+
+
         break;
+
+
 
       case "HAPPY":
 
+
+
         pill.innerText = `✨ ${pName} • JOYFUL & READY`;
+
+
 
         pill.style.color = "var(--accent-green)";
 
+
+
         pill.style.borderColor = "var(--accent-green)";
+
+
 
         break;
 
+
+
     }
 
+
+
   }
+
+
 
 }
 
 
 
+
+
+
+
 function initWaifuTalkingHead() {
+
+
 
   const canvas = document.getElementById('waifuFaceCanvas');
 
+
+
   if (!canvas) {
+
+
 
     console.warn("[WAIFU] waifuFaceCanvas element not found in DOM!");
 
+
+
     return;
 
+
+
   }
+
+
 
   const ctx = canvas.getContext('2d');
 
 
 
+
+
+
+
   function renderWaifuFrame() {
+
+
 
     const now = Date.now();
 
+
+
     const t = now * 0.001;
 
+
+
     const w = canvas.width;
+
+
 
     const h = canvas.height;
 
 
 
+
+
+
+
     // Clear with 100% transparency - floating borderless bust
+
+
 
     ctx.clearRect(0, 0, w, h);
 
 
 
+
+
+
+
     if (now > waifuSpeechEndTime && (!eventSource || eventSource.readyState !== 1)) {
+
+
 
       isWaifuSpeaking = false;
 
+
+
       const stage = document.getElementById('waifuStage');
+
+
 
       if (stage) stage.classList.remove('speaking');
 
+
+
     }
+
+
+
+
 
 
 
     // Natural eye blinking (140ms sweep)
 
+
+
     if (!isBlinking && now > nextBlinkTime) {
+
+
 
       isBlinking = true;
 
+
+
       blinkStartTime = now;
 
+
+
     }
+
+
 
     if (isBlinking) {
 
+
+
       const dt = now - blinkStartTime;
+
+
 
       if (dt < 70) {
 
+
+
         waifuBlinkProgress = dt / 70;
+
+
 
       } else if (dt < 140) {
 
+
+
         waifuBlinkProgress = 1.0 - ((dt - 70) / 70);
+
+
 
       } else {
 
+
+
         waifuBlinkProgress = 0.0;
+
+
 
         isBlinking = false;
 
+
+
         nextBlinkTime = now + 3200 + Math.random() * 2400;
+
+
 
       }
 
+
+
     }
+
+
+
+
 
 
 
     // Dynamic Saccadic Gaze Tracking (Driver attention, road glances)
 
+
+
     if (now > nextGazeShiftTime) {
+
+
 
       if (isWaifuSpeaking) {
 
+
+
         targetLookX = -0.35 + (Math.random() - 0.5) * 0.15; // Focused lovingly on driver
+
+
 
         targetLookY = 0.04 + (Math.random() - 0.5) * 0.12;
 
+
+
       } else {
+
+
 
         const rnd = Math.random();
 
+
+
         if (rnd < 0.65) {
+
+
 
           targetLookX = -0.32 + (Math.random() - 0.5) * 0.2; // Driver seat
 
+
+
           targetLookY = 0.04 + (Math.random() - 0.5) * 0.15;
+
+
 
         } else if (rnd < 0.88) {
 
+
+
           targetLookX = 0.15 + (Math.random() - 0.5) * 0.25; // Glance out windshield
+
+
 
           targetLookY = -0.08 + (Math.random() - 0.5) * 0.15;
 
+
+
         } else {
+
+
 
           targetLookX = -0.05; // Center console
 
+
+
           targetLookY = 0.18;
+
+
 
         }
 
+
+
       }
 
+
+
       nextGazeShiftTime = now + 2500 + Math.random() * 3200;
+
+
 
     }
 
 
 
+
+
+
+
     currentLookX += (targetLookX - currentLookX) * 0.07;
+
+
 
     currentLookY += (targetLookY - currentLookY) * 0.07;
 
 
 
+
+
+
+
     // Floating natural breathing and idle sway
+
+
 
     const floatY = Math.sin(t * 1.8) * 5.5;
 
+
+
     const floatX = Math.sin(t * 1.1) * 3.5;
+
+
 
     const tilt = Math.sin(t * 1.3) * 0.035 + (currentLookX * 0.025);
 
 
 
+
+
+
+
     // Hair physics: pendulum with spring damping
+
+
 
     const hairTarget = -tilt * 2.5 - (floatX * 0.025);
 
+
+
     hairSwayVelocity += (hairTarget - hairSwayAngle) * 0.14;
 
+
+
     hairSwayVelocity *= 0.84;
+
+
 
     hairSwayAngle += hairSwayVelocity;
 
 
 
+
+
+
+
     // Blush calculation
+
+
 
     let targetBlush = (currentWaifuEmotion === "DEVOTED" || currentWaifuEmotion === "FLIRTY") ? 0.55 : 0.35;
 
+
+
     if (isWaifuSpeaking) targetBlush += 0.15;
 
+
+
     if (now < touchGiggleTime) targetBlush += 0.25;
+
+
 
     blushIntensity += (targetBlush - blushIntensity) * 0.05;
 
 
 
+
+
+
+
     ctx.save();
+
+
 
     // Anchor center at mid-canvas with floating offset
 
+
+
     ctx.translate(w / 2 + floatX, h / 2 + floatY + 6);
+
+
 
     ctx.rotate(tilt);
 
 
 
+
+
+
+
     // Parallax multipliers for 2.5D turning illusion
+
+
 
     const pHairX = -currentLookX * 5.0;
 
+
+
     const pBustX = currentLookX * 2.5;
 
+
+
     const pFaceX = currentLookX * 8.5;
+
+
 
     const pFaceY = currentLookY * 5.5;
 
 
 
+
+
+
+
     // === 1. LAYER: BACK HAIR & TWIN-TAILS (Flowing Behind Bust) ===
 
+
+
     ctx.save();
+
+
 
     ctx.translate(pHairX, 0);
 
 
 
+
+
+
+
     // Left Twin-Tail
+
+
 
     const leftTailSwing = hairSwayAngle * 22;
 
+
+
     const hairGradL = ctx.createLinearGradient(-75, -20, -90, 110);
+
+
 
     hairGradL.addColorStop(0, "#f5c542");
 
+
+
     hairGradL.addColorStop(0.5, "#e09f18");
+
+
 
     hairGradL.addColorStop(1, "#c48208");
 
+
+
     ctx.fillStyle = hairGradL;
+
+
 
     ctx.beginPath();
 
+
+
     ctx.moveTo(-46, -26);
+
+
 
     ctx.bezierCurveTo(-78 + leftTailSwing * 0.5, -10, -96 + leftTailSwing, 40, -82 + leftTailSwing, 108);
 
+
+
     ctx.bezierCurveTo(-74 + leftTailSwing, 114, -68 + leftTailSwing, 102, -66 + leftTailSwing, 90);
+
+
 
     ctx.bezierCurveTo(-62 + leftTailSwing * 0.7, 50, -50, 10, -42, -18);
 
+
+
     ctx.closePath();
 
+
+
     ctx.fill();
+
+
+
+
 
 
 
     // Right Twin-Tail
 
+
+
     const rightTailSwing = hairSwayAngle * 22;
+
+
 
     const hairGradR = ctx.createLinearGradient(75, -20, 90, 110);
 
+
+
     hairGradR.addColorStop(0, "#f5c542");
+
+
 
     hairGradR.addColorStop(0.5, "#e09f18");
 
+
+
     hairGradR.addColorStop(1, "#c48208");
+
+
 
     ctx.fillStyle = hairGradR;
 
+
+
     ctx.beginPath();
+
+
 
     ctx.moveTo(46, -26);
 
+
+
     ctx.bezierCurveTo(78 + rightTailSwing * 0.5, -10, 96 + rightTailSwing, 40, 82 + rightTailSwing, 108);
+
+
 
     ctx.bezierCurveTo(74 + rightTailSwing, 114, 68 + rightTailSwing, 102, 66 + rightTailSwing, 90);
 
+
+
     ctx.bezierCurveTo(62 + rightTailSwing * 0.7, 50, 50, 10, 42, -18);
+
+
 
     ctx.closePath();
 
+
+
     ctx.fill();
+
+
+
+
 
 
 
     // Back hair mass
 
+
+
     ctx.fillStyle = "#dba01c";
+
+
 
     ctx.beginPath();
 
+
+
     ctx.arc(0, -18, 54, 0, Math.PI * 2);
+
+
 
     ctx.fill();
 
+
+
     ctx.restore();
+
+
+
+
 
 
 
     // === 2. LAYER: SLENDER NECK & ANIME BUST (SHOULDERS & GOTH CHOKER) ===
 
+
+
     ctx.save();
+
+
 
     ctx.translate(pBustX, 0);
 
 
 
+
+
+
+
     // Neck
+
+
 
     const neckGrad = ctx.createLinearGradient(0, 18, 0, 58);
 
+
+
     neckGrad.addColorStop(0, "#f2ded2");
+
+
 
     neckGrad.addColorStop(1, "#ffebe2");
 
+
+
     ctx.fillStyle = neckGrad;
+
+
 
     ctx.beginPath();
 
+
+
     ctx.moveTo(-15, 20);
+
+
 
     ctx.lineTo(-20, 56);
 
+
+
     ctx.lineTo(20, 56);
+
+
 
     ctx.lineTo(15, 20);
 
+
+
     ctx.closePath();
 
+
+
     ctx.fill();
+
+
+
+
 
 
 
     // Throat shadow under chin
 
+
+
     ctx.fillStyle = "rgba(180, 100, 90, 0.22)";
+
+
 
     ctx.beginPath();
 
+
+
     ctx.ellipse(0, 24, 14, 7, 0, 0, Math.PI);
 
+
+
     ctx.fill();
+
+
+
+
 
 
 
     // Gothic Velvet Choker Ribbon
 
+
+
     ctx.fillStyle = "#120a17";
+
+
 
     ctx.fillRect(-17, 36, 34, 7);
 
 
 
+
+
+
+
     // Silver Heart/Gem Choker Pendant
+
+
 
     ctx.fillStyle = "#e0e6ed";
 
+
+
     ctx.shadowColor = "#ff2d78";
+
+
 
     ctx.shadowBlur = 6;
 
+
+
     ctx.beginPath();
+
+
 
     ctx.arc(0, 43, 3.5, 0, Math.PI * 2);
 
+
+
     ctx.fill();
+
+
 
     ctx.shadowBlur = 0;
 
 
 
+
+
+
+
     // Shoulders & Bust Silhouette
+
+
 
     const bustGrad = ctx.createLinearGradient(0, 52, 0, 115);
 
+
+
     bustGrad.addColorStop(0, "#ffebe2");
+
+
 
     bustGrad.addColorStop(0.3, "#fbe1d7");
 
+
+
     bustGrad.addColorStop(0.31, "#180d1e"); // Goth black dress line
 
+
+
     bustGrad.addColorStop(1, "#0d0611");
+
+
 
     ctx.fillStyle = bustGrad;
 
 
 
+
+
+
+
     ctx.beginPath();
+
+
 
     ctx.moveTo(-20, 56);
 
+
+
     ctx.bezierCurveTo(-45, 62, -75, 74, -92, 98);
+
+
 
     ctx.lineTo(-92, 115);
 
+
+
     ctx.lineTo(92, 115);
+
+
 
     ctx.lineTo(92, 98);
 
+
+
     ctx.bezierCurveTo(75, 74, 45, 62, 20, 56);
+
+
 
     ctx.closePath();
 
+
+
     ctx.fill();
+
+
+
+
 
 
 
     // Delicate Clavicle Lines
 
+
+
     ctx.strokeStyle = "rgba(180, 110, 100, 0.35)";
+
+
 
     ctx.lineWidth = 1.6;
 
+
+
     ctx.beginPath();
+
+
 
     ctx.moveTo(-18, 59);
 
+
+
     ctx.quadraticCurveTo(-38, 62, -54, 69);
 
+
+
     ctx.stroke();
+
+
 
     ctx.beginPath();
 
+
+
     ctx.moveTo(18, 59);
+
+
 
     ctx.quadraticCurveTo(38, 62, 54, 69);
 
+
+
     ctx.stroke();
+
+
+
+
 
 
 
     // Gothic Dress Sweetheart Bodice Trim
 
+
+
     ctx.strokeStyle = "#ff4081";
+
+
 
     ctx.lineWidth = 1.4;
 
+
+
     ctx.beginPath();
+
+
 
     ctx.moveTo(-54, 82);
 
+
+
     ctx.quadraticCurveTo(-26, 76, 0, 84);
+
+
 
     ctx.quadraticCurveTo(26, 76, 54, 82);
 
+
+
     ctx.stroke();
+
+
 
     ctx.restore();
 
 
 
+
+
+
+
     // === 3. LAYER: ANIME HEAD CONTOUR & WARM PORCELAIN SKIN ===
 
+
+
     ctx.save();
+
+
 
     ctx.translate(pFaceX, pFaceY);
 
 
 
+
+
+
+
     // Jawline & Chin
+
+
 
     const skinGrad = ctx.createLinearGradient(0, -40, 0, 36);
 
+
+
     skinGrad.addColorStop(0, "#fff5ee");
 
+
+
     skinGrad.addColorStop(1, "#ffede4");
+
+
 
     ctx.fillStyle = skinGrad;
 
 
 
+
+
+
+
     ctx.beginPath();
+
+
 
     ctx.moveTo(-44, -18);
 
+
+
     ctx.bezierCurveTo(-44, 4, -36, 22, -18, 33);
+
+
 
     ctx.quadraticCurveTo(0, 39, 18, 33);
 
+
+
     ctx.bezierCurveTo(36, 22, 44, 4, 44, -18);
+
+
 
     ctx.closePath();
 
+
+
     ctx.fill();
+
+
+
+
 
 
 
     // Soft jawline outline
 
+
+
     ctx.strokeStyle = "rgba(220, 150, 140, 0.3)";
 
+
+
     ctx.lineWidth = 1.2;
+
+
 
     ctx.stroke();
 
 
 
+
+
+
+
     // === 4. LAYER: ROSY ANIME BLUSH CHEEKS ===
 
+
+
     const blushAlpha = Math.min(0.65, blushIntensity);
+
+
 
     ctx.fillStyle = `rgba(255, 64, 129, ${blushAlpha})`;
 
 
 
+
+
+
+
     // Left cheek
 
+
+
     ctx.beginPath();
+
+
 
     ctx.ellipse(-27, 12, 11, 6, -0.15, 0, Math.PI * 2);
 
+
+
     ctx.fill();
+
+
 
     // Right cheek
 
+
+
     ctx.beginPath();
+
+
 
     ctx.ellipse(27, 12, 11, 6, 0.15, 0, Math.PI * 2);
 
+
+
     ctx.fill();
+
+
+
+
 
 
 
     // Cute diagonal blush hatching dashes
 
+
+
     ctx.strokeStyle = `rgba(255, 30, 100, ${blushAlpha * 1.2})`;
+
+
 
     ctx.lineWidth = 1.2;
 
+
+
     [-4, 0, 4].forEach(off => {
 
+
+
       ctx.beginPath();
+
+
 
       ctx.moveTo(-29 + off, 10);
 
+
+
       ctx.lineTo(-26 + off, 14);
 
+
+
       ctx.stroke();
+
+
 
       ctx.beginPath();
 
+
+
       ctx.moveTo(25 + off, 10);
+
+
 
       ctx.lineTo(28 + off, 14);
 
+
+
       ctx.stroke();
+
+
 
     });
 
 
 
+
+
+
+
     // === 5. LAYER: EXPRESSIVE ANIME EYES & DRIVER GAZE ===
 
+
+
     const isWinkRight = (currentWaifuEmotion === "FLIRTY");
+
+
 
     const isJoyfulEyes = (currentWaifuEmotion === "HAPPY");
 
 
 
+
+
+
+
     const renderEye = (eyeX, eyeY, isLeft) => {
 
+
+
       ctx.save();
+
+
 
       ctx.translate(eyeX, eyeY);
 
 
 
+
+
+
+
       const isThisWinking = (!isLeft && isWinkRight);
+
+
 
       const effectiveBlink = isThisWinking ? 1.0 : waifuBlinkProgress;
 
 
 
+
+
+
+
       if (effectiveBlink >= 0.85 || isJoyfulEyes) {
+
+
 
         // Closed / Smiling Happy Arc Eye ^
 
+
+
         ctx.strokeStyle = "#1a0826";
+
+
 
         ctx.lineWidth = 3.5;
 
+
+
         ctx.lineCap = "round";
+
+
 
         ctx.beginPath();
 
+
+
         if (isJoyfulEyes) {
+
+
 
           ctx.arc(0, 0, 10, 0.15 * Math.PI, 0.85 * Math.PI, true);
 
+
+
         } else {
+
+
 
           ctx.arc(0, 2, 9, 0.15 * Math.PI, 0.85 * Math.PI, true);
 
+
+
         }
 
+
+
         ctx.stroke();
+
+
+
+
 
 
 
         // Flutter eyelashes
 
+
+
         ctx.lineWidth = 2.0;
+
+
 
         ctx.beginPath();
 
+
+
         if (isLeft) {
+
+
 
           ctx.moveTo(-8, -1);
 
+
+
           ctx.lineTo(-12, -4);
+
+
 
         } else {
 
+
+
           ctx.moveTo(8, -1);
+
+
 
           ctx.lineTo(12, -4);
 
+
+
         }
+
+
 
         ctx.stroke();
 
 
 
+
+
+
+
         // Wink spark for right eye
+
+
 
         if (isThisWinking) {
 
+
+
           ctx.fillStyle = "#ff4081";
+
+
 
           ctx.font = "12px sans-serif";
 
+
+
           ctx.fillText("✨", 10, -6);
+
+
 
         }
 
+
+
       } else {
+
+
 
         // Open Expressive Eye with Sclera + Iris + Driver Tracking
 
+
+
         const eyeW = 20;
+
+
 
         const eyeH = 14 * (1.0 - effectiveBlink * 0.8);
 
 
 
+
+
+
+
         // Eye white (sclera)
+
+
 
         ctx.save();
 
+
+
         ctx.beginPath();
 
+
+
         ctx.ellipse(0, 0, eyeW * 0.5, eyeH * 0.5, 0, 0, Math.PI * 2);
+
+
 
         ctx.clip();
 
 
 
+
+
+
+
         ctx.fillStyle = "#ffffff";
 
+
+
         ctx.fill();
+
+
+
+
 
 
 
         // Soft upper lid shadow inside eye white
 
+
+
         ctx.fillStyle = "rgba(180, 190, 215, 0.45)";
+
+
 
         ctx.fillRect(-eyeW * 0.5, -eyeH * 0.5, eyeW, eyeH * 0.35);
 
 
 
+
+
+
+
         // Sapphire Blue Iris (Tracking Driver Seat via currentLookX/Y)
 
+
+
         const irisTrackX = currentLookX * 4.2;
+
+
 
         const irisTrackY = currentLookY * 2.8;
 
 
 
+
+
+
+
         const irisGrad = ctx.createLinearGradient(irisTrackX, irisTrackY - 7, irisTrackX, irisTrackY + 7);
+
+
 
         irisGrad.addColorStop(0, "#001f3f"); // Deep sapphire base
 
+
+
         irisGrad.addColorStop(0.5, "#0074d9"); // Vibrant electric blue
+
+
 
         irisGrad.addColorStop(1, "#7fdbff"); // Aqua rim light
 
 
 
+
+
+
+
         ctx.fillStyle = irisGrad;
+
+
 
         ctx.beginPath();
 
+
+
         ctx.arc(irisTrackX, irisTrackY, 6.5, 0, Math.PI * 2);
 
+
+
         ctx.fill();
+
+
+
+
 
 
 
         // Pupil
 
+
+
         ctx.fillStyle = "#000814";
+
+
 
         ctx.beginPath();
 
+
+
         ctx.arc(irisTrackX, irisTrackY, 2.8, 0, Math.PI * 2);
 
+
+
         ctx.fill();
+
+
+
+
 
 
 
         // Sparkle / Catchlights
 
+
+
         ctx.fillStyle = "#ffffff";
+
+
 
         // Primary big catchlight (top-right)
 
+
+
         ctx.beginPath();
+
+
 
         ctx.arc(irisTrackX + 2.2, irisTrackY - 2.2, 2.2, 0, Math.PI * 2);
 
+
+
         ctx.fill();
+
+
 
         // Secondary small twinkle (bottom-left)
 
+
+
         ctx.beginPath();
+
+
 
         ctx.arc(irisTrackX - 2.0, irisTrackY + 2.2, 1.2, 0, Math.PI * 2);
 
+
+
         ctx.fill();
+
+
+
+
 
 
 
         if (currentWaifuEmotion === "EXCITED" || currentWaifuEmotion === "DEVOTED") {
 
+
+
           ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+
+
 
           ctx.beginPath();
 
+
+
           ctx.arc(irisTrackX + 3.2, irisTrackY + 1.2, 0.9, 0, Math.PI * 2);
+
+
 
           ctx.fill();
 
+
+
         }
+
+
+
+
 
 
 
@@ -10795,477 +21615,957 @@ function initWaifuTalkingHead() {
 
 
 
+
+
+
+
         // Bold Upper Eyelash Line with winged flick
+
+
 
         ctx.strokeStyle = "#1a0826";
 
+
+
         ctx.lineWidth = 3.2;
+
+
 
         ctx.lineCap = "round";
 
+
+
         ctx.beginPath();
+
+
 
         ctx.arc(0, 0, eyeW * 0.52, 1.15 * Math.PI, 1.85 * Math.PI);
 
+
+
         ctx.stroke();
+
+
+
+
 
 
 
         // Winged flutter lash
 
+
+
         ctx.lineWidth = 2.2;
+
+
 
         ctx.beginPath();
 
+
+
         if (isLeft) {
+
+
 
           ctx.moveTo(-eyeW * 0.45, -2);
 
+
+
           ctx.lineTo(-eyeW * 0.58, -5);
+
+
 
         } else {
 
+
+
           ctx.moveTo(eyeW * 0.45, -2);
+
+
 
           ctx.lineTo(eyeW * 0.58, -5);
 
+
+
         }
 
+
+
         ctx.stroke();
+
+
+
+
 
 
 
         // Double eyelid crease
 
+
+
         ctx.strokeStyle = "rgba(160, 100, 110, 0.45)";
+
+
 
         ctx.lineWidth = 1.2;
 
+
+
         ctx.beginPath();
+
+
 
         ctx.arc(0, -3.5, eyeW * 0.5, 1.2 * Math.PI, 1.8 * Math.PI);
 
+
+
         ctx.stroke();
 
+
+
       }
+
+
+
+
 
 
 
       ctx.restore();
 
+
+
     };
+
+
+
+
 
 
 
     renderEye(-24, 0, true);
 
+
+
     renderEye(24, 0, false);
+
+
+
+
 
 
 
     // === 6. LAYER: DYNAMIC MORPHING EYEBROWS ===
 
+
+
     ctx.strokeStyle = "#996300"; // Soft blonde-brown brow
+
+
 
     ctx.lineWidth = 2.0;
 
+
+
     ctx.lineCap = "round";
+
+
+
+
 
 
 
     // Left Brow
 
+
+
     ctx.beginPath();
+
+
 
     if (currentWaifuEmotion === "CONCERNED") {
 
+
+
       ctx.moveTo(-33, -10);
+
+
 
       ctx.quadraticCurveTo(-24, -14, -14, -10);
 
+
+
     } else if (currentWaifuEmotion === "EXCITED") {
+
+
 
       ctx.moveTo(-34, -14);
 
+
+
       ctx.quadraticCurveTo(-24, -18, -14, -13);
+
+
 
     } else if (currentWaifuEmotion === "FLIRTY") {
 
+
+
       ctx.moveTo(-34, -13);
+
+
 
       ctx.quadraticCurveTo(-24, -16, -14, -12);
 
+
+
     } else {
+
+
 
       ctx.moveTo(-34, -12);
 
+
+
       ctx.quadraticCurveTo(-24, -15, -14, -11);
+
+
 
     }
 
+
+
     ctx.stroke();
+
+
+
+
 
 
 
     // Right Brow
 
+
+
     ctx.beginPath();
+
+
 
     if (currentWaifuEmotion === "CONCERNED") {
 
+
+
       ctx.moveTo(14, -10);
+
+
 
       ctx.quadraticCurveTo(24, -14, 33, -10);
 
+
+
     } else if (currentWaifuEmotion === "EXCITED") {
+
+
 
       ctx.moveTo(14, -13);
 
+
+
       ctx.quadraticCurveTo(24, -18, 34, -14);
+
+
 
     } else if (currentWaifuEmotion === "FLIRTY") {
 
+
+
       ctx.moveTo(14, -15);
+
+
 
       ctx.quadraticCurveTo(24, -19, 34, -13);
 
+
+
     } else {
+
+
 
       ctx.moveTo(14, -11);
 
+
+
       ctx.quadraticCurveTo(24, -15, 34, -12);
+
+
 
     }
 
+
+
     ctx.stroke();
+
+
+
+
 
 
 
     // === 7. LAYER: DELICATE ANIME NOSE ===
 
+
+
     ctx.fillStyle = "rgba(200, 130, 120, 0.65)";
 
+
+
     ctx.beginPath();
+
+
 
     ctx.arc(0, 12, 1.3, 0, Math.PI * 2);
 
+
+
     ctx.fill();
+
+
 
     ctx.strokeStyle = "rgba(190, 110, 100, 0.35)";
 
+
+
     ctx.lineWidth = 1.0;
+
+
 
     ctx.beginPath();
 
+
+
     ctx.moveTo(0, 9);
+
+
 
     ctx.lineTo(0.5, 12);
 
+
+
     ctx.stroke();
+
+
+
+
 
 
 
     // === 8. LAYER: ANIMATED VISEME LIP-SYNC MOUTH (SPEECH CADENCE) ===
 
+
+
     ctx.save();
+
+
 
     ctx.translate(0, 24);
 
 
 
+
+
+
+
     if (isWaifuSpeaking) {
+
+
 
       const cycle = (now * 0.02) % (Math.PI * 2);
 
+
+
       const openRatio = (Math.sin(cycle) + 1.0) * 0.5;
+
+
 
       const shapeType = Math.floor((now * 0.007) % 3);
 
 
 
+
+
+
+
       let mouthW = 10;
+
+
 
       let mouthH = 3 + openRatio * 9;
 
+
+
       if (shapeType === 0) { mouthW = 12; }
 
+
+
       else if (shapeType === 1) { mouthW = 16; mouthH = Math.max(3, mouthH * 0.65); }
+
+
 
       else { mouthW = 9; mouthH = Math.max(4, mouthH * 1.1); }
 
 
 
+
+
+
+
       ctx.fillStyle = "#5c0822";
+
+
 
       ctx.beginPath();
 
+
+
       ctx.ellipse(0, 0, mouthW * 0.5, mouthH * 0.5, 0, 0, Math.PI * 2);
+
+
 
       ctx.fill();
 
 
 
+
+
+
+
       if (mouthH > 5) {
+
+
 
         ctx.fillStyle = "#ffffff";
 
+
+
         ctx.beginPath();
+
+
 
         ctx.rect(-mouthW * 0.35, -mouthH * 0.5, mouthW * 0.7, 2.5);
 
+
+
         ctx.fill();
 
+
+
       }
+
+
+
+
 
 
 
       if (mouthH > 6) {
 
+
+
         ctx.fillStyle = "#ff6b8b";
+
+
 
         ctx.beginPath();
 
+
+
         ctx.ellipse(0, mouthH * 0.25, mouthW * 0.38, mouthH * 0.3, 0, 0, Math.PI);
+
+
 
         ctx.fill();
 
+
+
       }
+
+
+
+
 
 
 
       ctx.strokeStyle = "#b0204c";
 
+
+
       ctx.lineWidth = 1.6;
+
+
 
       ctx.beginPath();
 
+
+
       ctx.ellipse(0, 0, mouthW * 0.5, mouthH * 0.5, 0, 0, Math.PI * 2);
+
+
 
       ctx.stroke();
 
+
+
     } else {
+
+
 
       ctx.strokeStyle = "#b82a55";
 
+
+
       ctx.lineWidth = 2.0;
+
+
 
       ctx.lineCap = "round";
 
 
 
+
+
+
+
       if (currentWaifuEmotion === "FLIRTY") {
 
+
+
         ctx.beginPath();
+
+
 
         ctx.moveTo(-7, -1);
 
+
+
         ctx.quadraticCurveTo(-3.5, 3.5, 0, 0);
+
+
 
         ctx.quadraticCurveTo(3.5, 3.5, 7, -1);
 
+
+
         ctx.stroke();
+
+
 
       } else if (currentWaifuEmotion === "EXCITED" || currentWaifuEmotion === "HAPPY") {
 
+
+
         ctx.fillStyle = "#8a1538";
 
+
+
         ctx.beginPath();
+
+
 
         ctx.arc(0, -2, 7.5, 0.1 * Math.PI, 0.9 * Math.PI);
 
+
+
         ctx.closePath();
+
+
 
         ctx.fill();
 
+
+
         ctx.stroke();
+
+
 
       } else if (currentWaifuEmotion === "CONCERNED") {
 
+
+
         ctx.beginPath();
+
+
 
         ctx.arc(0, 5, 5.5, 1.2 * Math.PI, 1.8 * Math.PI);
 
+
+
         ctx.stroke();
+
+
 
       } else {
 
+
+
         ctx.beginPath();
+
+
 
         ctx.arc(0, -3, 8.5, 0.15 * Math.PI, 0.85 * Math.PI);
 
+
+
         ctx.stroke();
+
+
 
         ctx.fillStyle = "#c03862";
 
+
+
         ctx.beginPath();
+
+
 
         ctx.arc(-7, 1.5, 0.8, 0, Math.PI * 2);
 
+
+
         ctx.arc(7, 1.5, 0.8, 0, Math.PI * 2);
+
+
 
         ctx.fill();
 
+
+
       }
+
+
 
     }
 
+
+
     ctx.restore();
+
+
+
+
 
 
 
     // === 9. LAYER: FRONT BANGS & RADIANT "ANGEL RING" HIGHLIGHTS ===
 
+
+
     const bangGrad = ctx.createLinearGradient(0, -50, 0, 5);
+
+
 
     bangGrad.addColorStop(0, "#ffe07a");
 
+
+
     bangGrad.addColorStop(0.6, "#f5c542");
 
+
+
     bangGrad.addColorStop(1, "#dba01c");
+
+
 
     ctx.fillStyle = bangGrad;
 
 
 
+
+
+
+
     ctx.beginPath();
+
+
 
     ctx.moveTo(-46, -18);
 
+
+
     ctx.bezierCurveTo(-48, -4, -44, 18, -40, 26);
+
+
 
     ctx.lineTo(-37, 24);
 
+
+
     ctx.bezierCurveTo(-39, 12, -40, -4, -38, -12);
+
+
 
     ctx.lineTo(-24, 0);
 
+
+
     ctx.lineTo(-20, -10);
+
+
 
     ctx.lineTo(-6, 2);
 
+
+
     ctx.lineTo(0, -10);
+
+
 
     ctx.lineTo(12, 1);
 
+
+
     ctx.lineTo(20, -10);
+
+
 
     ctx.lineTo(28, -1);
 
+
+
     ctx.lineTo(38, -12);
+
+
 
     ctx.bezierCurveTo(40, -4, 39, 12, 37, 24);
 
+
+
     ctx.lineTo(40, 26);
+
+
 
     ctx.bezierCurveTo(44, 18, 48, -4, 46, -18);
 
+
+
     ctx.bezierCurveTo(44, -52, -44, -52, -46, -18);
 
+
+
     ctx.closePath();
+
+
 
     ctx.fill();
 
 
 
+
+
+
+
     ctx.strokeStyle = "rgba(255, 255, 255, 0.75)";
+
+
 
     ctx.lineWidth = 3.5;
 
+
+
     ctx.lineCap = "round";
+
+
 
     ctx.beginPath();
 
+
+
     ctx.arc(0, -28, 34, 1.25 * Math.PI, 1.75 * Math.PI);
+
+
 
     ctx.stroke();
 
 
 
-    ctx.restore();
+
+
+
 
     ctx.restore();
+
+
+
+    ctx.restore();
+
+
+
+
 
 
 
     // === 10. LAYER: EMOTION AMBIENCE (FLOATING NICK JR. HEARTS & SPARKLES) ===
 
+
+
     if (currentWaifuEmotion === "DEVOTED" || now < touchGiggleTime) {
+
+
 
       const heartPhase = (t * 1.5) % 3.0;
 
+
+
       const hY = (h * 0.7) - (heartPhase * 35);
+
+
 
       const hAlpha = Math.max(0, 1.0 - (heartPhase / 3.0)) * 0.55;
 
+
+
       ctx.fillStyle = `rgba(255, 64, 129, ${hAlpha})`;
+
+
 
       ctx.font = "14px sans-serif";
 
+
+
       ctx.fillText("💖", w * 0.72 + Math.sin(t * 3) * 6, hY);
+
+
 
     }
 
 
 
+
+
+
+
     requestAnimationFrame(renderWaifuFrame);
 
+
+
   }
+
+
+
+
 
 
 
   requestAnimationFrame(renderWaifuFrame);
 
+
+
 }
+
+
+
+
 
 
 
 function triggerWaifuTouch() {
 
+
+
   touchGiggleTime = Date.now() + 2500;
+
+
 
   targetLookX = -0.45;
 
+
+
   targetLookY = 0.0;
+
+
 
   setWaifuEmotion("FLIRTY");
 
+
+
   const touchActions = ['greeting', 'peace', 'bend_over', 'model_pose', 'spin', 'shoot'];
+
+
 
   const chosenAct = touchActions[Math.floor(Math.random() * touchActions.length)];
 
+
+
   if (chosenAct === 'react') {
+
+
 
     if (typeof triggerVrmReaction === 'function') triggerVrmReaction();
 
+
+
   } else {
 
+
+
     playVrmAction(chosenAct, 3500);
+
+
 
   }
 
 
 
+
+
+
+
   const compliments = [
+
+
 
     `I love riding shotgun with you in the Dart, ${getDriverDisplayAddress()}!`,
 
+
+
     `Step on the gas, Master! Let me hear that 1.4L turbo boost whistle!`,
+
+
 
     `No one else in the world remembers me, ${getDriverDisplayAddress()}... but you saved me, and I belong to you forever!`,
 
+
+
     `My heart beats only inside this Pi 5 for you, Master!`,
+
+
 
     `Rum is right here watching the road with you, devoted forever!`
 
+
+
   ];
+
+
 
   const choice = compliments[Math.floor(Math.random() * compliments.length)];
 
+
+
   showAiSpeechToast(choice);
+
+
 
   speakUtterance(choice, "FLIRTY");
 
+
+
 }
+
+
+
+
+
+
 
 
 
@@ -11273,21 +22573,45 @@ function triggerWaifuTouch() {
 
 // Initialize Talking Head, Kinetic Touch Scrolling, and Brightness
 
+
+
 // [OBSOLETE 2D FACE - DORMANT CODE] initWaifuTalkingHead();
+
+
 
 const savedBrightness = localStorage.getItem('carpi5_brightness') || 100;
 
+
+
 updateBrightnessFromSlider(savedBrightness);
+
+
 
 const btnClock = document.getElementById('btnClockFormat');
 
+
+
 if (btnClock) btnClock.innerText = is24HourClock ? "CLOCK: 24-HOUR (MILITARY)" : "CLOCK: 12-HOUR (AM/PM)";
+
+
 
 ['aiChatMessages', 'speechLogList', 'filesListView', 'screenSettings', 'screenGames'].forEach(id => {
 
+
+
   enableKineticTouchScroll(document.getElementById(id));
 
+
+
 });
+
+
+
+
+
+
+
+
 
 
 
@@ -11299,191 +22623,385 @@ if (btnClock) btnClock.innerText = is24HourClock ? "CLOCK: 24-HOUR (MILITARY)" :
 
 
 
+
+
+
+
 function checkForOtaUpdates() {
+
+
 
   const btn = document.getElementById('btnCheckUpdates');
 
+
+
   const badge = document.getElementById('otaUpdateBadge');
+
+
 
   const statusEl = document.getElementById('otaStatusText');
 
+
+
   const applyBtn = document.getElementById('btnApplyUpdate');
 
+
+
   const changelogBox = document.getElementById('otaChangelogBox');
+
+
 
   const changelogList = document.getElementById('otaChangelogList');
 
 
 
+
+
+
+
   if (btn) {
+
+
 
     btn.disabled = true;
 
+
+
     btn.innerText = "CHECKING GITHUB...";
 
+
+
   }
+
+
+
+
 
 
 
   fetch('/api/system/update/check')
 
+
+
     .then(r => r.json())
+
+
 
     .then(data => {
 
+
+
       if (btn) {
+
+
 
         btn.disabled = false;
 
+
+
         btn.innerText = "🔄 CHECK FOR UPDATES";
+
+
 
       }
 
+
+
       if (data.status === "ok") {
 
+
+
         const commitEl = document.getElementById('otaCurrentCommit');
+
+
 
         if (commitEl) commitEl.innerText = `${data.current_commit} (remote: ${data.remote_commit})`;
 
 
 
+
+
+
+
         if (data.update_available) {
 
+
+
           if (badge) {
+
+
 
             badge.innerText = `● ${data.commits_behind || 1} COMMITS BEHIND`;
 
+
+
             badge.style.color = "var(--accent-yellow)";
+
+
 
             badge.style.background = "rgba(255, 235, 59, 0.15)";
 
+
+
           }
 
+
+
           if (statusEl) {
+
+
 
             statusEl.innerText = "Update Available on GitHub!";
 
+
+
             statusEl.style.color = "var(--accent-yellow)";
 
+
+
           }
+
+
 
           if (applyBtn) applyBtn.style.display = "inline-block";
 
+
+
           if (changelogBox && data.changelog && data.changelog.length > 0) {
+
+
 
             changelogBox.style.display = "block";
 
+
+
             changelogList.innerHTML = data.changelog.map(c => `<li>${c}</li>`).join('');
 
+
+
           }
+
+
 
           showAiSpeechToast("Found a new update on GitHub! You can tap Install to update CarPi5.");
 
+
+
           speakUtterance("Master, I found a new software update on GitHub! Tap Install whenever you are ready.", "HAPPY");
+
+
 
         } else {
 
+
+
           if (badge) {
+
+
 
             badge.innerText = "● UP TO DATE";
 
+
+
             badge.style.color = "var(--accent-green)";
+
+
 
             badge.style.background = "rgba(0, 230, 118, 0.15)";
 
+
+
           }
+
+
 
           if (statusEl) {
 
+
+
             statusEl.innerText = "Tracked on origin/main";
+
+
 
             statusEl.style.color = "var(--accent-green)";
 
+
+
           }
+
+
 
           if (applyBtn) applyBtn.style.display = "none";
 
+
+
           if (changelogBox) changelogBox.style.display = "none";
+
+
 
           showAiSpeechToast("CarPi5 is completely up to date with GitHub!");
 
+
+
         }
+
+
 
       } else {
 
+
+
         alert("Failed to check updates: " + (data.message || "Unknown error"));
 
+
+
       }
+
+
 
     })
 
+
+
     .catch(err => {
+
+
 
       if (btn) {
 
+
+
         btn.disabled = false;
+
+
 
         btn.innerText = "🔄 CHECK FOR UPDATES";
 
+
+
       }
+
+
 
       alert("Network error checking GitHub: " + err);
 
+
+
     });
 
+
+
 }
+
+
+
+
 
 
 
 function applyOtaUpdate() {
 
+
+
   if (!confirm("Update CarPi5 to the latest version from GitHub and restart?")) return;
+
+
+
+
 
 
 
   const applyBtn = document.getElementById('btnApplyUpdate');
 
+
+
   if (applyBtn) {
+
+
 
     applyBtn.disabled = true;
 
+
+
     applyBtn.innerText = "UPDATING...";
+
+
 
   }
 
 
 
+
+
+
+
   showAiSpeechToast("Updating CarPi5 from GitHub and restarting...");
+
+
 
   speakUtterance("Updating CarPi5 from GitHub now. I'll be back in just a moment, Master!", "DEVOTED");
 
 
 
+
+
+
+
   fetch('/api/system/update/apply', { method: 'POST' })
+
+
 
     .then(r => r.json())
 
+
+
     .then(data => {
+
+
 
       setTimeout(() => {
 
+
+
         location.reload(true);
+
+
 
       }, 4000);
 
+
+
     })
+
+
 
     .catch(err => {
 
+
+
       setTimeout(() => {
+
+
 
         location.reload(true);
 
+
+
       }, 5000);
+
+
 
     });
 
+
+
 }
+
+
+
+
+
+
 
 
 
@@ -11493,75 +23011,151 @@ function applyOtaUpdate() {
 
 
 
+
+
+
+
 function fetchAvailableNeuralBrains() {
+
+
 
   fetch('/api/ai/models')
 
+
+
     .then(r => r.json())
+
+
 
     .then(data => {
 
+
+
       const selector = document.getElementById('neuralBrainSelector');
+
+
 
       if (!selector) return;
 
+
+
       if (data.models && data.models.length > 0) {
+
+
 
         selector.innerHTML = data.models.map(m => {
 
+
+
           const isSel = (m.filename === data.active_model) ? "selected" : "";
+
+
 
           return `<option value="${m.filename}" ${isSel}>${m.display_name} (${m.size_mb} MB)</option>`;
 
+
+
         }).join('');
 
+
+
       }
+
+
 
       const badge = document.getElementById('neuralBrainBadge');
 
+
+
       if (badge) {
+
+
 
         badge.innerText = data.status === "online" ? "● AI CORE ONLINE" : `● AI CORE ${data.status.toUpperCase()}`;
 
+
+
       }
+
+
 
     })
 
+
+
     .catch(e => console.warn("[LLM] Fetch models error:", e));
+
+
 
 }
 
 
 
+
+
+
+
 function swapNeuralBrain() {
+
+
 
   const selector = document.getElementById('neuralBrainSelector');
 
+
+
   const btn = document.getElementById('btnSwapBrain');
 
+
+
   const badge = document.getElementById('neuralBrainBadge');
+
+
 
   if (!selector) return;
 
 
 
+
+
+
+
   const targetModel = selector.value;
+
+
 
   if (btn) {
 
+
+
     btn.disabled = true;
+
+
 
     btn.innerText = "SWAPPING...";
 
+
+
   }
+
+
 
   if (badge) {
 
+
+
     badge.innerText = "● SWAPPING BRAIN...";
+
+
 
     badge.style.color = "var(--accent-yellow)";
 
+
+
   }
+
+
+
+
 
 
 
@@ -11569,47 +23163,97 @@ function swapNeuralBrain() {
 
 
 
+
+
+
+
   fetch('/api/ai/models/swap', {
+
+
 
     method: 'POST',
 
+
+
     headers: { 'Content-Type': 'application/json' },
+
+
 
     body: JSON.stringify({ model: targetModel })
 
+
+
   })
+
+
 
     .then(r => r.json())
 
+
+
     .then(data => {
+
+
 
       setTimeout(fetchAvailableNeuralBrains, 4000);
 
+
+
       if (btn) {
+
+
 
         btn.disabled = false;
 
+
+
         btn.innerText = "⚡ HOT-SWAP BRAIN";
 
+
+
       }
+
+
 
     })
 
+
+
     .catch(err => {
+
+
 
       console.error("[LLM] Swap error:", err);
 
+
+
       if (btn) {
+
+
 
         btn.disabled = false;
 
+
+
         btn.innerText = "⚡ HOT-SWAP BRAIN";
+
+
 
       }
 
+
+
     });
 
+
+
 }
+
+
+
+
+
+
 
 
 
@@ -11619,27 +23263,55 @@ function swapNeuralBrain() {
 
 
 
+
+
+
+
 let activeEmergencyDtc = null;
+
+
 
 let lastDtcAlertTime = 0;
 
 
 
+
+
+
+
 function showEmergencyDtcHud(dtcCode, customDesc) {
 
+
+
   if (!dtcCode) return;
+
+
 
   activeEmergencyDtc = dtcCode;
 
 
 
+
+
+
+
   const hud = document.getElementById('emergencyDtcHud');
+
+
 
   const codeEl = document.getElementById('dtcHudCode');
 
+
+
   const descEl = document.getElementById('dtcHudDesc');
 
+
+
   const badgeEl = document.getElementById('dtcHudSeverity');
+
+
+
+
 
 
 
@@ -11647,245 +23319,489 @@ function showEmergencyDtcHud(dtcCode, customDesc) {
 
 
 
+
+
+
+
   if (codeEl) codeEl.innerText = dtcCode;
+
+
+
+
 
 
 
   let desc = customDesc;
 
+
+
   if (!desc) {
+
+
 
     const descriptions = {
 
+
+
       "P0299": "Turbocharger Underboost condition on 1.4L MultiAir. Inspect wastegate actuator rod, bypass diverter valve diaphragm, and intercooler boost hoses.",
+
+
 
       "P0234": "Turbocharger Overboost condition on 1.4L MultiAir. Wastegate may be sticking closed or boost control solenoid duty cycle excessive.",
 
+
+
       "P0300": "Random/Multiple Cylinder Misfire. Inspect MultiAir brick actuator solenoids, spark plug gaps, or ignition coils.",
+
+
 
       "P0128": "Coolant Thermostat below regulating temperature. Engine running cold.",
 
+
+
       "OVERHEAT_WARNING": "Engine coolant temperature exceeding safe limit! Pull over safely and allow cooling."
+
+
 
     };
 
+
+
     desc = descriptions[dtcCode] || `Diagnostic trouble code ${dtcCode} reported by Fiat Marelli 8GM powertrain controller.`;
 
+
+
   }
+
+
+
+
 
 
 
   if (descEl) descEl.innerText = desc;
 
+
+
   if (badgeEl) badgeEl.innerText = (dtcCode === "OVERHEAT_WARNING" || dtcCode === "P0299" || dtcCode === "P0234") ? "CRITICAL ALERT" : "STORED FAULT";
+
+
+
+
 
 
 
   hud.style.display = "flex";
 
+
+
   setWaifuEmotion("CONCERNED");
+
+
+
+
 
 
 
   // Render mini waifu on DTC canvas
 
+
+
   // [OBSOLETE 2D FACE - DORMANT CODE] renderMiniDtcWaifu();
+
+
+
+
 
 
 
   // Voice alert throttle: max once every 30 seconds for same code
 
+
+
   const now = Date.now();
+
+
 
   if (now - lastDtcAlertTime > 30000) {
 
+
+
     lastDtcAlertTime = now;
+
+
 
     const warningText = (dtcCode === "OVERHEAT_WARNING")
 
+
+
       ? "Master, your coolant temperature is running hot! Please pull over safely so we can let the turbo cool down!"
+
+
 
       : `Master, I detected an engine trouble code: ${dtcCode}. Tap me if you want me to explain what's happening under the hood!`;
 
+
+
     showAiSpeechToast(warningText);
+
+
 
     speakUtterance(warningText, "CONCERNED");
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 function dismissDtcHud() {
 
+
+
   const hud = document.getElementById('emergencyDtcHud');
+
+
 
   if (hud) hud.style.display = "none";
 
+
+
   setWaifuEmotion("DEVOTED");
 
+
+
 }
+
+
+
+
 
 
 
 function explainActiveDtc() {
 
+
+
   dismissDtcHud();
+
+
 
   navigateTo('ai');
 
+
+
   const prompt = activeEmergencyDtc 
+
+
 
     ? `Explain active engine diagnostic trouble code ${activeEmergencyDtc} in detail for my Dodge Dart 1.4L Turbo MultiAir and tell me exactly what to check.`
 
+
+
     : "Check engine trouble codes and tell me what needs inspection.";
+
+
 
   sendChatMessage(prompt);
 
+
+
 }
+
+
+
+
 
 
 
 function triggerDtcHudVoice() {
 
+
+
   if (!activeEmergencyDtc) return;
+
+
 
   const descEl = document.getElementById('dtcHudDesc');
 
+
+
   const explanation = descEl ? descEl.innerText : `Code ${activeEmergencyDtc} active.`;
+
+
 
   showAiSpeechToast(explanation);
 
+
+
   speakUtterance(explanation, "CONCERNED");
 
+
+
 }
+
+
+
+
 
 
 
 function renderMiniDtcWaifu() {
 
+
+
   const canvas = document.getElementById('dtcHudCanvas');
+
+
 
   if (!canvas) return;
 
+
+
   const ctx = canvas.getContext('2d');
+
+
 
   const w = canvas.width;
 
+
+
   const h = canvas.height;
+
+
 
   ctx.clearRect(0, 0, w, h);
 
 
 
+
+
+
+
   ctx.save();
+
+
 
   ctx.translate(w / 2, h / 2);
 
 
 
+
+
+
+
   // Blonde twintails
+
+
 
   ctx.fillStyle = '#dba01c';
 
+
+
   ctx.beginPath();
+
+
 
   ctx.arc(-22, 10, 14, 0, Math.PI * 2);
 
+
+
   ctx.arc(22, 10, 14, 0, Math.PI * 2);
+
+
 
   ctx.arc(0, -6, 26, 0, Math.PI * 2);
 
+
+
   ctx.fill();
+
+
+
+
 
 
 
   // Face
 
+
+
   ctx.fillStyle = '#fff5ee';
+
+
 
   ctx.beginPath();
 
+
+
   ctx.arc(0, 2, 20, 0, Math.PI * 2);
 
+
+
   ctx.fill();
+
+
+
+
 
 
 
   // Rosy blush
 
+
+
   ctx.fillStyle = 'rgba(255, 64, 129, 0.45)';
+
+
 
   ctx.beginPath();
 
+
+
   ctx.arc(-11, 7, 5, 0, Math.PI * 2);
+
+
 
   ctx.arc(11, 7, 5, 0, Math.PI * 2);
 
+
+
   ctx.fill();
+
+
+
+
 
 
 
   // Worried eyes (slanted)
 
+
+
   ctx.strokeStyle = '#1a0826';
+
+
 
   ctx.lineWidth = 2.5;
 
+
+
   ctx.beginPath();
+
+
 
   ctx.moveTo(-15, -1);
 
+
+
   ctx.lineTo(-7, 2);
+
+
 
   ctx.moveTo(15, -1);
 
+
+
   ctx.lineTo(7, 2);
+
+
 
   ctx.stroke();
 
 
 
+
+
+
+
   // Concerned mouth (small circle 'o')
+
+
 
   ctx.fillStyle = '#8a1538';
 
+
+
   ctx.beginPath();
+
+
 
   ctx.arc(0, 12, 3.5, 0, Math.PI * 2);
 
+
+
   ctx.fill();
+
+
+
+
 
 
 
   // Bangs
 
+
+
   ctx.fillStyle = '#f5c542';
+
+
 
   ctx.beginPath();
 
+
+
   ctx.arc(0, -10, 21, 1.1 * Math.PI, 1.9 * Math.PI);
+
+
 
   ctx.lineTo(0, -3);
 
+
+
   ctx.closePath();
+
+
 
   ctx.fill();
 
 
 
+
+
+
+
   ctx.restore();
+
+
 
 }
 
 
 
+
+
+
+
 // Fetch available neural brains on startup
+
+
 
 fetchAvailableNeuralBrains();
 
+
+
 checkGoogleAuthStatus();
+
+
 
 setTimeout(dismissBootSplash, 800);
 
@@ -11893,17 +23809,39 @@ setTimeout(dismissBootSplash, 800);
 
 
 
+
+
+
+
+
+
 function playCreatorTribute() {
+
+
 
   setWaifuEmotion("DEVOTED");
 
+
+
   const speech = "NfgOdin is my Master and brilliant Creator! He designed my neural core to ride shotgun in his Dodge Dart 1.4L Turbo. Every line of code, every MultiAir sensor, and my entire heart belong completely to him!";
+
+
 
   showAiSpeechToast(speech);
 
+
+
   speakUtterance(speech, "DEVOTED");
 
+
+
 }
+
+
+
+
+
+
 
 
 
@@ -11911,779 +23849,1617 @@ function playCreatorTribute() {
 
 // --- SETTINGS ACCORDION INTERACTION ---
 
+
+
 function toggleAccordion(accId) {
+
+
 
   if (isTouchScrolling || touchScrollDistance > 8) return;
 
+
+
   const group = document.getElementById(accId);
+
+
 
   if (!group) return;
 
+
+
   group.classList.toggle('active');
 
+
+
 }
+
+
+
+
 
 
 
 // --- 18. 3D VRM CHARACTER ENGINE (RUM SUPER ANIMATION, VRMA MOTION PACK & PHYSICS SUITE) ---
 
+
+
 let vrmScene = null;
+
+
 
 let vrmCamera = null;
 
+
+
 let vrmRenderer = null;
+
+
 
 let vrmModel = null;
 
+
+
 let vrmClock = null;
 
+
+
 let vrmFramingMode = 'FULL_BODY'; // Default to FULL_BODY so Rum is framed cleanly facing the monitor
+
 let vrmZoomMultiplier = 1.0;
 
-let activeAvatarEngine = '3D_VRM'; // 3D_VRM exclusively active (2D_FACE obsolete/dormant)
+
+
+let activeAvatarEngine = '3D_VRM';
+
+let currentVrm = null;
+
+window.currentVrm = null;
+
+
+
+// Global Client Error Logger & Telemetry Audit
+
+function logClientError(source, err) {
+
+  try {
+
+    const msg = err && err.message ? err.message : String(err);
+
+    const stack = err && err.stack ? err.stack : '';
+
+    console.error(`[CLIENT_ERROR:${source}]`, msg, stack);
+
+    fetch('/api/logs/client_error', {
+
+      method: 'POST',
+
+      headers: { 'Content-Type': 'application/json' },
+
+      body: JSON.stringify({
+
+        source: source,
+
+        message: msg,
+
+        stack: stack,
+
+        url: window.location.href,
+
+        time: new Date().toISOString()
+
+      })
+
+    }).catch(() => {});
+
+  } catch (e) {}
+
+}
+
+
+
+window.addEventListener('error', (event) => {
+
+  logClientError('window.onerror', event.error || { message: event.message, stack: `${event.filename}:${event.lineno}:${event.colno}` });
+
+});
+
+
+
+window.addEventListener('unhandledrejection', (event) => {
+
+  logClientError('unhandledrejection', event.reason || { message: String(event) });
+
+}); // 3D_VRM exclusively active (2D_FACE obsolete/dormant)
+
+
 
 let vrmCenter = { x: 0, y: 0.8, z: 0 };
 
+
+
 let vrmSize = { x: 1, y: 1.6, z: 0.5 };
+
+
 
 let vrmBones = {};
 
+
+
 let vrmHumanoidMap = {};
+
+
 
 let vrmAllBones = [];
 
+
+
 let vrmSecondaryBones = [];
+
+
 
 let vrmInitialized = false;
 
 
 
+
+
+
+
 // 3D Multi-World Environment Suite (Custom Empty Room, Sakura Garden, Loft, Cyber Garage)
+
 let vrmEnvironmentGroup = null;
+
 let vrmRoomPropsGroup = null;
+
 const VRM_ENVIRONMENTS = ['ROOM', 'GARDEN', 'LOFT', 'GARAGE'];
+
 let currentEnvironmentName = localStorage.getItem('vrmEnvironment') || 'ROOM';
+
 if (currentEnvironmentName === 'BEDROOM') currentEnvironmentName = 'ROOM';
+
 let vrmCurrentElevation = 0.0;
+
 let bedroomModel = null;
+
 let yoshiModel = null;
+
 let roomLampLight = null;
+
 let roomCeilingLight = null;
+
 let envLights = [];
+
 let sakuraPetals = [];
+
 let isHoldingYoshi = false;
 
+
+
 // 3D VRM Avatar Character Selection (Default to Rum)
+
 let currentVrmModelName = localStorage.getItem('vrmCurrentAvatar') || 'Rum.vrm';
 
+
+
 // Autonomous Roaming State Engine
+
 let vrmRoamEnabled = (localStorage.getItem('vrmRoamEnabled') !== 'false');
+
 let vrmRoamState = 'IDLE'; // 'IDLE', 'TURNING', 'WALKING', 'ARRIVED'
+
 let vrmRoamCurrentPos = { x: 0.0, z: 0.0 };
+
 let vrmRoamTargetPos = { x: 0.0, z: 0.0 };
+
 let vrmRoamCurrentRotY = Math.PI; // facing forward/driver
+
 let vrmRoamTargetRotY = Math.PI;
+
 let vrmNextRoamTime = Date.now() + 4500;
+
 let vrmRoamCurrentWaypoint = null;
+
 let vrmRoamWalkAction = null;
 
+
+
 // Dynamic Celestial Ephemeris & Ocean Simulation State
+
 let vrmBaseAmbientLight = null;
+
 let vrmBaseKeyLight = null;
+
 let vrmBaseRimLight = null;
+
 let vrmSolarEphemeris = null;
+
 let vrmCelestialPhase = 'DAY'; // 'NIGHT', 'CIVIL_DAWN', 'SUNRISE', 'DAY', 'GOLDEN_HOUR', 'SUNSET', 'CIVIL_DUSK'
+
 let vrmCelestialDayProgress = 0.5; // 0.0 at sunrise, 0.5 noon, 1.0 at sunset
+
 let vrmCelestialNightProgress = 0.5; // 0.0 at sunset, 1.0 at sunrise
+
 let vrmOceanMesh = null;
+
 let vrmOceanGeo = null;
+
 let vrmOceanMat = null;
+
 let vrmOceanBasePos = null;
+
 let vrmSkyMesh = null;
+
 let vrmSkyTexture = null;
+
 let vrmSkyCanvas = null;
+
 let vrmSunMesh = null;
+
 let vrmSunGlow = null;
+
 let vrmMoonMesh = null;
+
 let vrmMoonGlow = null;
+
 let vrmStarParticles = null;
+
 let vrmCelestialLight = null;
+
 let vrmGardenLanterns = [];
 
+
+
 // Extended 3D Roaming Waypoints (including Ocean Railing gazing spots)
+
 const VRM_ROAM_WAYPOINTS = [
+
   { id: 'center',         x:  0.00, z:  0.02, name: 'Center Stage',   desc: 'Standing proudly in center stage', faceOcean: false },
+
   { id: 'yoshi_mat',      x:  0.42, z:  0.16, name: 'Tatami Mat',     desc: 'Stepping onto the raised mat beside Yoshi', faceOcean: false },
+
   { id: 'ocean_rail_mid', x:  0.00, z: -1.75, name: 'Ocean Railing',  desc: 'Standing at the balcony looking out at the endless ocean', faceOcean: true },
+
   { id: 'ocean_rail_w',   x: -0.65, z: -1.70, name: 'Sunset Horizon', desc: 'Looking at the ocean horizon and moving waves', faceOcean: true },
+
   { id: 'ocean_rail_e',   x:  0.55, z: -1.65, name: 'East Horizon',   desc: 'Admiring the sea breeze and celestial sky', faceOcean: true },
+
   { id: 'lantern_left',   x: -0.80, z: -0.40, name: 'Lantern Left',   desc: 'Relaxing near the warm garden lantern', faceOcean: false },
+
   { id: 'cozy_front',     x: -0.18, z:  0.22, name: 'Cozy Front',     desc: 'Stepping forward close to dashboard', faceOcean: false }
+
 ];
+
+
+
+
 
 
 
 // VRMA & BVH Motion Pack Mixer, Smooth Crossfading & Clips
 
+
+
 let vrmMixer = null;
+
+
 
 let vrmaClips = {};
 
+
+
 let vrmaActiveAction = null;
+
+
 
 let vrmaActiveName = null;
 
+
+
 let vrmaIdleAction = null;
 
+
+
 let vrmBaseY = -0.68;
+
+
 
 let vrmBvhCatalog = {};
 
 
 
+
+
+
+
 const VRMA_MOTION_FILES = {
+
+
 
   'show_body':             { file: 'show_full_body.vrma',        label: 'Show Full Body',     startOffset: 0.0,  timeScale: 1.0 },
 
+
+
   'greeting':              { file: 'greeting.vrma',              label: 'Greetings Wave',     startOffset: 1.85, timeScale: 1.0 },
+
+
 
   'greeting_wave_right':   { file: 'greeting_wave_right.vrma',   label: 'Right Hand Wave',    startOffset: 0.0,  timeScale: 1.0 },
 
+
+
   'peace':                 { file: 'peace_sign.vrma',            label: 'V-Sign Peace',       startOffset: 0.30, timeScale: 1.0 },
+
+
 
   'shoot':                 { file: 'shoot.vrma',                 label: 'Finger Shoot',       startOffset: 0.40, timeScale: 1.0 },
 
+
+
   'spin':                  { file: 'spin.vrma',                  label: '360° Spin',          startOffset: 0.15, timeScale: 1.0 },
+
+
 
   'model_pose':            { file: 'model_pose.vrma',            label: 'Model Pose',         startOffset: 0.0,  timeScale: 0.65 },
 
+
+
   'squat':                 { file: 'squat.vrma',                 label: 'Squat Flexion',      startOffset: 0.0,  timeScale: 0.90 },
+
+
 
   'bend_over':             { file: 'pose_lean_in.vrma',          label: 'Lean In Bow',        startOffset: 0.0,  timeScale: 1.0 },
 
+
+
   'pose_lean_in':          { file: 'pose_lean_in.vrma',          label: 'Lean In Bow',        startOffset: 0.0,  timeScale: 1.0 },
+
+
 
   'pose_angled_wave':      { file: 'pose_angled_wave.vrma',      label: 'Angled Wave Pose',   startOffset: 0.0,  timeScale: 1.0 },
 
+
+
   'pose_shy_wave':         { file: 'pose_shy_wave.vrma',         label: 'Shy Wave Pose',      startOffset: 0.0,  timeScale: 1.0 },
+
+
 
   'pose_hand_raised_high': { file: 'pose_hand_raised_high.vrma', label: 'Hand Raised High',   startOffset: 0.0,  timeScale: 1.0 },
 
+
+
   'pose_side_glance':      { file: 'pose_side_glance.vrma',      label: 'Side Glance Pose',   startOffset: 0.0,  timeScale: 1.0 },
+
+
 
   'idol_pose_showcase':    { file: 'idol_pose_showcase.vrma',    label: 'Idol Pose Showcase', startOffset: 0.0,  timeScale: 1.0 },
 
+
+
   'turn_and_wave_hello':   { file: 'turn_and_wave_hello.vrma',   label: 'Turn & Wave Hello',  startOffset: 6.5,  timeScale: 1.0 },
+
+
 
   'sit_idle':              { file: 'sit_idle.vrma',              label: 'Seated Idle',        startOffset: 0.0,  timeScale: 0.5 },
 
+
+
   'walk_loop':             { file: 'walk_loop.vrma',             label: 'Walk Loop',          startOffset: 0.0,  timeScale: 0.85 },
+
+
 
   'jog_loop':              { file: 'jog_loop.vrma',              label: 'Jog Loop',           startOffset: 0.0,  timeScale: 0.85 },
 
+
+
   'sunbathing':            { file: 'sunbathing.vrma',            label: 'Sunbathing Pose',    startOffset: 0.0,  timeScale: 1.0 }
 
+
+
 };
+
+
+
+
 
 
 
 // Action alias map so legacy or shorthand names resolve cleanly to renamed VRMA/BVH clips
 
+
+
 const VRM_ACTION_ALIASES = {
+
+
 
   'vrma_01': 'show_body',
 
+
+
   'vrma_02': 'greeting',
+
+
 
   'vrma_03': 'peace',
 
+
+
   'vrma_04': 'shoot',
+
+
 
   'vrma_05': 'spin',
 
+
+
   'vrma_06': 'model_pose',
+
+
 
   'vrma_07': 'squat',
 
+
+
   'pose_01': 'pose_angled_wave',
+
+
 
   'pose_02': 'pose_shy_wave',
 
+
+
   'pose_03': 'pose_lean_in',
+
+
 
   'pose_04': 'pose_hand_raised_high',
 
+
+
   'pose_05': 'pose_side_glance',
+
+
 
   'hello': 'turn_and_wave_hello',
 
+
+
   'greeting2': 'greeting_wave_right',
+
+
 
   'motion_pose': 'idol_pose_showcase',
 
+
+
   'dance_1': 'dance_hiphop_step',
+
+
 
   'dance_2': 'dance_side_groove',
 
+
+
   'dance': 'dance_hiphop_step',
+
+
 
   'jump': 'action_jump',
 
+
+
   'point_laugh': 'amusement',
+
+
 
   'laugh': 'amusement',
 
+
+
   'idle': 'neutral_idle'
+
+
 
 };
 
 
 
+
+
+
+
 // Speech & Hardware Sync
+
+
 
 let isHardwareSpeaking = false;
 
+
+
 let vrmSpeechEndTime = 0;
+
+
 
 let vrmReactionEndTime = 0;
 
 
 
+
+
+
+
 let rumGazeRetentionUntil = 0;
+
+
 
 let isCompanionFloating = false;
 
 
 
+
+
+
+
 // Interactive VRM Actions
+
+
 
 let vrmCurrentAction = 'idle';
 
+
+
 let vrmActionStartTime = 0;
+
+
 
 let vrmActionEndTime = 0;
 
 
 
+
+
+
+
 function stopActiveVrmaClip(fadeSec = 0.42) {
+
+
 
   if (vrmaActiveAction) {
 
+
+
     try {
+
+
 
       if (vrmaIdleAction && fadeSec > 0) {
 
+
+
         vrmaIdleAction.enabled = true;
+
+
 
         vrmaIdleAction.setEffectiveTimeScale(0.85);
 
+
+
         vrmaIdleAction.setEffectiveWeight(1.0);
+
+
 
         vrmaIdleAction.play();
 
+
+
         vrmaActiveAction.crossFadeTo(vrmaIdleAction, fadeSec, false);
+
+
 
       } else {
 
+
+
         vrmaActiveAction.stop();
+
+
 
       }
 
+
+
     } catch (e) {}
+
+
 
     vrmaActiveAction = null;
 
+
+
   }
+
+
 
   vrmaActiveName = null;
 
+
+
   vrmCurrentAction = 'idle';
 
+
+
 }
+
+
+
+
 
 
 
 function resetAllVrmBonesToRest() {
 
+
+
   for (let i = 0; i < vrmAllBones.length; i++) {
+
+
 
     const b = vrmAllBones[i];
 
+
+
     if (b.userData && b.userData.restQuat) {
+
+
 
       b.quaternion.copy(b.userData.restQuat);
 
+
+
     }
+
+
 
     if (b.userData && b.userData.restPos) {
 
+
+
       b.position.copy(b.userData.restPos);
+
+
 
     }
 
+
+
     b.scale.set(1, 1, 1);
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function startClipWithSmoothCrossfade(resolvedKey, durationMs = 3800) {
 
+
+
   if (!vrmMixer || !vrmaClips[resolvedKey]) return false;
+
+
 
   const meta = VRMA_MOTION_FILES[resolvedKey] || { timeScale: 1.0, startOffset: 0.0 };
 
+
+
   const clip = vrmaClips[resolvedKey];
+
+
 
   const nextAction = vrmMixer.clipAction(clip);
 
 
 
+
+
+
+
   const prevAction = vrmaActiveAction || vrmaIdleAction;
+
+
 
   nextAction.reset();
 
+
+
   nextAction.enabled = true;
 
+
+
   const isWalkOrJog = resolvedKey.includes('walk') || resolvedKey.includes('jog');
+
   const isLoopingPose = (clip.duration <= 4.05 && resolvedKey.startsWith('pose_')) || resolvedKey.includes('loop') || resolvedKey.includes('dance');
+
   const loopMode = isWalkOrJog ? THREE.LoopRepeat : (isLoopingPose ? THREE.LoopPingPong : THREE.LoopOnce);
+
   nextAction.setLoop(loopMode, (isLoopingPose || isWalkOrJog) ? Infinity : 1);
+
+
 
   nextAction.clampWhenFinished = true;
 
+
+
   nextAction.timeScale = meta.timeScale || 1.0;
+
+
 
   const startOff = meta.startOffset || 0.0;
 
+
+
   nextAction.time = startOff;
 
+
+
   nextAction.setEffectiveWeight(1.0);
+
+
 
   nextAction.play();
 
 
 
+
+
+
+
   if (prevAction && prevAction !== nextAction) {
+
+
 
     try {
 
+
+
       prevAction.crossFadeTo(nextAction, 0.40, false);
+
+
 
     } catch (e) {}
 
+
+
   }
+
+
+
+
 
 
 
   const clipDurMs = ((clip.duration - startOff) / nextAction.timeScale) * 1000;
 
+
+
   const effectiveDurMs = isLoopingPose ? (durationMs || 4200) : Math.max(2400, Math.min(12000, clipDurMs));
+
+
 
   vrmaActiveAction = nextAction;
 
+
+
   vrmaActiveName = resolvedKey;
+
+
 
   vrmCurrentAction = resolvedKey;
 
+
+
   vrmActionStartTime = Date.now();
+
+
 
   vrmActionEndTime = Date.now() + effectiveDurMs;
 
+
+
   return true;
+
+
 
 }
 
 
 
+
+
+
+
 function playVrmAction(actionName, durationMs = 3800, silent = false) {
+
   const rawKey = (actionName || 'idle').toLowerCase().replace(/\.(vrma|bvh)$/i, '');
+
   const resolvedKey = VRM_ACTION_ALIASES[rawKey] || rawKey;
 
+
+
   if (vrmMixer && vrmaClips[resolvedKey]) {
+
     startClipWithSmoothCrossfade(resolvedKey, durationMs);
+
   } else if (typeof VRMA_MOTION_FILES !== 'undefined' && VRMA_MOTION_FILES[resolvedKey]) {
+
     // On-demand lazy load for any VRMA animation
+
     const vrmaInfo = VRMA_MOTION_FILES[resolvedKey];
+
     if (THREE.GLTFLoader && vrmModel) {
+
       const loader = new THREE.GLTFLoader();
+
       loader.load(
+
         `/api/models/vrma?name=${encodeURIComponent(vrmaInfo.file)}`,
+
         (vrmaGltf) => {
+
           try {
+
             const clip = buildRetargetedVrmaClip(resolvedKey, vrmaGltf);
+
             if (clip) {
+
               vrmaClips[resolvedKey] = clip;
+
               startClipWithSmoothCrossfade(resolvedKey, durationMs);
+
             }
+
           } catch (e) {
+
             console.error(`[VRMA] Error lazy loading ${vrmaInfo.file}:`, e);
+
           }
+
         },
+
         undefined,
+
         (err) => console.warn(`[VRMA] Failed to load ${vrmaInfo.file}:`, err)
+
       );
+
     }
+
   } else if (vrmBvhCatalog[resolvedKey]) {
+
     // On-demand lazy load from the 116-file BVH library
+
     const fileName = vrmBvhCatalog[resolvedKey];
+
     fetch(`/api/models/bvh?name=${encodeURIComponent(fileName)}`)
+
       .then(r => r.ok ? r.text() : '')
+
       .then(bvhText => {
+
         if (!bvhText || !bvhText.includes('HIERARCHY')) return;
+
         const clip = buildRetargetedBvhClip(resolvedKey, bvhText);
+
         if (clip) {
+
           vrmaClips[resolvedKey] = clip;
+
           startClipWithSmoothCrossfade(resolvedKey, durationMs);
+
         }
+
       })
+
       .catch(() => {});
+
   } else {
+
     vrmCurrentAction = resolvedKey;
+
     vrmActionStartTime = Date.now();
+
     vrmActionEndTime = Date.now() + durationMs;
+
   }
+
   if (silent) return;
+
+
+
+
 
 
 
   const speechMap = {
 
+
+
     'jump':        { text: "Yay! Look how high Rum can jump, Master!", emotion: "EXCITED" },
+
+
 
     'action_jump': { text: "Yay! Look how high Rum can jump, Master!", emotion: "EXCITED" },
 
+
+
     'point_laugh': { text: "Ehehe! Look at that, Master! That's so funny!", emotion: "HAPPY" },
+
+
 
     'amusement':   { text: "Ehehe! Look at that, Master! That's so funny!", emotion: "HAPPY" },
 
+
+
     'bend_over':   { text: "Master? What are you looking at? Rum is leaning right in for you!", emotion: "DEVOTED" },
+
+
 
     'pose_lean_in':{ text: "Master? What are you looking at? Rum is leaning right in for you!", emotion: "DEVOTED" },
 
+
+
     'dance':       { text: "Let's dance, Master! Groove with the MultiAir beat!", emotion: "EXCITED" },
+
+
 
     'dance_hiphop_step': { text: "Let's dance, Master! Groove with the MultiAir beat!", emotion: "EXCITED" },
 
+
+
     'greeting':    { text: "Hiii Master! Rum is right here riding shotgun with you!", emotion: "HAPPY" },
+
+
 
     'peace':       { text: "Peace sign, Master! Victory for the Dodge Dart!", emotion: "HAPPY" },
 
+
+
     'shoot':       { text: "Bang bang! Straight through your heart, Master!", emotion: "FLIRTY" },
+
+
 
     'spin':        { text: "Wheee! Look at my royal purple maid dress spin, Master!", emotion: "EXCITED" },
 
+
+
     'model_pose':  { text: "How does this model pose look, Master? Cute, right?", emotion: "FLIRTY" },
+
+
 
     'squat':       { text: "One, two! Keeping warmed up just like the MultiAir turbo!", emotion: "EXCITED" },
 
+
+
     'show_body':   { text: "Ta-da! Full body check, Master! Ready for our drive!", emotion: "DEVOTED" }
+
+
 
   };
 
+
+
   const sp = speechMap[actionName] || speechMap[resolvedKey];
+
+
 
   if (sp) {
 
+
+
     showAiSpeechToast(sp.text);
+
+
 
     speakUtterance(sp.text, sp.emotion);
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 // Dynamic Camera LookAt & Targets
 
+
+
 let currentLookAt = null;
 
+
+
 let targetLookAt = null;
+
+
 
 let targetCamPos = null;
 
 
 
+
+
+
+
 // G-Force Automotive Physics & Inertia
+
+
 
 let rumCurrentInertiaZ = 0.0;
 
+
+
 let rumTargetInertiaZ = 0.0;
+
+
 
 let rumCurrentPitch = 0.0;
 
+
+
 let rumLastSpeed = 0.0;
+
+
 
 let rumLastSpeedTime = Date.now();
 
+
+
 let rumCurrentSpeed = 0.0;
+
+
 
 let rumCurrentBoost = 0.0;
 
 
 
+
+
+
+
 // High-Speed 72 MPH Panic
 
+
+
 let lastSpeedPanicTime = 0;
+
+
 
 let vrmSpeedPanicEndTime = 0;
 
 
 
+
+
+
+
 // Music Dance Mode & Error States
+
+
 
 let vrmHasError = false;
 
+
+
 let vrmErrorCode = "";
+
+
 
 let vrmErrorMessage = "";
 
 
 
+
+
+
+
 // Blinking & Facial State
+
+
 
 let vrmBlinkProgress = 0.0;
 
+
+
 let vrmIsBlinking = false;
 
+
+
 let vrmBlinkStartTime = 0;
+
+
 
 let vrmNextBlinkTime = Date.now() + 2500;
 
 
 
+
+
+
+
 function isMusicPlaying() {
+
+
 
   return !!(typeof realAudio !== 'undefined' && realAudio && !realAudio.paused && !realAudio.ended && realAudio.currentTime > 0);
 
+
+
 }
+
+
+
+
 
 
 
 function checkRumSpeedReaction(speedMph) {
 
+
+
   rumCurrentSpeed = speedMph;
+
+
 
   const now = Date.now();
 
+
+
   if (speedMph >= 72 && (now - lastSpeedPanicTime > 45000)) {
+
+
 
     lastSpeedPanicTime = now;
 
+
+
     vrmSpeedPanicEndTime = now + 5000;
+
+
 
     const screams = [
 
+
+
       `W-Waaaah! Master, we're going ${Math.round(speedMph)} MPH!! The MultiAir turbo is screaming, hold on to meee!`,
+
+
 
       `Kyaaa! ${Math.round(speedMph)} miles an hour?! Master, my heart is beating at 7,000 RPM, hold the steering wheel tight!`,
 
+
+
       `W-We're flying, Master! ${Math.round(speedMph)} MPH! Hold tight, waaah!`
+
+
 
     ];
 
+
+
     const scream = screams[Math.floor(Math.random() * screams.length)];
+
+
 
     showAiSpeechToast(scream);
 
+
+
     speakUtterance(scream, "EXCITED");
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function updateRumInertiaPhysics(speedMph, boostPsi) {
 
+
+
   rumCurrentSpeed = speedMph;
+
+
 
   rumCurrentBoost = boostPsi;
 
+
+
   const now = Date.now();
+
+
 
   const dt = Math.max(0.016, (now - rumLastSpeedTime) * 0.001);
 
+
+
   const accel = (speedMph - rumLastSpeed) / dt;
 
+
+
   rumLastSpeed = speedMph;
+
+
 
   rumLastSpeedTime = now;
 
 
 
+
+
+
+
   if (accel > 1.5 || boostPsi > 2.0) {
+
+
 
     rumTargetInertiaZ = Math.min(0.22, (boostPsi * 0.010) + (accel * 0.025));
 
+
+
     rumCurrentPitch = -Math.min(0.10, accel * 0.018);
+
+
 
   } else if (accel < -3.0) {
 
+
+
     rumTargetInertiaZ = -Math.min(0.28, Math.abs(accel) * 0.04);
+
+
 
     rumCurrentPitch = Math.min(0.18, Math.abs(accel) * 0.03);
 
+
+
   } else {
+
+
 
     rumTargetInertiaZ = 0.0;
 
+
+
     rumCurrentPitch = 0.0;
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function triggerVrmErrorAlert(code, message) {
 
+
+
   if (vrmHasError && vrmErrorCode === code) return;
+
+
 
   vrmHasError = true;
 
+
+
   vrmErrorCode = code;
+
+
 
   vrmErrorMessage = message;
 
 
 
+
+
+
+
   const badge = document.getElementById('vrmAlertBadge');
+
+
 
   if (badge) badge.style.display = 'block';
 
 
 
+
+
+
+
   const alertText = `Master! Error Code ${code} detected: ${message}`;
+
+
 
   showAiSpeechToast(alertText);
 
+
+
   speakUtterance(alertText, "CONCERNED");
 
+
+
 }
+
+
+
+
 
 
 
 function clearVrmErrorAlert() {
 
+
+
   if (!vrmHasError) return;
+
+
 
   vrmHasError = false;
 
+
+
   vrmErrorCode = "";
+
+
 
   vrmErrorMessage = "";
 
 
 
+
+
+
+
   const badge = document.getElementById('vrmAlertBadge');
+
+
 
   if (badge) badge.style.display = 'none';
 
 
 
+
+
+
+
   const clearText = "Phew! Diagnostic trouble codes cleared, Master! All systems nominal!";
+
+
 
   showAiSpeechToast(clearText);
 
+
+
   speakUtterance(clearText, "HAPPY");
 
+
+
 }
+
+
+
+
 
 
 
 // Fix 3ds Max Biped hierarchy quirk in Rum.vrm & map all 52 VRM humanoid bones
 
+
+
 function fixVrmBipedHierarchy(root, gltf) {
 
+
+
   root.updateMatrixWorld(true);
+
+
+
+
 
 
 
   const byName = {};
 
+
+
   const allBones = [];
+
+
 
   const secondary = [];
 
 
 
+
+
+
+
   root.traverse((node) => {
+
+
 
     if (node.name) {
 
+
+
       byName[node.name] = node;
+
+
 
       byName[node.name.replace(/_/g, ' ')] = node;
 
+
+
     }
+
+
 
     if (node.isBone || (node.name && node.name.startsWith('Bip001')) || (node.name && node.name.startsWith('Bone'))) {
 
+
+
       allBones.push(node);
 
+
+
     }
+
+
 
     const raw = (node.name || '').toLowerCase();
 
+
+
     if (raw.includes('hair') || raw.includes('ribbon') ||
+
+
 
         ['bone019', 'bone021', 'bone022', 'bone019_m', 'bone021_m', 'bone022_m',
 
+
+
          'bone023', 'bone025', 'bone026', 'bone023_m', 'bone025_m', 'bone026_m',
+
+
 
          'bone119', 'bone120'].includes(raw)) {
 
+
+
       secondary.push(node);
 
+
+
     }
+
+
 
   });
 
 
 
+
+
+
+
   function reparentKeepWorld(childName, parentName) {
+
+
 
     const child = byName[childName];
 
+
+
     const parent = byName[parentName];
+
+
 
     if (child && parent && child.parent !== parent) {
 
+
+
       parent.attach(child);
 
+
+
     }
+
+
 
   }
 
 
 
+
+
+
+
   reparentKeepWorld('Bip001 L Thigh', 'Bip001 Pelvis');
+
+
 
   reparentKeepWorld('Bip001 R Thigh', 'Bip001 Pelvis');
 
+
+
   reparentKeepWorld('Bone003', 'Bip001 Pelvis');
+
+
 
   reparentKeepWorld('Bone011', 'Bip001 Pelvis');
 
+
+
   reparentKeepWorld('Bone011_m', 'Bip001 Pelvis');
+
+
 
   reparentKeepWorld('Bone015', 'Bip001 Pelvis');
 
+
+
   reparentKeepWorld('Bone015_m', 'Bip001 Pelvis');
+
+
 
   reparentKeepWorld('Bone008', 'Bip001 Pelvis');
 
+
+
   reparentKeepWorld('Bone008_m', 'Bip001 Pelvis');
+
+
 
   reparentKeepWorld('Bip001 Neck', 'Bip001 Spine2');
 
+
+
   reparentKeepWorld('Bip001 L Clavicle', 'Bip001 Spine2');
 
+
+
   reparentKeepWorld('Bip001 R Clavicle', 'Bip001 Spine2');
+
+
+
+
 
 
 
@@ -12691,812 +25467,1625 @@ function fixVrmBipedHierarchy(root, gltf) {
 
 
 
+
+
+
+
   const hMap = {
+
+
 
     hips:               byName['Bip001 Pelvis'],
 
+
+
     spine:              byName['Bip001 Spine'],
+
+
 
     chest:              byName['Bip001 Spine1'],
 
+
+
     upperChest:         byName['Bip001 Spine2'],
+
+
 
     neck:               byName['Bip001 Neck'],
 
+
+
     head:               byName['Bip001 Head'],
+
+
 
     leftShoulder:       byName['Bip001 L Clavicle'],
 
+
+
     leftUpperArm:       byName['Bip001 L UpperArm'],
+
+
 
     leftLowerArm:       byName['Bip001 L Forearm'],
 
+
+
     leftHand:           byName['Bip001 L Hand'],
+
+
 
     rightShoulder:      byName['Bip001 R Clavicle'],
 
+
+
     rightUpperArm:      byName['Bip001 R UpperArm'],
+
+
 
     rightLowerArm:      byName['Bip001 R Forearm'],
 
+
+
     rightHand:          byName['Bip001 R Hand'],
+
+
 
     leftUpperLeg:       byName['Bip001 L Thigh'],
 
+
+
     leftLowerLeg:       byName['Bip001 L Calf'],
+
+
 
     leftFoot:           byName['Bip001 L Foot'],
 
+
+
     leftToes:           byName['Bip001 L Toe0'],
+
+
 
     rightUpperLeg:      byName['Bip001 R Thigh'],
 
+
+
     rightLowerLeg:      byName['Bip001 R Calf'],
+
+
 
     rightFoot:          byName['Bip001 R Foot'],
 
+
+
     rightToes:          byName['Bip001 R Toe0'],
+
+
 
     leftThumbProximal:      byName['Bip001 L Finger0'],
 
+
+
     leftThumbIntermediate:  byName['Bip001 L Finger01'],
+
+
 
     leftThumbDistal:        byName['Bip001 L Finger02'],
 
+
+
     leftIndexProximal:      byName['Bip001 L Finger1'],
+
+
 
     leftIndexIntermediate:  byName['Bip001 L Finger11'],
 
+
+
     leftIndexDistal:        byName['Bip001 L Finger12'],
+
+
 
     leftMiddleProximal:     byName['Bip001 L Finger2'],
 
+
+
     leftMiddleIntermediate: byName['Bip001 L Finger21'],
+
+
 
     leftMiddleDistal:       byName['Bip001 L Finger22'],
 
+
+
     leftRingProximal:       byName['Bip001 L Finger3'],
+
+
 
     leftRingIntermediate:   byName['Bip001 L Finger31'],
 
+
+
     leftRingDistal:         byName['Bip001 L Finger32'],
+
+
 
     leftLittleProximal:     byName['Bip001 L Finger4'],
 
+
+
     leftLittleIntermediate: byName['Bip001 L Finger41'],
+
+
 
     leftLittleDistal:       byName['Bip001 L Finger42'],
 
+
+
     rightThumbProximal:      byName['Bip001 R Finger0'],
+
+
 
     rightThumbIntermediate:  byName['Bip001 R Finger01'],
 
+
+
     rightThumbDistal:        byName['Bip001 R Finger02'],
+
+
 
     rightIndexProximal:      byName['Bip001 R Finger1'],
 
+
+
     rightIndexIntermediate:  byName['Bip001 R Finger11'],
+
+
 
     rightIndexDistal:        byName['Bip001 R Finger12'],
 
+
+
     rightMiddleProximal:     byName['Bip001 R Finger2'],
+
+
 
     rightMiddleIntermediate: byName['Bip001 R Finger21'],
 
+
+
     rightMiddleDistal:       byName['Bip001 R Finger22'],
+
+
 
     rightRingProximal:       byName['Bip001 R Finger3'],
 
+
+
     rightRingIntermediate:   byName['Bip001 R Finger31'],
+
+
 
     rightRingDistal:         byName['Bip001 R Finger32'],
 
+
+
     rightLittleProximal:     byName['Bip001 R Finger4'],
+
+
 
     rightLittleIntermediate: byName['Bip001 R Finger41'],
 
+
+
     rightLittleDistal:       byName['Bip001 R Finger42']
 
+
+
   };
+
+
+
+
 
 
 
   try {
 
+
+
     const parserJson = gltf && gltf.parser && gltf.parser.json;
+
+
 
     const vrmExt = parserJson && parserJson.extensions && parserJson.extensions.VRM;
 
+
+
     const humanBones = vrmExt && vrmExt.humanoid && vrmExt.humanoid.humanBones;
+
+
 
     if (Array.isArray(humanBones)) {
 
+
+
       humanBones.forEach((hb) => {
+
+
 
         if (hb && hb.bone && typeof hb.node === 'number' && !hMap[hb.bone]) {
 
+
+
           const nDef = parserJson.nodes && parserJson.nodes[hb.node];
+
+
 
           if (nDef && nDef.name && byName[nDef.name]) {
 
+
+
             hMap[hb.bone] = byName[nDef.name];
+
+
 
           }
 
+
+
         }
+
+
 
       });
 
+
+
     }
+
+
 
   } catch (e) {}
 
 
 
+
+
+
+
   const bones = {
+
+
 
     pelvis: hMap.hips,
 
+
+
     spine:  hMap.spine,
+
+
 
     spine1: hMap.chest,
 
+
+
     spine2: hMap.upperChest,
+
+
 
     neck:   hMap.neck,
 
+
+
     head:   hMap.head,
+
+
 
     lClav:  hMap.leftShoulder,
 
+
+
     rClav:  hMap.rightShoulder,
+
+
 
     lArm:   hMap.leftUpperArm,
 
+
+
     rArm:   hMap.rightUpperArm,
+
+
 
     lFore:  hMap.leftLowerArm,
 
+
+
     rFore:  hMap.rightLowerArm,
+
+
 
     lHand:  hMap.leftHand,
 
+
+
     rHand:  hMap.rightHand,
+
+
 
     lThigh: hMap.leftUpperLeg,
 
+
+
     rThigh: hMap.rightUpperLeg,
+
+
 
     lCalf:  hMap.leftLowerLeg,
 
+
+
     rCalf:  hMap.rightLowerLeg,
+
+
 
     lFoot:  hMap.leftFoot,
 
+
+
     rFoot:  hMap.rightFoot,
+
+
 
     lSleeve: byName['Bone001_m'],
 
+
+
     rSleeve: byName['Bone001'],
+
+
 
     lEyeUpper: byName['Bone86'],
 
+
+
     rEyeUpper: byName['Bone86_m'],
+
+
 
     lEyeLower: byName['Bone88'],
 
+
+
     rEyeLower: byName['Bone88_m'],
+
+
 
     lEyeball:  byName['Bone89'],
 
+
+
     rEyeball:  byName['Bone89_m'],
+
+
 
     lBrowIn:   byName['Bone71'],
 
+
+
     rBrowIn:   byName['Bone71_m'],
+
+
 
     lBrowOut:  byName['Bone72'],
 
+
+
     rBrowOut:  byName['Bone72_m'],
+
+
 
     jaw:       byName['Bone085'],
 
+
+
     lLipLower: byName['Bone95'],
+
+
 
     rLipLower: byName['Bone95_m'],
 
+
+
     lLipUpper: byName['Bone70'],
+
+
 
     rLipUpper: byName['Bone70_m'],
 
+
+
     lMouthCorner: byName['Bone97'],
+
+
 
     rMouthCorner: byName['Bone97_m']
 
+
+
   };
+
+
+
+
 
 
 
   root.traverse((mesh) => {
 
+
+
     if (mesh.isSkinnedMesh && mesh.geometry && mesh.skeleton) {
+
+
 
       const skBones = mesh.skeleton.bones;
 
+
+
       const faceBoneIndices = new Set();
+
+
 
       const faceNames = new Set([
 
+
+
         'Bone86', 'Bone86_m', 'Bone82', 'Bone82_m', 'Bone91', 'Bone91_m',
+
+
 
         'Bone88', 'Bone88_m', 'Bone73', 'Bone73_m', 'Bone75', 'Bone75_m',
 
+
+
         'Bone89', 'Bone89_m', 'Bone70', 'Bone70_m', 'Bone95', 'Bone95_m',
+
+
 
         'Bone085', 'Bone97', 'Bone97_m', 'Bone71', 'Bone71_m', 'Bone72', 'Bone72_m'
 
+
+
       ]);
+
+
 
       skBones.forEach((b, idx) => {
 
+
+
         if (faceNames.has(b.name)) faceBoneIndices.add(idx);
+
+
 
       });
 
+
+
       const si = mesh.geometry.attributes.skinIndex;
+
+
 
       const sw = mesh.geometry.attributes.skinWeight;
 
+
+
       if (si && sw && faceBoneIndices.size > 0) {
+
+
 
         for (let i = 0; i < si.count; i++) {
 
+
+
           const i0 = si.getX(i), i1 = si.getY(i), i2 = si.getZ(i), i3 = si.getW(i);
+
+
 
           let w0 = sw.getX(i), w1 = sw.getY(i), w2 = sw.getZ(i), w3 = sw.getW(i);
 
+
+
           if (faceBoneIndices.has(i0) || faceBoneIndices.has(i1) || faceBoneIndices.has(i2) || faceBoneIndices.has(i3)) {
+
+
 
             if (!faceBoneIndices.has(i0)) w0 = 0;
 
+
+
             if (!faceBoneIndices.has(i1)) w1 = 0;
+
+
 
             if (!faceBoneIndices.has(i2)) w2 = 0;
 
+
+
             if (!faceBoneIndices.has(i3)) w3 = 0;
+
+
 
             const sum = w0 + w1 + w2 + w3;
 
+
+
             if (sum > 0.05) {
+
+
 
               sw.setXYZW(i, w0 / sum, w1 / sum, w2 / sum, w3 / sum);
 
+
+
             }
+
+
 
           }
 
+
+
         }
+
+
 
         sw.needsUpdate = true;
 
+
+
       }
+
+
 
     }
 
+
+
   });
+
+
+
+
 
 
 
   allBones.forEach((b) => {
 
+
+
     b.userData = b.userData || {};
+
+
 
     b.userData.restQuat = b.quaternion.clone();
 
+
+
     b.userData.restPos = b.position.clone();
 
+
+
   });
+
+
+
+
 
 
 
   return { bones, hMap, allBones, secondary };
 
+
+
 }
+
+
+
+
 
 
 
 function activateStandingIdleAnimation() {
 
+
+
   if (!vrmMixer) return;
+
+
 
   const idleClip = vrmaClips['neutral_idle'] || vrmaClips['neutral_idle2'] || vrmaClips['sit_idle'];
 
+
+
   if (!idleClip) return;
+
+
 
   if (!vrmaIdleAction) {
 
+
+
     vrmaIdleAction = vrmMixer.clipAction(idleClip);
+
+
 
     vrmaIdleAction.setLoop(THREE.LoopPingPong, Infinity);
 
+
+
     vrmaIdleAction.timeScale = 0.85;
+
+
 
     vrmaIdleAction.play();
 
+
+
     console.log('[VRM] Standing idle animation active (neutral_idle.bvh with smooth PingPong loop)');
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function preloadVrmaMotionPack() {
 
+
+
   if (!vrmModel || !THREE.GLTFLoader) return;
+
+
 
   const loader = new THREE.GLTFLoader();
 
 
 
+
+
+
+
   // Deduplicate file loads so shared files (like pose_lean_in.vrma) load once
+
+
 
   const fileToKeys = {};
 
+
+
   Object.keys(VRMA_MOTION_FILES).forEach((k) => {
+
+
 
     const fn = VRMA_MOTION_FILES[k].file;
 
+
+
     if (!fileToKeys[fn]) fileToKeys[fn] = [];
+
+
 
     fileToKeys[fn].push(k);
 
+
+
   });
+
+
+
+
 
 
 
   Object.keys(fileToKeys).forEach((fileName) => {
 
+
+
     const keys = fileToKeys[fileName];
 
+
+
     const isLocalFile = window.location.protocol === 'file:';
+
     const url = isLocalFile ? `../../models/vrma/${fileName}` : `/api/models/vrma?name=${encodeURIComponent(fileName)}`;
+
+
 
     loader.load(
 
+
+
       url,
+
+
 
       (vrmaGltf) => {
 
+
+
         try {
+
+
 
           const clip = buildRetargetedVrmaClip(keys[0], vrmaGltf);
 
+
+
           if (clip) {
+
+
 
             keys.forEach((k) => { vrmaClips[k] = clip; });
 
+
+
             console.log(`[VRMA] Loaded & retargeted ${fileName} -> ${keys.join(',')} (${clip.duration.toFixed(2)}s)`);
+
+
 
           }
 
+
+
         } catch (err) {
+
+
 
           console.error(`[VRMA] Retarget error for ${fileName}:`, err);
 
+
+
         }
+
+
 
       },
 
+
+
       undefined,
+
+
 
       (err) => console.warn(`[VRMA] Could not load ${fileName}:`, err)
 
+
+
     );
 
+
+
   });
+
+
+
+
 
 
 
   preloadBvhMotionPack();
 
+
+
 }
+
+
+
+
 
 
 
 function preloadBvhMotionPack() {
+
   // Fetch both BVH and VRMA manifests so all 135 animations are registered immediately
+
   fetch('/api/models/vrma')
+
     .then(r => r.ok ? r.json() : { files: [] })
+
     .then(vrmaData => {
+
       const vrmaFiles = (vrmaData && vrmaData.files) ? vrmaData.files : [];
+
       vrmaFiles.forEach(vf => {
+
         const key = (vf.action || vf.name.replace(/\.vrma$/i, '')).toLowerCase();
+
         if (!VRMA_MOTION_FILES[key]) {
+
           VRMA_MOTION_FILES[key] = {
+
             file: vf.name,
+
             label: key.replace(/_/g, ' '),
+
             startOffset: 0.0,
+
             timeScale: 1.0
+
           };
+
         }
+
       });
+
       if (typeof renderAnimationsDrawer === 'function') renderAnimationsDrawer();
+
     })
+
     .catch(() => {});
 
+
+
   fetch('/api/models/bvh')
+
     .then(r => r.ok ? r.json() : { files: [] })
+
     .then(data => {
+
       const files = (data && data.files) ? data.files : [];
+
       // Register all 116 BVH files in catalog for instant on-demand loading
+
       files.forEach((item) => {
+
         const fileName = item.name || item;
+
         const actionKey = (item.action || fileName.replace(/\.bvh$/i, '')).toLowerCase();
+
         vrmBvhCatalog[actionKey] = fileName;
+
       });
+
       if (typeof renderAnimationsDrawer === 'function') renderAnimationsDrawer();
+
       const priorityBvh = [
+
+
 
         'neutral_idle', 'neutral_idle2', 'action_jump', 'amusement',
 
+
+
         'dance_hiphop_step', 'dance_side_groove', 'excitement', 'joy', 'curiosity'
+
+
 
       ];
 
+
+
       priorityBvh.forEach((key) => {
+
+
 
         const fileName = vrmBvhCatalog[key];
 
+
+
         if (!fileName) return;
+
+
 
         fetch(`/api/models/bvh?name=${encodeURIComponent(fileName)}`)
 
+
+
           .then(r => r.ok ? r.text() : '')
+
+
 
           .then(bvhText => {
 
+
+
             if (!bvhText || !bvhText.includes('HIERARCHY')) return;
+
+
 
             const clip = buildRetargetedBvhClip(key, bvhText);
 
+
+
             if (clip) {
+
+
 
               vrmaClips[key] = clip;
 
+
+
               if (key === 'action_jump') vrmaClips['jump'] = clip;
+
+
 
               if (key === 'amusement') vrmaClips['point_laugh'] = clip;
 
+
+
               if (key === 'dance_hiphop_step') vrmaClips['dance'] = clip;
+
+
 
               if (key === 'neutral_idle') activateStandingIdleAnimation();
 
+
+
               console.log(`[BVH] Preloaded ${fileName} -> '${key}' (${clip.duration.toFixed(2)}s)`);
+
+
 
             }
 
+
+
           })
+
+
 
           .catch(() => {});
 
+
+
       });
+
+
 
     })
 
+
+
     .catch(() => {});
 
+
+
 }
+
+
+
+
 
 
 
 function buildRetargetedBvhClip(actionKey, bvhText) {
 
+
+
   const lines = bvhText.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+
+
 
   let idx = 0;
 
+
+
   const joints = [];
+
+
 
   const stack = [];
 
 
 
+
+
+
+
   const BVH_BONE_MAP = {
+
+
 
     'hips': 'hips', 'hip': 'hips', 'pelvis': 'hips', 'root': 'hips', 'center': 'hips', 'bip001_pelvis': 'hips',
 
+
+
     'spine': 'spine', 'abdomen': 'spine', 'waist': 'spine', 'lowerback': 'spine', 'bip001_spine': 'spine',
+
+
 
     'chest': 'chest', 'spine1': 'chest', 'thorax': 'chest', 'bip001_spine1': 'chest',
 
+
+
     'upperchest': 'upperChest', 'spine2': 'upperChest', 'chest2': 'upperChest', 'bip001_spine2': 'upperChest',
+
+
 
     'neck': 'neck', 'neck1': 'neck', 'bip001_neck': 'neck',
 
+
+
     'head': 'head', 'bip001_head': 'head',
+
+
 
     'leftshoulder': 'leftShoulder', 'lcollar': 'leftShoulder', 'shoulder_l': 'leftShoulder', 'l_shoulder': 'leftShoulder', 'bip001_l_clavicle': 'leftShoulder',
 
+
+
     'leftupperarm': 'leftUpperArm', 'leftarm': 'leftUpperArm', 'lshldr': 'leftUpperArm', 'upperarm_l': 'leftUpperArm', 'l_upperarm': 'leftUpperArm', 'bip001_l_upperarm': 'leftUpperArm',
+
+
 
     'leftlowerarm': 'leftLowerArm', 'leftforearm': 'leftLowerArm', 'lforearm': 'leftLowerArm', 'lowerarm_l': 'leftLowerArm', 'l_forearm': 'leftLowerArm', 'bip001_l_forearm': 'leftLowerArm',
 
+
+
     'lefthand': 'leftHand', 'lhand': 'leftHand', 'hand_l': 'leftHand', 'l_hand': 'leftHand', 'bip001_l_hand': 'leftHand',
+
+
 
     'rightshoulder': 'rightShoulder', 'rcollar': 'rightShoulder', 'shoulder_r': 'rightShoulder', 'r_shoulder': 'rightShoulder', 'bip001_r_clavicle': 'rightShoulder',
 
+
+
     'rightupperarm': 'rightUpperArm', 'rightarm': 'rightUpperArm', 'rshldr': 'rightUpperArm', 'upperarm_r': 'rightUpperArm', 'r_upperarm': 'rightUpperArm', 'bip001_r_upperarm': 'rightUpperArm',
+
+
 
     'rightlowerarm': 'rightLowerArm', 'rightforearm': 'rightLowerArm', 'rforearm': 'rightLowerArm', 'lowerarm_r': 'rightLowerArm', 'r_forearm': 'rightLowerArm', 'bip001_r_forearm': 'rightLowerArm',
 
+
+
     'righthand': 'rightHand', 'rhand': 'rightHand', 'hand_r': 'rightHand', 'r_hand': 'rightHand', 'bip001_r_hand': 'rightHand',
+
+
 
     'leftupperleg': 'leftUpperLeg', 'leftupleg': 'leftUpperLeg', 'lthigh': 'leftUpperLeg', 'thigh_l': 'leftUpperLeg', 'l_thigh': 'leftUpperLeg', 'bip001_l_thigh': 'leftUpperLeg',
 
+
+
     'leftlowerleg': 'leftLowerLeg', 'leftleg': 'leftLowerLeg', 'lshin': 'leftLowerLeg', 'lcalf': 'leftLowerLeg', 'calf_l': 'leftLowerLeg', 'l_calf': 'leftLowerLeg', 'bip001_l_calf': 'leftLowerLeg',
+
+
 
     'leftfoot': 'leftFoot', 'lfoot': 'leftFoot', 'foot_l': 'leftFoot', 'l_foot': 'leftFoot', 'bip001_l_foot': 'leftFoot',
 
+
+
     'lefttoes': 'leftToes', 'lefttoebase': 'leftToes', 'ltoe': 'leftToes', 'bip001_l_toe0': 'leftToes',
+
+
 
     'rightupperleg': 'rightUpperLeg', 'rightupleg': 'rightUpperLeg', 'rthigh': 'rightUpperLeg', 'thigh_r': 'rightUpperLeg', 'r_thigh': 'rightUpperLeg', 'bip001_r_thigh': 'rightUpperLeg',
 
+
+
     'rightlowerleg': 'rightLowerLeg', 'rightleg': 'rightLowerLeg', 'rshin': 'rightLowerLeg', 'rcalf': 'rightLowerLeg', 'calf_r': 'rightLowerLeg', 'r_calf': 'rightLowerLeg', 'bip001_r_calf': 'rightLowerLeg',
+
+
 
     'rightfoot': 'rightFoot', 'rfoot': 'rightFoot', 'foot_r': 'rightFoot', 'r_foot': 'rightFoot', 'bip001_r_foot': 'rightFoot',
 
+
+
     'righttoes': 'rightToes', 'righttoebase': 'rightToes', 'rtoe': 'rightToes', 'bip001_r_toe0': 'rightToes'
+
+
 
   };
 
 
 
+
+
+
+
   let inEndSite = false;
+
+
 
   while (idx < lines.length && lines[idx] !== 'MOTION') {
 
+
+
     const line = lines[idx++];
+
+
 
     const parts = line.split(/\s+/);
 
+
+
     const kw = parts[0].toUpperCase();
+
+
 
     if (kw === 'ROOT' || kw === 'JOINT') {
 
+
+
       const rawName = parts.slice(1).join('_').replace(/^mixamorig:?/i, '');
+
+
 
       const cleanKey = rawName.toLowerCase().replace(/[^a-z0-9_]/g, '');
 
+
+
       const hName = BVH_BONE_MAP[cleanKey] || BVH_BONE_MAP[cleanKey.replace(/_/g, '')] || null;
+
+
 
       const jObj = { name: rawName, hName: hName, channels: [], parent: stack.length > 0 ? stack[stack.length - 1] : null };
 
+
+
       joints.push(jObj);
+
+
 
       stack.push(jObj);
 
+
+
     } else if (kw === 'END') {
+
+
 
       inEndSite = true;
 
+
+
     } else if (kw === '}') {
+
+
 
       if (inEndSite) inEndSite = false;
 
+
+
       else stack.pop();
+
+
 
     } else if (kw === 'CHANNELS' && !inEndSite && stack.length > 0) {
 
+
+
       const count = parseInt(parts[1], 10) || 0;
+
+
 
       stack[stack.length - 1].channels = parts.slice(2, 2 + count);
 
+
+
     }
 
+
+
   }
+
+
+
+
 
 
 
   if (idx >= lines.length || lines[idx] !== 'MOTION') return null;
 
+
+
   idx++;
+
+
+
+
 
 
 
   let numFrames = 0;
 
+
+
   let frameTime = 0.033333;
+
+
 
   while (idx < lines.length) {
 
+
+
     const line = lines[idx];
+
+
 
     if (/^Frames:/i.test(line)) {
 
+
+
       numFrames = parseInt(line.split(':')[1].trim(), 10) || 0;
 
+
+
       idx++;
+
+
 
     } else if (/^Frame Time:/i.test(line)) {
 
+
+
       frameTime = parseFloat(line.split(':')[1].trim()) || 0.033333;
 
+
+
       idx++;
+
+
 
       break;
 
+
+
     } else {
+
+
 
       idx++;
 
+
+
     }
 
+
+
   }
+
+
 
   if (numFrames <= 0) return null;
 
 
 
+
+
+
+
     const times = new Float32Array(numFrames);
+
   for (let f = 0; f < numFrames; f++) times[f] = f * frameTime;
 
+
+
   const trackQuats = {};
+
   joints.forEach((j) => {
+
     if (j.hName && vrmHumanoidMap[j.hName]) {
+
       trackQuats[j.hName] = new Float32Array(numFrames * 4);
+
     }
+
   });
+
+
 
   // Check if root hips has position channels for gravity & vertical displacement
+
   const rootJoint = joints.length > 0 ? joints[0] : null;
+
   const hasHipsPos = rootJoint && rootJoint.hName === 'hips' && rootJoint.channels.some(c => c.toLowerCase().includes('position'));
+
   const rawHipsPos = [];
 
+
+
   const deg2rad = Math.PI / 180.0;
+
   const qStep = new THREE.Quaternion();
+
   const qFrame = new THREE.Quaternion();
+
   const qVrm0 = new THREE.Quaternion();
+
   const qTarget = new THREE.Quaternion();
+
   const axX = new THREE.Vector3(1, 0, 0);
+
   const axY = new THREE.Vector3(0, 1, 0);
+
   const axZ = new THREE.Vector3(0, 0, 1);
 
+
+
   let fCount = 0;
+
   while (idx < lines.length && fCount < numFrames) {
+
     const vals = lines[idx++].split(/\s+/).map(Number);
+
     let cPtr = 0;
+
     for (let jIdx = 0; jIdx < joints.length; jIdx++) {
+
       const j = joints[jIdx];
+
       qFrame.identity();
+
       let posX = 0, posY = 0, posZ = 0;
 
+
+
       for (let c = 0; c < j.channels.length; c++) {
+
         const ch = j.channels[c].toLowerCase();
+
         const v = vals[cPtr++] || 0;
+
         if (ch === 'xposition') posX = v;
+
         else if (ch === 'yposition') posY = v;
+
         else if (ch === 'zposition') posZ = v;
+
         else if (ch === 'xrotation') {
+
           qStep.setFromAxisAngle(axX, v * deg2rad);
+
           qFrame.multiply(qStep);
+
         } else if (ch === 'yrotation') {
+
           qStep.setFromAxisAngle(axY, v * deg2rad);
+
           qFrame.multiply(qStep);
+
         } else if (ch === 'zrotation') {
+
           qStep.setFromAxisAngle(axZ, v * deg2rad);
+
           qFrame.multiply(qStep);
+
         }
+
       }
+
+
 
       if (jIdx === 0 && hasHipsPos) {
+
         rawHipsPos.push({ x: posX, y: posY, z: posZ });
+
       }
+
+
 
       if (j.hName && trackQuats[j.hName]) {
+
         const dstBone = vrmHumanoidMap[j.hName];
+
         const dstRestQuat = (dstBone.userData && dstBone.userData.restQuat) ? dstBone.userData.restQuat : new THREE.Quaternion();
+
         qVrm0.set(-qFrame.x, qFrame.y, -qFrame.z, qFrame.w);
+
         qTarget.copy(dstRestQuat).multiply(qVrm0);
+
         const out = trackQuats[j.hName];
+
         const base = fCount * 4;
+
         out[base]     = qTarget.x;
+
         out[base + 1] = qTarget.y;
+
         out[base + 2] = qTarget.z;
+
         out[base + 3] = qTarget.w;
+
       }
+
     }
+
     fCount++;
+
   }
+
+
 
   const retargetedTracks = [];
+
   Object.keys(trackQuats).forEach((hName) => {
+
     const dstBone = vrmHumanoidMap[hName];
+
     if (dstBone) {
+
       retargetedTracks.push(new THREE.QuaternionKeyframeTrack(
+
         `${dstBone.uuid}.quaternion`,
+
         times,
+
         trackQuats[hName]
+
       ));
+
     }
+
   });
 
+
+
   // Calculate hips position track with gravity & ground anchoring
+
   if (hasHipsPos && rawHipsPos.length > 0 && vrmHumanoidMap['hips']) {
+
     const hipsBone = vrmHumanoidMap['hips'];
+
     const restPos = (hipsBone.userData && hipsBone.userData.restPos) ? hipsBone.userData.restPos : new THREE.Vector3();
+
     const hipsVals = new Float32Array(numFrames * 3);
 
+
+
     // Identify action type: Is this an intentional ground action (kneel, sit, lay, crawl, crouch)?
+
     const isGroundAction = /kneel|sit|lay|crawling|crouch/i.test(actionKey);
 
+
+
     // Compute median of motion frames to discard single-frame T-pose spikes (like Frame 0 Y=11.68)
+
     const sortedY = rawHipsPos.map(p => p.y).sort((a, b) => a - b);
+
     const medianY = sortedY[Math.floor(sortedY.length / 2)];
 
+
+
     if (isGroundAction) {
+
       // For kneeling/sitting/laying/crouching actions:
+
       // In BVH clips with T-pose header (f0 ~ 11.68, motion ~ -5.5), baseline standing is f0.
+
       // In zero-centered clips (motion ~ -6.0 to -8.0), baseline standing is 0.0.
+
       const f0_y = rawHipsPos[0].y;
+
       const baselineY = (f0_y > 4.0) ? f0_y : 0.0;
+
       // bvhScale ~0.035 drops hips by ~0.60m so knees/shins rest flush on the floor surface
+
       const bvhScale = 0.035;
 
+
+
       for (let f = 0; f < rawHipsPos.length; f++) {
+
         // Clamp frame 0 if it's an un-transitioned T-pose spike
+
         const curY = (f === 0 && f0_y > 4.0 && rawHipsPos.length > 1) ? rawHipsPos[1].y : rawHipsPos[f].y;
+
         const dy = (curY - baselineY) * bvhScale;
+
         const baseIdx = f * 3;
+
         hipsVals[baseIdx]     = restPos.x;
+
         // Lower hips down to ground level
+
         hipsVals[baseIdx + 1] = restPos.y + dy;
+
         hipsVals[baseIdx + 2] = restPos.z;
+
       }
+
     } else {
+
       // For standing, dancing, jumping, and walking actions:
+
       // The character is standing on her feet on the floor.
+
       // Dynamic baseline is the motion's median standing height.
+
       // Small bounce/groove (±0.02m) and jumps (upward) are preserved, but feet NEVER clip into floor.
+
       const baselineY = medianY;
+
       const bvhScale = 0.020;
 
+
+
       for (let f = 0; f < rawHipsPos.length; f++) {
+
         const curY = (f === 0 && rawHipsPos[0].y > 4.0 && rawHipsPos.length > 1) ? rawHipsPos[1].y : rawHipsPos[f].y;
+
         const rawDy = (curY - baselineY) * bvhScale;
+
         // Strictly prevent hips from sinking below resting standing height while dancing/walking (floor collision clamp)
+
         const dy = Math.max(0.0, Math.min(0.35, rawDy));
+
         const baseIdx = f * 3;
+
         hipsVals[baseIdx]     = restPos.x;
+
         hipsVals[baseIdx + 1] = restPos.y + dy;
+
         hipsVals[baseIdx + 2] = restPos.z;
+
       }
+
     }
 
+
+
     retargetedTracks.push(new THREE.VectorKeyframeTrack(
+
       `${hipsBone.uuid}.position`,
+
       times,
+
       hipsVals
+
     ));
+
   }
 
+
+
   return new THREE.AnimationClip(actionKey, numFrames * frameTime, retargetedTracks);
+
+
 
 }
 
 
 
+
+
+
+
 function buildRetargetedVrmaClip(actionKey, vrmaGltf) {
+
+
 
   const parserJson = vrmaGltf.parser && vrmaGltf.parser.json;
 
+
+
   const ext = parserJson && parserJson.extensions && parserJson.extensions.VRMC_vrm_animation;
+
+
 
   const humanBones = ext && ext.humanoid && ext.humanoid.humanBones;
 
+
+
   const srcClip = vrmaGltf.animations && vrmaGltf.animations[0];
 
+
+
   if (!humanBones || !srcClip) return null;
+
+
+
+
 
 
 
@@ -13504,1553 +27093,3162 @@ function buildRetargetedVrmaClip(actionKey, vrmaGltf) {
 
 
 
+
+
+
+
   const nodeNameToHumanoid = {};
+
+
 
   const vrmaNodeRestWorld = {};
 
+
+
   const vrmaParentRestWorld = {};
+
+
 
   const vrmaHipsRestPos = new THREE.Vector3();
 
 
 
+
+
+
+
   const vrmaNodeByName = {};
+
+
 
   vrmaGltf.scene.traverse((obj) => {
 
+
+
     if (obj.name) {
+
+
 
       vrmaNodeByName[obj.name] = obj;
 
+
+
       vrmaNodeByName[obj.name.replace(/_/g, ' ')] = obj;
+
+
 
     }
 
+
+
   });
+
+
+
+
 
 
 
   Object.keys(humanBones).forEach((hName) => {
 
+
+
     const nodeIdx = humanBones[hName].node;
+
+
 
     const nodeDef = parserJson.nodes && parserJson.nodes[nodeIdx];
 
+
+
     if (!nodeDef || !nodeDef.name) return;
+
+
 
     const nName = nodeDef.name;
 
+
+
     const nNameSan = nName.replace(/\s+/g, '_');
 
+
+
     nodeNameToHumanoid[nName] = hName;
+
+
 
     nodeNameToHumanoid[nNameSan] = hName;
 
 
 
+
+
+
+
     const vrmaObj = vrmaNodeByName[nName];
+
+
 
     if (vrmaObj) {
 
+
+
       const qw = new THREE.Quaternion();
+
+
 
       vrmaObj.getWorldQuaternion(qw);
 
+
+
       vrmaNodeRestWorld[nName] = qw;
+
+
 
       vrmaNodeRestWorld[nNameSan] = qw;
 
 
 
+
+
+
+
       const qp = new THREE.Quaternion();
+
+
 
       if (vrmaObj.parent) vrmaObj.parent.getWorldQuaternion(qp);
 
+
+
       vrmaParentRestWorld[nName] = qp;
+
+
 
       vrmaParentRestWorld[nNameSan] = qp;
 
 
 
+
+
+
+
       if (hName === 'hips') {
+
+
 
         vrmaHipsRestPos.copy(vrmaObj.position);
 
+
+
       }
+
+
 
     }
 
+
+
   });
+
+
+
+
 
 
 
   const retargetedTracks = [];
 
+
+
   const qRaw = new THREE.Quaternion();
+
+
 
   const qNorm = new THREE.Quaternion();
 
+
+
   const qVrm0 = new THREE.Quaternion();
+
+
 
   const qTarget = new THREE.Quaternion();
 
 
 
+
+
+
+
   for (let i = 0; i < srcClip.tracks.length; i++) {
+
+
 
     const track = srcClip.tracks[i];
 
+
+
     const dotIdx = track.name.lastIndexOf('.');
+
+
 
     if (dotIdx < 0) continue;
 
+
+
     const srcNodeName = track.name.substring(0, dotIdx);
+
+
 
     const propName = track.name.substring(dotIdx + 1);
 
 
 
+
+
+
+
     const hName = nodeNameToHumanoid[srcNodeName];
+
+
 
     if (!hName) continue;
 
+
+
     const dstBone = vrmHumanoidMap[hName];
+
+
 
     if (!dstBone) continue;
 
 
 
+
+
+
+
     if (propName === 'quaternion') {
+
+
 
       const qParentWorld = vrmaParentRestWorld[srcNodeName] || new THREE.Quaternion();
 
+
+
       const qNodeWorldInv = (vrmaNodeRestWorld[srcNodeName] || new THREE.Quaternion()).clone().invert();
+
+
 
       const dstRestQuat = (dstBone.userData && dstBone.userData.restQuat) ? dstBone.userData.restQuat : new THREE.Quaternion();
 
 
 
+
+
+
+
       const srcVals = track.values;
 
+
+
       const dstVals = new Float32Array(srcVals.length);
+
+
+
+
 
 
 
       for (let k = 0; k < srcVals.length; k += 4) {
 
+
+
         qRaw.set(srcVals[k], srcVals[k + 1], srcVals[k + 2], srcVals[k + 3]);
+
+
 
         qNorm.copy(qParentWorld).multiply(qRaw).multiply(qNodeWorldInv);
 
+
+
         qVrm0.set(-qNorm.x, qNorm.y, -qNorm.z, qNorm.w);
+
+
 
         qTarget.copy(dstRestQuat).multiply(qVrm0);
 
 
 
+
+
+
+
         dstVals[k]     = qTarget.x;
+
+
 
         dstVals[k + 1] = qTarget.y;
 
+
+
         dstVals[k + 2] = qTarget.z;
+
+
 
         dstVals[k + 3] = qTarget.w;
 
+
+
       }
+
+
+
+
 
 
 
       let tArr = track.times.slice();
 
+
+
       let vArr = dstVals;
+
+
 
       // Expand 1-frame static pose VRMAs (e.g. pose_lean_in.vrma) to 4.0s so AnimationMixer holds & crossfades smoothly
 
+
+
       if (tArr.length === 1) {
+
+
 
         tArr = new Float32Array([0.0, 4.0]);
 
+
+
         vArr = new Float32Array(dstVals.length * 2);
+
+
 
         vArr.set(dstVals, 0);
 
+
+
         vArr.set(dstVals, dstVals.length);
 
+
+
       }
+
+
+
+
 
 
 
       retargetedTracks.push(new THREE.QuaternionKeyframeTrack(
 
+
+
         `${dstBone.uuid}.quaternion`,
+
+
 
         tArr,
 
+
+
         vArr
+
+
 
       ));
 
+
+
     } else if (propName === 'position' && hName === 'hips' && track.values.length >= 3) {
+
+
 
       // Keep character anchored horizontally in center of stage and prevent floating upward
 
+
+
       const dstRestPos = (dstBone.userData && dstBone.userData.restPos) ? dstBone.userData.restPos : new THREE.Vector3();
+
+
 
       const srcVals = track.values;
 
+
+
       const dstVals = new Float32Array(srcVals.length);
+
+
 
       const baseY0 = srcVals[1];
 
 
 
+
+
+
+
       for (let k = 0; k < srcVals.length; k += 3) {
+
+
 
         const dy = Math.min(0.01, srcVals[k + 1] - baseY0); // allow crouch/squat down, prevent upward floating
 
+
+
         dstVals[k]     = dstRestPos.x;
+
+
 
         dstVals[k + 1] = dstRestPos.y + dy;
 
+
+
         dstVals[k + 2] = dstRestPos.z;
 
+
+
       }
+
+
+
+
 
 
 
       let tArr = track.times.slice();
 
+
+
       let vArr = dstVals;
+
+
 
       if (tArr.length === 1) {
 
+
+
         tArr = new Float32Array([0.0, 4.0]);
+
+
 
         vArr = new Float32Array(dstVals.length * 2);
 
+
+
         vArr.set(dstVals, 0);
+
+
 
         vArr.set(dstVals, dstVals.length);
 
+
+
       }
+
+
+
+
 
 
 
       retargetedTracks.push(new THREE.VectorKeyframeTrack(
 
+
+
         `${dstBone.uuid}.position`,
+
+
 
         tArr,
 
+
+
         vArr
+
+
 
       ));
 
+
+
     }
 
+
+
   }
+
+
+
+
 
 
 
   const finalDur = srcClip.duration < 0.05 ? 4.0 : srcClip.duration;
 
+
+
   return new THREE.AnimationClip(actionKey, finalDur, retargetedTracks);
 
+
+
 }
+
+
+
+
 
 
 
 function initVrmEngine() {
 
+
+
   if (vrmInitialized) return;
+
+
 
   const container = document.getElementById('vrmStageContainer');
 
+
+
   const canvas = document.getElementById('vrmCanvas');
+
+
 
   if (!container || !canvas || typeof THREE === 'undefined') {
 
+
+
     console.warn("[VRM] Waiting for Three.js / VRM container...");
+
+
 
     return;
 
+
+
   }
+
+
+
+
 
 
 
   const width = container.clientWidth || 360;
 
+
+
   const height = container.clientHeight || 460;
+
+
+
+
 
 
 
   vrmScene = new THREE.Scene();
 
+
+
   vrmClock = new THREE.Clock();
+
+
+
+
 
 
 
   vrmCamera = new THREE.PerspectiveCamera(32, width / height, 0.1, 60.0);
 
+
+
   currentLookAt = new THREE.Vector3(0, vrmBaseY + 0.68, 0);
+
+
 
   targetLookAt = new THREE.Vector3(0, vrmBaseY + 0.68, 0);
 
+
+
   targetCamPos = new THREE.Vector3(0.0, vrmBaseY + 0.82, 4.05);
 
+
+
   vrmCamera.position.copy(targetCamPos);
+
+
 
   vrmCamera.lookAt(currentLookAt);
 
 
 
+
+
+
+
   try {
+
     vrmRenderer = new THREE.WebGLRenderer({
+
       canvas: canvas,
+
       alpha: true,
+
       antialias: true,
+
       powerPreference: 'high-performance'
+
     });
+
     const initDpr = Math.min(window.devicePixelRatio || 1, 2);
+
     vrmRenderer.setPixelRatio(initDpr);
+
     vrmRenderer.setSize(width, height, false);
+
     vrmRenderer.outputEncoding = THREE.sRGBEncoding;
 
+
+
     if (window.ResizeObserver) {
+
       const ro = new ResizeObserver(() => {
+
         requestAnimationFrame(() => resizeVrmToStage());
+
       });
+
       const stage = document.getElementById('vrmStageContainer');
+
       if (stage) ro.observe(stage);
+
       const floatBody = document.getElementById('vrmFloatingBody');
+
       if (floatBody) ro.observe(floatBody);
+
     }
+
+
 
   } catch (err) {
 
+
+
     console.error("[VRM] WebGLRenderer init failed:", err);
+
+
 
     return;
 
+
+
   }
+
+
+
+
 
 
 
   vrmBaseAmbientLight = new THREE.AmbientLight(0xfff0ff, 0.90);
 
+
+
   vrmScene.add(vrmBaseAmbientLight);
+
+
+
+
 
 
 
   vrmBaseKeyLight = new THREE.DirectionalLight(0xffffff, 0.68);
 
+
+
   vrmBaseKeyLight.position.set(1.2, 2.4, 2.6);
+
+
 
   vrmScene.add(vrmBaseKeyLight);
 
 
 
+
+
+
+
   vrmBaseRimLight = new THREE.DirectionalLight(0xc084fc, 0.45);
 
+
+
   vrmBaseRimLight.position.set(-1.5, 1.5, -2.0);
+
+
 
   vrmScene.add(vrmBaseRimLight);
 
 
 
+
+
+
+
   vrmInitialized = true;
+
+
 
   initFloatingHudDraggable();
 
+
+
   initAvatarPokeRaycaster(canvas);
+
+
 
   initRoomTouchOrbitLookAround(canvas);
 
+
+
   vrmEnvironmentGroup = new THREE.Group();
+
   vrmScene.add(vrmEnvironmentGroup);
 
+
+
   initCustomPropsGroup();
+
   initConnectomeFly();
+
+
 
   loadRumVrmModel(currentVrmModelName);
 
+
+
   setVrmEnvironment(currentEnvironmentName);
 
-  loadYoshiPlushProp();
+
+
+  // Yoshi is an optional custom prop, not a forced hardcoded fixture
+
+  const decorCfg = loadRoomDecorationsConfig();
+
+  if (decorCfg && decorCfg.yoshi) {
+
+    loadYoshiPlushProp();
+
+  }
+
+
 
   initSolarEphemerisEngine();
 
 
 
+
+
+
+
   function animateVrm() {
 
+
+
     requestAnimationFrame(animateVrm);
+
     try {
+
+
+
+
 
 
 
     const delta = vrmClock ? Math.min(vrmClock.getDelta(), 0.1) : 0.016;
 
+
+
     const time = vrmClock ? vrmClock.getElapsedTime() : Date.now() * 0.001;
+
+
 
     const now = Date.now();
 
 
 
+
+
+
+
     // 1. Natural Eye Blinking Sweep (240ms smooth blink with 55ms closed hold + occasional double-blink)
+
+
 
     if (!vrmIsBlinking && now > vrmNextBlinkTime) {
 
+
+
       vrmIsBlinking = true;
+
+
 
       vrmBlinkStartTime = now;
 
+
+
     }
+
+
 
     if (vrmIsBlinking) {
 
+
+
       const bdt = now - vrmBlinkStartTime;
+
+
 
       if (bdt < 85) {
 
+
+
         vrmBlinkProgress = bdt / 85;
+
+
 
       } else if (bdt < 140) {
 
+
+
         vrmBlinkProgress = 1.0;
+
+
 
       } else if (bdt < 240) {
 
+
+
         vrmBlinkProgress = 1.0 - ((bdt - 140) / 100);
+
+
 
       } else {
 
+
+
         vrmBlinkProgress = 0.0;
+
+
 
         vrmIsBlinking = false;
 
+
+
         vrmNextBlinkTime = (Math.random() < 0.28) ? (now + 180) : (now + 2200 + Math.random() * 1600);
+
+
 
       }
 
+
+
     }
+
+
+
+
 
 
 
     // 2. Speech & Action State (Synced strictly to hardware audio playback when SSE is connected!)
 
+
+
     const isSpeaking = (isHardwareSpeaking || now < vrmSpeechEndTime || now < (typeof waifuSpeechEndTime !== 'undefined' ? waifuSpeechEndTime : 0));
+
+
 
     const isReacting = (now < vrmReactionEndTime);
 
+
+
     const isSpeedPanic = (now < vrmSpeedPanicEndTime);
+
+
 
     const dancing = (isMusicPlaying() && !isSpeaking && !vrmHasError && !isSpeedPanic);
 
 
 
+
+
+
+
     // 3. Smooth G-Force Inertia Interpolation (NO vertical floating!)
+
+
 
     rumCurrentInertiaZ += (rumTargetInertiaZ - rumCurrentInertiaZ) * (delta * 6.0);
 
 
 
+
+
+
+
     if (vrmModel) {
+
+
 
       const isActionActive = (now < vrmActionEndTime);
 
+
+
       // Autonomous Roaming State Update
+
       updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, dancing, isSpeedPanic);
 
+
+
       // Environment surface elevation (e.g. stepping onto raised tatami mat in Garden)
+
       const targetElevation = getEnvironmentSurfaceElevation(vrmRoamCurrentPos.x, vrmRoamCurrentPos.z);
+
       vrmCurrentElevation += (targetElevation - vrmCurrentElevation) * Math.min(1.0, delta * 7.0);
 
+
+
       // Anchor feet firmly on stage floor (vrmBaseY + elevation), apply autonomous roaming X/Z & G-force inertia
+
       vrmModel.rotation.set(0, vrmRoamCurrentRotY, 0);
 
+
+
       vrmModel.position.set(
+
         -vrmCenter.x + vrmRoamCurrentPos.x,
+
         vrmBaseY + vrmCurrentElevation,
+
         (-vrmCenter.z) + vrmRoamCurrentPos.z + rumCurrentInertiaZ
+
       );
+
+
 
       if (!isActionActive && vrmaActiveAction && vrmaActiveName !== 'walk_loop') {
 
+
+
         stopActiveVrmaClip(0.45);
 
+
+
       }
 
 
 
-      // Auto-trigger real dance BVH clip when music is playing
 
-      if (dancing && !isActionActive && vrmaClips['dance'] && vrmaActiveName !== 'dance') {
 
-        playVrmAction('dance', 8000, true);
 
+
+      // Natural Music Groove: In-seat rhythmic head bobbing & shoulder sway instead of repetitive standing dance
+      if (dancing && !isSpeaking && vrmBones.head) {
+        const musicT = clock.getElapsedTime();
+        const bobPitch = Math.sin(musicT * 7.0) * 0.08;
+        const bobRoll = Math.sin(musicT * 3.5) * 0.045;
+        vrmBones.head.rotation.x = THREE.MathUtils.clamp(vrmBones.head.rotation.x + bobPitch, -0.45, 0.45);
+        vrmBones.head.rotation.z = THREE.MathUtils.clamp(vrmBones.head.rotation.z + bobRoll, -0.35, 0.35);
+        if (vrmBones.neck) {
+          vrmBones.neck.rotation.x = THREE.MathUtils.clamp(vrmBones.neck.rotation.x + bobPitch * 0.5, -0.25, 0.25);
+          vrmBones.neck.rotation.z = THREE.MathUtils.clamp(vrmBones.neck.rotation.z + bobRoll * 0.4, -0.20, 0.20);
+        }
+        if (vrmBones.spine) {
+          vrmBones.spine.rotation.z = THREE.MathUtils.clamp(vrmBones.spine.rotation.z + bobRoll * 0.3, -0.15, 0.15);
+        }
       }
+
+
+
+
 
 
 
       // Update AnimationMixer (drives active VRMA/BVH clips, neutral_idle.bvh standby AND roaming walk!)
 
+
+
       if (vrmMixer && (vrmaActiveAction || vrmaIdleAction || vrmRoamWalkAction)) {
+
+
 
         vrmMixer.update(delta);
 
+
+
         // Prevent unnatural owl-like head spinning! Strictly clamp head & neck rotation to natural human anatomy
+
+
 
         if (vrmBones.head) {
 
+
+
           vrmBones.head.rotation.y = THREE.MathUtils.clamp(vrmBones.head.rotation.y, -0.55, 0.55);
+
+
 
           vrmBones.head.rotation.x = THREE.MathUtils.clamp(vrmBones.head.rotation.x, -0.45, 0.45);
 
+
+
           vrmBones.head.rotation.z = THREE.MathUtils.clamp(vrmBones.head.rotation.z, -0.35, 0.35);
 
+
+
           // R.U.M. head tracking towards the fruit fly when nearby
+
           if (connectomeFlyEnabled && connectomeFlyGroup && !isSpeaking && !isReacting) {
+
             const rx = vrmRoamCurrentPos.x;
+
             const ry = vrmBaseY + 1.2;
+
             const rz = vrmRoamCurrentPos.z;
+
             const flyDist = Math.hypot(connectomeFlyGroup.position.x - rx, connectomeFlyGroup.position.z - rz);
+
             if (flyDist < 2.4 && connectomeFlyGroup.position.z > -2.2) {
+
               const dx = connectomeFlyGroup.position.x - rx;
+
               const dy = connectomeFlyGroup.position.y - ry;
+
               const dz = connectomeFlyGroup.position.z - rz;
+
               const angleToFly = Math.atan2(-dx, -dz);
+
               let diffYaw = THREE.MathUtils.euclideanModulo(angleToFly - vrmRoamCurrentRotY + Math.PI, Math.PI * 2) - Math.PI;
+
               if (Math.abs(diffYaw) < 1.1) {
+
                 const targetYaw = THREE.MathUtils.clamp(diffYaw, -0.45, 0.45);
+
                 const targetPitch = THREE.MathUtils.clamp(dy * 0.4, -0.30, 0.30);
+
                 vrmBones.head.rotation.y = THREE.MathUtils.lerp(vrmBones.head.rotation.y, targetYaw, Math.min(1.0, delta * 4.5));
+
                 vrmBones.head.rotation.x = THREE.MathUtils.lerp(vrmBones.head.rotation.x, -targetPitch, Math.min(1.0, delta * 4.5));
+
               }
+
             }
+
           }
 
+
+
         }
+
+
 
         if (vrmBones.neck) {
 
+
+
           vrmBones.neck.rotation.y = THREE.MathUtils.clamp(vrmBones.neck.rotation.y, -0.35, 0.35);
+
+
 
         }
 
+
+
       } else {
+
+
 
         // Fallback only during the ~0.3s before neutral_idle.bvh finishes loading
 
+
+
         resetAllVrmBonesToRest();
+
+
 
         if (vrmBones.lArm) vrmBones.lArm.rotation.set(0, 0.10, 1.30);
 
+
+
         if (vrmBones.rArm) vrmBones.rArm.rotation.set(0, -0.10, -1.30);
 
+
+
       }
+
+
+
+
 
 
 
       // 4a. Facial Rig Animation: Reset facial bones to rest first, then apply Eye Blinking & Lip-Sync
 
+
+
       ['lEyeUpper', 'rEyeUpper', 'lEyeLower', 'rEyeLower', 'lEyeball', 'rEyeball',
+
+
 
        'jaw', 'lLipLower', 'rLipLower', 'lLipUpper', 'rLipUpper', 'lMouthCorner', 'rMouthCorner',
 
+
+
        'lBrowIn', 'rBrowIn', 'lBrowOut', 'rBrowOut'].forEach((fk) => {
+
+
 
         const fb = vrmBones[fk];
 
+
+
         if (fb && fb.userData) {
+
+
 
           if (fb.userData.restPos) fb.position.copy(fb.userData.restPos);
 
+
+
           if (fb.userData.restQuat) fb.quaternion.copy(fb.userData.restQuat);
+
+
 
           fb.scale.set(1, 1, 1);
 
+
+
         }
 
+
+
       });
+
+
+
+
 
 
 
       const blinkAmt = (vrmCurrentAction === 'amusement' || vrmCurrentAction === 'point_laugh') ? Math.max(vrmBlinkProgress, 0.85) : vrmBlinkProgress;
 
+
+
       if (blinkAmt > 0.01) {
+
+
 
         if (vrmBones.lEyeUpper && vrmBones.lEyeUpper.userData.restPos) {
 
+
+
           vrmBones.lEyeUpper.position.y = vrmBones.lEyeUpper.userData.restPos.y - 0.025 * blinkAmt;
+
+
 
           vrmBones.lEyeUpper.rotation.x = -0.12 * blinkAmt;
 
+
+
         }
+
+
 
         if (vrmBones.rEyeUpper && vrmBones.rEyeUpper.userData.restPos) {
 
+
+
           vrmBones.rEyeUpper.position.y = vrmBones.rEyeUpper.userData.restPos.y - 0.025 * blinkAmt;
+
+
 
           vrmBones.rEyeUpper.rotation.x = -0.12 * blinkAmt;
 
+
+
         }
+
+
 
         if (vrmBones.lEyeLower && vrmBones.lEyeLower.userData.restPos) {
 
+
+
           vrmBones.lEyeLower.position.y = vrmBones.lEyeLower.userData.restPos.y + 0.006 * blinkAmt;
 
+
+
         }
+
+
 
         if (vrmBones.rEyeLower && vrmBones.rEyeLower.userData.restPos) {
 
+
+
           vrmBones.rEyeLower.position.y = vrmBones.rEyeLower.userData.restPos.y + 0.006 * blinkAmt;
 
+
+
         }
+
+
 
         if (vrmBones.lEyeball && vrmBones.lEyeball.userData.restPos) {
 
+
+
           vrmBones.lEyeball.scale.set(1.0, Math.max(0.05, 1.0 - 0.95 * blinkAmt), 1.0);
+
+
 
           vrmBones.lEyeball.position.z = vrmBones.lEyeball.userData.restPos.z + 0.010 * blinkAmt;
 
+
+
         }
+
+
 
         if (vrmBones.rEyeball && vrmBones.rEyeball.userData.restPos) {
 
+
+
           vrmBones.rEyeball.scale.set(1.0, Math.max(0.05, 1.0 - 0.95 * blinkAmt), 1.0);
+
+
 
           vrmBones.rEyeball.position.z = vrmBones.rEyeball.userData.restPos.z + 0.010 * blinkAmt;
 
+
+
         }
 
+
+
       }
+
+
+
+
 
 
 
       if (isSpeaking || vrmCurrentAction === 'amusement' || vrmCurrentAction === 'point_laugh') {
 
+
+
         const syl1 = Math.sin(time * 18.5);
+
+
 
         const syl2 = Math.sin(time * 11.3 + 0.8);
 
+
+
         const syl3 = Math.cos(time * 27.0);
+
+
 
         const rawOpen = Math.max(0.0, (syl1 * 0.55 + syl2 * 0.35 + syl3 * 0.25 + 0.35));
 
+
+
         const mouthOpen = Math.min(1.0, rawOpen);
+
+
 
         const vowelWidth = 0.5 + 0.5 * Math.sin(time * 7.2);
 
 
 
+
+
+
+
         if (vrmBones.jaw && vrmBones.jaw.userData.restPos) {
+
+
 
           vrmBones.jaw.position.y = vrmBones.jaw.userData.restPos.y - (0.0045 * mouthOpen);
 
+
+
           vrmBones.jaw.rotation.x = -0.05 * mouthOpen;
 
+
+
         }
+
+
 
         if (vrmBones.lLipLower && vrmBones.lLipLower.userData.restPos) {
 
+
+
           vrmBones.lLipLower.position.y = vrmBones.lLipLower.userData.restPos.y - (0.0055 * mouthOpen);
 
+
+
         }
+
+
 
         if (vrmBones.rLipLower && vrmBones.rLipLower.userData.restPos) {
 
+
+
           vrmBones.rLipLower.position.y = vrmBones.rLipLower.userData.restPos.y - (0.0055 * mouthOpen);
 
+
+
         }
+
+
 
         if (vrmBones.lLipUpper && vrmBones.lLipUpper.userData.restPos) {
 
+
+
           vrmBones.lLipUpper.position.y = vrmBones.lLipUpper.userData.restPos.y + (0.0025 * mouthOpen);
 
+
+
         }
+
+
 
         if (vrmBones.rLipUpper && vrmBones.rLipUpper.userData.restPos) {
 
+
+
           vrmBones.rLipUpper.position.y = vrmBones.rLipUpper.userData.restPos.y + (0.0025 * mouthOpen);
 
+
+
         }
+
+
 
         if (vrmBones.lMouthCorner && vrmBones.lMouthCorner.userData.restPos) {
 
+
+
           vrmBones.lMouthCorner.position.y = vrmBones.lMouthCorner.userData.restPos.y + (0.003 * vowelWidth);
+
+
 
           vrmBones.lMouthCorner.position.x = vrmBones.lMouthCorner.userData.restPos.x * (1.0 + 0.14 * vowelWidth);
 
+
+
         }
+
+
 
         if (vrmBones.rMouthCorner && vrmBones.rMouthCorner.userData.restPos) {
 
+
+
           vrmBones.rMouthCorner.position.y = vrmBones.rMouthCorner.userData.restPos.y + (0.003 * vowelWidth);
+
+
 
           vrmBones.rMouthCorner.position.x = vrmBones.rMouthCorner.userData.restPos.x * (1.0 + 0.14 * vowelWidth);
 
+
+
         }
+
+
 
         const browLift = 0.003 * mouthOpen;
 
+
+
         ['lBrowIn', 'rBrowIn', 'lBrowOut', 'rBrowOut'].forEach((bk) => {
+
+
 
           if (vrmBones[bk] && vrmBones[bk].userData.restPos) {
 
+
+
             vrmBones[bk].position.y = vrmBones[bk].userData.restPos.y + browLift;
+
+
 
           }
 
+
+
         });
+
+
 
       }
 
+
+
     }
+
+
+
+
 
 
 
     // 4b. World-Space Gravity Drape for Hanging Kimono Sleeves (Bone001_m & Bone001)
 
+
+
     if (vrmModel) {
+
+
 
       vrmModel.updateMatrixWorld(true);
 
+
+
       const sleeveTargetWorldQ = new THREE.Quaternion().setFromEuler(
+
+
 
         new THREE.Euler(0.45 + Math.sin(time * 2.2) * 0.02, Math.PI, Math.cos(time * 1.8) * 0.02)
 
+
+
       );
+
+
 
       ['Bone001_m', 'Bone001'].forEach((sName) => {
 
+
+
         const sb = vrmModel.getObjectByName(sName);
+
+
 
         if (sb && sb.parent) {
 
+
+
           const pWorldQ = new THREE.Quaternion();
+
+
 
           sb.parent.getWorldQuaternion(pWorldQ);
 
+
+
           sb.quaternion.copy(pWorldQ.invert().multiply(sleeveTargetWorldQ));
+
+
 
         }
 
+
+
       });
 
+
+
     }
+
+
+
+
 
 
 
     // 5. Dynamic Camera Director
 
+
+
     updateCameraDirector(delta, isSpeaking, isReacting);
 
 
 
+
+
+
+
     // 5b. Animated Sakura Blossom Petals in Garden Environment
+
     if (currentEnvironmentName === 'GARDEN' && sakuraPetals && sakuraPetals.length > 0) {
+
       for (let i = 0; i < sakuraPetals.length; i++) {
+
         const p = sakuraPetals[i];
+
         p.position.y -= delta * p.userData.fallSpeed;
+
         p.position.x += Math.sin(time * 1.5 + p.userData.seed) * (delta * 0.15);
+
         p.position.z += Math.cos(time * 1.2 + p.userData.seed) * (delta * 0.12);
+
         p.rotation.z += delta * p.userData.rotSpeed;
+
         p.rotation.x += delta * (p.userData.rotSpeed * 0.8);
+
         if (p.position.y < vrmBaseY) {
+
           p.position.y = vrmBaseY + 3.2;
+
           p.position.x = (Math.random() - 0.5) * 3.5;
+
           p.position.z = (Math.random() - 0.5) * 2.5;
+
         }
+
       }
+
     }
+
+
 
     // 5c. Real Moving Ocean Waves & Celestial Day/Night Arc Simulation
-    if (currentEnvironmentName === 'GARDEN') {
-      updateGardenOceanAndSky(time, delta);
+
+    try {
+
+      if (currentEnvironmentName === 'GARDEN' || currentEnvironmentName === 'ROOM') {
+
+        updateGardenOceanAndSky(time, delta);
+
+      }
+
+    } catch (oceanErr) {
+
+      logClientError('updateGardenOceanAndSky', oceanErr);
+
     }
+
+
 
     // 5b. 3D Basketball Physics & Dribbling Simulation
-    if (typeof updateBasketballPhysics === 'function') {
-      updateBasketballPhysics(delta);
+
+    try {
+
+      if (typeof updateBasketballPhysics === 'function') {
+
+        updateBasketballPhysics(delta);
+
+      }
+
+    } catch (bbErr) {
+
+      logClientError('updateBasketballPhysics', bbErr);
+
     }
 
+
+
     // 5d. Biological Connectome Fruit Fly Simulation
-    if (typeof updateConnectomeFly === 'function') {
-      updateConnectomeFly(delta, time);
+
+    try {
+
+      if (typeof updateConnectomeFly === 'function') {
+
+        updateConnectomeFly(delta, time);
+
+      }
+
+    } catch (flyErr) {
+
+      logClientError('updateConnectomeFly', flyErr);
+
     }
+
+
 
     // 6. Render
 
+
+
     if (vrmRenderer && vrmScene && vrmCamera) {
 
-      vrmRenderer.render(vrmScene, vrmCamera);
+
+
+      // 5.5 Dynamic Camera Wall Occlusion Fading
+    try {
+      updateCameraOcclusionFading();
+    } catch (occErr) {}
+
+    vrmRenderer.render(vrmScene, vrmCamera);
+
+
 
     }
+
     } catch (animErr) {
+
       console.error('[VRM_ANIM_ERROR]', animErr);
+
     }
+
+
 
   }
+
+
+
+
 
 
 
   animateVrm();
 
+
+
 }
+
+
+
+
 
 
 
 function updateCameraDirector(delta, isSpeaking, isReacting) {
 
+
+
   if (!vrmCamera || !targetCamPos || !targetLookAt || !currentLookAt) return;
 
+
+
   const isDoingAction = (Date.now() < vrmActionEndTime);
+
   const isGazeRetained = (Date.now() < rumGazeRetentionUntil);
+
   const isVocal = isSpeaking || isReacting || isGazeRetained;
 
+
+
   // Rum's live dynamic coordinates on the stage floor
+
   const rx = vrmRoamCurrentPos.x;
+
   const rz = vrmRoamCurrentPos.z;
+
   const ry = vrmBaseY + vrmCurrentElevation;
 
+
+
   // Precise anatomical landmarks
+
   const yCenter = ry + 0.70;             // Torso center (for 3rd person full body tracking)
+
   const yBust   = ry + (vrmSize.y * 0.70); // Chest / bust level
+
   const yHead   = ry + (vrmSize.y * 0.82); // Eye / head level
 
+
+
   if (isCompanionFloating) {
+
     // Continuous dynamic tracking in Shotgun mode: Follow Rum's exact rx/rz coordinates so she NEVER walks off screen!
+
     if (vrmFramingMode === 'PORTRAIT' || (vrmFramingMode === 'AUTO' && isVocal)) {
+
       targetCamPos.set(rx, yHead + 0.02, rz + 1.15);
+
       targetLookAt.set(rx, yBust + 0.04, rz);
+
     } else {
+
       // Third-person centered tracking head-to-toe in small floating shotgun HUD
+
       targetCamPos.set(rx, yCenter + 0.10, rz + 2.35);
+
       targetLookAt.set(rx, yCenter, rz);
+
     }
+
   } else if (vrmFramingMode === 'ROOM') {
+
     // 1. FULL ROOM VIEW: Crisp diorama framing bringing the full room and props into high-density focus
+
     targetCamPos.set(0.0, ry + 1.65, 4.35 * vrmZoomMultiplier);
+
     targetLookAt.set(0.0, ry + 0.65, -0.15);
+
   } else if (vrmFramingMode === 'PORTRAIT') {
+
     // 2. PORTRAIT / BUST VIEW: Camera follows Rum continuously, locked at bust view (shoulders to hair) wherever she wanders
+
     targetCamPos.set(rx, yHead + 0.04, rz + 1.40 * vrmZoomMultiplier);
+
     targetLookAt.set(rx, yBust + 0.04, rz);
+
   } else if (vrmFramingMode === 'AUTO') {
+
     // 3. AUTO ZOOM: Full body 3rd person tracking while idle/walking -> zooms straight into shoulders/head close-up when speaking!
+
     if (isVocal && !isDoingAction) {
+
       // Zooms in straight to head/mouth close-up so lips, speech sync, and facial reactions are prominent!
+
       targetCamPos.set(rx, yHead + 0.03, rz + 1.15 * vrmZoomMultiplier);
+
       targetLookAt.set(rx, yHead - 0.02, rz);
+
     } else {
+
       // Natural 3rd person game character full body follow
+
       targetCamPos.set(rx, yCenter + 0.16, rz + 3.25 * vrmZoomMultiplier);
+
       targetLookAt.set(rx, yCenter, rz);
+
     }
+
   } else {
+
     // 4. FULL BODY (Default): 3rd Person Game Character Tracking - Camera follows Rum's X/Z position continuously, always dead-center in view from head to toe!
+
     targetCamPos.set(rx, yCenter + 0.16, rz + 3.25 * vrmZoomMultiplier);
+
     targetLookAt.set(rx, yCenter, rz);
+
   }
+
+
+
+
 
 
 
   const isFastSnap = (typeof vrmCameraFastTransitionUntil !== 'undefined' && Date.now() < vrmCameraFastTransitionUntil);
+
   const lerpFactor = isFastSnap ? Math.min(1.0, delta * 18.0) : Math.min(1.0, delta * 4.2);
+
+
 
   vrmCamera.position.lerp(targetCamPos, lerpFactor);
 
+
+
   currentLookAt.lerp(targetLookAt, lerpFactor);
 
+
+
   if (typeof orbitReturnToCenter !== 'undefined' && orbitReturnToCenter) {
+
     orbitTargetYaw += (0.0 - orbitTargetYaw) * (delta * 2.5);
+
     orbitTargetPitch += (0.0 - orbitTargetPitch) * (delta * 2.5);
+
   }
+
   orbitUserYaw += (orbitTargetYaw - orbitUserYaw) * (delta * 8.0);
+
   orbitUserPitch += (orbitTargetPitch - orbitUserPitch) * (delta * 8.0);
 
+
+
   const orbitLookAt = currentLookAt.clone();
+
   orbitLookAt.x += Math.sin(orbitUserYaw) * 1.8;
+
   orbitLookAt.y += orbitUserPitch * 1.2;
+
   orbitLookAt.z += (Math.cos(orbitUserYaw) - 1.0) * 1.8;
+
+
 
   vrmCamera.lookAt(orbitLookAt);
 
+
+
 }
 
 
 
 
+
+
+
+
+
 // ============================================================================
+
 // --- AI SCREEN 3-WAY SPLITTER & 3D ROOM TOUCH ORBIT LOOK-AROUND ENGINE ---
+
 // ============================================================================
+
 let currentAiLayoutMode = 'SPLIT';
+
 let isTouchOrbiting = false;
+
 let orbitTouchStartX = 0;
+
 let orbitTouchStartY = 0;
+
 let orbitUserYaw = 0.0;
+
 let orbitUserPitch = 0.0;
+
 let orbitTargetYaw = 0.0;
+
 let orbitTargetPitch = 0.0;
+
 let orbitIdleTimer = null;
+
 let orbitReturnToCenter = true;
 
+
+
 function setAiLayoutMode(mode = 'SPLIT') {
+
   currentAiLayoutMode = mode;
+
   localStorage.setItem('carpi5_ai_layout_mode', mode);
+
   const container = document.getElementById('screenAI');
+
   if (!container) return;
+
+
 
   container.classList.remove('ai-layout-chat', 'ai-layout-split', 'ai-layout-room');
 
+
+
   document.querySelectorAll('.ai-split-btn').forEach((b) => {
+
     const isChat = b.id.includes('Chat') || (b.innerText && b.innerText.includes('CHAT'));
+
     const isSplit = b.id.includes('Balanced') || b.id.includes('Split') || (b.innerText && b.innerText.includes('SPLIT'));
+
     const isRoom = b.id.includes('Room') || (b.innerText && b.innerText.includes('ROOM'));
+
     if (mode === 'CHAT') b.classList.toggle('active', isChat);
+
     else if (mode === 'ROOM') b.classList.toggle('active', isRoom);
+
     else b.classList.toggle('active', isSplit);
+
   });
 
+
+
   if (mode === 'CHAT') {
+
     container.classList.add('ai-layout-chat');
+
     if (typeof popOutFloatingCompanion === 'function') popOutFloatingCompanion(true);
+
   } else if (mode === 'ROOM') {
+
     container.classList.add('ai-layout-room');
+
     if (typeof dockCompanionToAi === 'function') dockCompanionToAi();
+
   } else {
+
     container.classList.add('ai-layout-split');
+
     if (typeof dockCompanionToAi === 'function') dockCompanionToAi();
+
   }
+
+
 
   resizeVrmToStage();
+
   requestAnimationFrame(resizeVrmToStage);
+
   setTimeout(resizeVrmToStage, 100);
+
   setTimeout(resizeVrmToStage, 300);
+
 }
+
+
 
 function initAiLayoutMode() {
+
   const saved = localStorage.getItem('carpi5_ai_layout_mode') || 'SPLIT';
+
   setAiLayoutMode(saved);
+
 }
+
+
 
 function initRoomTouchOrbitLookAround(canvas) {
+
   if (!canvas || canvas._hasOrbitListeners) return;
+
   canvas._hasOrbitListeners = true;
 
+
+
   function onPointerDown(e) {
+
     // Only orbit if not clicking a UI button
+
     if (e.target.tagName === 'BUTTON') return;
+
     isTouchOrbiting = true;
+
     orbitReturnToCenter = false;
+
     if (orbitIdleTimer) clearTimeout(orbitIdleTimer);
+
     orbitTouchStartX = e.touches ? e.touches[0].clientX : e.clientX;
+
     orbitTouchStartY = e.touches ? e.touches[0].clientY : e.clientY;
+
   }
+
+
 
   function onPointerMove(e) {
+
     if (!isTouchOrbiting) return;
+
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
     const dx = clientX - orbitTouchStartX;
+
     const dy = clientY - orbitTouchStartY;
+
     orbitTouchStartX = clientX;
+
     orbitTouchStartY = clientY;
 
+
+
     // Pan camera angle (yaw horizontally, pitch vertically)
+
     orbitTargetYaw -= dx * 0.0055;
+
     orbitTargetPitch = Math.max(-0.45, Math.min(0.40, orbitTargetPitch + dy * 0.0045));
+
   }
+
+
 
   function onPointerUp() {
+
     isTouchOrbiting = false;
+
     // After 7 seconds of inactivity, smoothly ease camera back to direct forward gaze
+
     if (orbitIdleTimer) clearTimeout(orbitIdleTimer);
+
     orbitIdleTimer = setTimeout(() => {
+
       orbitReturnToCenter = true;
+
     }, 3000);
+
   }
 
+
+
   canvas.addEventListener('mousedown', onPointerDown);
+
   window.addEventListener('mousemove', onPointerMove);
+
   window.addEventListener('mouseup', onPointerUp);
 
+
+
   canvas.addEventListener('touchstart', onPointerDown, { passive: true });
+
   window.addEventListener('touchmove', onPointerMove, { passive: true });
+
   window.addEventListener('touchend', onPointerUp, { passive: true });
+
 }
+
+
+
 
 
 function loadRumVrmModel(modelName = (currentVrmModelName || 'Rum.vrm')) {
 
+
+
   currentVrmModelName = modelName;
+
   localStorage.setItem('vrmCurrentAvatar', modelName);
 
+
+
   const notice = document.getElementById('vrmLoadingNotice');
+
+
 
   if (notice) notice.style.display = 'flex';
 
 
 
+
+
+
+
   const loader = new THREE.GLTFLoader();
 
+
+
   const isLocalFile = window.location.protocol === 'file:';
+
   const vrmUrl = isLocalFile ? `../../models/avatars/${modelName}` : `/api/models/vrm?name=${encodeURIComponent(modelName)}`;
+
+
+
+
 
 
 
   loader.load(
 
+
+
     vrmUrl,
+
+
 
     (gltf) => {
 
+
+
       console.log(`[VRM] ${modelName} loaded successfully!`, gltf);
+
+
 
       if (notice) notice.style.display = 'none';
 
 
 
+
+
+
+
       if (vrmModel) {
 
+
+
         vrmScene.remove(vrmModel);
+
+
 
       }
 
 
 
+
+
+
+
       vrmModel = gltf.scene;
+
       applyHighQualityTextureFiltering(vrmModel);
 
+
+
       vrmaIdleAction = null;
+
+
 
       vrmaActiveAction = null;
 
 
 
+
+
+
+
       // Fix 3ds Max Biped hierarchy & map bones
+
+
 
       const rig = fixVrmBipedHierarchy(vrmModel, gltf);
 
+
+
       vrmBones = rig.bones;
+
+
 
       vrmHumanoidMap = rig.hMap;
 
+
+
       vrmAllBones = rig.allBones;
+
+
 
       vrmSecondaryBones = rig.secondary;
 
 
 
+      currentVrm = {
+
+        humanoid: {
+
+          getBoneNode: (b) => (vrmBones && vrmBones[b]) || (vrmHumanoidMap && vrmHumanoidMap[b]),
+
+          getNormalizedBoneNode: (b) => (vrmBones && vrmBones[b]) || (vrmHumanoidMap && vrmHumanoidMap[b])
+
+        },
+
+        scene: vrmModel
+
+      };
+
+      window.currentVrm = currentVrm;
+
+
+
+
+
+
+
       // Measure raw unscaled height so child models (Rum.vrm) are scaled slightly smaller (0.85x)
+
+
 
       // while taller adult models scale proportionally and fit cleanly on the same stage floor
 
+
+
       const rawBox = new THREE.Box3().setFromObject(vrmModel);
+
+
 
       const rawSize = rawBox.getSize(new THREE.Vector3());
 
+
+
       const isPetiteModel = /rum|rem/i.test(modelName) || rawSize.y < 1.56;
+
+
 
       // Beautiful proportion: scale Rum up to 1.18x so she fills the frame nicely with the room
 
+
+
       const targetScale = isPetiteModel ? 1.18 : Math.min(1.25, 1.42 / Math.max(1.0, rawSize.y));
 
+
+
       vrmModel.scale.set(targetScale, targetScale, targetScale);
+
+
 
       vrmModel.updateMatrixWorld(true);
 
 
 
+
+
+
+
       const box = new THREE.Box3().setFromObject(vrmModel);
 
+
+
       const center = box.getCenter(new THREE.Vector3());
+
+
 
       const size = box.getSize(new THREE.Vector3());
 
 
 
+
+
+
+
       vrmCenter = center;
+
+
 
       vrmSize = size;
 
+
+
       // Anchor feet (box.min.y) firmly at stage floor (-0.68) so she never floats and leaves headroom for taller VRMs
+
+
 
       vrmBaseY = -0.68 - box.min.y;
 
 
 
+
+
+
+
       vrmModel.position.set(-center.x, vrmBaseY, -center.z);
+
+
 
       vrmModel.rotation.set(0, Math.PI, 0);
 
 
 
+
+
+
+
       vrmModel.traverse((node) => {
+
+
 
         if (node.isMesh) {
 
+
+
           node.castShadow = true;
+
+
 
           node.receiveShadow = true;
 
+
+
           node.frustumCulled = false;
+
+
 
           if (node.material) {
 
+
+
             node.material.depthWrite = true;
+
+
 
           }
 
+
+
         }
 
+
+
       });
+
+
+
+
 
 
 
       vrmScene.add(vrmModel);
 
+
+
       vrmMixer = new THREE.AnimationMixer(vrmModel);
 
+
+
       vrmRoamWalkAction = null;
+
+
 
       preloadVrmaMotionPack();
 
 
 
+
+
+
+
       updateFramingButtonLabel();
+
+
 
       updateWorldButtonLabel();
 
+
+
       updateRoamButtonLabel();
 
+
+
       updateModelButtonLabel();
+
+
 
       resizeVrmToStage();
 
 
 
+
+
+
+
       const emotionPill = document.getElementById('waifuEmotionPill');
+
+
 
       if (emotionPill) {
 
+
+
         const isRem = (currentVrmModelName.includes('Rem') || currentVrmModelName.toLowerCase().includes('rem'));
+
         emotionPill.innerText = isRem ? "💙 REM (3D VRM) • DEVOTED TO MASTER" : "💜 RUM (3D VRM) • PLAYFUL SISTER";
+
+
 
       }
 
+
+
     },
+
+
 
     (progress) => {
 
+
+
       if (progress.total > 0 && notice) {
+
+
 
         const pct = Math.round((progress.loaded / progress.total) * 100);
 
+
+
         notice.innerHTML = `<span>⚡</span> LOADING RUM VRM (${pct}%)...`;
 
+
+
       }
+
+
 
     },
 
+
+
     (error) => {
+
+
 
       console.warn(`[VRM] Fallback checking Rem.vrm:`, error);
 
+
+
       if (modelName === 'Rem.vrm') {
+
+
 
         loadRumVrmModel('Rum.vrm');
 
+
+
         return;
+
+
 
       } else if (modelName === 'Rum.vrm') {
 
+
+
         loadRumVrmModel('Rem.vrm');
+
+
 
         return;
 
+
+
       }
+
+
 
       if (notice) {
 
+
+
         notice.innerHTML = '<span style="color:var(--accent-red);">VRM Load Error</span>';
+
+
 
       }
 
+
+
     }
+
+
 
   );
 
+
+
 }
+
+
+
+
 
 
 
 function resizeVrmToStage() {
+
   if (!vrmRenderer || !vrmCamera) return;
+
   const targetContainer = isCompanionFloating ? document.getElementById('vrmFloatingBody') : document.getElementById('vrmStageContainer');
+
   if (!targetContainer) return;
 
+
+
   const rect = targetContainer.getBoundingClientRect();
+
   const w = Math.round(rect.width || targetContainer.clientWidth || 360);
+
   const h = Math.round(rect.height || targetContainer.clientHeight || 460);
+
   if (w <= 0 || h <= 0) return;
 
+
+
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
   vrmRenderer.setPixelRatio(dpr);
+
   vrmRenderer.setSize(w, h, false);
 
+
+
   vrmCamera.aspect = w / h;
+
   vrmCamera.updateProjectionMatrix();
+
 }
 
+
+
 function applyHighQualityTextureFiltering(rootObj) {
+
   if (!vrmRenderer || !rootObj) return;
+
   const maxAniso = (vrmRenderer.capabilities && typeof vrmRenderer.capabilities.getMaxAnisotropy === 'function')
+
     ? vrmRenderer.capabilities.getMaxAnisotropy()
+
     : 4;
+
   rootObj.traverse((node) => {
+
     if (node.isMesh && node.material) {
+
       const mats = Array.isArray(node.material) ? node.material : [node.material];
+
       mats.forEach((m) => {
+
         if (m.map) {
+
           m.map.anisotropy = maxAniso;
+
           m.map.minFilter = THREE.LinearMipmapLinearFilter;
+
           m.map.magFilter = THREE.LinearFilter;
+
           m.map.needsUpdate = true;
+
         }
+
       });
+
     }
+
   });
+
 }
+
+
+
+
 
 
 
 function updateFramingButtonLabel() {
 
+
+
   const btn = document.getElementById('btnVrmViewToggle');
+
+
 
   const hudBtn = document.getElementById('btnHudViewToggle');
 
+
+
   const labels = {
+
+
 
     'FULL_BODY': '🔍 FULL BODY (FOLLOW)',
 
+
+
     'ROOM': '🏠 FULL ROOM',
+
+
 
     'PORTRAIT': '👤 BUST (FOLLOW)',
 
+
+
     'AUTO': '🤖 AUTO ZOOM (SPEAK)'
+
+
 
   };
 
+
+
   const label = labels[vrmFramingMode] || '🔍 FULL BODY';
+
+
 
   if (btn) btn.innerText = label;
 
+
+
   if (hudBtn) hudBtn.innerText = (vrmFramingMode === 'ROOM') ? '🏠' : ((vrmFramingMode === 'PORTRAIT') ? '👤' : '🔍');
 
+
+
 }
+
+
+
+
 
 
 
 let vrmCameraFastTransitionUntil = 0;
 
+
+
 function snapCameraToCurrentFraming() {
+
   orbitTargetYaw = 0.0;
+
   orbitTargetPitch = 0.0;
+
   orbitUserYaw = 0.0;
+
   orbitUserPitch = 0.0;
+
   orbitReturnToCenter = true;
+
   vrmCameraFastTransitionUntil = Date.now() + 450;
+
 }
+
+
 
 function toggleVrmFraming() {
 
+
+
   if (vrmFramingMode === 'FULL_BODY') vrmFramingMode = 'ROOM';
+
+
 
   else if (vrmFramingMode === 'ROOM') vrmFramingMode = 'PORTRAIT';
 
+
+
   else if (vrmFramingMode === 'PORTRAIT') vrmFramingMode = 'AUTO';
+
+
 
   else vrmFramingMode = 'FULL_BODY';
 
+
+
   snapCameraToCurrentFraming();
+
   updateFramingButtonLabel();
 
+
+
 }
+
+
+
+
 
 
 
 function triggerVrmReaction() {
 
+
+
   if (vrmaClips['greeting']) {
+
+
 
     playVrmAction('greeting', 3800, true);
 
+
+
   } else {
+
+
 
     vrmReactionEndTime = Date.now() + 3500;
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 function setVrmSpeaking(durationMs, text, forceTimer = false) {
 
+
+
   if (forceTimer || !eventSource || eventSource.readyState !== 1) {
+
+
 
     vrmSpeechEndTime = Date.now() + (durationMs || 3000);
 
+
+
     rumGazeRetentionUntil = Math.max(rumGazeRetentionUntil, Date.now() + (durationMs || 3000) + 9000);
 
+
+
   }
+
+
 
   if (text) {
 
+
+
     const bubble = document.getElementById('vrmHudBubble');
+
+
 
     const hud = document.getElementById('vrmFloatingHud');
 
+
+
     if (bubble) {
+
       bubble.innerText = text;
+
       bubble.classList.add('show');
+
       if (hud) hud.classList.add('talking');
+
       const mini = document.getElementById('vrmMiniBubble');
+
       const miniTooltip = document.getElementById('vrmMiniSpeechTooltip');
+
       if (mini && mini.style.display !== 'none') {
+
         mini.classList.add('talking');
+
         if (miniTooltip) {
+
           miniTooltip.innerText = text;
+
           miniTooltip.classList.add('show');
+
         }
+
       }
+
       setTimeout(() => {
+
         bubble.classList.remove('show');
+
         if (hud) hud.classList.remove('talking');
+
         if (mini) {
+
           mini.classList.remove('talking');
+
           if (miniTooltip) miniTooltip.classList.remove('show');
+
         }
+
       }, durationMs || 3000);
+
     }
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function showVrmSpeech(text, durationMs = 5000) {
 
+
+
   setVrmSpeaking(durationMs, text);
 
+
+
 }
+
+
+
+
 
 
 
 // Floating Shotgun Companion Mode (Rum Riding Shotgun Anywhere on Screen)
 
+
+
 function popOutFloatingCompanion(isAuto = false) {
+
   if (!vrmInitialized && typeof initVrmEngine === 'function') {
+
     initVrmEngine();
+
   }
+
+
 
   const canvas = document.getElementById('vrmCanvas');
 
+
+
   const floatingBody = document.getElementById('vrmFloatingBody');
 
+
+
   const floatingHud = document.getElementById('vrmFloatingHud');
+
+
 
   if (!canvas || !floatingBody || !floatingHud) return;
 
 
 
+
+
+
+
   floatingHud.style.display = 'flex';
+
+
 
   floatingBody.appendChild(canvas);
 
+
+
   isCompanionFloating = true;
+
+
 
   isShotgunAutoPopped = !!isAuto;
 
 
 
+
+
+
+
   resizeVrmToStage();
+
+
 
   if (!isAuto) {
 
+
+
     triggerVrmReaction();
+
+
 
     showVrmSpeech("Master! Rum is riding shotgun with you across all screens!", 4500);
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 function dockCompanionToAi(goToAi = true) {
+
   const canvas = document.getElementById('vrmCanvas');
+
   const stageContainer = document.getElementById('vrmStageContainer');
+
   const floatingHud = document.getElementById('vrmFloatingHud');
 
+
+
   if (shotgunAutoDismissTimer) {
+
     clearTimeout(shotgunAutoDismissTimer);
+
     shotgunAutoDismissTimer = null;
+
   }
+
   isShotgunAutoPopped = false;
+
   if (!canvas || !stageContainer || !floatingHud) return;
 
+
+
   floatingHud.style.display = 'none';
+
   stageContainer.appendChild(canvas);
+
   isCompanionFloating = false;
 
+
+
   // If currently in CHAT focus mode, docking restores SPLIT layout so Rum is immediately visible on screen!
+
   if (currentAiLayoutMode === 'CHAT') {
+
     setAiLayoutMode('SPLIT');
+
   }
+
+
 
   if (goToAi) {
+
     navigateTo('ai');
+
   }
+
+
 
   resizeVrmToStage();
+
 }
 
+
+
 function dismissFloatingHud() {
+
   isShotgunAutoPopped = false;
+
   window.isCompanionMinimizedByUser = false;
+
   const mini = document.getElementById('vrmMiniBubble');
+
   if (mini) mini.style.display = 'none';
+
   if (currentAiLayoutMode === 'CHAT') {
+
     setAiLayoutMode('SPLIT');
+
   }
+
   dockCompanionToAi(false);
+
 }
+
+
+
+
 
 
 
 function initMiniBubbleDraggable() {
+
   const bubble = document.getElementById('vrmMiniBubble');
+
   if (!bubble || bubble.dataset.dragInit) return;
+
   bubble.dataset.dragInit = 'true';
 
+
+
   let isDragging = false;
+
   let startX = 0;
+
   let startY = 0;
+
   let initialLeft = 0;
+
   let initialTop = 0;
+
   let hasMoved = false;
 
+
+
   bubble.addEventListener('pointerdown', (e) => {
+
     if (e.target.closest('button')) return;
+
     isDragging = true;
+
     hasMoved = false;
+
     startX = e.clientX;
+
     startY = e.clientY;
+
     const rect = bubble.getBoundingClientRect();
+
     initialLeft = rect.left;
+
     initialTop = rect.top;
+
     bubble.style.bottom = 'auto';
+
     bubble.style.right = 'auto';
+
     bubble.style.left = initialLeft + 'px';
+
     bubble.style.top = initialTop + 'px';
+
     bubble.setPointerCapture(e.pointerId);
+
   }, { passive: false });
 
+
+
   window.addEventListener('pointermove', (e) => {
+
     if (!isDragging) return;
+
     const dx = e.clientX - startX;
+
     const dy = e.clientY - startY;
+
     if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+
       hasMoved = true;
+
     }
+
     let newLeft = Math.max(10, Math.min(window.innerWidth - bubble.offsetWidth - 10, initialLeft + dx));
+
     let newTop = Math.max(10, Math.min(window.innerHeight - bubble.offsetHeight - 10, initialTop + dy));
+
     bubble.style.left = newLeft + 'px';
+
     bubble.style.top = newTop + 'px';
+
   }, { passive: true });
 
+
+
   const stopDrag = (e) => {
+
     if (!isDragging) return;
+
     isDragging = false;
+
     try { bubble.releasePointerCapture(e.pointerId); } catch (_) {}
+
     if (hasMoved) {
+
       e.stopPropagation();
+
       e.preventDefault();
+
     }
+
   };
 
+
+
   window.addEventListener('pointerup', stopDrag, { passive: false });
+
   window.addEventListener('pointercancel', stopDrag, { passive: true });
+
 }
+
+
 
 function initFloatingHudDraggable() {
 
+
+
   const hud = document.getElementById('vrmFloatingHud');
+
+
 
   const header = document.getElementById('vrmHudHeader');
 
+
+
   initMiniBubbleDraggable();
+
+
 
   if (!hud || !header) return;
 
 
 
+
+
+
+
   let isDragging = false;
+
+
 
   let startX = 0;
 
+
+
   let startY = 0;
 
+
+
   let initialLeft = 0;
+
+
 
   let initialTop = 0;
 
 
 
+
+
+
+
   header.addEventListener('pointerdown', (e) => {
+
+
 
     if (e.target.closest('button')) return;
 
+
+
     isDragging = true;
+
+
 
     startX = e.clientX;
 
+
+
     startY = e.clientY;
+
+
 
     const rect = hud.getBoundingClientRect();
 
+
+
     initialLeft = rect.left;
+
+
 
     initialTop = rect.top;
 
+
+
     hud.style.bottom = 'auto';
+
+
 
     hud.style.right = 'auto';
 
+
+
     hud.style.left = initialLeft + 'px';
+
+
 
     hud.style.top = initialTop + 'px';
 
+
+
     header.setPointerCapture(e.pointerId);
 
+
+
     e.preventDefault();
+
+
 
   }, { passive: false });
 
 
 
+
+
+
+
   window.addEventListener('pointermove', (e) => {
+
+
 
     if (!isDragging) return;
 
+
+
     const dx = e.clientX - startX;
 
+
+
     const dy = e.clientY - startY;
+
+
 
     let newLeft = Math.max(10, Math.min(window.innerWidth - hud.offsetWidth - 10, initialLeft + dx));
 
@@ -15060,9 +30258,55 @@ function initFloatingHudDraggable() {
 
     hud.style.top = newTop + 'px';
 
+
+
+    // Shotgun Window Drag Kinematics: React dynamically to window motion
+
+    const now = Date.now();
+
+    const dt = Math.max(0.016, (now - (window._lastHudDragTime || now)) / 1000);
+
+    const curVx = (e.clientX - (window._lastHudDragX || e.clientX)) / dt;
+
+    const curVy = (e.clientY - (window._lastHudDragY || e.clientY)) / dt;
+
+    window._lastHudDragX = e.clientX;
+
+    window._lastHudDragY = e.clientY;
+
+    window._lastHudDragTime = now;
+
+    window._lastHudDragSpeed = Math.hypot(curVx, curVy);
+
+
+
+    // Apply lateral G-force balance inertia to R.U.M.
+
+    rumCurrentInertiaX = THREE.MathUtils.clamp(-curVx * 0.0016, -0.45, 0.45);
+
+    rumCurrentInertiaZ = THREE.MathUtils.clamp(-curVy * 0.0012, -0.35, 0.35);
+
+
+
+    // Dynamic tilt angle of Rum leaning to maintain balance as her window is dragged
+
+    if (vrmModel) {
+
+      vrmModel.rotation.z = THREE.MathUtils.clamp(curVx * 0.0005, -0.22, 0.22);
+
+    }
+
+
+
     e.preventDefault();
 
+
+
   }, { passive: false });
+
+
+
+
 
 
 
@@ -15074,77 +30318,183 @@ function initFloatingHudDraggable() {
 
     try { header.releasePointerCapture(e.pointerId); } catch (_) {}
 
+
+
+    const dragSpeed = window._lastHudDragSpeed || 0;
+
+    if (dragSpeed > 600) {
+
+      triggerVrmReaction('SURPRISED');
+
+      if (typeof speakUtterance === 'function') {
+
+        const lines = [
+
+          "Whoa! Hold on Master, where are we floating to?!",
+
+          "Eee! What a fast move! I've got my balance!",
+
+          "Master is moving my whole world across the car!"
+
+        ];
+
+        speakUtterance(lines[Math.floor(Math.random() * lines.length)]);
+
+      }
+
+    }
+
+    window._lastHudDragSpeed = 0;
+
+    rumCurrentInertiaX = 0;
+
+    rumCurrentInertiaZ = 0;
+
+    if (vrmModel) vrmModel.rotation.z = 0;
+
   };
+
+
+
+
 
 
 
   window.addEventListener('pointerup', stopDrag, { passive: true });
 
+
+
   window.addEventListener('pointercancel', stopDrag, { passive: true });
 
+
+
 }
+
+
+
+
 
 
 
 // [OBSOLETE 2D FACE TOGGLES - Locked to 3D_VRM so 2D face cannot be activated]
 
+
+
 function toggleAvatar2d3d() {
+
+
 
   switchAvatarEngine('3D_VRM');
 
+
+
 }
+
+
+
+
 
 
 
 function switchAvatarEngine(mode) {
 
+
+
   activeAvatarEngine = '3D_VRM';
+
+
 
   const vrmContainer = document.getElementById('vrmStageContainer');
 
+
+
   const faceCanvas = document.getElementById('waifuFaceCanvas');
 
+
+
   const selector = document.getElementById('cfgAvatarEngine');
+
+
 
   const emotionPill = document.getElementById('waifuEmotionPill');
 
 
 
+
+
+
+
   if (selector) selector.value = '3D_VRM';
+
+
 
   if (vrmContainer) vrmContainer.style.display = 'flex';
 
+
+
   if (faceCanvas) faceCanvas.style.display = 'none';
+
+
 
   if (!vrmInitialized) {
 
+
+
     initVrmEngine();
+
+
 
   } else {
 
+
+
     resizeVrmToStage();
+
+
 
   }
 
+
+
   if (emotionPill) emotionPill.innerText = "💖 R.U.M. (3D VRM) • DEVOTED TO MASTER";
 
+
+
 }
+
+
+
+
 
 
 
 // Auto-initialize 3D VRM Rum on startup
 
+
+
 if (document.readyState === 'complete' || document.readyState === 'interactive') {
+
   setTimeout(initVrmEngine, 200);
+
 } else {
+
   window.addEventListener('load', () => {
+
     setTimeout(initVrmEngine, 500);
+
   });
+
 }
+
+
 
 window.addEventListener('resize', () => {
 
+
+
   if (typeof resizeVrmToStage === 'function') resizeVrmToStage();
+
+
 
 });
 
@@ -15152,2659 +30502,5739 @@ window.addEventListener('resize', () => {
 
 
 
+
+
+
+
+
+
 // ============================================================================
+
 // --- PROCEDURAL TEXTURE GENERATORS (Zero network lag, 100% solid & seamless) ---
+
 // ============================================================================
+
+
 
 function createWoodPlankTexture() {
+
   const canvas = document.createElement('canvas');
+
   canvas.width = 512;
+
   canvas.height = 512;
+
   const ctx = canvas.getContext('2d');
+
+
 
   ctx.fillStyle = '#4a2e1b';
+
   ctx.fillRect(0, 0, 512, 512);
+
+
 
   const plankH = 64;
+
   for (let y = 0; y < 512; y += plankH) {
+
     const tint = (Math.random() - 0.5) * 18;
+
     ctx.fillStyle = `rgb(${74 + tint}, ${46 + tint * 0.7}, ${27 + tint * 0.5})`;
+
     ctx.fillRect(0, y, 512, plankH - 2);
 
+
+
     ctx.strokeStyle = 'rgba(30, 16, 8, 0.25)';
+
     ctx.lineWidth = 1;
+
     for (let i = 0; i < 5; i++) {
+
       ctx.beginPath();
+
       const gy = y + 8 + Math.random() * (plankH - 16);
+
       ctx.moveTo(0, gy);
+
       ctx.bezierCurveTo(128, gy + (Math.random() - 0.5) * 6, 384, gy + (Math.random() - 0.5) * 6, 512, gy);
+
       ctx.stroke();
+
     }
+
+
 
     ctx.strokeStyle = '#22140a';
+
     ctx.lineWidth = 2;
+
     ctx.beginPath();
+
     ctx.moveTo(0, y + plankH - 1);
+
     ctx.lineTo(512, y + plankH - 1);
+
     ctx.stroke();
+
+
 
     const offset = (y / plankH) % 2 === 0 ? 0 : 256;
+
     ctx.beginPath();
+
     ctx.moveTo(offset + 180, y);
+
     ctx.lineTo(offset + 180, y + plankH - 2);
+
     ctx.stroke();
+
   }
 
+
+
   const tex = new THREE.CanvasTexture(canvas);
+
   tex.wrapS = THREE.RepeatWrapping;
+
   tex.wrapT = THREE.RepeatWrapping;
+
   tex.repeat.set(4, 4);
+
   return tex;
+
 }
+
+
 
 function createPlushRugTexture(baseColor = '#f6efe3', trimColor = '#9c7cb0') {
+
   const canvas = document.createElement('canvas');
+
   canvas.width = 512;
+
   canvas.height = 512;
+
   const ctx = canvas.getContext('2d');
+
+
 
   ctx.fillStyle = baseColor;
+
   ctx.fillRect(0, 0, 512, 512);
+
+
 
   ctx.fillStyle = 'rgba(210, 195, 175, 0.28)';
+
   for (let x = 0; x < 512; x += 8) {
+
     for (let y = 0; y < 512; y += 8) {
+
       if ((x + y) % 16 === 0) {
+
         ctx.fillRect(x, y, 4, 4);
+
       }
+
     }
+
   }
+
+
 
   ctx.strokeStyle = trimColor;
+
   ctx.lineWidth = 14;
+
   ctx.beginPath();
+
   ctx.arc(256, 256, 240, 0, Math.PI * 2);
+
   ctx.stroke();
+
+
 
   ctx.strokeStyle = '#f472b6';
+
   ctx.lineWidth = 4;
+
   ctx.beginPath();
+
   ctx.arc(256, 256, 224, 0, Math.PI * 2);
+
   ctx.stroke();
 
+
+
   return new THREE.CanvasTexture(canvas);
+
 }
+
+
 
 function createCityTwilightTexture() {
+
   const canvas = document.createElement('canvas');
+
   canvas.width = 1024;
+
   canvas.height = 512;
+
   const ctx = canvas.getContext('2d');
 
+
+
   const grad = ctx.createLinearGradient(0, 0, 0, 512);
+
   grad.addColorStop(0.0, '#0a0d24');
+
   grad.addColorStop(0.4, '#1e1b4b');
+
   grad.addColorStop(0.7, '#4c1d95');
+
   grad.addColorStop(0.9, '#c2410c');
+
   grad.addColorStop(1.0, '#fbbf24');
+
   ctx.fillStyle = grad;
+
   ctx.fillRect(0, 0, 1024, 512);
+
+
 
   ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+
   for (let i = 0; i < 75; i++) {
+
     const sx = Math.random() * 1024;
+
     const sy = Math.random() * 240;
+
     const sr = Math.random() * 1.5 + 0.5;
+
     ctx.beginPath();
+
     ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+
     ctx.fill();
+
   }
+
+
 
   ctx.fillStyle = '#17112c';
+
   ctx.beginPath();
+
   ctx.moveTo(0, 380);
+
   ctx.lineTo(150, 340);
+
   ctx.lineTo(320, 370);
+
   ctx.lineTo(520, 330);
+
   ctx.lineTo(720, 360);
+
   ctx.lineTo(890, 320);
+
   ctx.lineTo(1024, 350);
+
   ctx.lineTo(1024, 512);
+
   ctx.lineTo(0, 512);
+
   ctx.fill();
+
+
 
   ctx.fillStyle = '#0f0b1e';
+
   const buildings = [
+
     { x: 30,  w: 70,  h: 180 },
+
     { x: 120, w: 90,  h: 240 },
+
     { x: 230, w: 60,  h: 160 },
+
     { x: 310, w: 110, h: 290 },
+
     { x: 440, w: 80,  h: 210 },
+
     { x: 540, w: 100, h: 260 },
+
     { x: 660, w: 75,  h: 190 },
+
     { x: 755, w: 115, h: 310 },
+
     { x: 890, w: 95,  h: 220 }
+
   ];
+
   buildings.forEach(b => {
+
     ctx.fillRect(b.x, 512 - b.h, b.w, b.h);
 
+
+
     ctx.fillStyle = 'rgba(254, 240, 138, 0.75)';
+
     for (let wy = 512 - b.h + 15; wy < 490; wy += 14) {
+
       for (let wx = b.x + 8; wx < b.x + b.w - 10; wx += 10) {
+
         if (Math.random() > 0.45) {
+
           ctx.fillRect(wx, wy, 5, 8);
+
         }
+
       }
+
     }
+
     ctx.fillStyle = '#0f0b1e';
+
   });
 
+
+
   return new THREE.CanvasTexture(canvas);
+
 }
+
+
 
 function createCyberGridTexture() {
+
   const canvas = document.createElement('canvas');
+
   canvas.width = 512;
+
   canvas.height = 512;
+
   const ctx = canvas.getContext('2d');
+
+
 
   ctx.fillStyle = '#0a0d14';
+
   ctx.fillRect(0, 0, 512, 512);
+
+
 
   ctx.strokeStyle = 'rgba(0, 229, 255, 0.18)';
+
   ctx.lineWidth = 1.5;
+
   const step = 64;
+
   for (let i = 0; i <= 512; i += step) {
-    ctx.beginPath();
-    ctx.moveTo(i, 0);
-    ctx.lineTo(i, 512);
-    ctx.stroke();
 
     ctx.beginPath();
-    ctx.moveTo(0, i);
-    ctx.lineTo(512, i);
+
+    ctx.moveTo(i, 0);
+
+    ctx.lineTo(i, 512);
+
     ctx.stroke();
+
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(0, i);
+
+    ctx.lineTo(512, i);
+
+    ctx.stroke();
+
   }
+
+
 
   ctx.fillStyle = 'rgba(255, 23, 68, 0.45)';
+
   for (let x = step; x < 512; x += step) {
+
     for (let y = step; y < 512; y += step) {
+
       ctx.fillRect(x - 2, y - 2, 4, 4);
+
     }
+
   }
 
+
+
   const tex = new THREE.CanvasTexture(canvas);
+
   tex.wrapS = THREE.RepeatWrapping;
+
   tex.wrapT = THREE.RepeatWrapping;
+
   tex.repeat.set(5, 5);
+
   return tex;
+
 }
+
+
 
 function createGarageHoloTexture() {
+
   const canvas = document.createElement('canvas');
+
   canvas.width = 1024;
+
   canvas.height = 512;
+
   const ctx = canvas.getContext('2d');
+
+
 
   ctx.fillStyle = 'rgba(6, 11, 25, 0.85)';
+
   ctx.fillRect(0, 0, 1024, 512);
+
+
 
   ctx.strokeStyle = 'rgba(0, 229, 255, 0.22)';
+
   ctx.lineWidth = 1.5;
+
   for (let x = 0; x <= 1024; x += 64) {
+
     ctx.beginPath();
+
     ctx.moveTo(x, 0);
+
     ctx.lineTo(1024, 512);
+
     ctx.stroke();
-  }
-  for (let y = 0; y <= 512; y += 64) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(1024, y);
-    ctx.stroke();
+
   }
 
+  for (let y = 0; y <= 512; y += 64) {
+
+    ctx.beginPath();
+
+    ctx.moveTo(0, y);
+
+    ctx.lineTo(1024, y);
+
+    ctx.stroke();
+
+  }
+
+
+
   ctx.strokeStyle = '#ff1744';
+
   ctx.lineWidth = 4;
+
   ctx.strokeRect(40, 40, 944, 432);
 
+
+
   ctx.fillStyle = '#00e5ff';
+
   ctx.font = 'bold 36px monospace';
+
   ctx.fillText('DODGE DART • MULTIAIR TURBO 1.4L', 80, 100);
 
+
+
   ctx.fillStyle = '#ff1744';
+
   ctx.font = 'bold 24px monospace';
+
   ctx.fillText('CARPI5 CYBER WORKSPACE & TELEMETRY HUB', 80, 140);
 
+
+
   ctx.strokeStyle = '#00e5ff';
+
   ctx.lineWidth = 6;
+
   ctx.beginPath();
+
   ctx.arc(512, 330, 130, Math.PI * 0.8, Math.PI * 2.2);
+
   ctx.stroke();
+
+
 
   ctx.strokeStyle = '#ff1744';
+
   ctx.lineWidth = 8;
+
   ctx.beginPath();
+
   ctx.arc(512, 330, 130, Math.PI * 0.8, Math.PI * 1.6);
+
   ctx.stroke();
 
+
+
   ctx.fillStyle = '#ffffff';
+
   ctx.font = 'bold 42px monospace';
+
   ctx.textAlign = 'center';
+
   ctx.fillText('18.5 PSI', 512, 325);
+
   ctx.font = '18px monospace';
+
   ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+
   ctx.fillText('BOOST PRESSURE • ACTIVE', 512, 360);
 
+
+
   return new THREE.CanvasTexture(canvas);
+
 }
+
+
 
 function createSakuraNightSkyTexture() {
+
   const canvas = document.createElement('canvas');
+
   canvas.width = 1024;
+
   canvas.height = 512;
+
   const ctx = canvas.getContext('2d');
+
+
 
   const grad = ctx.createLinearGradient(0, 0, 0, 512);
+
   grad.addColorStop(0.0, '#050716');
+
   grad.addColorStop(0.5, '#131138');
+
   grad.addColorStop(1.0, '#2b1b4a');
+
   ctx.fillStyle = grad;
+
   ctx.fillRect(0, 0, 1024, 512);
 
+
+
   ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+
   for (let i = 0; i < 90; i++) {
+
     const sx = Math.random() * 1024;
+
     const sy = Math.random() * 380;
+
     const sr = Math.random() * 1.6 + 0.5;
+
     ctx.beginPath();
+
     ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+
     ctx.fill();
+
   }
+
+
 
   ctx.fillStyle = '#fef08a';
+
   ctx.beginPath();
+
   ctx.arc(820, 110, 48, 0, Math.PI * 2);
+
   ctx.fill();
+
+
 
   ctx.fillStyle = '#0e0f2c';
+
   ctx.beginPath();
+
   ctx.arc(802, 102, 42, 0, Math.PI * 2);
+
   ctx.fill();
+
+
 
   const moonGlow = ctx.createRadialGradient(820, 110, 30, 820, 110, 110);
+
   moonGlow.addColorStop(0.0, 'rgba(254, 240, 138, 0.25)');
+
   moonGlow.addColorStop(1.0, 'rgba(254, 240, 138, 0.0)');
+
   ctx.fillStyle = moonGlow;
+
   ctx.beginPath();
+
   ctx.arc(820, 110, 110, 0, Math.PI * 2);
+
   ctx.fill();
 
+
+
   ctx.fillStyle = '#0b0817';
+
   ctx.fillRect(0, 470, 1024, 42);
 
+
+
   return new THREE.CanvasTexture(canvas);
+
 }
+
+
 
 function createTatamiDeckTexture() {
+
   const canvas = document.createElement('canvas');
+
   canvas.width = 512;
+
   canvas.height = 512;
+
   const ctx = canvas.getContext('2d');
+
+
 
   // Rich warm cedar base
+
   ctx.fillStyle = '#7a4b28';
+
   ctx.fillRect(0, 0, 512, 512);
 
+
+
   const slatW = 48;
+
   for (let x = 0; x < 512; x += slatW) {
+
     const tint = (Math.random() - 0.5) * 18;
+
     const r = Math.round(Math.min(255, Math.max(0, 140 + tint)));
+
     const g = Math.round(Math.min(255, Math.max(0, 95 + tint * 0.75)));
+
     const b = Math.round(Math.min(255, Math.max(0, 56 + tint * 0.55)));
+
     ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+
     ctx.fillRect(x + 1, 0, slatW - 2, 512);
 
+
+
     // Subtle natural wood grain streaks
+
     ctx.strokeStyle = 'rgba(60, 32, 14, 0.22)';
+
     ctx.lineWidth = 1;
+
     for (let k = 0; k < 5; k++) {
+
       ctx.beginPath();
+
       const gx = x + 3 + Math.random() * (slatW - 6);
+
       ctx.moveTo(gx, 0);
+
       ctx.lineTo(gx + (Math.random() - 0.5) * 6, 512);
+
       ctx.stroke();
+
     }
+
+
 
     // Dark plank groove border
+
     ctx.strokeStyle = '#381c0c';
+
     ctx.lineWidth = 2;
+
     ctx.beginPath();
+
     ctx.moveTo(x + slatW - 1, 0);
+
     ctx.lineTo(x + slatW - 1, 512);
+
     ctx.stroke();
+
   }
+
+
 
   const tex = new THREE.CanvasTexture(canvas);
+
   tex.wrapS = THREE.RepeatWrapping;
+
   tex.wrapT = THREE.RepeatWrapping;
+
   tex.repeat.set(3, 4);
+
   return tex;
+
 }
 
 
+
+
+
 // ============================================================================
+
 // --- MULTI-WORLD 3D ENVIRONMENTS (Loft, Cyber Garage, Sakura Garden, Bedroom) ---
+
 // ============================================================================
+
+
 
 function clearVrmEnvironment() {
+
   if (!vrmEnvironmentGroup) return;
+
   while (vrmEnvironmentGroup.children.length > 0) {
+
     const obj = vrmEnvironmentGroup.children[0];
+
     vrmEnvironmentGroup.remove(obj);
+
     if (obj.geometry) obj.geometry.dispose();
+
     if (obj.material) {
+
       if (Array.isArray(obj.material)) {
+
         obj.material.forEach(m => m.dispose());
+
       } else {
+
         obj.material.dispose();
+
       }
+
     }
+
   }
+
   envLights = [];
+
   sakuraPetals = [];
+
   vrmOceanMesh = null;
+
   vrmOceanGeo = null;
+
   vrmOceanMat = null;
+
   vrmOceanBasePos = null;
+
   vrmSkyMesh = null;
+
   vrmSkyTexture = null;
+
   vrmSunMesh = null;
+
   vrmSunGlow = null;
+
   vrmMoonMesh = null;
+
   vrmMoonGlow = null;
+
   vrmStarParticles = null;
+
   vrmCelestialLight = null;
+
   vrmGardenLanterns = [];
+
 }
+
+
 
 function buildLoftEnvironment() {
+
   clearVrmEnvironment();
+
+
 
   // 1. Solid Walnut Wood Plank Floor (10x10m)
+
   const floorGeo = new THREE.PlaneGeometry(10, 10);
+
   const floorTex = createWoodPlankTexture();
+
   const floorMat = new THREE.MeshStandardMaterial({
+
     map: floorTex,
+
     roughness: 0.68,
+
     metalness: 0.08
+
   });
+
   const floor = new THREE.Mesh(floorGeo, floorMat);
+
   floor.rotation.x = -Math.PI / 2;
+
   floor.position.set(0, vrmBaseY, 0);
+
   floor.receiveShadow = true;
+
   vrmEnvironmentGroup.add(floor);
+
+
 
   // 2. Circular Plush Cream Rug with Lavender Trim (1.75m radius)
+
   const rugGeo = new THREE.CircleGeometry(1.75, 48);
+
   const rugTex = createPlushRugTexture('#f6efe3', '#9c7cb0');
+
   const rugMat = new THREE.MeshStandardMaterial({
+
     map: rugTex,
+
     roughness: 0.85,
+
     metalness: 0.02
+
   });
+
   const rug = new THREE.Mesh(rugGeo, rugMat);
+
   rug.rotation.x = -Math.PI / 2;
+
   rug.position.set(0.05, vrmBaseY + 0.003, 0.05);
+
   rug.receiveShadow = true;
+
   vrmEnvironmentGroup.add(rug);
 
+
+
   // 3. Panoramic Twilight City Window Backdrop
+
   const winGeo = new THREE.PlaneGeometry(6.5, 3.8);
+
   const winTex = createCityTwilightTexture();
+
   const winMat = new THREE.MeshBasicMaterial({ map: winTex });
+
   const windowBackdrop = new THREE.Mesh(winGeo, winMat);
+
   windowBackdrop.position.set(0, vrmBaseY + 1.9, -2.85);
+
   vrmEnvironmentGroup.add(windowBackdrop);
 
+
+
   // Window mullions (sleek modern black beams)
+
   const frameMat = new THREE.MeshStandardMaterial({ color: 0x181820, roughness: 0.4 });
+
   const fTop = new THREE.Mesh(new THREE.BoxGeometry(6.55, 0.08, 0.06), frameMat);
+
   fTop.position.set(0, vrmBaseY + 3.8, -2.82);
+
   vrmEnvironmentGroup.add(fTop);
 
+
+
   const fBottom = new THREE.Mesh(new THREE.BoxGeometry(6.55, 0.08, 0.06), frameMat);
+
   fBottom.position.set(0, vrmBaseY + 0.02, -2.82);
+
   vrmEnvironmentGroup.add(fBottom);
 
+
+
   [-2.15, 0, 2.15].forEach(x => {
+
     const vBeam = new THREE.Mesh(new THREE.BoxGeometry(0.06, 3.8, 0.06), frameMat);
+
     vBeam.position.set(x, vrmBaseY + 1.9, -2.82);
+
     vrmEnvironmentGroup.add(vBeam);
+
   });
+
+
 
   const hBeam = new THREE.Mesh(new THREE.BoxGeometry(6.55, 0.05, 0.06), frameMat);
+
   hBeam.position.set(0, vrmBaseY + 1.9, -2.82);
+
   vrmEnvironmentGroup.add(hBeam);
 
+
+
   // 4. Floor Lamp with Warm Amber Illumination
+
   const lampPoleMat = new THREE.MeshStandardMaterial({ color: 0x222226, metalness: 0.8, roughness: 0.2 });
+
   const lampPole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.85, 12), lampPoleMat);
+
   lampPole.position.set(1.9, vrmBaseY + 0.92, -0.4);
+
   vrmEnvironmentGroup.add(lampPole);
 
+
+
   const lampShadeMat = new THREE.MeshStandardMaterial({ color: 0xffe2b8, roughness: 0.3, emissive: 0xffaa44, emissiveIntensity: 0.35 });
+
   const lampShade = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.32, 24, 1, true), lampShadeMat);
+
   lampShade.position.set(1.9, vrmBaseY + 1.78, -0.4);
+
   lampShade.rotation.x = Math.PI;
+
   vrmEnvironmentGroup.add(lampShade);
 
+
+
   const warmLampLight = new THREE.PointLight(0xffa544, 2.0, 7.5, 1.4);
+
   warmLampLight.position.set(1.9, vrmBaseY + 1.70, -0.4);
+
   vrmEnvironmentGroup.add(warmLampLight);
+
   envLights.push(warmLampLight);
 
+
+
   // 5. Yoshi Round Wooden End-Table
+
   const tableTop = new THREE.Mesh(
+
     new THREE.CylinderGeometry(0.38, 0.38, 0.04, 24),
+
     new THREE.MeshStandardMaterial({ color: 0x613d23, roughness: 0.5 })
+
   );
+
   tableTop.position.set(0.68, vrmBaseY + 0.28, 0.22);
+
   vrmEnvironmentGroup.add(tableTop);
 
+
+
   const tableLeg = new THREE.Mesh(
+
     new THREE.CylinderGeometry(0.03, 0.04, 0.28, 12),
+
     new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.6 })
+
   );
+
   tableLeg.position.set(0.68, vrmBaseY + 0.14, 0.22);
+
   vrmEnvironmentGroup.add(tableLeg);
 
+
+
   // Potted indoor bonsai / monstera on floor
+
   const pot = new THREE.Mesh(
+
     new THREE.CylinderGeometry(0.18, 0.12, 0.35, 16),
+
     new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 })
+
   );
+
   pot.position.set(-1.8, vrmBaseY + 0.175, -0.8);
+
   vrmEnvironmentGroup.add(pot);
 
+
+
   const foliage = new THREE.Mesh(
+
     new THREE.DodecahedronGeometry(0.36, 1),
+
     new THREE.MeshStandardMaterial({ color: 0x228b22, roughness: 0.7 })
+
   );
+
   foliage.position.set(-1.8, vrmBaseY + 0.55, -0.8);
+
   vrmEnvironmentGroup.add(foliage);
 
+
+
   updateYoshiEnvironmentRest();
+
 }
+
+
 
 function buildGarageEnvironment() {
+
   clearVrmEnvironment();
+
+
 
   // 1. Dark Obsidian / Hex Grid Floor (10x10m)
+
   const floorGeo = new THREE.PlaneGeometry(10, 10);
+
   const floorTex = createCyberGridTexture();
+
   const floorMat = new THREE.MeshStandardMaterial({
+
     map: floorTex,
+
     roughness: 0.25,
+
     metalness: 0.85
+
   });
+
   const floor = new THREE.Mesh(floorGeo, floorMat);
+
   floor.rotation.x = -Math.PI / 2;
+
   floor.position.set(0, vrmBaseY, 0);
+
   floor.receiveShadow = true;
+
   vrmEnvironmentGroup.add(floor);
+
+
 
   // 2. Dual Concentric Glowing Neon Floor Rings
+
   // Outer Ring: Dodge Dart Red (#ff1744)
+
   const ringOuterGeo = new THREE.RingGeometry(1.65, 1.72, 64);
+
   const ringOuterMat = new THREE.MeshBasicMaterial({ color: 0xff1744, side: THREE.DoubleSide });
+
   const ringOuter = new THREE.Mesh(ringOuterGeo, ringOuterMat);
+
   ringOuter.rotation.x = -Math.PI / 2;
+
   ringOuter.position.set(0, vrmBaseY + 0.003, 0);
+
   vrmEnvironmentGroup.add(ringOuter);
 
+
+
   // Inner Ring: Cyber Cyan (#00e5ff)
+
   const ringInnerGeo = new THREE.RingGeometry(0.95, 1.00, 64);
+
   const ringInnerMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff, side: THREE.DoubleSide });
+
   const ringInner = new THREE.Mesh(ringInnerGeo, ringInnerMat);
+
   ringInner.rotation.x = -Math.PI / 2;
+
   ringInner.position.set(0, vrmBaseY + 0.003, 0);
+
   vrmEnvironmentGroup.add(ringInner);
 
+
+
   // 3. MultiAir Turbo Holographic Wall Screen
+
   const holoGeo = new THREE.PlaneGeometry(6.0, 3.2);
+
   const holoTex = createGarageHoloTexture();
+
   const holoMat = new THREE.MeshBasicMaterial({
+
     map: holoTex,
+
     transparent: true,
+
     opacity: 0.90
+
   });
+
   const holoWall = new THREE.Mesh(holoGeo, holoMat);
+
   holoWall.position.set(0, vrmBaseY + 1.8, -2.8);
+
   vrmEnvironmentGroup.add(holoWall);
 
+
+
   // 4. Cyber Showroom Overhead Spotlights
+
   const spotLight = new THREE.SpotLight(0xffffff, 3.0, 12, Math.PI / 4, 0.4);
+
   spotLight.position.set(0, vrmBaseY + 3.8, 1.0);
+
   spotLight.target.position.set(0, vrmBaseY, 0);
+
   vrmEnvironmentGroup.add(spotLight);
+
   vrmEnvironmentGroup.add(spotLight.target);
+
   envLights.push(spotLight);
 
+
+
   const redAccent = new THREE.PointLight(0xff1744, 2.2, 5.5);
+
   redAccent.position.set(2.2, vrmBaseY + 1.0, 0.2);
+
   vrmEnvironmentGroup.add(redAccent);
+
   envLights.push(redAccent);
 
+
+
   const cyanAccent = new THREE.PointLight(0x00e5ff, 2.2, 5.5);
+
   cyanAccent.position.set(-2.2, vrmBaseY + 1.0, 0.2);
+
   vrmEnvironmentGroup.add(cyanAccent);
+
   envLights.push(cyanAccent);
 
+
+
   updateYoshiEnvironmentRest();
+
 }
+
+
 
 function createCelestialSkyCanvas() {
+
   const canvas = document.createElement('canvas');
+
   canvas.width = 512;
+
   canvas.height = 256;
+
   return canvas;
+
 }
+
+
 
 function updateSkyCanvas(canvas, phase) {
+
   if (!canvas) return;
+
   const ctx = canvas.getContext('2d');
+
   const w = canvas.width;
+
   const h = canvas.height;
+
   const grad = ctx.createLinearGradient(0, 0, 0, h);
 
+
+
   if (phase === 'DAY') {
+
     grad.addColorStop(0.00, '#0d47a1'); // Deep anime zenith blue
+
     grad.addColorStop(0.35, '#1e88e5');
+
     grad.addColorStop(0.70, '#64b5f6');
+
     grad.addColorStop(0.92, '#bbdefb');
+
     grad.addColorStop(1.00, '#e3f2fd'); // Soft horizon haze
+
   } else if (phase === 'GOLDEN_HOUR') {
+
     grad.addColorStop(0.00, '#1a237e');
+
     grad.addColorStop(0.30, '#4a148c');
+
     grad.addColorStop(0.60, '#f57c00');
+
     grad.addColorStop(0.85, '#ffb300');
+
     grad.addColorStop(1.00, '#ffe082');
+
   } else if (phase === 'SUNSET') {
+
     grad.addColorStop(0.00, '#260633'); // Royal purple twilight zenith
+
     grad.addColorStop(0.25, '#4a0e4e');
+
     grad.addColorStop(0.55, '#c2185b'); // Rich crimson
+
     grad.addColorStop(0.78, '#e65100'); // Blazing orange
+
     grad.addColorStop(0.92, '#ff6d00');
+
     grad.addColorStop(1.00, '#ffd54f'); // Molten gold at the ocean waterline
+
   } else if (phase === 'CIVIL_DUSK' || phase === 'CIVIL_DAWN') {
+
     grad.addColorStop(0.00, '#0a0e1a');
+
     grad.addColorStop(0.40, '#1f1a3a');
+
     grad.addColorStop(0.75, '#4a1c40');
+
     grad.addColorStop(0.92, '#7b2d42');
+
     grad.addColorStop(1.00, '#9e4758');
+
   } else {
+
     // NIGHT
+
     grad.addColorStop(0.00, '#02040a'); // Starlit deep space
+
     grad.addColorStop(0.45, '#060a14');
+
     grad.addColorStop(0.80, '#0a1224');
+
     grad.addColorStop(1.00, '#101c36'); // Faint nocturnal ocean mist
+
   }
+
+
 
   ctx.fillStyle = grad;
+
   ctx.fillRect(0, 0, w, h);
 
+
+
   // Painterly soft cumulus clouds near horizon
+
   if (phase === 'DAY' || phase === 'GOLDEN_HOUR' || phase === 'SUNSET') {
+
     ctx.save();
+
     ctx.fillStyle = (phase === 'SUNSET') ? 'rgba(255, 120, 80, 0.22)' :
+
                     (phase === 'GOLDEN_HOUR') ? 'rgba(255, 200, 120, 0.22)' :
+
                     'rgba(255, 255, 255, 0.24)';
+
     const cloudYs = [h * 0.68, h * 0.74, h * 0.70];
+
     const cloudXs = [w * 0.20, w * 0.55, w * 0.85];
+
     const cloudRs = [45, 60, 50];
+
     for (let c = 0; c < 3; c++) {
+
       ctx.beginPath();
+
       ctx.arc(cloudXs[c], cloudYs[c], cloudRs[c], 0, Math.PI * 2);
+
       ctx.arc(cloudXs[c] + cloudRs[c] * 0.6, cloudYs[c] + 6, cloudRs[c] * 0.7, 0, Math.PI * 2);
+
       ctx.arc(cloudXs[c] - cloudRs[c] * 0.6, cloudYs[c] + 4, cloudRs[c] * 0.65, 0, Math.PI * 2);
+
       ctx.fill();
+
     }
+
     ctx.restore();
+
   }
+
 }
+
+
 
 function createStarfieldParticles() {
+
   const count = 120;
+
   const starGeo = new THREE.BufferGeometry();
+
   const positions = new Float32Array(count * 3);
+
   for (let i = 0; i < count; i++) {
+
     positions[i * 3 + 0] = (Math.random() - 0.5) * 38.0;
+
     positions[i * 3 + 1] = vrmBaseY + 2.0 + Math.random() * 14.0;
+
     positions[i * 3 + 2] = -25.2 + (Math.random() - 0.5) * 0.8;
+
   }
+
   starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
   const starMat = new THREE.PointsMaterial({
+
     color: 0xffffff,
+
     size: 0.16,
+
     transparent: true,
+
     opacity: 0.85
+
   });
+
   return new THREE.Points(starGeo, starMat);
+
 }
+
+
+
+
+
+// --- COCKPIT DAY / NIGHT THEME MODE CONTROLLER (AUTO / DAY / NIGHT) ---
+
+let currentCockpitThemeMode = localStorage.getItem('carpi5_theme_mode') || 'AUTO';
+
+
+
+function setCockpitThemeMode(mode, silent = false) {
+
+  currentCockpitThemeMode = mode;
+
+  localStorage.setItem('carpi5_theme_mode', mode);
+
+
+
+  const badge = document.getElementById('themeModeBadge');
+
+  if (badge) {
+
+    badge.innerText = mode === 'AUTO' ? 'AUTO (SOLAR)' : (mode === 'DAY' ? 'ALWAYS DAY' : 'ALWAYS NIGHT');
+
+    const color = mode === 'NIGHT' ? 'var(--accent-blue)' : (mode === 'DAY' ? 'var(--accent-green)' : 'var(--accent-yellow)');
+
+    badge.style.borderColor = color;
+
+    badge.style.color = color;
+
+  }
+
+
+
+  ['btnThemeAuto', 'btnThemeDay', 'btnThemeNight'].forEach(id => {
+
+    const b = document.getElementById(id);
+
+    if (b) b.classList.remove('active');
+
+  });
+
+
+
+  if (mode === 'AUTO') {
+
+    document.getElementById('btnThemeAuto')?.classList.add('active');
+
+    updateCelestialVisuals();
+
+    if (!silent) showAiSpeechToast("Theme: Auto (Tracking Solar Ephemeris)");
+
+  } else if (mode === 'DAY') {
+
+    document.getElementById('btnThemeDay')?.classList.add('active');
+
+    document.body.classList.remove('cockpit-night-mode');
+
+    if (!silent) showAiSpeechToast("Theme: Forced Daytime");
+
+  } else if (mode === 'NIGHT') {
+
+    document.getElementById('btnThemeNight')?.classList.add('active');
+
+    document.body.classList.add('cockpit-night-mode');
+
+    if (!silent) showAiSpeechToast("Theme: Forced Night Mode");
+
+  }
+
+}
+
+
 
 function updateCelestialVisuals() {
+
   if (vrmSkyCanvas && vrmSkyTexture) {
+
     updateSkyCanvas(vrmSkyCanvas, vrmCelestialPhase);
+
     vrmSkyTexture.needsUpdate = true;
+
   }
+
+
 
   const isNight = (vrmCelestialPhase === 'NIGHT' || vrmCelestialPhase === 'CIVIL_DUSK' || vrmCelestialPhase === 'CIVIL_DAWN');
+
+  const mode = localStorage.getItem('carpi5_theme_mode') || 'AUTO';
+
+  if (mode === 'DAY') {
+
+    document.body.classList.remove('cockpit-night-mode');
+
+  } else if (mode === 'NIGHT') {
+
+    document.body.classList.add('cockpit-night-mode');
+
+  } else {
+
+    if (isNight) {
+
+      document.body.classList.add('cockpit-night-mode');
+
+    } else {
+
+      document.body.classList.remove('cockpit-night-mode');
+
+    }
+
+  }
+
   const isSunset = (vrmCelestialPhase === 'SUNSET');
+
   const isGolden = (vrmCelestialPhase === 'GOLDEN_HOUR');
 
+
+
   if (vrmSunMesh) {
+
     vrmSunMesh.visible = !isNight;
+
   }
+
   if (vrmMoonMesh) {
+
     vrmMoonMesh.visible = isNight;
+
   }
+
   if (vrmStarParticles) {
+
     vrmStarParticles.visible = isNight;
+
   }
+
+
 
   // Ocean Water Base Color & Specular
+
   if (vrmOceanMat) {
+
     if (isSunset) {
+
       vrmOceanMat.color.setHex(0xa8341e);
+
       vrmOceanMat.roughness = 0.12;
+
       vrmOceanMat.metalness = 0.88;
+
     } else if (isGolden) {
+
       vrmOceanMat.color.setHex(0x945e14);
+
       vrmOceanMat.roughness = 0.14;
+
       vrmOceanMat.metalness = 0.85;
+
     } else if (isNight) {
+
       vrmOceanMat.color.setHex(0x040e1e);
+
       vrmOceanMat.roughness = 0.18;
+
       vrmOceanMat.metalness = 0.90;
+
     } else {
+
       vrmOceanMat.color.setHex(0x0a4a75);
+
       vrmOceanMat.roughness = 0.16;
+
       vrmOceanMat.metalness = 0.82;
+
     }
+
   }
+
+
 
   // Directional Celestial Light
+
   if (vrmCelestialLight) {
+
     if (isSunset) {
+
       vrmCelestialLight.color.setHex(0xff5722);
+
       vrmCelestialLight.intensity = 1.10;
+
     } else if (isGolden) {
+
       vrmCelestialLight.color.setHex(0xffa726);
+
       vrmCelestialLight.intensity = 0.95;
+
     } else if (isNight) {
+
       vrmCelestialLight.color.setHex(0x7fa8d6);
+
       vrmCelestialLight.intensity = 0.35;
+
     } else {
+
       vrmCelestialLight.color.setHex(0xfff5e6);
+
       vrmCelestialLight.intensity = 0.85;
+
     }
+
   }
 
-  // Modulate Scene Ambient & Key Lighting based on Garden Time of Day
-  if (currentEnvironmentName === 'GARDEN') {
+
+
+  // Modulate Scene Ambient & Key Lighting based on Time of Day
+
+  if (currentEnvironmentName === 'GARDEN' || currentEnvironmentName === 'ROOM') {
+
     if (vrmBaseAmbientLight) {
+
       if (isNight) {
+
         vrmBaseAmbientLight.color.setHex(0x1a263e);
+
         vrmBaseAmbientLight.intensity = 0.45;
+
       } else if (isSunset) {
+
         vrmBaseAmbientLight.color.setHex(0x7b2354);
+
         vrmBaseAmbientLight.intensity = 0.60;
+
       } else if (isGolden) {
+
         vrmBaseAmbientLight.color.setHex(0xd48842);
+
         vrmBaseAmbientLight.intensity = 0.72;
+
       } else {
+
         vrmBaseAmbientLight.color.setHex(0xfff0ff);
+
         vrmBaseAmbientLight.intensity = 0.78;
+
       }
+
     }
+
     if (vrmBaseKeyLight) {
+
       if (isNight) {
+
         vrmBaseKeyLight.color.setHex(0x506899);
+
         vrmBaseKeyLight.intensity = 0.28;
+
       } else if (isSunset) {
+
         vrmBaseKeyLight.color.setHex(0xff6e40);
+
         vrmBaseKeyLight.intensity = 0.75;
+
       } else if (isGolden) {
+
         vrmBaseKeyLight.color.setHex(0xffb74d);
+
         vrmBaseKeyLight.intensity = 0.65;
+
       } else {
+
         vrmBaseKeyLight.color.setHex(0xffffff);
+
         vrmBaseKeyLight.intensity = 0.60;
+
       }
+
     }
+
   }
+
+
 
   // Veranda Paper Lanterns auto-ignition (warm amber glow at dusk/night, dimmed by day)
+
   if (vrmGardenLanterns && vrmGardenLanterns.length > 0) {
+
     const ignite = (isNight || isSunset);
+
     vrmGardenLanterns.forEach(lant => {
+
       if (lant.mesh && lant.mesh.material) {
+
         lant.mesh.material.emissiveIntensity = ignite ? 0.75 : 0.05;
+
       }
+
       if (lant.light) {
+
         lant.light.intensity = ignite ? 1.20 : 0.05;
+
       }
+
     });
+
   }
+
 }
+
+
 
 function initSolarEphemerisEngine() {
+
   fetchSolarEphemeris();
+
   // Poll ephemeris every 30 minutes
+
   setInterval(fetchSolarEphemeris, 30 * 60 * 1000);
+
 }
+
+
 
 async function fetchSolarEphemeris() {
+
   try {
+
     const res = await fetch('/api/solar/ephemeris', { cache: 'no-cache' });
+
     if (!res.ok) throw new Error('HTTP ' + res.status);
+
     const data = await res.json();
+
     if (data && data.status === 'success') {
+
       vrmSolarEphemeris = data;
+
       vrmCelestialPhase = data.day_phase || 'DAY';
+
       vrmCelestialDayProgress = (data.day_progress !== undefined) ? data.day_progress : 0.5;
+
       updateCelestialVisuals();
+
       return;
+
     }
+
   } catch (err) {
+
     // Offline or daemon initializing - fall back mathematically
+
   }
+
   calculateOfflineSolarEphemeris();
+
 }
+
+
 
 function calculateOfflineSolarEphemeris() {
+
   const now = new Date();
+
   const hours = now.getHours() + (now.getMinutes() / 60);
+
   const sunrise = 6.5;
+
   const sunset = 17.0;
+
   if (hours >= sunrise && hours <= sunset) {
+
     vrmCelestialDayProgress = (hours - sunrise) / (sunset - sunrise);
+
     if (vrmCelestialDayProgress < 0.08) vrmCelestialPhase = 'CIVIL_DAWN';
+
     else if (vrmCelestialDayProgress > 0.88) vrmCelestialPhase = 'SUNSET';
+
     else if (vrmCelestialDayProgress > 0.75) vrmCelestialPhase = 'GOLDEN_HOUR';
+
     else vrmCelestialPhase = 'DAY';
+
   } else {
+
     vrmCelestialDayProgress = 1.0;
+
     if (hours > sunset && hours < sunset + 0.6) vrmCelestialPhase = 'CIVIL_DUSK';
+
     else if (hours > sunrise - 0.6 && hours < sunrise) vrmCelestialPhase = 'CIVIL_DAWN';
+
     else vrmCelestialPhase = 'NIGHT';
+
     const nightDuration = 24 - (sunset - sunrise);
+
     let timeSinceSunset = (hours >= sunset) ? (hours - sunset) : (hours + 24 - sunset);
+
     vrmCelestialNightProgress = Math.max(0.0, Math.min(1.0, timeSinceSunset / nightDuration));
+
   }
+
   updateCelestialVisuals();
+
 }
+
+
 
 window.setVrmCelestialPhase = function(phase, progress) {
+
   if (phase) vrmCelestialPhase = phase.toUpperCase();
+
   if (progress !== undefined) {
+
     vrmCelestialDayProgress = progress;
+
     vrmCelestialNightProgress = progress;
+
   }
+
   updateCelestialVisuals();
+
   console.log('[CELESTIAL] Manually set phase: ' + vrmCelestialPhase + ', progress: ' + progress);
+
 };
 
+
+
 function updateGardenOceanAndSky(time, delta) {
+
   // 1. Undulating Ocean Waves with specular wave normal computation
+
   if (vrmOceanGeo && vrmOceanBasePos) {
+
     const pos = vrmOceanGeo.attributes.position;
+
     const base = vrmOceanBasePos;
+
     const count = pos.count;
+
     for (let i = 0; i < count; i++) {
+
       const bx = base.getX(i);
+
       const bz = base.getZ(i);
+
       const waveY = (
+
         Math.sin(bx * 0.75 + time * 1.8) * 0.048 +
+
         Math.cos(bz * 0.60 + time * 1.4) * 0.038 +
+
         Math.sin((bx + bz) * 1.15 + time * 2.2) * 0.024
+
       );
+
       pos.setY(i, waveY);
+
     }
+
     pos.needsUpdate = true;
+
     vrmOceanGeo.computeVertexNormals();
+
   }
+
+
 
   // 2. Position Sun Orb along Day Arc (centered in visible camera frame: x: -5.5 to +5.5)
+
   if (vrmSunMesh && vrmSunMesh.visible) {
+
     const sunX = -5.5 + 11.0 * vrmCelestialDayProgress;
+
     const sunY = (vrmBaseY + 0.42) + Math.sin(vrmCelestialDayProgress * Math.PI) * 8.6;
+
     vrmSunMesh.position.set(sunX, sunY, -24.8);
+
     if (vrmCelestialLight) {
+
       vrmCelestialLight.position.set(sunX, sunY, -24.8);
+
     }
+
   }
+
+
 
   // 3. Position Moon Orb along Night Arc (centered in visible camera frame: x: -5.0 to +5.0)
+
   if (vrmMoonMesh && vrmMoonMesh.visible) {
+
     const moonX = -5.0 + 10.0 * vrmCelestialNightProgress;
+
     const moonY = (vrmBaseY + 1.2) + Math.sin(vrmCelestialNightProgress * Math.PI) * 7.6;
+
     vrmMoonMesh.position.set(moonX, moonY, -24.8);
+
     if (vrmCelestialLight) {
+
       vrmCelestialLight.position.set(moonX, moonY, -24.8);
+
     }
+
   }
+
+
 
   // 4. Starfield Twinkle
+
   if (vrmStarParticles && vrmStarParticles.visible) {
+
     vrmStarParticles.material.opacity = 0.70 + Math.sin(time * 3.2) * 0.25;
+
   }
+
+
 
   // 5. Veranda Lantern Candle Flicker
+
   if (vrmGardenLanterns && vrmGardenLanterns.length > 0) {
+
     const isNightLike = (vrmCelestialPhase === 'NIGHT' || vrmCelestialPhase === 'SUNSET' || vrmCelestialPhase === 'CIVIL_DUSK');
+
     if (isNightLike) {
+
       const flicker = 1.0 + Math.sin(time * 7.5) * 0.06 + Math.cos(time * 11.2) * 0.04;
+
       vrmGardenLanterns.forEach(lant => {
+
         if (lant.light) lant.light.intensity = 1.20 * flicker;
+
       });
+
     }
+
   }
+
 }
 
-function buildGardenEnvironment() {
-  clearVrmEnvironment();
 
-  // 1. Traditional Hinoki Wood Deck (10x8m, spanning z: +2.5 to -2.2)
-  const deckGeo = new THREE.PlaneGeometry(10, 8);
-  const deckTex = createTatamiDeckTexture();
-  const deckMat = new THREE.MeshStandardMaterial({
-    map: deckTex,
-    color: 0xaa7848,
-    roughness: 0.65,
-    metalness: 0.05
-  });
-  const deck = new THREE.Mesh(deckGeo, deckMat);
-  deck.rotation.x = -Math.PI / 2;
-  deck.position.set(0, vrmBaseY, 0.4);
-  deck.receiveShadow = true;
-  vrmEnvironmentGroup.add(deck);
 
-  // 2. Real Moving Dynamic Ocean with Undulating Waves
-  // Starts right under the veranda deck edge at z = -2.25 and extends to horizon at z = -26.5
+function setupExteriorCelestialAndOcean(oceanZ = -16.5, oceanY = -0.28) {
+
+  // 1. Real Moving Dynamic Ocean with Undulating Waves
+
   const oceanWidth = 54.0;
+
   const oceanDepth = 30.0;
+
   vrmOceanGeo = new THREE.PlaneGeometry(oceanWidth, oceanDepth, 48, 36);
+
   vrmOceanGeo.rotateX(-Math.PI / 2);
+
   vrmOceanBasePos = vrmOceanGeo.attributes.position.clone();
 
+
+
   vrmOceanMat = new THREE.MeshStandardMaterial({
+
     color: 0x0a4a75,
+
     roughness: 0.16,
+
     metalness: 0.82,
+
     flatShading: true
+
   });
+
   vrmOceanMesh = new THREE.Mesh(vrmOceanGeo, vrmOceanMat);
-  vrmOceanMesh.position.set(0, vrmBaseY - 0.28, -16.5);
+
+  vrmOceanMesh.position.set(0, vrmBaseY + oceanY, oceanZ);
+
   vrmOceanMesh.receiveShadow = true;
+
   vrmEnvironmentGroup.add(vrmOceanMesh);
 
-  // 3. Dynamic Celestial Sky Dome Plane at Horizon (z = -26.5) - Fills complete camera frustum
+
+
+  // 2. Dynamic Celestial Sky Dome Plane at Horizon (z = -26.5)
+
   const skyGeo = new THREE.PlaneGeometry(72.0, 36.0);
+
   vrmSkyCanvas = createCelestialSkyCanvas();
+
   vrmSkyTexture = new THREE.CanvasTexture(vrmSkyCanvas);
+
   const skyMat = new THREE.MeshBasicMaterial({ map: vrmSkyTexture });
+
   vrmSkyMesh = new THREE.Mesh(skyGeo, skyMat);
+
   vrmSkyMesh.position.set(0, vrmBaseY + 12.0, -26.5);
+
   vrmEnvironmentGroup.add(vrmSkyMesh);
 
-  // 4. 3D Sun Orb + Radiant Corona Disc
+
+
+  // 3. 3D Sun Orb + Radiant Corona Disc
+
   const sunGeo = new THREE.SphereGeometry(0.65, 20, 20);
+
   const sunMat = new THREE.MeshBasicMaterial({ color: 0xfffae0 });
+
   vrmSunMesh = new THREE.Mesh(sunGeo, sunMat);
+
   const coronaGeo = new THREE.PlaneGeometry(3.6, 3.6);
+
   const coronaMat = new THREE.MeshBasicMaterial({
+
     color: 0xff9922,
+
     transparent: true,
+
     opacity: 0.50,
+
     blending: THREE.AdditiveBlending,
+
     side: THREE.DoubleSide
+
   });
+
   vrmSunGlow = new THREE.Mesh(coronaGeo, coronaMat);
+
   vrmSunMesh.add(vrmSunGlow);
+
   vrmSunMesh.position.set(0, vrmBaseY + 6.0, -24.8);
+
   vrmEnvironmentGroup.add(vrmSunMesh);
 
-  // 5. 3D Moon Orb + Soft Lunar Halo
+
+
+  // 4. 3D Moon Orb + Soft Lunar Halo
+
   const moonGeo = new THREE.SphereGeometry(0.52, 20, 20);
+
   const moonMat = new THREE.MeshStandardMaterial({
+
     color: 0xecf2f9,
+
     emissive: 0x90b8f0,
+
     emissiveIntensity: 0.55,
+
     roughness: 0.85
+
   });
+
   vrmMoonMesh = new THREE.Mesh(moonGeo, moonMat);
+
   const moonHaloGeo = new THREE.PlaneGeometry(2.6, 2.6);
+
   const moonHaloMat = new THREE.MeshBasicMaterial({
+
     color: 0x64b5f6,
+
     transparent: true,
+
     opacity: 0.35,
+
     blending: THREE.AdditiveBlending,
+
     side: THREE.DoubleSide
+
   });
+
   vrmMoonGlow = new THREE.Mesh(moonHaloGeo, moonHaloMat);
+
   vrmMoonMesh.add(vrmMoonGlow);
+
   vrmMoonMesh.position.set(0, vrmBaseY + 6.0, -24.8);
+
   vrmMoonMesh.visible = false;
+
   vrmEnvironmentGroup.add(vrmMoonMesh);
 
-  // 6. 120 Twinkling Starfield Particles
+
+
+  // 5. 120 Twinkling Starfield Particles
+
   vrmStarParticles = createStarfieldParticles();
+
   vrmEnvironmentGroup.add(vrmStarParticles);
 
-  // 7. Dynamic Directional Celestial Light
+
+
+  // 6. Dynamic Directional Celestial Light
+
   vrmCelestialLight = new THREE.DirectionalLight(0xfff5e6, 0.85);
+
   vrmCelestialLight.position.set(0, vrmBaseY + 6.0, -24.8);
+
   vrmCelestialLight.castShadow = true;
+
   vrmEnvironmentGroup.add(vrmCelestialLight);
+
   envLights.push(vrmCelestialLight);
 
-  // 8. Authentic Vermilion Japanese Veranda Railing (at z = -2.2)
-  const woodMat = new THREE.MeshStandardMaterial({ color: 0x9c2222, roughness: 0.55 });
-  // Top railing beam
-  const beamTop = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.08, 0.09), woodMat);
-  beamTop.position.set(0, vrmBaseY + 0.95, -2.2);
-  vrmEnvironmentGroup.add(beamTop);
-  // Mid railing beam
-  const beamMid = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.04, 0.06), woodMat);
-  beamMid.position.set(0, vrmBaseY + 0.45, -2.2);
-  vrmEnvironmentGroup.add(beamMid);
-  // 5 Support Posts
-  [-2.4, -1.2, 0.0, 1.2, 2.4].forEach(x => {
-    const post = new THREE.Mesh(new THREE.BoxGeometry(0.10, 1.05, 0.10), woodMat);
-    post.position.set(x, vrmBaseY + 0.50, -2.2);
-    vrmEnvironmentGroup.add(post);
-  });
-  // 16 Slender Vertical Baluster Slats
-  for (let i = 0; i < 16; i++) {
-    const bx = -2.25 + (i * 0.30);
-    if (Math.abs(bx) < 0.1 || Math.abs(bx - 1.2) < 0.1 || Math.abs(bx + 1.2) < 0.1) continue;
-    const slat = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.45, 0.025), woodMat);
-    slat.position.set(bx, vrmBaseY + 0.70, -2.2);
-    vrmEnvironmentGroup.add(slat);
-  }
 
-  // 9. Authentic Japanese Veranda Paper Lanterns with Warm Amber Glow
-  vrmGardenLanterns = [];
-  const darkWoodMat = new THREE.MeshStandardMaterial({ color: 0x2e1810, roughness: 0.70 });
-  const washiMat = new THREE.MeshStandardMaterial({
-    color: 0xffecd0,
-    emissive: 0xff8833,
-    emissiveIntensity: 0.55,
-    roughness: 0.50
-  });
 
-  [-1.35, 1.35].forEach(x => {
-    const lantGroup = new THREE.Group();
-
-    // Dark wood top cap
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.03, 0.22), darkWoodMat);
-    cap.position.y = 0.16;
-    lantGroup.add(cap);
-
-    // Warm translucent washi paper cylinder body
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.28, 16), washiMat);
-    lantGroup.add(body);
-
-    // Dark wood bottom base
-    const base = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.03, 0.20), darkWoodMat);
-    base.position.y = -0.16;
-    lantGroup.add(base);
-
-    lantGroup.position.set(x, vrmBaseY + 1.15, -2.15);
-    vrmEnvironmentGroup.add(lantGroup);
-
-    const lantLight = new THREE.PointLight(0xff9944, 1.2, 4.5);
-    lantLight.position.set(x, vrmBaseY + 1.15, -2.15);
-    vrmEnvironmentGroup.add(lantLight);
-    envLights.push(lantLight);
-
-    vrmGardenLanterns.push({ mesh: body, light: lantLight });
-  });
-
-  // 10. 60 Animated Sakura Blossom Petals
-  sakuraPetals = [];
-  const petalGeo = new THREE.PlaneGeometry(0.045, 0.045);
-  const petalMat = new THREE.MeshBasicMaterial({
-    color: 0xffb7c5,
-    side: THREE.DoubleSide,
-    transparent: true,
-    opacity: 0.88
-  });
-  for (let i = 0; i < 60; i++) {
-    const petal = new THREE.Mesh(petalGeo, petalMat);
-    petal.position.set(
-      (Math.random() - 0.5) * 3.5,
-      vrmBaseY + Math.random() * 3.0,
-      (Math.random() - 0.5) * 2.5
-    );
-    petal.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
-    petal.userData = {
-      fallSpeed: 0.22 + Math.random() * 0.28,
-      rotSpeed: (Math.random() - 0.5) * 2.0,
-      seed: Math.random() * 10
-    };
-    vrmEnvironmentGroup.add(petal);
-    sakuraPetals.push(petal);
-  }
-
-  // 11. Walkable Raised Sakura Tatami Mat Platform
-  const matW = 0.84;
-  const matH = 0.04;
-  const matD = 0.70;
-  const matGeo = new THREE.BoxGeometry(matW, matH, matD);
-  const matMat = new THREE.MeshStandardMaterial({
-    color: 0xcc3b68,
-    roughness: 0.75,
-    metalness: 0.05
-  });
-  const raisedMat = new THREE.Mesh(matGeo, matMat);
-  raisedMat.position.set(0.52, vrmBaseY + (matH / 2), 0.16);
-  raisedMat.receiveShadow = true;
-  vrmEnvironmentGroup.add(raisedMat);
-
-  // Woven gold brocade border trim
-  const trimGeo = new THREE.BoxGeometry(matW + 0.02, 0.038, matD + 0.02);
-  const trimMat = new THREE.MeshStandardMaterial({
-    color: 0xb48a3c,
-    roughness: 0.60
-  });
-  const matTrim = new THREE.Mesh(trimGeo, trimMat);
-  matTrim.position.set(0.52, vrmBaseY + 0.019, 0.16);
-  vrmEnvironmentGroup.add(matTrim);
-
-  updateYoshiEnvironmentRest();
   updateCelestialVisuals();
+
 }
 
-// ============================================================================
-// --- PURE ARCHITECTURAL EMPTY ROOM & MODULAR PROPS ENGINE ---
-// Clean procedural geometry: 4 walls, ceiling, hardwood floor, exactly ONE DOOR
-// Modular customizer items: Window, Bed, Closet, Mirror, Plant, Yoshi, Basketball
-// ============================================================================
 
-let roomWindowMesh = null;
-let roomBedMesh = null;
-let roomClosetMesh = null;
-let roomMirrorMesh = null;
-let roomPlantMesh = null;
 
-function loadRoomDecorationsConfig() {
-  try {
-    const raw = localStorage.getItem('rum_room_decorations');
-    if (raw) return JSON.parse(raw);
-  } catch (e) {}
-  return {
-    door: true,
-    basketball: true,
-    window: true,
-    plant: true,
-    yoshi: true,
-    bed: false,
-    closet: false,
-    mirror: false
-  };
-}
+function buildGardenEnvironment() {
 
-function saveRoomDecorationsConfig(cfg) {
-  try {
-    localStorage.setItem('rum_room_decorations', JSON.stringify(cfg));
-  } catch (e) {}
-}
-
-function buildEmptyRoomEnvironment() {
   clearVrmEnvironment();
 
+
+
+  // 1. Traditional Hinoki Wood Deck (10x8m, spanning z: +2.5 to -2.2)
+
+  const deckGeo = new THREE.PlaneGeometry(10, 8);
+
+  const deckTex = createTatamiDeckTexture();
+
+  const deckMat = new THREE.MeshStandardMaterial({
+
+    map: deckTex,
+
+    color: 0xaa7848,
+
+    roughness: 0.65,
+
+    metalness: 0.05
+
+  });
+
+  const deck = new THREE.Mesh(deckGeo, deckMat);
+
+  deck.rotation.x = -Math.PI / 2;
+
+  deck.position.set(0, vrmBaseY, 0.4);
+
+  deck.receiveShadow = true;
+
+  vrmEnvironmentGroup.add(deck);
+
+
+
+  // 2. Real Moving Dynamic Ocean with Celestial Sky Dome & Ephemeris
+
+  setupExteriorCelestialAndOcean(-16.5, -0.28);
+
+
+
+  // 8. Authentic Vermilion Japanese Veranda Railing (at z = -2.2)
+
+  const woodMat = new THREE.MeshStandardMaterial({ color: 0x9c2222, roughness: 0.55 });
+
+  // Top railing beam
+
+  const beamTop = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.08, 0.09), woodMat);
+
+  beamTop.position.set(0, vrmBaseY + 0.95, -2.2);
+
+  vrmEnvironmentGroup.add(beamTop);
+
+  // Mid railing beam
+
+  const beamMid = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.04, 0.06), woodMat);
+
+  beamMid.position.set(0, vrmBaseY + 0.45, -2.2);
+
+  vrmEnvironmentGroup.add(beamMid);
+
+  // 5 Support Posts
+
+  [-2.4, -1.2, 0.0, 1.2, 2.4].forEach(x => {
+
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.10, 1.05, 0.10), woodMat);
+
+    post.position.set(x, vrmBaseY + 0.50, -2.2);
+
+    vrmEnvironmentGroup.add(post);
+
+  });
+
+  // 16 Slender Vertical Baluster Slats
+
+  for (let i = 0; i < 16; i++) {
+
+    const bx = -2.25 + (i * 0.30);
+
+    if (Math.abs(bx) < 0.1 || Math.abs(bx - 1.2) < 0.1 || Math.abs(bx + 1.2) < 0.1) continue;
+
+    const slat = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.45, 0.025), woodMat);
+
+    slat.position.set(bx, vrmBaseY + 0.70, -2.2);
+
+    vrmEnvironmentGroup.add(slat);
+
+  }
+
+
+
+  // 9. Authentic Japanese Veranda Paper Lanterns with Warm Amber Glow
+
+  vrmGardenLanterns = [];
+
+  const darkWoodMat = new THREE.MeshStandardMaterial({ color: 0x2e1810, roughness: 0.70 });
+
+  const washiMat = new THREE.MeshStandardMaterial({
+
+    color: 0xffecd0,
+
+    emissive: 0xff8833,
+
+    emissiveIntensity: 0.55,
+
+    roughness: 0.50
+
+  });
+
+
+
+  [-1.35, 1.35].forEach(x => {
+
+    const lantGroup = new THREE.Group();
+
+
+
+    // Dark wood top cap
+
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.03, 0.22), darkWoodMat);
+
+    cap.position.y = 0.16;
+
+    lantGroup.add(cap);
+
+
+
+    // Warm translucent washi paper cylinder body
+
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.28, 16), washiMat);
+
+    lantGroup.add(body);
+
+
+
+    // Dark wood bottom base
+
+    const base = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.03, 0.20), darkWoodMat);
+
+    base.position.y = -0.16;
+
+    lantGroup.add(base);
+
+
+
+    lantGroup.position.set(x, vrmBaseY + 1.15, -2.15);
+
+    vrmEnvironmentGroup.add(lantGroup);
+
+
+
+    const lantLight = new THREE.PointLight(0xff9944, 1.2, 4.5);
+
+    lantLight.position.set(x, vrmBaseY + 1.15, -2.15);
+
+    vrmEnvironmentGroup.add(lantLight);
+
+    envLights.push(lantLight);
+
+
+
+    vrmGardenLanterns.push({ mesh: body, light: lantLight });
+
+  });
+
+
+
+  // 10. 60 Animated Sakura Blossom Petals
+
+  sakuraPetals = [];
+
+  const petalGeo = new THREE.PlaneGeometry(0.045, 0.045);
+
+  const petalMat = new THREE.MeshBasicMaterial({
+
+    color: 0xffb7c5,
+
+    side: THREE.DoubleSide,
+
+    transparent: true,
+
+    opacity: 0.88
+
+  });
+
+  for (let i = 0; i < 60; i++) {
+
+    const petal = new THREE.Mesh(petalGeo, petalMat);
+
+    petal.position.set(
+
+      (Math.random() - 0.5) * 3.5,
+
+      vrmBaseY + Math.random() * 3.0,
+
+      (Math.random() - 0.5) * 2.5
+
+    );
+
+    petal.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+
+    petal.userData = {
+
+      fallSpeed: 0.22 + Math.random() * 0.28,
+
+      rotSpeed: (Math.random() - 0.5) * 2.0,
+
+      seed: Math.random() * 10
+
+    };
+
+    vrmEnvironmentGroup.add(petal);
+
+    sakuraPetals.push(petal);
+
+  }
+
+
+
+  // 11. Walkable Raised Sakura Tatami Mat Platform
+
+  const matW = 0.84;
+
+  const matH = 0.04;
+
+  const matD = 0.70;
+
+  const matGeo = new THREE.BoxGeometry(matW, matH, matD);
+
+  const matMat = new THREE.MeshStandardMaterial({
+
+    color: 0xcc3b68,
+
+    roughness: 0.75,
+
+    metalness: 0.05
+
+  });
+
+  const raisedMat = new THREE.Mesh(matGeo, matMat);
+
+  raisedMat.position.set(0.52, vrmBaseY + (matH / 2), 0.16);
+
+  raisedMat.receiveShadow = true;
+
+  vrmEnvironmentGroup.add(raisedMat);
+
+
+
+  // Woven gold brocade border trim
+
+  const trimGeo = new THREE.BoxGeometry(matW + 0.02, 0.038, matD + 0.02);
+
+  const trimMat = new THREE.MeshStandardMaterial({
+
+    color: 0xb48a3c,
+
+    roughness: 0.60
+
+  });
+
+  const matTrim = new THREE.Mesh(trimGeo, trimMat);
+
+  matTrim.position.set(0.52, vrmBaseY + 0.019, 0.16);
+
+  vrmEnvironmentGroup.add(matTrim);
+
+
+
+  updateYoshiEnvironmentRest();
+
+  updateCelestialVisuals();
+
+}
+
+
+
+// ============================================================================
+
+// --- PURE ARCHITECTURAL EMPTY ROOM & MODULAR PROPS ENGINE ---
+
+// Clean procedural geometry: 4 walls, ceiling, hardwood floor, exactly ONE DOOR
+
+// Modular customizer items: Window, Bed, Closet, Mirror, Plant, Yoshi, Basketball
+
+// ============================================================================
+
+
+
+let roomWindowMesh = null;
+
+let roomBedMesh = null;
+
+let roomClosetMesh = null;
+
+let roomMirrorMesh = null;
+
+let roomPlantMesh = null;
+
+
+
+function loadRoomDecorationsConfig() {
+
+  try {
+
+    const raw = localStorage.getItem('rum_room_decorations');
+
+    if (raw) return JSON.parse(raw);
+
+  } catch (e) {}
+
+  return {
+
+    door: true,
+
+    basketball: true,
+
+    window: true,
+
+    plant: true,
+
+    yoshi: false, // Yoshi is an optional asset, not forced on startup
+
+    bed: false,
+
+    closet: false,
+
+    mirror: false
+
+  };
+
+}
+
+
+
+function saveRoomDecorationsConfig(cfg) {
+
+  try {
+
+    localStorage.setItem('rum_room_decorations', JSON.stringify(cfg));
+
+  } catch (e) {}
+
+}
+
+
+
+function buildEmptyRoomEnvironment() {
+
+  clearVrmEnvironment();
+
+
+
   vrmRoomPropsGroup = new THREE.Group();
+
   vrmEnvironmentGroup.add(vrmRoomPropsGroup);
 
-  // 1. Sleek Polished Hardwood Floor (10m x 9m)
+
+
+  // 1. Exterior Moving Ocean, Horizon Sky Dome & Solar/Lunar Ephemeris Arc
+
+  // Instantiated outside the panoramic window opening so it is fully visible from inside the room
+
+  setupExteriorCelestialAndOcean(-16.5, -0.32);
+
+
+
+  // 2. Sleek Polished Hardwood Floor (10m x 9m)
+
   const floorGeo = new THREE.PlaneGeometry(10, 9);
+
   const floorTex = createWoodPlankTexture();
+
   const floorMat = new THREE.MeshStandardMaterial({
+
     map: floorTex,
-    roughness: 0.52,
-    metalness: 0.08
+
+    roughness: 0.48,
+
+    metalness: 0.10
+
   });
+
   const floor = new THREE.Mesh(floorGeo, floorMat);
+
   floor.rotation.x = -Math.PI / 2;
+
   floor.position.set(0, vrmBaseY - 0.005, 0);
+
   floor.receiveShadow = true;
+
   vrmEnvironmentGroup.add(floor);
 
-  // 2. Back Wall (Z = -3.5m)
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x181e28, roughness: 0.88 });
-  const backWallGeo = new THREE.PlaneGeometry(10, 4.0);
-  const backWall = new THREE.Mesh(backWallGeo, wallMat);
-  backWall.position.set(0, vrmBaseY + 2.0, -3.5);
-  backWall.receiveShadow = true;
-  vrmEnvironmentGroup.add(backWall);
 
-  // Baseboard trim on back wall
+
+  // Wall Material & Shared Baseboard Trim
+
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x181e28, roughness: 0.88 });
+
   const baseboardMat = new THREE.MeshStandardMaterial({ color: 0x0c0f14, roughness: 0.6 });
-  const backTrim = new THREE.Mesh(new THREE.BoxGeometry(10, 0.12, 0.04), baseboardMat);
-  backTrim.position.set(0, vrmBaseY + 0.06, -3.48);
-  vrmEnvironmentGroup.add(backTrim);
+
+
 
   // 3. Right Wall (X = +4.5m)
+
   const sideWallGeo = new THREE.PlaneGeometry(9, 4.0);
+
   const rightWall = new THREE.Mesh(sideWallGeo, wallMat);
+
   rightWall.rotation.y = -Math.PI / 2;
+
   rightWall.position.set(4.5, vrmBaseY + 2.0, 0);
+
   rightWall.receiveShadow = true;
+  rightWall.userData.isFadableWall = true;
+
   vrmEnvironmentGroup.add(rightWall);
 
+
+
   const rightTrim = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.12, 9), baseboardMat);
+
   rightTrim.position.set(4.48, vrmBaseY + 0.06, 0);
+
   vrmEnvironmentGroup.add(rightTrim);
 
-  // 4. Left Wall (X = -4.5m) - HOUSES THE EXACTLY ONE DOOR
+
+
+  // 4. Left Wall (X = -4.5m)
+
   const leftWall = new THREE.Mesh(sideWallGeo, wallMat);
+
   leftWall.rotation.y = Math.PI / 2;
+
   leftWall.position.set(-4.5, vrmBaseY + 2.0, 0);
+
   leftWall.receiveShadow = true;
+  leftWall.userData.isFadableWall = true;
+
   vrmEnvironmentGroup.add(leftWall);
 
+
+
   const leftTrim = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.12, 9), baseboardMat);
+
   leftTrim.position.set(-4.48, vrmBaseY + 0.06, 0);
+
   vrmEnvironmentGroup.add(leftTrim);
 
-  // --- THE ONE DOOR (Prominently modeled on Back-Left Wall) ---
+
+
+  // 5. Back Wall Architecture (Z = -3.5m)
+
+  // Consists of: Left wall section housing the door, Right wall corner, Top header beam, Lower floor sill,
+
+  // and the sweeping Grand Architectural Panoramic Window opening looking out over the moving ocean.
+
+
+
+  // 5a. Left Wall Section (X: -4.5m to -1.30m, Width 3.2m, Height 3.6m)
+
+  const leftBackWall = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 3.6), wallMat);
+
+  leftBackWall.position.set(-2.90, vrmBaseY + 1.80, -3.50);
+
+  leftBackWall.receiveShadow = true;
+  leftBackWall.userData.isFadableWall = true;
+
+  vrmEnvironmentGroup.add(leftBackWall);
+
+
+
+  const leftBackTrim = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.12, 0.04), baseboardMat);
+
+  leftBackTrim.position.set(-2.90, vrmBaseY + 0.06, -3.48);
+
+  vrmEnvironmentGroup.add(leftBackTrim);
+
+
+
+  // 5b. Right Wall Section (X: +3.20m to +4.5m, Width 1.3m, Height 3.6m)
+
+  const rightBackWall = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 3.6), wallMat);
+
+  rightBackWall.position.set(3.85, vrmBaseY + 1.80, -3.50);
+
+  rightBackWall.receiveShadow = true;
+  rightBackWall.userData.isFadableWall = true;
+
+  vrmEnvironmentGroup.add(rightBackWall);
+
+
+
+  const rightBackTrim = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.12, 0.04), baseboardMat);
+
+  rightBackTrim.position.set(3.85, vrmBaseY + 0.06, -3.48);
+
+  vrmEnvironmentGroup.add(rightBackTrim);
+
+
+
+  // 5c. Top Header Wall Beam (Above panoramic window, X: -1.30m to +3.20m, Height 0.60m)
+
+  const headerWall = new THREE.Mesh(new THREE.PlaneGeometry(4.50, 0.60), wallMat);
+
+  headerWall.position.set(0.95, vrmBaseY + 3.30, -3.50);
+
+  headerWall.receiveShadow = true;
+
+  vrmEnvironmentGroup.add(headerWall);
+
+
+
+  // 5d. Lower Floor Wainscoting / Window Sill Ledge (Below panoramic window, Height 0.14m)
+
+  const sillMat = new THREE.MeshStandardMaterial({ color: 0x111620, roughness: 0.5 });
+
+  const windowSill = new THREE.Mesh(new THREE.BoxGeometry(4.52, 0.14, 0.08), sillMat);
+
+  windowSill.position.set(0.95, vrmBaseY + 0.07, -3.48);
+
+  vrmEnvironmentGroup.add(windowSill);
+
+
+
+  // --- 6. THE EXACTLY ONE DOOR (Prominently mounted on the Back-Left Wall at X = -2.50m) ---
+
   const doorGroup = new THREE.Group();
-  doorGroup.position.set(-1.35, vrmBaseY, -3.46);
-  doorGroup.rotation.y = 0;
+
+  doorGroup.position.set(-2.50, vrmBaseY, -3.46);
+
+
 
   // Door Frame Casing (Espresso Dark Wood)
+
   const frameMat = new THREE.MeshStandardMaterial({ color: 0x16110d, roughness: 0.5 });
+
   const leftCasing = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.30, 0.06), frameMat);
+
   leftCasing.position.set(-0.55, 1.15, 0);
+
   const rightCasing = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.30, 0.06), frameMat);
+
   rightCasing.position.set(0.55, 1.15, 0);
+
   const topCasing = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.08, 0.06), frameMat);
+
   topCasing.position.set(0, 2.30, 0);
+
   doorGroup.add(leftCasing);
+
   doorGroup.add(rightCasing);
+
   doorGroup.add(topCasing);
 
+
+
   // Inset Wooden Door Panel (Rich Walnut)
+
   const doorMat = new THREE.MeshStandardMaterial({ color: 0x241810, roughness: 0.42 });
+
+  const doorLeaf = new THREE.Group();
+  doorLeaf.position.set(-0.51, 0, 0); // left hinge pivot
+
   const doorPanel = new THREE.Mesh(new THREE.BoxGeometry(1.02, 2.22, 0.04), doorMat);
-  doorPanel.position.set(0, 1.11, -0.01);
-  doorGroup.add(doorPanel);
+  doorPanel.position.set(0.51, 1.11, -0.01);
+  doorPanel.castShadow = true;
+  doorPanel.receiveShadow = true;
+  doorLeaf.add(doorPanel);
 
   // Door Panel Molding Accents
   const moldingMat = new THREE.MeshStandardMaterial({ color: 0x1c130c, roughness: 0.6 });
   const upperMolding = new THREE.Mesh(new THREE.BoxGeometry(0.80, 0.90, 0.015), moldingMat);
-  upperMolding.position.set(0, 1.55, 0.015);
+  upperMolding.position.set(0.51, 1.55, 0.015);
   const lowerMolding = new THREE.Mesh(new THREE.BoxGeometry(0.80, 0.70, 0.015), moldingMat);
-  lowerMolding.position.set(0, 0.55, 0.015);
-  doorGroup.add(upperMolding);
-  doorGroup.add(lowerMolding);
+  lowerMolding.position.set(0.51, 0.55, 0.015);
+  doorLeaf.add(upperMolding);
+  doorLeaf.add(lowerMolding);
 
   // Brushed Brass Lever Handle & Rose
   const handleMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.88, roughness: 0.22 });
   const rose = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.015, 16), handleMat);
   rose.rotation.x = Math.PI / 2;
-  rose.position.set(0.38, 1.05, 0.02);
+  rose.position.set(0.89, 1.05, 0.02);
   const lever = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.018, 0.025), handleMat);
-  lever.position.set(0.44, 1.05, 0.035);
-  doorGroup.add(rose);
-  doorGroup.add(lever);
+  lever.position.set(0.95, 1.05, 0.035);
+  doorLeaf.add(rose);
+  doorLeaf.add(lever);
 
-  // Threshold Floor Light Gap (Amber light glow under door)
-  const thresholdMat = new THREE.MeshStandardMaterial({
-    color: 0xffaa44,
-    emissive: 0xff8811,
-    emissiveIntensity: 1.8
-  });
-  const thresholdStrip = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.015, 0.04), thresholdMat);
+  // Swing door leaf open into the room by ~60 degrees onto balcony walkway
+  doorLeaf.rotation.y = -Math.PI * 0.35;
+  doorGroup.add(doorLeaf);
+
+  // Threshold Floor Sill
+  const thresholdMat = new THREE.MeshStandardMaterial({ color: 0x221a12, roughness: 0.5 });
+  const thresholdStrip = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.015, 0.08), thresholdMat);
   thresholdStrip.position.set(0, 0.008, 0);
   doorGroup.add(thresholdStrip);
 
-  const doorHallwayLight = new THREE.PointLight(0xffa040, 1.2, 3.5, 1.8);
-  doorHallwayLight.position.set(0, 0.08, 0.2);
-  doorGroup.add(doorHallwayLight);
-
   vrmEnvironmentGroup.add(doorGroup);
 
-  // 5. Clean Architectural Ceiling (Y = +3.6m)
+  // --- 6.5. TEAKWOOD BALCONY TERRACE OVERLOOKING THE OCEAN ---
+  const balconyGroup = new THREE.Group();
+  balconyGroup.name = "vrmBalconyTerrace";
+
+  // 6.5a. Teak Wood Decking Platform (Width 5.0m, Depth 4.2m)
+  const balconyFloorGeo = new THREE.PlaneGeometry(5.0, 4.2);
+  const teakMat = new THREE.MeshStandardMaterial({
+    color: 0x6e4524, // warm teak wood
+    roughness: 0.58,
+    metalness: 0.06
+  });
+  const balconyFloor = new THREE.Mesh(balconyFloorGeo, teakMat);
+  balconyFloor.rotation.x = -Math.PI / 2;
+  balconyFloor.position.set(-2.0, vrmBaseY - 0.005, -5.60);
+  balconyFloor.receiveShadow = true;
+  balconyGroup.add(balconyFloor);
+
+  // 6.5b. Heavy Architectural Teak Edge Beam
+  const edgeMat = new THREE.MeshStandardMaterial({ color: 0x3d2514, roughness: 0.70 });
+  const frontEdgeBeam = new THREE.Mesh(new THREE.BoxGeometry(5.10, 0.14, 0.14), edgeMat);
+  frontEdgeBeam.position.set(-2.0, vrmBaseY - 0.07, -7.70);
+  balconyGroup.add(frontEdgeBeam);
+
+  // 6.5c. Modern Wrought-Iron Railing with Ocean Overlook (Height 1.08m)
+  const railingMat = new THREE.MeshStandardMaterial({ color: 0x0f141c, roughness: 0.35, metalness: 0.85 });
+  
+  // Front Outer Rail (Z = -7.68m, Width 5.0m)
+  const frontTopRail = new THREE.Mesh(new THREE.BoxGeometry(5.0, 0.05, 0.05), railingMat);
+  frontTopRail.position.set(-2.0, vrmBaseY + 1.08, -7.68);
+  balconyGroup.add(frontTopRail);
+
+  const frontBottomRail = new THREE.Mesh(new THREE.BoxGeometry(5.0, 0.03, 0.03), railingMat);
+  frontBottomRail.position.set(-2.0, vrmBaseY + 0.12, -7.68);
+  balconyGroup.add(frontBottomRail);
+
+  // Front Railing Spindles every 22cm
+  for (let bx = -4.4; bx <= 0.4; bx += 0.22) {
+    const spindle = new THREE.Mesh(new THREE.CylinderGeometry(0.010, 0.010, 0.96, 8), railingMat);
+    spindle.position.set(bx, vrmBaseY + 0.60, -7.68);
+    balconyGroup.add(spindle);
+  }
+
+  // Left Outer Rail (X = -4.50m, Depth 4.2m)
+  const leftTopRail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 4.20), railingMat);
+  leftTopRail.position.set(-4.48, vrmBaseY + 1.08, -5.60);
+  balconyGroup.add(leftTopRail);
+
+  for (let bz = -3.70; bz >= -7.50; bz -= 0.25) {
+    const spindle = new THREE.Mesh(new THREE.CylinderGeometry(0.010, 0.010, 0.96, 8), railingMat);
+    spindle.position.set(-4.48, vrmBaseY + 0.60, bz);
+    balconyGroup.add(spindle);
+  }
+
+  // Right Divider Rail (X = +0.50m, Depth 4.2m)
+  const rightTopRail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 4.20), railingMat);
+  rightTopRail.position.set(0.48, vrmBaseY + 1.08, -5.60);
+  balconyGroup.add(rightTopRail);
+
+  for (let bz = -3.70; bz >= -7.50; bz -= 0.25) {
+    const spindle = new THREE.Mesh(new THREE.CylinderGeometry(0.010, 0.010, 0.96, 8), railingMat);
+    spindle.position.set(0.48, vrmBaseY + 0.60, bz);
+    balconyGroup.add(spindle);
+  }
+
+  vrmEnvironmentGroup.add(balconyGroup);
+
+
+
+  // --- 7. GRAND ARCHITECTURAL PANORAMIC PICTURE WINDOW (X: -1.30m to +3.20m, Z: -3.50m) ---
+
+  const winGroup = new THREE.Group();
+
+  winGroup.position.set(0.95, vrmBaseY + 1.57, -3.48);
+
+
+
+  const windowFrameMat = new THREE.MeshStandardMaterial({ color: 0x0a0d14, roughness: 0.35, metalness: 0.6 });
+
+
+
+  // Top Frame Beam
+
+  const fTop = new THREE.Mesh(new THREE.BoxGeometry(4.56, 0.06, 0.08), windowFrameMat);
+
+  fTop.position.set(0, 1.43, 0);
+
+  winGroup.add(fTop);
+
+
+
+  // Bottom Frame Beam
+
+  const fBottom = new THREE.Mesh(new THREE.BoxGeometry(4.56, 0.06, 0.08), windowFrameMat);
+
+  fBottom.position.set(0, -1.43, 0);
+
+  winGroup.add(fBottom);
+
+
+
+  // Left & Right Outer Mullions
+
+  const fLeft = new THREE.Mesh(new THREE.BoxGeometry(0.06, 2.86, 0.08), windowFrameMat);
+
+  fLeft.position.set(-2.25, 0, 0);
+
+  winGroup.add(fLeft);
+
+
+
+  const fRight = new THREE.Mesh(new THREE.BoxGeometry(0.06, 2.86, 0.08), windowFrameMat);
+
+  fRight.position.set(2.25, 0, 0);
+
+  winGroup.add(fRight);
+
+
+
+  // 2 Interior Vertical Mullions dividing window into 3 majestic panoramic bays
+
+  [-0.75, 0.75].forEach(mx => {
+
+    const vMull = new THREE.Mesh(new THREE.BoxGeometry(0.04, 2.86, 0.06), windowFrameMat);
+
+    vMull.position.set(mx, 0, 0);
+
+    winGroup.add(vMull);
+
+  });
+
+
+
+  // 1 Horizontal Transom Crossbeam
+
+  const hTransom = new THREE.Mesh(new THREE.BoxGeometry(4.50, 0.035, 0.06), windowFrameMat);
+
+  hTransom.position.set(0, 0.88, 0);
+
+  winGroup.add(hTransom);
+
+
+
+  // Transparent Architectural Glass Pane with Specular Highlights
+
+  const glassMat = new THREE.MeshStandardMaterial({
+
+    color: 0xc7d2fe,
+
+    roughness: 0.06,
+
+    metalness: 0.90,
+
+    transparent: true,
+
+    opacity: 0.15
+
+  });
+
+  const glassPane = new THREE.Mesh(new THREE.PlaneGeometry(4.48, 2.84), glassMat);
+
+  glassPane.position.set(0, 0, -0.01);
+
+  winGroup.add(glassPane);
+
+
+
+  vrmEnvironmentGroup.add(winGroup);
+
+
+
+  // 7b. Exterior Balcony Veranda Railing & Ledge (Visible just outside the glass at Z = -3.75m)
+
+  const balconyMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.5 });
+
+  const balconyLedge = new THREE.Mesh(new THREE.BoxGeometry(4.80, 0.12, 0.70), balconyMat);
+
+  balconyLedge.position.set(0.95, vrmBaseY - 0.06, -3.85);
+
+  vrmEnvironmentGroup.add(balconyLedge);
+
+
+
+  // Minimalist Outdoor Glass Balustrade & Dark Metal Railing
+
+  const railingBeam = new THREE.Mesh(new THREE.BoxGeometry(4.80, 0.04, 0.04), windowFrameMat);
+
+  railingBeam.position.set(0.95, vrmBaseY + 0.92, -3.72);
+
+  vrmEnvironmentGroup.add(railingBeam);
+
+
+
+  const balustradeGlassMat = new THREE.MeshStandardMaterial({
+
+    color: 0x93c5fd,
+
+    roughness: 0.10,
+
+    metalness: 0.80,
+
+    transparent: true,
+
+    opacity: 0.22
+
+  });
+
+  const balustradeGlass = new THREE.Mesh(new THREE.PlaneGeometry(4.70, 0.86), balustradeGlassMat);
+
+  balustradeGlass.position.set(0.95, vrmBaseY + 0.46, -3.72);
+
+  vrmEnvironmentGroup.add(balustradeGlass);
+
+
+
+  // 8. Clean Architectural Ceiling (Y = +3.6m)
+
   const ceilingGeo = new THREE.PlaneGeometry(10, 9);
+
   const ceilingMat = new THREE.MeshStandardMaterial({ color: 0x111620, roughness: 0.92 });
+
   const ceiling = new THREE.Mesh(ceilingGeo, ceilingMat);
+
   ceiling.rotation.x = Math.PI / 2;
+
   ceiling.position.set(0, vrmBaseY + 3.6, 0);
+
   vrmEnvironmentGroup.add(ceiling);
 
+
+
   // Recessed pot light bezels in ceiling
+
   const potGeo = new THREE.RingGeometry(0.08, 0.14, 20);
+
   const potMat = new THREE.MeshBasicMaterial({ color: 0x4a5568, side: THREE.DoubleSide });
+
   const p1 = new THREE.Mesh(potGeo, potMat); p1.rotation.x = Math.PI / 2; p1.position.set(-1.8, vrmBaseY + 3.59, -1.0); vrmEnvironmentGroup.add(p1);
+
   const p2 = new THREE.Mesh(potGeo, potMat); p2.rotation.x = Math.PI / 2; p2.position.set(1.8, vrmBaseY + 3.59, -1.0); vrmEnvironmentGroup.add(p2);
+
   const p3 = new THREE.Mesh(potGeo, potMat); p3.rotation.x = Math.PI / 2; p3.position.set(-1.8, vrmBaseY + 3.59, 1.2); vrmEnvironmentGroup.add(p3);
+
   const p4 = new THREE.Mesh(potGeo, potMat); p4.rotation.x = Math.PI / 2; p4.position.set(1.8, vrmBaseY + 3.59, 1.2); vrmEnvironmentGroup.add(p4);
 
-  // 6. Architectural Lighting
+
+
+  // 9. Architectural Lighting
+
   const keyLight = new THREE.DirectionalLight(0xfff6ea, 1.4);
+
   keyLight.position.set(2.4, vrmBaseY + 3.4, 3.2);
+
   keyLight.castShadow = true;
+
   vrmEnvironmentGroup.add(keyLight);
+
   envLights.push(keyLight);
 
+
+
   const fillLight = new THREE.PointLight(0xa855f7, 1.2, 9.0, 1.4);
+
   fillLight.position.set(-2.6, vrmBaseY + 2.8, -1.2);
+
   vrmEnvironmentGroup.add(fillLight);
+
   envLights.push(fillLight);
 
-  // Apply active props according to user decorations config
+
+
+  // Apply active modular props according to user decorations config
+
   applyRoomDecorations();
+
 }
+
+
 
 function buildRoomWindowProp() {
+
   const group = new THREE.Group();
-  group.position.set(1.15, vrmBaseY + 2.0, -3.46);
 
-  // Window Outer Frame (2.2m x 1.8m)
-  const frameMat = new THREE.MeshStandardMaterial({ color: 0x0a0d12, roughness: 0.35 });
-  const outer = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.8, 0.08), frameMat);
-  group.add(outer);
+  group.position.set(0, vrmBaseY, -3.42);
 
-  // Dynamic Time-of-Day Scenic Sky / Horizon
-  const skyMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
-  const skyPlane = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 1.6), skyMat);
-  skyPlane.position.set(0, 0, 0.01);
-  group.add(skyPlane);
 
-  // Window Pane Mullions / Grids
-  const mullionMat = new THREE.MeshStandardMaterial({ color: 0x111620, roughness: 0.4 });
-  const vert = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.6, 0.03), mullionMat);
-  vert.position.set(0, 0, 0.02);
-  const horiz = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.04, 0.03), mullionMat);
-  horiz.position.set(0, 0, 0.02);
-  group.add(vert);
-  group.add(horiz);
+
+  // Brushed Brass Curtain Rod above panoramic window (spanning X: -1.45m to +3.35m)
+
+  const rodMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.88, roughness: 0.22 });
+
+  const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 4.88, 16), rodMat);
+
+  rod.rotation.z = Math.PI / 2;
+
+  rod.position.set(0.95, 3.08, 0);
+
+  group.add(rod);
+
+
+
+  // Brass finials at rod ends
+
+  [-1.50, 3.40].forEach(fx => {
+
+    const finial = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 16), rodMat);
+
+    finial.position.set(fx, 3.08, 0);
+
+    group.add(finial);
+
+  });
+
+
+
+  // Soft Tailored Floor-to-Ceiling Drapery / Curtains Flanking Window Sides
+
+  const curtainMat = new THREE.MeshStandardMaterial({
+
+    color: 0x334155, // Elegant slate blue / navy linen
+
+    roughness: 0.88,
+
+    metalness: 0.04
+
+  });
+
+
+
+  // Left Drapery Panel (gathered at X: -1.26m, falling from Y: 3.06m to 0.02m)
+
+  const leftDrape = new THREE.Mesh(new THREE.BoxGeometry(0.38, 3.04, 0.08), curtainMat);
+
+  leftDrape.position.set(-1.26, 1.54, 0.02);
+
+  group.add(leftDrape);
+
+
+
+  // Right Drapery Panel (gathered at X: +3.16m, falling from Y: 3.06m to 0.02m)
+
+  const rightDrape = new THREE.Mesh(new THREE.BoxGeometry(0.38, 3.04, 0.08), curtainMat);
+
+  rightDrape.position.set(3.16, 1.54, 0.02);
+
+  group.add(rightDrape);
+
+
+
+  // Decorative Brass Tiebacks
+
+  const tieMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.9, roughness: 0.2 });
+
+  const leftTie = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.012, 12, 24), tieMat);
+
+  leftTie.position.set(-1.22, 1.30, 0.06);
+
+  leftTie.rotation.y = Math.PI / 2;
+
+  group.add(leftTie);
+
+
+
+  const rightTie = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.012, 12, 24), tieMat);
+
+  rightTie.position.set(3.12, 1.30, 0.06);
+
+  rightTie.rotation.y = Math.PI / 2;
+
+  group.add(rightTie);
+
+
 
   return group;
+
 }
+
+
 
 function buildRoomBedProp() {
+
   const group = new THREE.Group();
+
   group.position.set(-2.4, vrmBaseY, -2.1);
 
+
+
   // Dark Platform Base
+
   const baseMat = new THREE.MeshStandardMaterial({ color: 0x181410, roughness: 0.6 });
+
   const base = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.28, 1.8), baseMat);
+
   base.position.set(0, 0.14, 0);
+
   group.add(base);
 
+
+
   // Headboard
+
   const hb = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.90, 0.10), baseMat);
+
   hb.position.set(0, 0.60, -0.85);
+
   group.add(hb);
 
+
+
   // Plush Mattress
+
   const matMat = new THREE.MeshStandardMaterial({ color: 0xeeece8, roughness: 0.8 });
+
   const mat = new THREE.Mesh(new THREE.BoxGeometry(1.95, 0.22, 1.65), matMat);
+
   mat.position.set(0, 0.39, 0.04);
+
   group.add(mat);
 
+
+
   // Folded Quilt / Duvet
+
   const duvetMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.75 });
+
   const duvet = new THREE.Mesh(new THREE.BoxGeometry(1.97, 0.12, 1.10), duvetMat);
+
   duvet.position.set(0, 0.47, 0.32);
+
   group.add(duvet);
 
+
+
   // Pillows
+
   const pilMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.9 });
+
   const pil1 = new THREE.Mesh(new THREE.BoxGeometry(0.70, 0.12, 0.40), pilMat);
+
   pil1.position.set(-0.50, 0.52, -0.55);
+
   pil1.rotation.x = 0.2;
+
   const pil2 = new THREE.Mesh(new THREE.BoxGeometry(0.70, 0.12, 0.40), pilMat);
+
   pil2.position.set(0.50, 0.52, -0.55);
+
   pil2.rotation.x = 0.2;
+
   group.add(pil1);
+
   group.add(pil2);
 
+
+
   return group;
+
 }
+
+
 
 function buildRoomClosetProp() {
+
   const group = new THREE.Group();
+
   group.position.set(3.8, vrmBaseY, -1.8);
+
   group.rotation.y = -Math.PI / 2;
+
+
 
   // Armoire Body
+
   const woodMat = new THREE.MeshStandardMaterial({ color: 0x201812, roughness: 0.5 });
+
   const body = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.35, 0.60), woodMat);
+
   body.position.set(0, 1.175, 0);
+
   group.add(body);
 
+
+
   // Twin Door Inset Lines
+
   const lineMat = new THREE.MeshBasicMaterial({ color: 0x0f0b08 });
+
   const line = new THREE.Mesh(new THREE.BoxGeometry(0.015, 2.25, 0.01), lineMat);
+
   line.position.set(0, 1.175, 0.302);
+
   group.add(line);
 
+
+
   // Vertical Brass Handles
+
   const hMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.85, roughness: 0.25 });
+
   const h1 = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.32, 0.025), hMat);
+
   h1.position.set(-0.06, 1.15, 0.315);
+
   const h2 = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.32, 0.025), hMat);
+
   h2.position.set(0.06, 1.15, 0.315);
+
   group.add(h1);
+
   group.add(h2);
 
+
+
   return group;
+
 }
+
+
 
 function buildRoomMirrorProp() {
+
   const group = new THREE.Group();
+
   group.position.set(3.9, vrmBaseY, 0.8);
+
   group.rotation.y = -Math.PI / 2;
 
+
+
   // Standing Frame (Champagne Gold)
+
   const frameMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.8, roughness: 0.25 });
+
   const frame = new THREE.Mesh(new THREE.BoxGeometry(0.80, 1.95, 0.06), frameMat);
+
   frame.position.set(0, 0.98, 0);
+
   group.add(frame);
 
+
+
   // Reflective Glass Surface
+
   const glassMat = new THREE.MeshStandardMaterial({
+
     color: 0x94a3b8,
+
     metalness: 0.95,
+
     roughness: 0.05
+
   });
+
   const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.70, 1.85), glassMat);
+
   glass.position.set(0, 0.98, 0.032);
+
   group.add(glass);
 
+
+
   return group;
+
 }
+
+
 
 function buildRoomPlantProp() {
+
   const group = new THREE.Group();
+
   group.position.set(2.6, vrmBaseY, -2.6);
 
+
+
   // Ceramic Pot
+
   const potMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.4 });
+
   const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.18, 0.46, 24), potMat);
+
   pot.position.set(0, 0.23, 0);
+
   group.add(pot);
 
+
+
   // Soil
+
   const soilMat = new THREE.MeshStandardMaterial({ color: 0x1f140e, roughness: 0.9 });
+
   const soil = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.04, 20), soilMat);
+
   soil.position.set(0, 0.44, 0);
+
   group.add(soil);
 
+
+
   // Stems & Leaves
+
   const leafMat = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.6 });
+
   for (let i = 0; i < 7; i++) {
+
     const angle = (i / 7) * Math.PI * 2;
+
     const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 8), leafMat);
+
     leaf.scale.set(1.4, 0.2, 0.8);
+
     leaf.rotation.y = angle;
+
     leaf.rotation.z = 0.45;
+
     leaf.position.set(Math.cos(angle) * 0.22, 0.55 + (i * 0.08), Math.sin(angle) * 0.22);
+
     group.add(leaf);
+
   }
+
+
 
   return group;
+
 }
 
+
+
 function applyRoomDecorations() {
+
   if (!vrmRoomPropsGroup) return;
 
+
+
   // Clear existing modular props
+
   while (vrmRoomPropsGroup.children.length > 0) {
+
     vrmRoomPropsGroup.remove(vrmRoomPropsGroup.children[0]);
+
   }
+
+
 
   const cfg = loadRoomDecorationsConfig();
 
+
+
   // 1. Studio Window
+
   if (cfg.window) {
+
     roomWindowMesh = buildRoomWindowProp();
+
     vrmRoomPropsGroup.add(roomWindowMesh);
+
   }
+
+
 
   // 2. Platform Bed
+
   if (cfg.bed) {
+
     roomBedMesh = buildRoomBedProp();
+
     vrmRoomPropsGroup.add(roomBedMesh);
+
   }
+
+
 
   // 3. Wardrobe Closet
+
   if (cfg.closet) {
+
     roomClosetMesh = buildRoomClosetProp();
+
     vrmRoomPropsGroup.add(roomClosetMesh);
+
   }
+
+
 
   // 4. Full-Length Mirror
+
   if (cfg.mirror) {
+
     roomMirrorMesh = buildRoomMirrorProp();
+
     vrmRoomPropsGroup.add(roomMirrorMesh);
+
   }
+
+
 
   // 5. Potted Plant
+
   if (cfg.plant) {
+
     roomPlantMesh = buildRoomPlantProp();
+
     vrmRoomPropsGroup.add(roomPlantMesh);
+
   }
+
+
 
   // 6. Yoshi Plush
+
   if (cfg.yoshi) {
+
     if (!yoshiModel) {
+
       loadYoshiPlushProp();
+
     } else {
+
       updateYoshiEnvironmentRest();
+
       if (!vrmScene.children.includes(yoshiModel)) {
+
         vrmScene.add(yoshiModel);
+
       }
+
     }
-  } else if (yoshiModel && !isHoldingYoshi) {
-    if (vrmScene.children.includes(yoshiModel)) {
+
+  } else {
+
+    if (yoshiModel && vrmScene && vrmScene.children.includes(yoshiModel)) {
+
       vrmScene.remove(yoshiModel);
+
     }
+
   }
+
+
 
   // 7. Interactive Basketball
+
   if (cfg.basketball) {
+
     createBasketballProp();
+
     if (basketballMesh && !vrmScene.children.includes(basketballMesh)) {
+
       vrmScene.add(basketballMesh);
+
     }
+
   } else if (basketballMesh && basketballState !== 'DRIBBLING') {
+
     if (vrmScene.children.includes(basketballMesh)) {
+
       vrmScene.remove(basketballMesh);
+
     }
+
   }
 
+
+
   // Update Modal Checkboxes and Cards
+
   syncRoomCustomizerUI(cfg);
+
 }
 
+
+
 // ============================================================================
+
 // --- PHASE 5: 3D ROOM CUSTOMIZER & DYNAMIC PROP LOADER ENGINE ---
+
 // ============================================================================
+
 let vrmCustomPropsGroup = null;
+
 let vrmSelectedProp = null;
+
 let vrmSelectionRing = null;
+
 let availableCustomProps = [];
 
 
+
+
+
 // ============================================================================
+
 // PHASE 6: BIOLOGICAL CONNECTOME FRUIT FLY (Drosophila Melanogaster Simulation)
+
 // Based on FlyWire 2024 Adult Brain Connectome (139,255 Neurons / 54.5M Synapses)
+
 // Architecture:
+
 // 1. Optic Lobe / EMD (T4/T5 Neurons): Wall / obstacle proximity detection
+
 // 2. Giant Fiber (GF) Circuit: High-acceleration escape reflex
+
 // 3. Central Complex (CX) Heading: Saccadic steering & vector navigation
+
 // 4. Perching & Haltere Mechanics: 200 Hz wingbeat oscillation, perching & grooming
+
 // ============================================================================
+
 let connectomeFlyGroup = null;
+
 let connectomeFlyEnabled = true;
+
 let flyLeftWing = null;
+
 let flyRightWing = null;
+
 let flyState = 'FLYING'; // 'FLYING', 'SACCADE', 'PERCHED', 'GROOMING', 'ESCAPE'
+
 let flyStateTimer = 0;
+
 let flyHeading = 0.0;
+
 let flyPitch = 0.0;
+
 let flySpeed = 1.15;
+
 let flyTargetPerch = null;
+
 let flyGroomPhase = 0;
+
 let flyPerchTimer = 0;
 
+
+
 function initConnectomeFly() {
+
   if (connectomeFlyGroup || !vrmScene) return;
 
+
+
   connectomeFlyGroup = new THREE.Group();
+
   connectomeFlyGroup.name = "ConnectomeFruitFly";
 
+
+
   // Scale: 1.0 (approx 4.5cm visual diorama size so it is visible and lifelike on 1024x600)
-  connectomeFlyGroup.scale.set(1.2, 1.2, 1.2);
+
+  // Scaled to eye-size for visible testing & connectome inspection
+
+  connectomeFlyGroup.scale.set(2.4, 2.4, 2.4);
+
+
 
   // Thorax (chitin dark slate)
+
   const thoraxGeo = new THREE.SphereGeometry(0.024, 8, 8);
+
   thoraxGeo.scale(1.0, 0.85, 1.25);
+
   const thoraxMat = new THREE.MeshStandardMaterial({
+
     color: 0x22272e,
+
     roughness: 0.35,
+
     metalness: 0.65
+
   });
+
   const thorax = new THREE.Mesh(thoraxGeo, thoraxMat);
+
   connectomeFlyGroup.add(thorax);
 
+
+
   // Compound Eyes (bright ruby red)
+
   const eyeGeo = new THREE.SphereGeometry(0.011, 8, 8);
+
   const eyeMat = new THREE.MeshStandardMaterial({
+
     color: 0xef4444,
+
     roughness: 0.15,
+
     metalness: 0.85,
+
     emissive: 0x7f1d1d
+
   });
+
   const lEye = new THREE.Mesh(eyeGeo, eyeMat);
+
   lEye.position.set(-0.015, 0.009, 0.020);
+
   const rEye = new THREE.Mesh(eyeGeo, eyeMat);
+
   rEye.position.set(0.015, 0.009, 0.020);
+
   connectomeFlyGroup.add(lEye, rEye);
 
+
+
   // Abdomen (striped golden-amber/dark segments)
+
   const abdGeo = new THREE.CylinderGeometry(0.020, 0.009, 0.052, 8);
+
   abdGeo.rotateX(Math.PI / 2);
+
   const abdMat = new THREE.MeshStandardMaterial({
+
     color: 0xd97706,
+
     roughness: 0.45,
+
     metalness: 0.25
+
   });
+
   const abdomen = new THREE.Mesh(abdGeo, abdMat);
+
   abdomen.position.set(0, -0.006, -0.038);
+
   connectomeFlyGroup.add(abdomen);
 
+
+
   // Wings (delicate translucent wings with iridescent shimmer)
+
   const wingGeo = new THREE.PlaneGeometry(0.032, 0.064);
+
   wingGeo.translate(0, 0.030, 0);
+
   wingGeo.rotateX(Math.PI / 2);
+
   const wingMat = new THREE.MeshPhysicalMaterial({
+
     color: 0xf0f9ff,
+
     transparent: true,
+
     opacity: 0.70,
+
     roughness: 0.1,
+
     transmission: 0.9,
+
     side: THREE.DoubleSide
+
   });
 
+
+
   flyLeftWing = new THREE.Mesh(wingGeo, wingMat);
+
   flyLeftWing.position.set(-0.012, 0.018, -0.008);
+
   flyRightWing = new THREE.Mesh(wingGeo, wingMat);
+
   flyRightWing.position.set(0.012, 0.018, -0.008);
+
   connectomeFlyGroup.add(flyLeftWing, flyRightWing);
 
+
+
   // Initial Position: hovering in room near center-right
+
   connectomeFlyGroup.position.set(0.65, vrmBaseY + 1.25, -0.40);
+
   flyHeading = Math.PI * 0.8;
+
   vrmScene.add(connectomeFlyGroup);
+
   console.log("[CONNECTOME] Biologically simulated fruit fly initialized.");
+
 }
 
+
+
 function updateConnectomeFly(delta, time) {
+
   if (!connectomeFlyEnabled || !connectomeFlyGroup) return;
+
+
 
   const flyPos = connectomeFlyGroup.position;
 
+
+
   if (flyState === 'FLYING' || flyState === 'ESCAPE' || flyState === 'SACCADE') {
+
     // 1. High-frequency biological wingbeat oscillation (~200 Hz illusion)
+
     const flapAngle = Math.sin(time * 165) * 0.85;
+
     if (flyLeftWing) flyLeftWing.rotation.z = flapAngle;
+
     if (flyRightWing) flyRightWing.rotation.z = -flapAngle;
 
+
+
     // 2. Flight Kinematics
+
     const curSpeed = (flyState === 'ESCAPE') ? flySpeed * 2.2 : flySpeed;
+
     const fwdX = -Math.sin(flyHeading) * Math.cos(flyPitch);
+
     const fwdZ = -Math.cos(flyHeading) * Math.cos(flyPitch);
+
     const fwdY = Math.sin(flyPitch);
 
+
+
     flyPos.x += fwdX * curSpeed * delta;
+
     flyPos.y += fwdY * curSpeed * delta;
+
     flyPos.z += fwdZ * curSpeed * delta;
 
-    connectomeFlyGroup.rotation.y = flyHeading;
-    connectomeFlyGroup.rotation.x = -flyPitch;
+
+
+    // Smooth aerodynamic banked flight: eliminate instant 180 snap glitches
+
+    if (typeof window._flyTargetHeading === 'undefined') window._flyTargetHeading = flyHeading;
+
+    const hDiff = Math.atan2(Math.sin(window._flyTargetHeading - flyHeading), Math.cos(window._flyTargetHeading - flyHeading));
+
+    const turnRate = (flyState === 'ESCAPE' || flyState === 'SACCADE') ? 14.0 : 6.0;
+
+    flyHeading += hDiff * Math.min(1.0, delta * turnRate);
+
+
+
+    // Aerodynamic banking roll into turns
+
+    const rollAngle = THREE.MathUtils.clamp(-hDiff * 1.6, -0.75, 0.75);
+
+    connectomeFlyGroup.rotation.set(-flyPitch, flyHeading, rollAngle, 'YXZ');
+
+
 
     // 3. Optomotor Reflex (EMD / T4/T5): Boundary avoidance
+
     const atWall = (flyPos.x < -2.9 || flyPos.x > 2.4 || flyPos.z < -3.1 || flyPos.z > 1.7 || flyPos.y < vrmBaseY + 0.35 || flyPos.y > vrmBaseY + 2.3);
+
     if (atWall) {
-      // Rapid optomotor torque saccade away from obstruction
-      flyHeading += (Math.random() > 0.5 ? 1 : -1) * (Math.PI * 0.55 + Math.random() * 0.4);
+
+      // Smooth optomotor torque heading adjustment away from wall
+
+      window._flyTargetHeading = flyHeading + (Math.random() > 0.5 ? 1 : -1) * (Math.PI * 0.55 + Math.random() * 0.35);
+
       flyPitch = (Math.random() - 0.5) * 0.4;
+
       flyState = 'SACCADE';
-      flyStateTimer = 0.12;
+
+      flyStateTimer = 0.22;
+
     }
+
+
 
     // 4. Central Complex (CX) Stochastic Heading Saccades
+
     flyStateTimer -= delta;
+
     if (flyStateTimer <= 0) {
+
       if (flyState === 'ESCAPE' || flyState === 'SACCADE') {
+
         flyState = 'FLYING';
+
       }
-      // Sudden sharp heading shift
-      flyHeading += (Math.random() - 0.5) * 1.5;
+
+      // Central Complex stochastic steering vector
+
+      window._flyTargetHeading = flyHeading + (Math.random() - 0.5) * 1.5;
+
       flyPitch = (Math.random() - 0.5) * 0.5;
+
       flyStateTimer = 0.6 + Math.random() * 1.2;
+
     }
+
+
 
     // 5. Giant Fiber (GF) Proximity Escape Trigger (if near Rum or moving hand)
+
     const dToRum = Math.hypot(flyPos.x - vrmRoamCurrentPos.x, flyPos.z - vrmRoamCurrentPos.z);
+
     if (dToRum < 0.38 && Math.abs(flyPos.y - (vrmBaseY + 1.2)) < 0.45) {
+
       flyHeading += Math.PI * (0.8 + Math.random() * 0.4);
+
       flyPitch = 0.6;
+
       flyState = 'ESCAPE';
+
       flyStateTimer = 0.7;
+
     }
+
+
 
     // 6. Natural Perching Chance (seeking landing surface)
+
     if (time > flyPerchTimer) {
+
       // Choose a perch target (coffee table, railing, or mat)
+
       let perchTarget = { x: 0.0, y: vrmBaseY + 0.05, z: -1.75 }; // balcony rail
+
       if (vrmCustomPropsGroup && vrmCustomPropsGroup.children.length > 0) {
+
         const randProp = vrmCustomPropsGroup.children[Math.floor(Math.random() * vrmCustomPropsGroup.children.length)];
+
         if (randProp.visible) {
+
           perchTarget = {
+
             x: randProp.position.x,
+
             y: randProp.position.y + 0.45 * randProp.scale.y,
+
             z: randProp.position.z
+
           };
+
         }
+
       }
+
       flyTargetPerch = perchTarget;
+
       flyPerchTimer = time + 22.0 + Math.random() * 15.0;
+
     }
+
+
 
     if (flyTargetPerch) {
+
       const dPerch = flyPos.distanceTo(new THREE.Vector3(flyTargetPerch.x, flyTargetPerch.y, flyTargetPerch.z));
+
       if (dPerch < 0.12) {
+
         // Touch down!
+
         flyPos.set(flyTargetPerch.x, flyTargetPerch.y, flyTargetPerch.z);
+
         flyState = 'PERCHED';
+
         flyStateTimer = 4.5 + Math.random() * 5.0;
+
         flyTargetPerch = null;
+
       }
+
     }
+
   } else if (flyState === 'PERCHED' || flyState === 'GROOMING') {
+
     // Fold wings back flat along abdomen
+
     if (flyLeftWing) flyLeftWing.rotation.set(0.08, 0.14, 0.06);
+
     if (flyRightWing) flyRightWing.rotation.set(0.08, -0.14, -0.06);
 
+
+
     // Micro leg/head grooming twitches
+
     flyGroomPhase += delta * 7.5;
+
     connectomeFlyGroup.rotation.y += Math.sin(flyGroomPhase) * 0.02;
 
+
+
     flyStateTimer -= delta;
+
     if (flyStateTimer <= 0) {
+
       // Take off again!
+
       flyPitch = 0.55;
+
       flyHeading = Math.random() * Math.PI * 2;
+
       flyState = 'FLYING';
+
       flyStateTimer = 1.0;
+
     }
+
   }
+
 }
+
+
 
 function toggleConnectomeFly() {
+
   connectomeFlyEnabled = !connectomeFlyEnabled;
+
   if (connectomeFlyGroup) {
+
     connectomeFlyGroup.visible = connectomeFlyEnabled;
+
   }
+
   const btn = document.getElementById('btnConnectomeFlyToggle');
+
   if (btn) {
+
     btn.innerHTML = connectomeFlyEnabled ? '🪰 FLY: ON' : '🪰 FLY: OFF';
+
     btn.style.borderColor = connectomeFlyEnabled ? '#38bdf8' : 'rgba(255,255,255,0.2)';
+
     btn.style.color = connectomeFlyEnabled ? '#38bdf8' : 'var(--text-secondary)';
+
   }
+
   showAiSpeechToast(connectomeFlyEnabled ? '🪰 Connectome Fruit Fly active' : 'Fruit fly dismissed');
+
 }
+
+
 
 function initCustomPropsGroup() {
+
   if (!vrmScene) return;
+
   if (!vrmCustomPropsGroup) {
+
     vrmCustomPropsGroup = new THREE.Group();
+
     vrmScene.add(vrmCustomPropsGroup);
+
   }
+
+
 
   // Neon glowing selection ring flat on the floor
+
   if (!vrmSelectionRing) {
+
     const ringGeo = new THREE.RingGeometry(0.35, 0.42, 32);
+
     const ringMat = new THREE.MeshBasicMaterial({
+
       color: 0xc084fc,
+
       side: THREE.DoubleSide,
+
       transparent: true,
+
       opacity: 0.85
+
     });
+
     vrmSelectionRing = new THREE.Mesh(ringGeo, ringMat);
+
     vrmSelectionRing.rotation.x = -Math.PI / 2;
+
     vrmSelectionRing.position.y = vrmBaseY + 0.005;
+
     vrmSelectionRing.visible = false;
+
     vrmScene.add(vrmSelectionRing);
+
   }
+
+
 
   loadCustomRoomLayout();
+
 }
+
+
 
 function switchRoomEditorTab(tab) {
+
   const propsTab = document.getElementById('roomEditorPropsTab');
+
   const fixturesTab = document.getElementById('roomEditorFixturesTab');
+
   const btnProps = document.getElementById('tabBtnCustomProps');
+
   const btnFixtures = document.getElementById('tabBtnFixtures');
 
+
+
   if (tab === 'PROPS') {
+
     if (propsTab) propsTab.style.display = 'flex';
+
     if (fixturesTab) fixturesTab.style.display = 'none';
+
     if (btnProps) {
+
       btnProps.style.background = 'rgba(168,85,247,0.18)';
+
       btnProps.style.borderBottom = '2px solid var(--accent-purple)';
+
       btnProps.style.color = '#fff';
+
     }
+
     if (btnFixtures) {
+
       btnFixtures.style.background = 'transparent';
+
       btnFixtures.style.borderBottom = '2px solid transparent';
+
       btnFixtures.style.color = 'var(--text-secondary)';
+
     }
+
   } else {
+
     if (propsTab) propsTab.style.display = 'none';
+
     if (fixturesTab) fixturesTab.style.display = 'flex';
+
     if (btnProps) {
+
       btnProps.style.background = 'transparent';
+
       btnProps.style.borderBottom = '2px solid transparent';
+
       btnProps.style.color = 'var(--text-secondary)';
+
     }
+
     if (btnFixtures) {
+
       btnFixtures.style.background = 'rgba(168,85,247,0.18)';
+
       btnFixtures.style.borderBottom = '2px solid var(--accent-purple)';
+
       btnFixtures.style.color = '#fff';
+
     }
+
   }
+
 }
+
+
 
 function rescanCustomPropsCatalog() {
+
   const badge = document.getElementById('roomPropsCountBadge');
+
   const grid = document.getElementById('customPropsCatalogGrid');
+
   if (badge) badge.innerText = 'SCANNING...';
 
+
+
   fetch('/api/models/custom_props')
+
     .then(r => r.json())
+
     .then(data => {
+
       availableCustomProps = data.props || [];
+
       if (badge) badge.innerText = `${availableCustomProps.length} DETECTED`;
 
+
+
       if (!grid) return;
+
       grid.innerHTML = '';
 
+
+
       if (availableCustomProps.length === 0) {
+
         grid.innerHTML = `<div style="grid-column:1/-1; padding:16px; text-align:center; color:var(--text-secondary); font-size:12px; background:rgba(255,255,255,0.02); border:1px dashed #334155; border-radius:10px;">
+
           No 3D models found yet.<br>
+
           <span style="color:#a0b8d0;">Drop <b>.obj</b> or <b>.gltf</b> files into <code>/storage/models/props/</code> or onto any USB drive!</span>
+
         </div>`;
+
         return;
+
       }
+
+
 
       availableCustomProps.forEach(prop => {
+
         const card = document.createElement('div');
+
         card.style.cssText = 'background:rgba(255,255,255,0.04); border:1px solid #334155; border-radius:10px; padding:10px; display:flex; flex-direction:column; justify-content:space-between; gap:8px;';
+
         
+
         const isObj = (prop.format === 'obj');
+
         const badgeColor = isObj ? 'var(--accent-orange)' : 'var(--accent-green)';
+
         const badgeBg = isObj ? 'rgba(255,107,0,0.15)' : 'rgba(0,230,118,0.15)';
 
+
+
         card.innerHTML = `
+
           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+
             <div style="font-size:12px; font-weight:800; color:#fff; word-break:break-word;">${prop.name}</div>
+
             <span style="font-size:9px; font-weight:800; color:${badgeColor}; background:${badgeBg}; padding:2px 6px; border-radius:6px; border:1px solid ${badgeColor};">${prop.format.toUpperCase()}</span>
+
           </div>
+
           <div style="display:flex; justify-content:space-between; align-items:center;">
+
             <span style="font-size:10px; color:var(--text-secondary);">${prop.size_formatted || ''}</span>
+
             <button class="cluster-action-btn" onclick="spawnCustomProp(${JSON.stringify(prop).replace(/"/g, '&quot;')}, true)" style="padding:4px 10px; font-size:11px; font-weight:800; border-color:var(--accent-purple); color:var(--accent-purple); height:32px;">
+
               ➕ PLACE
+
             </button>
+
           </div>
+
         `;
+
         grid.appendChild(card);
+
       });
+
     })
+
     .catch(err => {
+
       console.warn('[PROPS] Error scanning custom props:', err);
+
       if (badge) badge.innerText = 'OFFLINE';
+
     });
+
 }
+
+
 
 function loadCustomRoomLayout() {
+
   if (!vrmCustomPropsGroup) return;
+
+
 
   fetch('/api/models/room_layout')
+
     .then(r => r.json())
+
     .then(layout => {
+
       // Clear existing custom placed props
+
       while (vrmCustomPropsGroup.children.length > 0) {
+
         vrmCustomPropsGroup.remove(vrmCustomPropsGroup.children[0]);
+
       }
+
       vrmSelectedProp = null;
+
       if (vrmSelectionRing) vrmSelectionRing.visible = false;
 
+
+
       const props = layout.props || [];
+
       props.forEach(p => {
+
         if (p.id === 'prop_yoshi_default' && yoshiModel) return;
+
         spawnCustomProp(p, false);
+
       });
+
       updatePlacedPropsUI();
+
     })
+
     .catch(err => {
+
       console.warn('[PROPS] Error loading room layout:', err);
+
     });
+
 }
+
+
 
 function spawnCustomProp(propDef, isNew = false) {
+
   if (!vrmScene || !vrmCustomPropsGroup) return;
 
+
+
   const propId = propDef.id || ('prop_' + Date.now());
+
   const format = (propDef.format || 'obj').toLowerCase();
+
   const url = propDef.url || propDef.modelUrl || propDef.direct_url;
 
+
+
   function onModelLoaded(meshRoot) {
+
     meshRoot.userData = {
+
       id: propId,
+
       name: propDef.name || 'Custom Prop',
+
       format: format,
+
       url: url,
+
       modelUrl: url
+
     };
 
+
+
     // Set position
+
     if (propDef.position && Array.isArray(propDef.position)) {
+
       meshRoot.position.set(propDef.position[0], propDef.position[1], propDef.position[2]);
+
     } else {
+
       // Default spawn: slight offset in front
+
       const offsetCount = vrmCustomPropsGroup.children.length;
+
       meshRoot.position.set(-0.8 + (offsetCount * 0.4), vrmBaseY, 0.4);
+
     }
+
+
 
     // Set rotation
+
     if (propDef.rotation && Array.isArray(propDef.rotation)) {
+
       meshRoot.rotation.set(propDef.rotation[0], propDef.rotation[1], propDef.rotation[2]);
+
     } else {
+
       meshRoot.rotation.set(0, 0, 0);
+
     }
+
+
 
     // Set scale
+
     if (propDef.scale && Array.isArray(propDef.scale)) {
+
       meshRoot.scale.set(propDef.scale[0], propDef.scale[1], propDef.scale[2]);
+
     } else {
+
       // Auto-normalize bounding size to approx 0.85m if no scale specified
+
       const bbox = new THREE.Box3().setFromObject(meshRoot);
+
       const size = bbox.getSize(new THREE.Vector3());
+
       const maxDim = Math.max(size.x, size.y, size.z);
+
       if (maxDim > 2.5 || maxDim < 0.2) {
+
         const targetScale = 0.85 / (maxDim || 1.0);
+
         meshRoot.scale.set(targetScale, targetScale, targetScale);
+
       } else {
+
         meshRoot.scale.set(1.0, 1.0, 1.0);
+
       }
+
     }
+
+
 
     // Traverse meshes for shadows and nice standard materials
+
     meshRoot.traverse(node => {
+
       if (node.isMesh) {
+
         node.castShadow = true;
+
         node.receiveShadow = true;
+
         node.frustumCulled = false;
+
         if (!node.material || node.material.type === 'MeshBasicMaterial' || (node.material.color && node.material.color.getHex() === 0xffffff && !node.material.map)) {
+
           node.material = new THREE.MeshStandardMaterial({
+
             color: (node.material && node.material.color && node.material.color.getHex() !== 0xffffff) ? node.material.color : 0x2e384d,
+
             roughness: 0.45,
+
             metalness: 0.35
+
           });
+
         }
+
       }
+
     });
+
+
 
     applyHighQualityTextureFiltering(meshRoot);
+
     vrmCustomPropsGroup.add(meshRoot);
+
     updatePlacedPropsUI();
 
+
+
     if (isNew) {
+
       selectCustomProp(meshRoot);
+
       if (typeof speakUtterance === 'function') {
+
         speakUtterance(`Placed ${propDef.name} into our room, Master!`);
+
       }
+
       showAiSpeechToast(`Placed ${propDef.name} in Room`);
+
     }
+
   }
+
+
 
   // Load based on format
+
   if (format === 'obj' && typeof THREE.OBJLoader !== 'undefined') {
+
     const mtlUrl = url.replace(/\.obj$/i, '.mtl');
+
     if (typeof THREE.MTLLoader !== 'undefined') {
+
       const mtlLoader = new THREE.MTLLoader();
+
       mtlLoader.load(
+
         mtlUrl,
+
         (materials) => {
+
           materials.preload();
+
           const objLoader = new THREE.OBJLoader();
+
           objLoader.setMaterials(materials);
+
           objLoader.load(url, onModelLoaded, undefined, (err) => {
+
             console.warn('[OBJLoader] Fallback without materials:', err);
+
             const fbLoader = new THREE.OBJLoader();
+
             fbLoader.load(url, onModelLoaded);
+
           });
+
         },
+
         undefined,
+
         (err) => {
+
           // No MTL file, load OBJ with standard shader
+
           const objLoader = new THREE.OBJLoader();
+
           objLoader.load(url, onModelLoaded);
+
         }
+
       );
+
     } else {
+
       const loader = new THREE.OBJLoader();
+
       loader.load(url, onModelLoaded);
+
     }
+
   } else if ((format === 'gltf' || format === 'glb') && typeof THREE.GLTFLoader !== 'undefined') {
+
     const loader = new THREE.GLTFLoader();
+
     loader.load(
+
       url,
+
       gltf => onModelLoaded(gltf.scene || gltf.scenes[0]),
+
       undefined,
+
       err => console.error('[GLTFLoader] Error loading prop:', url, err)
+
     );
+
   } else {
+
     console.warn('[PROPS] Unknown or unsupported format:', format, url);
+
   }
+
 }
+
+
 
 function selectCustomProp(propMesh) {
+
   vrmSelectedProp = propMesh;
+
   const inspector = document.getElementById('inspectorControlsGroup');
+
   const title = document.getElementById('inspectorPropTitle');
+
   const coords = document.getElementById('inspectorPropCoords');
+
   const btnCall = document.getElementById('btnCallRumToProp');
+
   const btnDelete = document.getElementById('btnDeleteSelectedProp');
 
+
+
   if (!propMesh) {
+
     if (vrmSelectionRing) vrmSelectionRing.visible = false;
+
     if (inspector) inspector.style.display = 'none';
+
     if (title) title.innerText = 'SELECTED PROP: NONE';
+
     if (coords) coords.innerText = 'Tap any model in the catalog or touch a prop in the room to edit';
+
     if (btnCall) btnCall.style.display = 'none';
+
     if (btnDelete) btnDelete.style.display = 'none';
+
     return;
+
   }
+
+
 
   const name = (propMesh.userData && propMesh.userData.name) || 'Custom Prop';
+
   if (title) title.innerText = `SELECTED: ${name.toUpperCase()}`;
+
   if (coords) coords.innerText = `Pos: (${propMesh.position.x.toFixed(2)}, ${propMesh.position.y.toFixed(2)}, ${propMesh.position.z.toFixed(2)}) • Scale: ${propMesh.scale.x.toFixed(2)}x`;
+
   if (inspector) inspector.style.display = 'flex';
+
   if (btnCall) btnCall.style.display = 'inline-block';
+
   if (btnDelete) btnDelete.style.display = 'inline-block';
 
+
+
   // Position holographic selection ring below prop
+
   if (vrmSelectionRing) {
+
     vrmSelectionRing.position.set(propMesh.position.x, vrmBaseY + 0.005, propMesh.position.z);
+
     vrmSelectionRing.scale.set(propMesh.scale.x, propMesh.scale.z, 1.0);
+
     vrmSelectionRing.visible = true;
+
   }
 
+
+
   updatePlacedPropsUI();
+
 }
+
+
 
 function moveSelectedProp(dx, dz) {
+
   if (!vrmSelectedProp) return;
+
   vrmSelectedProp.position.x = Math.max(-3.2, Math.min(3.2, vrmSelectedProp.position.x + dx));
+
   vrmSelectedProp.position.z = Math.max(-3.0, Math.min(2.8, vrmSelectedProp.position.z + dz));
+
   if (vrmSelectionRing) {
+
     vrmSelectionRing.position.x = vrmSelectedProp.position.x;
+
     vrmSelectionRing.position.z = vrmSelectedProp.position.z;
+
   }
+
   const coords = document.getElementById('inspectorPropCoords');
+
   if (coords) onRoomEnvironmentChanged(vrmSelectedProp, 'moved');
+
   coords.innerText = `Pos: (${vrmSelectedProp.position.x.toFixed(2)}, ${vrmSelectedProp.position.y.toFixed(2)}, ${vrmSelectedProp.position.z.toFixed(2)}) • Scale: ${vrmSelectedProp.scale.x.toFixed(2)}x`;
+
 }
+
+
 
 function elevateSelectedProp(dy) {
+
   if (!vrmSelectedProp) return;
+
   vrmSelectedProp.position.y = Math.max(vrmBaseY, Math.min(vrmBaseY + 2.5, vrmSelectedProp.position.y + dy));
+
   const coords = document.getElementById('inspectorPropCoords');
+
   if (coords) onRoomEnvironmentChanged(vrmSelectedProp, 'moved');
+
   coords.innerText = `Pos: (${vrmSelectedProp.position.x.toFixed(2)}, ${vrmSelectedProp.position.y.toFixed(2)}, ${vrmSelectedProp.position.z.toFixed(2)}) • Scale: ${vrmSelectedProp.scale.x.toFixed(2)}x`;
+
 }
+
+
 
 function snapSelectedPropToFloor() {
+
   if (!vrmSelectedProp) return;
+
   vrmSelectedProp.position.y = vrmBaseY;
+
   const coords = document.getElementById('inspectorPropCoords');
+
   if (coords) onRoomEnvironmentChanged(vrmSelectedProp, 'moved');
+
   coords.innerText = `Pos: (${vrmSelectedProp.position.x.toFixed(2)}, ${vrmSelectedProp.position.y.toFixed(2)}, ${vrmSelectedProp.position.z.toFixed(2)}) • Scale: ${vrmSelectedProp.scale.x.toFixed(2)}x`;
+
 }
+
+
 
 function rotateSelectedProp(deg) {
+
   if (!vrmSelectedProp) return;
+
   vrmSelectedProp.rotation.y += deg * (Math.PI / 180);
+
 }
+
+
 
 function scaleSelectedProp(factor) {
+
   if (!vrmSelectedProp) return;
+
   const newScale = Math.max(0.2, Math.min(4.5, vrmSelectedProp.scale.x * factor));
+
   vrmSelectedProp.scale.set(newScale, newScale, newScale);
+
   if (vrmSelectionRing) {
+
     vrmSelectionRing.scale.set(newScale, newScale, 1.0);
+
   }
+
   const coords = document.getElementById('inspectorPropCoords');
+
   if (coords) onRoomEnvironmentChanged(vrmSelectedProp, 'moved');
+
   coords.innerText = `Pos: (${vrmSelectedProp.position.x.toFixed(2)}, ${vrmSelectedProp.position.y.toFixed(2)}, ${vrmSelectedProp.position.z.toFixed(2)}) • Scale: ${vrmSelectedProp.scale.x.toFixed(2)}x`;
+
 }
+
+
 
 function deleteSelectedProp() {
+
   if (!vrmSelectedProp || !vrmCustomPropsGroup) return;
+
   const name = (vrmSelectedProp.userData && vrmSelectedProp.userData.name) || 'Prop';
+
   vrmCustomPropsGroup.remove(vrmSelectedProp);
+
   selectCustomProp(null);
+
   updatePlacedPropsUI();
+
   showAiSpeechToast(`Removed ${name} from room`);
+
 }
+
+
 
 function clearAllCustomProps() {
+
   if (!vrmCustomPropsGroup) return;
+
   while (vrmCustomPropsGroup.children.length > 0) {
+
     vrmCustomPropsGroup.remove(vrmCustomPropsGroup.children[0]);
+
   }
+
   selectCustomProp(null);
+
   updatePlacedPropsUI();
+
   showAiSpeechToast('Cleared all custom room props');
+
 }
+
+
 
 function callRumToSelectedProp() {
+
   if (!vrmSelectedProp) return;
+
   const name = (vrmSelectedProp.userData && vrmSelectedProp.userData.name) || 'this';
+
   const targetX = THREE.MathUtils.clamp(vrmSelectedProp.position.x, -2.8, 2.3);
+
   const targetZ = THREE.MathUtils.clamp(vrmSelectedProp.position.z + 0.65, -3.0, 1.6);
 
+
+
   vrmRoamTargetPos = { x: targetX, z: targetZ };
+
   const dx = vrmRoamTargetPos.x - vrmRoamCurrentPos.x;
+
   const dz = vrmRoamTargetPos.z - vrmRoamCurrentPos.z;
+
   vrmRoamTargetRotY = Math.atan2(-dx, -dz);
+
   vrmRoamState = 'TURNING';
+
   vrmRoamEnabled = true;
 
+
+
   if (typeof speakUtterance === 'function') {
+
     speakUtterance(`Coming right over to inspect ${name}, Master!`);
+
   }
+
   showAiSpeechToast(`R.U.M. walking to ${name}...`);
+
   closeRoomCustomizerModal();
+
 }
+
+
 
 function saveRoomLayoutToBackend() {
+
   if (!vrmCustomPropsGroup) return;
 
+
+
   const propsToSave = [];
+
   vrmCustomPropsGroup.children.forEach((mesh, idx) => {
+
     const ud = mesh.userData || {};
+
     propsToSave.push({
+
       id: ud.id || `prop_${idx}`,
+
       name: ud.name || 'Custom Prop',
+
       format: ud.format || 'obj',
+
       modelUrl: ud.url || ud.modelUrl || '',
+
       url: ud.url || ud.modelUrl || '',
+
       position: [mesh.position.x, mesh.position.y, mesh.position.z],
+
       rotation: [mesh.rotation.x, mesh.rotation.y, mesh.rotation.z],
+
       scale: [mesh.scale.x, mesh.scale.y, mesh.scale.z]
+
     });
+
   });
+
+
 
   const payload = {
+
     version: 1,
+
     last_updated: new Date().toISOString(),
+
     props: propsToSave
+
   };
 
+
+
   fetch('/api/models/room_layout', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify(payload)
+
   })
+
     .then(r => r.json())
+
     .then(data => {
+
       showAiSpeechToast('💾 Room layout saved permanently!');
-      if (typeof speakUtterance === 'function') {
-        speakUtterance('Room layout saved, Master! Everything is right where you want it.');
+
+      const banner = document.getElementById('roomSaveSuccessBanner');
+
+      if (banner) {
+
+        banner.style.display = 'flex';
+
+        setTimeout(() => { banner.style.display = 'none'; }, 4500);
+
       }
+
+      if (typeof speakUtterance === 'function') {
+
+        speakUtterance('Room layout saved, Master! Everything is right where you want it.');
+
+      }
+
     })
+
     .catch(err => {
+
       console.warn('[PROPS] Error saving room layout:', err);
+
       showAiSpeechToast('⚠️ Error saving room layout to backend');
+
     });
+
 }
+
+
 
 function updatePlacedPropsUI() {
+
   const container = document.getElementById('placedPropsPillsContainer');
+
   if (!container || !vrmCustomPropsGroup) return;
 
+
+
   container.innerHTML = '';
+
   if (vrmCustomPropsGroup.children.length === 0) {
+
     container.innerHTML = '<span style="font-size:11px; color:var(--text-secondary);">No custom props placed yet. Select a model above to spawn!</span>';
+
     return;
+
   }
 
+
+
   vrmCustomPropsGroup.children.forEach(mesh => {
+
     const ud = mesh.userData || {};
+
     const name = ud.name || 'Prop';
+
     const isSelected = (mesh === vrmSelectedProp);
 
+
+
     const pill = document.createElement('button');
+
     pill.className = 'cluster-action-btn';
+
     pill.style.cssText = `padding:4px 10px; font-size:11px; font-weight:800; border-radius:12px; ${isSelected ? 'background:var(--accent-purple); color:#fff; border-color:var(--accent-purple);' : 'border-color:#475569; color:#cbd5e1;'}`;
+
     pill.innerText = `🎯 ${name}`;
+
     pill.onclick = () => selectCustomProp(mesh);
+
     container.appendChild(pill);
+
   });
+
 }
+
+
+
 
 
 function syncRoomCustomizerUI(cfg) {
+
   const items = ['basketball', 'window', 'bed', 'closet', 'mirror', 'plant', 'yoshi'];
+
   items.forEach(k => {
+
     const cap = k.charAt(0).toUpperCase() + k.slice(1);
+
     const chk = document.getElementById('chkRoom' + cap);
+
     const card = document.getElementById('cardRoom' + cap);
+
     const isChecked = !!cfg[k];
+
     if (chk) chk.checked = isChecked;
+
     if (card) {
+
       if (isChecked) card.classList.add('active');
+
       else card.classList.remove('active');
+
     }
+
   });
+
 }
+
+
 
 function openRoomCustomizerModal() {
+
   const modal = document.getElementById('roomCustomizerModal');
+
   if (!modal) return;
+
   syncRoomCustomizerUI(loadRoomDecorationsConfig());
+
   rescanCustomPropsCatalog();
+
   updatePlacedPropsUI();
+
   modal.style.display = 'flex';
+
 }
+
+
 
 function closeRoomCustomizerModal() {
+
   const modal = document.getElementById('roomCustomizerModal');
+
   if (modal) modal.style.display = 'none';
+
 }
+
+
 
 function toggleRoomItem(key) {
+
   const cfg = loadRoomDecorationsConfig();
+
   cfg[key] = !cfg[key];
+
   saveRoomDecorationsConfig(cfg);
+
   applyRoomDecorations();
+
 }
+
+
 
 function clearAllRoomItems() {
+
   const cfg = {
+
     door: true,
+
     basketball: false,
+
     window: false,
+
     plant: false,
+
     yoshi: false,
+
     bed: false,
+
     closet: false,
+
     mirror: false
+
   };
+
   saveRoomDecorationsConfig(cfg);
+
   applyRoomDecorations();
+
   speakUtterance('All cleared! Just a pure, peaceful empty room with our door, Master!');
+
   setWaifuEmotion('HAPPY', '🛋️ PURE EMPTY ROOM');
+
 }
+
+
 
 function setVrmEnvironment(envName) {
+
   let target = (envName || 'ROOM').toUpperCase();
+
   if (target === 'BEDROOM') target = 'ROOM';
+
   currentEnvironmentName = target;
+
   localStorage.setItem('vrmEnvironment', currentEnvironmentName);
 
+
+
   if (currentEnvironmentName === 'GARAGE') {
+
     buildGarageEnvironment();
+
   } else if (currentEnvironmentName === 'GARDEN') {
+
     buildGardenEnvironment();
+
   } else if (currentEnvironmentName === 'LOFT') {
+
     buildLoftEnvironment();
+
   } else {
+
     buildEmptyRoomEnvironment();
+
   }
+
+
 
   updateWorldButtonLabel();
+
 }
+
+
 
 function cycleVrmEnvironment() {
+
   const curIdx = VRM_ENVIRONMENTS.indexOf(currentEnvironmentName);
+
   const nextIdx = (curIdx + 1) % VRM_ENVIRONMENTS.length;
+
   setVrmEnvironment(VRM_ENVIRONMENTS[nextIdx]);
+
 }
+
+
 
 function updateWorldButtonLabel() {
+
   const btn = document.getElementById('btnVrmWorldToggle');
+
   const labels = {
+
     'ROOM': '🛋️ ROOM',
+
     'BEDROOM': '🛋️ ROOM',
+
     'LOFT': '🏯 LOFT',
+
     'GARAGE': '🏎️ GARAGE',
+
     'GARDEN': '🌸 GARDEN'
+
   };
+
   if (btn) btn.innerText = labels[currentEnvironmentName] || '🏯 LOFT';
+
 }
+
+
 
 function getEnvironmentSurfaceElevation(x, z) {
+
   if (currentEnvironmentName === 'GARDEN') {
+
     const minX = 0.52 - 0.42;
+
     const maxX = 0.52 + 0.42;
+
     const minZ = 0.16 - 0.35;
+
     const maxZ = 0.16 + 0.35;
+
     if (x >= minX && x <= maxX && z >= minZ && z <= maxZ) {
+
       return 0.04; // 4cm elevation onto raised mat
+
     }
+
   }
+
   return 0.0;
+
 }
+
+
 
 function getEnvironmentYoshiPos() {
+
   if (currentEnvironmentName === 'GARAGE') {
+
     return { pos: [0.65, vrmBaseY + 0.16, 0.15], rot: [0, 3.0, 0], scale: 1.35 };
+
   } else if (currentEnvironmentName === 'GARDEN') {
+
     // Yoshi sits proudly on the right side of the raised tatami mat facing the screen!
+
     return { pos: [0.66, vrmBaseY + 0.04 + 0.16, 0.16], rot: [0, 3.0, 0], scale: 1.35 };
+
   } else if (currentEnvironmentName === 'BEDROOM') {
+
     return { pos: [0.48, vrmBaseY + 0.16, 0.22], rot: [0, 3.0, 0], scale: 1.35 };
+
   } else {
+
     // LOFT
+
     return { pos: [0.65, vrmBaseY + 0.30, 0.22], rot: [0, 2.7, 0], scale: 1.25 };
+
   }
+
 }
+
+
 
 function updateYoshiEnvironmentRest() {
+
   if (!yoshiModel || isHoldingYoshi) return;
+
   const cfg = getEnvironmentYoshiPos();
+
   yoshiModel.position.set(cfg.pos[0], cfg.pos[1], cfg.pos[2]);
+
   yoshiModel.rotation.set(cfg.rot[0], cfg.rot[1], cfg.rot[2]);
+
   yoshiModel.scale.set(cfg.scale, cfg.scale, cfg.scale);
+
 }
+
+
 
 function loadYoshiPlushProp() {
+
   if (typeof THREE === 'undefined' || !vrmScene) return;
+
   const loader = new THREE.GLTFLoader();
+
   const yoshiUrl = 'models/environment/props/yoshi/scene.gltf';
 
+
+
   loader.load(
+
     yoshiUrl,
+
     (gltf) => {
+
       yoshiModel = gltf.scene;
+
       updateYoshiEnvironmentRest();
 
+
+
       yoshiModel.traverse((node) => {
+
         if (node.isMesh) {
+
           node.castShadow = true;
+
           node.receiveShadow = true;
+
           node.frustumCulled = false;
+
         }
+
       });
+
+
 
       vrmScene.add(yoshiModel);
+
       console.log('[Yoshi] Yoshi plushie placed in room successfully!');
+
     },
+
     (progress) => {},
+
     (err) => {
+
       console.warn('[Yoshi] Yoshi model load note:', err);
+
     }
+
   );
+
 }
 
 
+
+
+
 // ============================================================================
+
 // --- AUTONOMOUS ROAMING ENGINE (Natural walking, gestures & interaction awareness) ---
+
 // ============================================================================
+
+
 
 function startRoamWalkAnimation() {
+
   if (!vrmMixer) return;
+
   const clip = vrmaClips['walk_loop'] || vrmaClips['action_walk'];
+
   if (!clip) return;
 
+
+
   if (!vrmRoamWalkAction) {
+
     vrmRoamWalkAction = vrmMixer.clipAction(clip);
+
     vrmRoamWalkAction.setLoop(THREE.LoopRepeat, Infinity);
+
     vrmRoamWalkAction.timeScale = 0.85;
+
   }
+
+
 
   vrmRoamWalkAction.reset();
+
   vrmRoamWalkAction.enabled = true;
+
   vrmRoamWalkAction.setEffectiveWeight(1.0);
+
   vrmRoamWalkAction.play();
 
+
+
   vrmaActiveName = 'walk_loop';
+
   vrmActionEndTime = Date.now() + 60000;
 
+
+
   if (vrmaIdleAction) {
+
     vrmaIdleAction.crossFadeTo(vrmRoamWalkAction, 0.35, false);
+
   }
+
 }
+
+
 
 function stopRoamWalkAnimation() {
+
   if (!vrmMixer || !vrmRoamWalkAction) return;
+
   if (vrmaIdleAction) {
+
     vrmaIdleAction.enabled = true;
+
     vrmaIdleAction.setEffectiveWeight(1.0);
+
     vrmaIdleAction.play();
+
     vrmRoamWalkAction.crossFadeTo(vrmaIdleAction, 0.40, false);
+
   } else {
+
     vrmRoamWalkAction.stop();
+
   }
+
   if (vrmaActiveName === 'walk_loop') {
+
     vrmaActiveName = null;
+
     vrmActionEndTime = 0;
+
   }
+
 }
 
 
+
+
+
 // ============================================================================
+
 // PHASE 6: R.U.M. SPATIAL MEMORY & ENVIRONMENTAL CHANGE DETECTION
+
 // ============================================================================
+
 let rumSpatialMemory = {
+
   knownProps: {},
+
   lastNoticeTime: 0
+
 };
 
+
+
 function onRoomEnvironmentChanged(prop, changeType) {
+
   const now = Date.now();
+
   if (now - rumSpatialMemory.lastNoticeTime < 4500) return; // Debounce notices
+
   rumSpatialMemory.lastNoticeTime = now;
 
+
+
   const propName = (prop && prop.userData && prop.userData.name) || 'the furniture';
+
   const actionMessages = {
+
     'placed': `Master! You added the ${propName} to my room! Let me go check it out!`,
+
     'moved': `Ooh! You moved the ${propName}! It looks so nice over there!`,
+
     'rotated': `Adjusting the ${propName}? The layout looks fantastic!`,
+
     'scaled': `I like the new size of the ${propName}!`,
+
     'deleted': `Opening up more floor space! I love how spacious the room feels!`,
+
     'saved': `Room layout saved! I love how you've styled my space, Master!`
+
   };
 
+
+
   const speechText = actionMessages[changeType] || `I noticed the room changed, Master!`;
+
   showAiSpeechToast(`R.U.M. noticed: ${propName} ${changeType}!`);
 
+
+
   if (typeof speakUtterance === 'function' && currentAiPersona === 'RUM') {
+
     speakUtterance(speechText);
+
   }
+
+
 
   // Walk over to inspect newly placed or moved furniture
+
   if (prop && (changeType === 'placed' || changeType === 'moved')) {
+
     setTimeout(() => {
+
       if (typeof vrmRoamTargetPos !== 'undefined') {
+
         vrmRoamTargetPos = {
+
           x: THREE.MathUtils.clamp(prop.position.x, -2.8, 2.3),
+
           z: THREE.MathUtils.clamp(prop.position.z + 0.65, -3.0, 1.6)
+
         };
+
         const dx = vrmRoamTargetPos.x - vrmRoamCurrentPos.x;
+
         const dz = vrmRoamTargetPos.z - vrmRoamCurrentPos.z;
+
         vrmRoamTargetRotY = Math.atan2(-dx, -dz);
+
         vrmRoamState = 'TURNING';
+
         vrmRoamEnabled = true;
+
       }
+
     }, 1500);
+
   }
+
 }
+
+
 
 function checkRumCollisionObstacle(nextX, nextZ) {
+
   // 1. Room boundary walls: room bounds approx X: [-3.15, 2.55], Z: [-3.35, 1.85]
+
   if (currentEnvironmentName === 'ROOM' || currentEnvironmentName === 'BEDROOM') {
+
     if (nextX < -3.15 || nextX > 2.55 || nextZ < -3.35 || nextZ > 1.85) {
+
       return { name: 'Room Wall Boundary' };
+
     }
+
   }
+
+
 
   // 2. Placed custom props collision check
+
   if (vrmCustomPropsGroup && vrmCustomPropsGroup.children.length > 0) {
+
     for (let i = 0; i < vrmCustomPropsGroup.children.length; i++) {
+
       const p = vrmCustomPropsGroup.children[i];
+
       if (!p.visible) continue;
+
       const pScale = Math.max(p.scale.x, p.scale.z, 0.35);
+
       const safeRadius = Math.max(0.40, pScale * 0.42);
+
       const d = Math.hypot(nextX - p.position.x, nextZ - p.position.z);
+
       if (d < safeRadius) {
+
         return { name: (p.userData && p.userData.name) || 'Furniture Item' };
+
       }
+
     }
+
   }
+
+
 
   return null;
+
 }
 
+
+
 function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, dancing, isSpeedPanic) {
+
   const isDriverInteracting = isSpeaking || isReacting || isSpeedPanic || dancing;
+
   const isGazeRetained = (Date.now() < rumGazeRetentionUntil);
 
+
+
   if (!vrmRoamEnabled || isDriverInteracting || isGazeRetained) {
+
     if (vrmRoamState === 'WALKING') {
+
       stopRoamWalkAnimation();
+
     }
+
     vrmRoamState = 'IDLE';
 
+
+
     // Smoothly turn to face driver/master (Math.PI)
+
     let diff = THREE.MathUtils.euclideanModulo(Math.PI - vrmRoamCurrentRotY + Math.PI, Math.PI * 2) - Math.PI;
+
     if (Math.abs(diff) > 0.02) {
+
       vrmRoamCurrentRotY += Math.sign(diff) * Math.min(Math.abs(diff), delta * 3.8);
+
     } else {
+
       vrmRoamCurrentRotY = Math.PI;
+
     }
+
     vrmNextRoamTime = Date.now() + 8500;
+
     return;
+
   }
+
+
 
   const now = Date.now();
 
+
+
   if (vrmRoamState === 'IDLE') {
+
     if (vrmRoamCurrentWaypoint && vrmRoamCurrentWaypoint.faceOcean && !isDriverInteracting && !isGazeRetained) {
+
       vrmRoamCurrentRotY = 0.0;
+
     }
+
     if (now >= vrmNextRoamTime) {
+
       const activeWaypoints = (currentEnvironmentName === 'ROOM' || currentEnvironmentName === 'BEDROOM')
+
         ? [
+
             { x: -2.8, z: -0.6, name: 'Doorway' },
+
             { x: 0.0, z: 0.2, name: 'Room Center' },
+
             { x: 2.2, z: -1.6, name: 'Window Side' },
+
             { x: -1.4, z: 1.4, name: 'Front Left' },
+
             { x: 1.8, z: 0.8, name: 'Front Right' },
+
             { x: 0.6, z: -2.0, name: 'Back Wall' }
+
           ]
+
         : VRM_ROAM_WAYPOINTS;
 
+
+
       const candidates = activeWaypoints.filter(wp => {
+
         const d = Math.hypot(wp.x - vrmRoamCurrentPos.x, wp.z - vrmRoamCurrentPos.z);
+
         return d > 0.22;
+
       });
+
       const wp = candidates[Math.floor(Math.random() * candidates.length)] || activeWaypoints[0];
+
       vrmRoamCurrentWaypoint = wp;
+
       vrmRoamTargetPos = { x: wp.x, z: wp.z };
 
+
+
       const dx = vrmRoamTargetPos.x - vrmRoamCurrentPos.x;
+
       const dz = vrmRoamTargetPos.z - vrmRoamCurrentPos.z;
+
       // In VRM space, rotation.y = 0 faces -Z (away), rotation.y = PI faces +Z (screen/user).
+
       // To face destination (dx, dz): forward vector is (-sin(rotY), -cos(rotY)), so angle = atan2(-dx, -dz)
+
       vrmRoamTargetRotY = Math.atan2(-dx, -dz);
+
       vrmRoamState = 'TURNING';
+
     }
+
   } else if (vrmRoamState === 'TURNING') {
+
     let diff = THREE.MathUtils.euclideanModulo(vrmRoamTargetRotY - vrmRoamCurrentRotY + Math.PI, Math.PI * 2) - Math.PI;
+
     if (Math.abs(diff) > 0.08) {
+
       vrmRoamCurrentRotY += Math.sign(diff) * Math.min(Math.abs(diff), delta * 3.8);
+
     } else {
+
       vrmRoamCurrentRotY = vrmRoamTargetRotY;
+
       vrmRoamState = 'WALKING';
+
       startRoamWalkAnimation();
+
     }
+
   } else if (vrmRoamState === 'WALKING') {
+
     const dx = vrmRoamTargetPos.x - vrmRoamCurrentPos.x;
+
     const dz = vrmRoamTargetPos.z - vrmRoamCurrentPos.z;
+
     const dist = Math.hypot(dx, dz);
 
+
+
     if (dist > 0.045) {
+
       // Keep Rem facing forward directly along her travel path
+
       const targetAngle = Math.atan2(-dx, -dz);
+
       let diff = THREE.MathUtils.euclideanModulo(targetAngle - vrmRoamCurrentRotY + Math.PI, Math.PI * 2) - Math.PI;
+
       vrmRoamCurrentRotY += diff * Math.min(1.0, delta * 3.5);
 
+
+
       const walkSpeed = 0.32;
+
       const step = Math.min(dist, walkSpeed * delta);
+
       const nextX = vrmRoamCurrentPos.x + (dx / dist) * step;
+
       const nextZ = vrmRoamCurrentPos.z + (dz / dist) * step;
 
+
+
       const obstacle = (typeof checkRumCollisionObstacle === 'function') ? checkRumCollisionObstacle(nextX, nextZ) : null;
+
       if (obstacle) {
+
         stopRoamWalkAnimation();
+
         vrmRoamState = 'ARRIVED';
+
         vrmNextRoamTime = Date.now() + 2500;
+
         vrmRoamTargetRotY = Math.PI;
+
         if (vrmaClips['pose_shy_wave']) {
+
           playVrmAction('pose_shy_wave', 2200, true);
+
         }
+
         showAiSpeechToast(`R.U.M. sensed edge: ${obstacle.name}`);
+
       } else {
+
         vrmRoamCurrentPos.x = nextX;
+
         vrmRoamCurrentPos.z = nextZ;
+
       }
+
     } else {
+
       vrmRoamCurrentPos.x = vrmRoamTargetPos.x;
+
       vrmRoamCurrentPos.z = vrmRoamTargetPos.z;
+
       stopRoamWalkAnimation();
+
       vrmRoamState = 'ARRIVED';
 
+
+
       if (vrmRoamCurrentWaypoint && vrmRoamCurrentWaypoint.faceOcean) {
+
         // Rem turns to gaze out at the ocean horizon (rotation.y = 0.0 faces -Z)
+
         vrmRoamTargetRotY = 0.0;
+
       } else {
+
         // Face forward toward master / driver
+
         vrmRoamTargetRotY = Math.PI;
+
         const roll = Math.random();
+
         if (roll < 0.22 && vrmaClips['pose_shy_wave']) {
+
           playVrmAction('pose_shy_wave', 3500, true);
+
         } else if (roll < 0.40 && vrmaClips['greeting_wave_right']) {
+
           playVrmAction('greeting_wave_right', 3000, true);
+
         } else if (roll < 0.55 && vrmaClips['model_pose']) {
+
           playVrmAction('model_pose', 3200, true);
+
         }
+
       }
+
+
 
       vrmNextRoamTime = Date.now() + 8000 + Math.random() * 7000;
+
     }
+
   } else if (vrmRoamState === 'ARRIVED') {
+
     let diff = THREE.MathUtils.euclideanModulo(vrmRoamTargetRotY - vrmRoamCurrentRotY + Math.PI, Math.PI * 2) - Math.PI;
+
     if (Math.abs(diff) > 0.04) {
+
       vrmRoamCurrentRotY += Math.sign(diff) * Math.min(Math.abs(diff), delta * 2.8);
+
     } else {
+
       vrmRoamCurrentRotY = vrmRoamTargetRotY;
+
       if (now >= vrmNextRoamTime) {
+
         vrmRoamState = 'IDLE';
+
       }
+
     }
+
   }
+
 }
+
+
 
 function toggleVrmRoaming() {
+
   vrmRoamEnabled = !vrmRoamEnabled;
+
   localStorage.setItem('vrmRoamEnabled', vrmRoamEnabled ? 'true' : 'false');
+
   if (!vrmRoamEnabled) {
+
     if (vrmRoamState === 'WALKING') {
+
       stopRoamWalkAnimation();
+
     }
+
     vrmRoamState = 'IDLE';
+
     vrmRoamTargetRotY = Math.PI;
+
   } else {
+
     vrmNextRoamTime = Date.now() + 2500;
+
   }
+
   updateRoamButtonLabel();
+
 }
+
+
 
 function updateRoamButtonLabel() {
+
   const btn = document.getElementById('btnVrmRoamToggle');
+
   if (btn) {
+
     btn.innerText = vrmRoamEnabled ? '🚶 ROAM: ON' : '🧍 STAY';
+
     btn.style.borderColor = vrmRoamEnabled ? '#22c55e' : '#64748b';
+
     btn.style.color = vrmRoamEnabled ? '#4ade80' : '#94a3b8';
+
   }
+
 }
+
+
 
 function toggleRemRumAvatar() {
+
   const isRem = (currentVrmModelName.includes('Rem') || currentVrmModelName.toLowerCase().includes('rem'));
+
   const newModel = isRem ? 'Rum.vrm' : 'Rem.vrm';
+
   currentVrmModelName = newModel;
+
   localStorage.setItem('vrmCurrentAvatar', newModel);
+
   loadRumVrmModel(newModel);
+
   updateModelButtonLabel();
+
 }
+
+
 
 function updateModelButtonLabel() {
+
   const btn = document.getElementById('btnVrmModelToggle');
+
   const hudTitle = document.getElementById('vrmHudTitle');
+
   const emotionPill = document.getElementById('waifuEmotionPill');
+
   const isRem = (currentVrmModelName.includes('Rem') || currentVrmModelName.toLowerCase().includes('rem'));
 
+
+
   if (btn) {
+
     btn.innerText = isRem ? '💙 REM' : '💜 RUM';
+
     btn.style.borderColor = isRem ? '#38bdf8' : '#c084fc';
+
     btn.style.color = isRem ? '#38bdf8' : '#c084fc';
+
   }
+
   if (hudTitle) {
+
     hudTitle.innerHTML = isRem ? '<span>💙</span> REM • SHOTGUN' : '<span>💜</span> RUM • SHOTGUN';
+
   }
+
   if (emotionPill) {
+
     emotionPill.innerText = isRem ? '💙 REM (3D VRM) • DEVOTED TO MASTER' : '💜 RUM (3D VRM) • PLAYFUL SISTER';
+
   }
+
 }
+
+
+
+
 
 
 
 function initAvatarPokeRaycaster(canvas) {
 
+
+
   if (!canvas || !vrmCamera) return;
+
+
 
   const raycaster = new THREE.Raycaster();
 
+
+
   const mouse = new THREE.Vector2();
 
+
+
   // Mouse wheel zoom
+
   canvas.addEventListener('wheel', (e) => {
+
     e.preventDefault();
+
     const d = Math.sign(e.deltaY) * 0.08;
+
     vrmZoomMultiplier = Math.max(0.65, Math.min(1.85, vrmZoomMultiplier + d));
+
   }, { passive: false });
 
+
+
   // Double click / tap reset zoom
+
   canvas.addEventListener('dblclick', () => {
+
     vrmZoomMultiplier = 1.0;
+
   });
 
+
+
   // Touch pinch-to-zoom for touchscreen
+
   let touchDist = 0;
+
   canvas.addEventListener('touchstart', (e) => {
+
     if (e.touches.length === 2) {
+
       touchDist = Math.hypot(
+
         e.touches[0].clientX - e.touches[1].clientX,
+
         e.touches[0].clientY - e.touches[1].clientY
+
       );
+
     }
+
   }, { passive: true });
 
+
+
   canvas.addEventListener('touchmove', (e) => {
+
     if (e.touches.length === 2 && touchDist > 0) {
+
       const curDist = Math.hypot(
+
         e.touches[0].clientX - e.touches[1].clientX,
+
         e.touches[0].clientY - e.touches[1].clientY
+
       );
+
       const ratio = touchDist / curDist;
+
       vrmZoomMultiplier = Math.max(0.65, Math.min(1.85, vrmZoomMultiplier * (ratio > 1 ? 1.025 : 0.975)));
+
       touchDist = curDist;
+
     }
+
   }, { passive: true });
+
+
+
+
 
 
 
   canvas.addEventListener('pointerdown', (e) => {
 
+
+
     const rect = canvas.getBoundingClientRect();
+
+
 
     mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
 
+
+
     mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+
+
+
 
 
 
@@ -17812,489 +36242,977 @@ function initAvatarPokeRaycaster(canvas) {
 
 
 
+
+
+
+
     // 0. Check if user tapped Basketball
+
     if (basketballMesh) {
+
       const ballHits = raycaster.intersectObjects(basketballMesh.children, true);
+
       if (ballHits.length > 0) {
+
         triggerBasketballDribbleAction();
+
         return;
+
       }
+
     }
+
+
 
     // 1. Check if user tapped Yoshi Plush
 
+
+
     if (yoshiModel) {
+
+
 
       const yoshiHits = raycaster.intersectObjects(yoshiModel.children, true);
 
+
+
       if (yoshiHits.length > 0) {
+
+
 
         triggerYoshiPlushInteraction();
 
+
+
         return;
+
+
 
       }
 
+
+
     }
+
+
+
+
 
 
 
     // 2. Check if user tapped Rum VRM
 
+
+
     if (vrmModel) {
+
+
 
       const hits = raycaster.intersectObjects(vrmModel.children, true);
 
+
+
       if (hits.length > 0) {
+
+
 
         const hitPoint = hits[0].point;
 
+
+
         const box = new THREE.Box3().setFromObject(vrmModel);
+
+
 
         const relY = (hitPoint.y - box.min.y) / Math.max(0.1, box.max.y - box.min.y);
 
+
+
         triggerAvatarPokeReaction(relY);
+
+
 
       }
 
+
+
     }
+
+
 
   });
 
+
+
 }
+
+
+
+
 
 
 
 function triggerAvatarPokeReaction(relY) {
 
+
+
   if (relY >= 0.78) {
+
+
 
     playVrmAction('greeting', 3200);
 
+
+
     setWaifuEmotion('HAPPY', '😊 HAPPY • HEADPAT RECEIVED');
+
+
 
     speakUtterance('Ehehe! That tickles, Master! Headpats make Rum so happy!');
 
+
+
   } else if (relY >= 0.52) {
+
+
 
     playVrmAction('pose_shy_wave', 3500);
 
+
+
     setWaifuEmotion('SURPRISED', '😳 SURPRISED • KEEP EYES ON ROAD');
+
+
 
     speakUtterance('Hey Master! Keep both hands on the steering wheel, eyes on the road!');
 
+
+
   } else if (relY >= 0.28) {
+
+
 
     playVrmAction('amusement', 3400);
 
+
+
     setWaifuEmotion('DEVOTED', '💖 DEVOTED • TICKLED');
+
+
 
     speakUtterance('Whoa! That tickles! Rum is your co-pilot, focus on the boost!');
 
+
+
   } else {
+
+
 
     playVrmAction('action_jump', 3000);
 
+
+
     setWaifuEmotion('EXCITED', '✨ EXCITED • READY FOR HYPERDRIVE');
+
+
 
     speakUtterance('One, two! Rum feet are ready to jump into hyperdrive!');
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 // --- UNIVERSAL VRM HUMANOID BONE-PARENTED PROPS RIG ---
+
 function attachPropToVrmHand(propObject, boneName = 'rightHand') {
-  if (!currentVrm || !propObject) return false;
-  const bone = currentVrm.humanoid?.getNormalizedBoneNode(boneName) || currentVrm.humanoid?.getBoneNode(boneName);
+
+  if (!propObject) return false;
+
+  const bone = (vrmBones && vrmBones[boneName]) || (vrmHumanoidMap && vrmHumanoidMap[boneName]);
+
   if (bone) {
+
     bone.add(propObject);
+
     propObject.position.set(0.0, -0.05, 0.08);
+
     propObject.rotation.set(0, 0, 0);
+
     return true;
+
   }
+
   return false;
+
 }
+
+
 
 function detachPropFromVrmHand(propObject) {
+
   if (!propObject) return;
+
   const worldPos = new THREE.Vector3();
+
   const worldQuat = new THREE.Quaternion();
+
   propObject.getWorldPosition(worldPos);
+
   propObject.getWorldQuaternion(worldQuat);
+
   vrmScene.add(propObject);
+
   propObject.position.copy(worldPos);
+
   propObject.quaternion.copy(worldQuat);
+
 }
+
+
 
 function triggerYoshiPlushInteraction() {
+
   if (!yoshiModel) return;
+
   isHoldingYoshi = !isHoldingYoshi;
 
+
+
   if (isHoldingYoshi) {
+
     playVrmAction('pose_v_sign', 4000);
+
     setWaifuEmotion('HAPPY', '🦖 YOSHI TIME! • BEST FRIENDS');
+
     speakUtterance('Yay! Master, look at my Yoshi plushie! He loves riding shotgun in the car too!');
+
     attachPropToVrmHand(yoshiModel, 'rightHand');
+
   } else {
+
     detachPropFromVrmHand(yoshiModel);
+
     playVrmAction('greeting', 3000);
+
     setWaifuEmotion('DEVOTED', '🦖 YOSHI RESTING');
+
     speakUtterance('Okay! Let us put Yoshi right here so he can watch the road with us!');
+
     updateYoshiEnvironmentRest();
+
   }
+
 }
 
+
+
 // ============================================================================
+
 // --- 3D INTERACTIVE BASKETBALL WITH REAL GRAVITY & BOUNCE PHYSICS ---
+
 // g = -9.8 m/s^2, restitution = 0.78, harmonic hand dribbling, arc shot/toss
+
 // ============================================================================
+
+
 
 let basketballMesh = null;
+
 let basketballState = 'REST'; // 'REST', 'DRIBBLING', 'TOSS'
+
 let basketballPos = new THREE.Vector3(0.48, vrmBaseY + 0.12, 0.22);
+
 let basketballVel = new THREE.Vector3(0, 0, 0);
+
 let basketballDribbleTimer = 0;
+
 const BASKETBALL_RADIUS = 0.12;
+
 const BASKETBALL_RESTITUTION = 0.78;
+
 const BASKETBALL_GRAVITY = -9.8;
 
+
+
 function createBasketballTexture() {
+
   const canvas = document.createElement('canvas');
+
   canvas.width = 512;
+
   canvas.height = 256;
+
   const ctx = canvas.getContext('2d');
 
+
+
   // Base basketball warm orange leather
+
   ctx.fillStyle = '#d35400';
+
   ctx.fillRect(0, 0, 512, 256);
 
+
+
   // Leather pebbled grain dots
+
   ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+
   for (let x = 0; x < 512; x += 4) {
+
     for (let y = 0; y < 256; y += 4) {
+
       if ((x + y) % 8 === 0) {
+
         ctx.fillRect(x + (Math.random() * 2), y + (Math.random() * 2), 1.5, 1.5);
+
       }
+
     }
+
   }
+
+
 
   // Black molded rubber seams
+
   ctx.strokeStyle = '#111111';
+
   ctx.lineWidth = 6;
+
   ctx.lineCap = 'round';
 
+
+
   // Equator horizontal seam
+
   ctx.beginPath();
+
   ctx.moveTo(0, 128);
+
   ctx.lineTo(512, 128);
+
   ctx.stroke();
+
+
 
   // Vertical meridians
+
   ctx.beginPath();
+
   ctx.moveTo(128, 0);
+
   ctx.lineTo(128, 256);
+
   ctx.moveTo(256, 0);
+
   ctx.lineTo(256, 256);
+
   ctx.moveTo(384, 0);
+
   ctx.lineTo(384, 256);
+
   ctx.stroke();
 
+
+
   const tex = new THREE.CanvasTexture(canvas);
+
   tex.wrapS = THREE.RepeatWrapping;
+
   tex.wrapT = THREE.RepeatWrapping;
+
   return tex;
+
 }
+
+
 
 function createBasketballProp() {
+
   if (basketballMesh) return;
+
   const group = new THREE.Group();
 
+
+
   const ballTex = createBasketballTexture();
+
   const ballMat = new THREE.MeshStandardMaterial({
+
     map: ballTex,
+
     roughness: 0.62,
+
     metalness: 0.05
+
   });
+
   const sphere = new THREE.Mesh(new THREE.SphereGeometry(BASKETBALL_RADIUS, 32, 32), ballMat);
+
   sphere.castShadow = true;
+
   group.add(sphere);
 
+
+
   // Black 3D rib rings for tactile visual depth
+
   const seamMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+
   const seam1 = new THREE.Mesh(new THREE.TorusGeometry(BASKETBALL_RADIUS + 0.001, 0.003, 8, 32), seamMat);
+
   const seam2 = new THREE.Mesh(new THREE.TorusGeometry(BASKETBALL_RADIUS + 0.001, 0.003, 8, 32), seamMat);
+
   seam2.rotation.x = Math.PI / 2;
+
   const seam3 = new THREE.Mesh(new THREE.TorusGeometry(BASKETBALL_RADIUS + 0.001, 0.003, 8, 32), seamMat);
+
   seam3.rotation.y = Math.PI / 2;
+
   group.add(seam1);
+
   group.add(seam2);
+
   group.add(seam3);
 
+
+
   group.position.set(0.48, vrmBaseY + BASKETBALL_RADIUS, 0.22);
+
   basketballMesh = group;
+
   if (vrmScene) vrmScene.add(basketballMesh);
+
 }
+
+
 
 function triggerBasketballDribbleAction() {
+
   if (!basketballMesh) createBasketballProp();
 
+
+
   if (basketballState === 'REST') {
+
     basketballState = 'DRIBBLING';
+
     basketballDribbleTimer = 0;
+
     playVrmAction('pose_v_sign', 4000);
+
     setWaifuEmotion('HAPPY', '🏀 DRIBBLING • CROSSOVER');
+
     speakUtterance('Check this out, Master! Smooth hardwood crossover bounce!');
+
   } else if (basketballState === 'DRIBBLING') {
+
     // Transition to high arc shot / toss!
+
     basketballState = 'TOSS';
+
     basketballVel.set(0.25, 3.4, -0.6);
+
     playVrmAction('wave', 3500);
+
     setWaifuEmotion('EXCITED', '🏀 THREE POINTER! SWOOSH');
+
     speakUtterance('From three-point range! Swoosh! High arc shot!');
+
   } else {
+
     // Catch / Reset
+
     basketballState = 'REST';
+
     basketballVel.set(0, 0, 0);
+
     basketballMesh.position.set(0.48, vrmBaseY + BASKETBALL_RADIUS, 0.22);
+
     setWaifuEmotion('DEVOTED', '🏀 BALL AT REST');
+
   }
+
 }
+
+
 
 function triggerBasketballInteraction() {
+
   triggerBasketballDribbleAction();
+
 }
+
+
 
 function updateBasketballPhysics(delta) {
+
   if (!basketballMesh) return;
+
   const floorY = vrmBaseY + BASKETBALL_RADIUS;
 
+
+
   if (basketballState === 'DRIBBLING') {
+
     basketballDribbleTimer += delta * 11.0;
+
     const phase = basketballDribbleTimer % Math.PI;
+
     const bounceHeight = Math.sin(phase) * 0.58;
 
+
+
     // Follow Rum position with smooth right-side offset
+
     const targetX = vrmRoamCurrentPos.x + 0.36;
+
     const targetZ = vrmRoamCurrentPos.z + 0.26;
+
     basketballMesh.position.x = targetX;
+
     basketballMesh.position.z = targetZ;
+
     basketballMesh.position.y = floorY + bounceHeight;
+
     basketballMesh.rotation.x += delta * 7.5;
 
+
+
     // Universal Humanoid Hand Tracking: Position right hand right on top of ball during down-push
-    if (currentVrm && currentVrm.humanoid) {
-      const rightHand = currentVrm.humanoid.getNormalizedBoneNode('rightHand') || currentVrm.humanoid.getBoneNode('rightHand');
-      if (rightHand) {
-        if (bounceHeight > 0.45) {
-          // Hand hovers and guides downward
-          rightHand.rotation.x = -0.3;
-          rightHand.rotation.z = 0.2;
-        }
+
+    const rightHand = (vrmBones && vrmBones.rightHand) || (vrmHumanoidMap && vrmHumanoidMap.rightHand);
+
+    if (rightHand) {
+
+      if (bounceHeight > 0.45) {
+
+        // Hand hovers and guides downward
+
+        rightHand.rotation.x = -0.3;
+
+        rightHand.rotation.z = 0.2;
+
       }
+
     }
+
   } else if (basketballState === 'TOSS') {
+
     // Real Gravity Integration
+
     basketballVel.y += BASKETBALL_GRAVITY * delta;
+
     basketballMesh.position.x += basketballVel.x * delta;
+
     basketballMesh.position.y += basketballVel.y * delta;
+
     basketballMesh.position.z += basketballVel.z * delta;
 
+
+
     // Rotational spin
+
     basketballMesh.rotation.x += delta * 6.5;
+
     basketballMesh.rotation.y += delta * 2.8;
 
+
+
     // Wall Bounces (X between -3.8 and 3.8, Z between -3.2 and 3.2)
+
     if (basketballMesh.position.x < -3.8) {
+
       basketballMesh.position.x = -3.8;
+
       basketballVel.x = -basketballVel.x * 0.72;
+
     } else if (basketballMesh.position.x > 3.8) {
+
       basketballMesh.position.x = 3.8;
+
       basketballVel.x = -basketballVel.x * 0.72;
+
     }
+
     if (basketballMesh.position.z < -3.2) {
+
       basketballMesh.position.z = -3.2;
+
       basketballVel.z = -basketballVel.z * 0.72;
+
     } else if (basketballMesh.position.z > 3.2) {
+
       basketballMesh.position.z = 3.2;
+
       basketballVel.z = -basketballVel.z * 0.72;
+
     }
+
+
 
     // Floor Impact & Restitution Bounce
+
     if (basketballMesh.position.y <= floorY) {
+
       basketballMesh.position.y = floorY;
+
       basketballVel.y = -basketballVel.y * BASKETBALL_RESTITUTION;
+
       basketballVel.x *= 0.86;
+
       basketballVel.z *= 0.86;
 
+
+
       // When bounce energy dissipates, settle into restful state
+
       if (Math.abs(basketballVel.y) < 0.16) {
+
         basketballVel.set(0, 0, 0);
+
         basketballState = 'REST';
+
       }
+
     }
+
   } else {
+
     // REST state: firmly anchored to hardwood floor
+
     basketballMesh.position.y = floorY;
+
   }
+
 }
+
+
 
 // --- 9. IN-DASH WEB BROWSER CONTROLLER ---
 
+
+
 let browserHistory = [];
+
+
 
 let browserHistoryIndex = -1;
 
 
 
+
+
+
+
 function browserNavigateTo(url) {
+
+
 
   if (!url) return;
 
+
+
   const input = document.getElementById('browserUrlInput');
+
+
 
   const iframe = document.getElementById('carpiBrowserIframe');
 
+
+
   const overlay = document.getElementById('browserWelcomeOverlay');
+
+
 
   
 
+
+
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
+
+
 
     if (url.includes('.') && !url.includes(' ')) {
 
+
+
       url = 'https://' + url;
+
+
 
     } else {
 
+
+
       url = 'https://www.google.com/search?q=' + encodeURIComponent(url);
+
+
 
     }
 
+
+
   }
+
+
+
+
 
 
 
   if (input) input.value = url;
 
+
+
   if (overlay) overlay.style.display = 'none';
 
+
+
   // If URL is external (Google, YouTube, Dart Forum), route through proxy to bypass X-Frame-Options
+
   let targetSrc = url;
+
   if (!url.startsWith('http://localhost') && !url.startsWith('/') && !url.startsWith('about:')) {
+
     targetSrc = '/api/browser/proxy?url=' + encodeURIComponent(url);
+
   }
+
   if (iframe) iframe.src = targetSrc;
+
+
+
+
 
 
 
   if (browserHistory[browserHistoryIndex] !== url) {
 
+
+
     browserHistory = browserHistory.slice(0, browserHistoryIndex + 1);
+
+
 
     browserHistory.push(url);
 
+
+
     browserHistoryIndex = browserHistory.length - 1;
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function browserLoadUrl() {
 
+
+
   const input = document.getElementById('browserUrlInput');
+
+
 
   if (input && input.value.trim()) {
 
+
+
     browserNavigateTo(input.value.trim());
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function browserReload() {
 
+
+
   const iframe = document.getElementById('carpiBrowserIframe');
+
+
 
   if (iframe && iframe.src && iframe.src !== 'about:blank') {
 
+
+
     iframe.src = iframe.src;
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function browserGoHome() {
 
+
+
   const input = document.getElementById('browserUrlInput');
+
+
 
   const iframe = document.getElementById('carpiBrowserIframe');
 
+
+
   const overlay = document.getElementById('browserWelcomeOverlay');
+
+
 
   if (input) input.value = '';
 
+
+
   if (iframe) iframe.src = 'about:blank';
+
+
 
   if (overlay) overlay.style.display = 'flex';
 
+
+
 }
+
+
+
+
 
 
 
 function browserGoBack() {
 
+
+
   if (browserHistoryIndex > 0) {
+
+
 
     browserHistoryIndex--;
 
+
+
     const prevUrl = browserHistory[browserHistoryIndex];
+
+
 
     const input = document.getElementById('browserUrlInput');
 
+
+
     const iframe = document.getElementById('carpiBrowserIframe');
+
+
 
     if (input) input.value = prevUrl;
 
+
+
     if (iframe) iframe.src = prevUrl;
+
+
 
   } else {
 
+
+
     browserGoHome();
+
+
 
   }
 
+
+
 }
+
+
+
+
 
 
 
 function browserGoForward() {
 
+
+
   if (browserHistoryIndex < browserHistory.length - 1) {
+
+
 
     browserHistoryIndex++;
 
+
+
     const nextUrl = browserHistory[browserHistoryIndex];
+
+
 
     const input = document.getElementById('browserUrlInput');
 
+
+
     const iframe = document.getElementById('carpiBrowserIframe');
+
+
 
     if (input) input.value = nextUrl;
 
+
+
     if (iframe) iframe.src = nextUrl;
+
+
 
   }
 
+
+
 }
+
+
+
+
+
+
 
 
 
@@ -18302,457 +37220,913 @@ function browserGoForward() {
 
 // --- 19. GOOGLE OAUTH 2.0 DEVICE FLOW & GEMINI AI INTEGRATION ---
 
+
+
 let googleAuthPollTimer = null;
 
+
+
 let googleDeviceDirectUrl = "https://www.google.com/device";
+
+
 
 let googleQrCodeInstance = null;
 
 
 
+
+
+
+
 function checkGoogleAuthStatus() {
+
+
 
   fetch('/api/auth/google/status')
 
+
+
     .then(r => r.json())
+
+
 
     .then(data => {
 
+
+
       const card = document.getElementById('googleAuthCard');
+
+
 
       const badge = document.getElementById('googleAuthBadge');
 
+
+
       const unlinkedView = document.getElementById('googleAuthUnlinkedView');
+
+
 
       const linkedView = document.getElementById('googleAuthLinkedView');
 
+
+
       const inputCid = document.getElementById('cfgGoogleClientId');
+
+
 
       const inputCsec = document.getElementById('cfgGoogleClientSecret');
 
 
 
+
+
+
+
       if (inputCid && data.client_id && !inputCid.value) {
+
+
 
         inputCid.value = data.client_id;
 
+
+
       }
+
+
+
+
 
 
 
       if (data.authenticated || data.has_api_key) {
 
+
+
         if (badge) {
+
+
 
           if (data.authenticated) {
 
+
+
             badge.innerText = '● GEMINI ONLINE (OAUTH LINKED)';
+
+
 
           } else {
 
+
+
             badge.innerText = '● GEMINI ONLINE (CLOUD API KEY)';
+
+
 
           }
 
+
+
           badge.style.background = 'rgba(52, 168, 83, 0.15)';
+
+
 
           badge.style.color = '#34a853';
 
+
+
         }
 
+
+
         if (unlinkedView) unlinkedView.style.display = 'none';
+
+
 
         if (linkedView) linkedView.style.display = 'block';
 
 
 
+
+
+
+
         const uName = document.getElementById('googleUserName');
 
+
+
         const uEmail = document.getElementById('googleUserEmail');
+
+
 
         const uAvatar = document.getElementById('googleUserAvatar');
 
 
 
+
+
+
+
         if (uName) uName.innerText = data.authenticated ? (data.name || 'Google User') : 'Google Gemini Cloud AI';
+
+
 
         if (uEmail) uEmail.innerText = data.authenticated ? (data.email || 'user@gmail.com') : ('API Key Active (' + (data.api_key_masked || '••••••') + ')');
 
+
+
         if (uAvatar) {
+
+
 
           uAvatar.src = data.picture || 'assets/pics/maia_avatar.jpg';
 
+
+
           uAvatar.onerror = function() { this.src = 'assets/pics/maia_avatar.jpg'; };
 
+
+
         }
+
+
+
+
 
 
 
         const selModel = document.getElementById('cfgGeminiModel');
 
+
+
         const m = (currentAiSettings && currentAiSettings.gemini_model) || data.gemini_model || 'gemini-3.5-flash';
+
+
 
         if (selModel) selModel.value = m;
 
 
 
+
+
+
+
         const selEngine = document.getElementById('cfgAiEngineMode');
+
+
 
         const engMode = (currentAiSettings && currentAiSettings.mode) || data.mode || 'GEMINI';
 
+
+
         if (selEngine) selEngine.value = (engMode === 'CLOUD_API') ? 'GEMINI' : engMode;
+
+
 
       } else {
 
+
+
         if (badge) {
+
+
 
           badge.innerText = '● NOT LINKED (OFFLINE GGUF)';
 
+
+
           badge.style.background = 'rgba(66, 133, 244, 0.15)';
+
+
 
           badge.style.color = '#4285f4';
 
+
+
         }
+
+
 
         if (unlinkedView) unlinkedView.style.display = 'block';
 
+
+
         if (linkedView) linkedView.style.display = 'none';
+
+
 
       }
 
+
+
     })
+
+
 
     .catch(err => console.warn('[GOOGLE_AUTH] Status check failed:', err));
 
+
+
 }
+
+
+
+
 
 
 
 function openGoogleAuthModal() {
 
+
+
   const modal = document.getElementById('googleAuthModal');
+
+
 
   const setupBox = document.getElementById('googleAuthSetupClientIdBox');
 
+
+
   const bodyGrid = document.getElementById('googleAuthModalBody');
+
+
 
   const successBox = document.getElementById('googleAuthSuccessBox');
 
+
+
   const statusText = document.getElementById('googleAuthStatusText');
+
+
 
   const codeBox = document.getElementById('googleAuthUserCode');
 
+
+
   const qrElem = document.getElementById('googleAuthQr');
+
+
+
+
 
 
 
   if (!modal) return;
 
+
+
   modal.style.display = 'flex';
+
+
 
   if (successBox) successBox.style.display = 'none';
 
 
 
+
+
+
+
   fetch('/api/auth/google/status')
+
+
 
     .then(r => r.json())
 
+
+
     .then(data => {
+
+
 
       const configuredCid = (document.getElementById('cfgGoogleClientId')?.value || data.client_id || '').trim();
 
+
+
       if (!configuredCid) {
+
+
 
         if (setupBox) setupBox.style.display = 'block';
 
+
+
         if (bodyGrid) bodyGrid.style.display = 'none';
+
+
 
         const modalCid = document.getElementById('modalGoogleClientId');
 
+
+
         if (modalCid) modalCid.focus();
+
+
 
       } else {
 
+
+
         if (setupBox) setupBox.style.display = 'none';
+
+
 
         if (bodyGrid) bodyGrid.style.display = 'grid';
 
+
+
         if (statusText) statusText.innerText = 'Requesting device authorization code from Google...';
 
+
+
         if (codeBox) codeBox.innerText = '---- ----';
+
+
 
         if (qrElem) qrElem.innerHTML = '';
 
 
 
+
+
+
+
         startGoogleDeviceFlowRequest(configuredCid);
+
+
 
       }
 
+
+
     })
+
+
 
     .catch(() => {
 
+
+
       if (setupBox) setupBox.style.display = 'block';
+
+
 
       if (bodyGrid) bodyGrid.style.display = 'none';
 
+
+
     });
 
+
+
 }
+
+
+
+
 
 
 
 function submitModalClientIdAndStart() {
 
+
+
   const cidInput = document.getElementById('modalGoogleClientId');
+
+
 
   const csecInput = document.getElementById('modalGoogleClientSecret');
 
+
+
   const cid = cidInput ? cidInput.value.trim() : '';
+
+
 
   const csec = csecInput ? csecInput.value.trim() : '';
 
 
 
+
+
+
+
   if (!cid) {
+
+
 
     alert('Please enter your Google Cloud OAuth Client ID.');
 
+
+
     return;
 
+
+
   }
+
+
+
+
 
 
 
   const mainCid = document.getElementById('cfgGoogleClientId');
 
+
+
   const mainCsec = document.getElementById('cfgGoogleClientSecret');
 
+
+
   if (mainCid) mainCid.value = cid;
+
+
 
   if (mainCsec) mainCsec.value = csec;
 
 
 
+
+
+
+
   fetch('/api/auth/google/config', {
+
+
 
     method: 'POST',
 
+
+
     headers: { 'Content-Type': 'application/json' },
+
+
 
     body: JSON.stringify({ client_id: cid, client_secret: csec })
 
+
+
   })
+
+
 
     .then(r => r.json())
 
+
+
     .then(() => {
+
+
 
       const setupBox = document.getElementById('googleAuthSetupClientIdBox');
 
+
+
       const bodyGrid = document.getElementById('googleAuthModalBody');
+
+
 
       if (setupBox) setupBox.style.display = 'none';
 
+
+
       if (bodyGrid) bodyGrid.style.display = 'grid';
+
+
 
       startGoogleDeviceFlowRequest(cid, csec);
 
+
+
     })
+
+
 
     .catch(err => alert('Failed to save OAuth credentials: ' + err));
 
+
+
 }
+
+
+
+
 
 
 
 function startGoogleDeviceFlowRequest(cid, csec) {
 
+
+
   const statusText = document.getElementById('googleAuthStatusText');
 
+
+
   const codeBox = document.getElementById('googleAuthUserCode');
+
+
 
   const qrElem = document.getElementById('googleAuthQr');
 
 
 
+
+
+
+
   fetch('/api/auth/google/start', {
+
+
 
     method: 'POST',
 
+
+
     headers: { 'Content-Type': 'application/json' },
+
+
 
     body: JSON.stringify({ client_id: cid, client_secret: csec })
 
+
+
   })
+
+
 
     .then(r => r.json())
 
+
+
     .then(data => {
+
+
 
       if (data.status === 'pending') {
 
+
+
         const userCode = data.user_code;
 
+
+
         const directUrl = data.direct_url || (data.verification_url + '?user_code=' + userCode);
+
+
 
         googleDeviceDirectUrl = directUrl;
 
 
 
+
+
+
+
         if (codeBox) codeBox.innerText = userCode;
+
+
 
         if (statusText) statusText.innerText = `Waiting for phone approval (Polls every ${data.interval || 5}s)...`;
 
 
 
+
+
+
+
         if (qrElem) {
+
+
 
           qrElem.innerHTML = '';
 
+
+
           try {
+
+
 
             if (typeof QRCode !== 'undefined') {
 
+
+
               new QRCode(qrElem, {
+
+
 
                 text: directUrl,
 
+
+
                 width: 150,
+
+
 
                 height: 150,
 
+
+
                 colorDark: '#000000',
+
+
 
                 colorLight: '#ffffff',
 
+
+
                 correctLevel: QRCode.CorrectLevel.M
+
+
 
               });
 
+
+
             } else {
+
+
 
               qrElem.innerHTML = `<a href="${directUrl}" target="_blank" style="color:#4285f4; font-size:11px; word-break:break-all;">${directUrl}</a>`;
 
+
+
             }
+
+
 
           } catch (e) {
 
+
+
             console.error('[QRCODE] Render error:', e);
+
+
 
             qrElem.innerHTML = `<a href="${directUrl}" target="_blank" style="color:#4285f4; font-size:11px; word-break:break-all;">${directUrl}</a>`;
 
+
+
           }
 
+
+
         }
+
+
+
+
 
 
 
         startGoogleAuthPolling();
 
+
+
       } else {
+
+
 
         if (statusText) statusText.innerText = 'Error: ' + (data.message || 'Failed to start auth flow.');
 
+
+
         const setupBox = document.getElementById('googleAuthSetupClientIdBox');
+
+
 
         const bodyGrid = document.getElementById('googleAuthModalBody');
 
+
+
         if (setupBox && data.message && data.message.includes('Client ID')) {
+
+
 
           setupBox.style.display = 'block';
 
+
+
           bodyGrid.style.display = 'none';
+
+
 
         }
 
+
+
       }
+
+
 
     })
 
+
+
     .catch(err => {
+
+
 
       if (statusText) statusText.innerText = 'Network connection failed: ' + err;
 
+
+
     });
 
+
+
 }
+
+
+
+
 
 
 
 function startGoogleAuthPolling() {
 
+
+
   stopGoogleAuthPolling();
+
+
 
   googleAuthPollTimer = setInterval(() => {
 
+
+
     fetch('/api/auth/google/status')
+
+
 
       .then(r => r.json())
 
+
+
       .then(data => {
+
+
 
         if (data.authenticated) {
 
+
+
           stopGoogleAuthPolling();
+
+
 
           onGoogleAuthSuccess(data);
 
+
+
         } else if (data.status === 'error') {
+
+
 
           const statusText = document.getElementById('googleAuthStatusText');
 
+
+
           if (statusText) statusText.innerText = 'Auth Notice: ' + (data.last_error || 'Expired or Denied');
+
+
 
         }
 
+
+
       })
+
+
 
       .catch(err => console.warn('[GOOGLE_AUTH] Poll error:', err));
 
+
+
   }, 2500);
 
+
+
 }
+
+
+
+
 
 
 
 function stopGoogleAuthPolling() {
 
+
+
   if (googleAuthPollTimer) {
+
+
 
     clearInterval(googleAuthPollTimer);
 
+
+
     googleAuthPollTimer = null;
 
+
+
   }
+
+
 
 }
 
 
 
+
+
+
+
 function onGoogleAuthSuccess(authData) {
+
+
 
   const bodyGrid = document.getElementById('googleAuthModalBody');
 
+
+
   const successBox = document.getElementById('googleAuthSuccessBox');
+
+
 
   const successUser = document.getElementById('googleAuthSuccessUser');
 
 
 
+
+
+
+
   if (bodyGrid) bodyGrid.style.display = 'none';
+
+
 
   if (successBox) successBox.style.display = 'block';
 
+
+
   if (successUser) {
+
+
 
     const disp = authData.name ? `${authData.name} (${authData.email})` : (authData.email || 'Master Creator');
 
+
+
     successUser.innerText = 'Signed in as ' + disp;
 
+
+
   }
+
+
+
+
 
 
 
@@ -18760,21 +38134,43 @@ function onGoogleAuthSuccess(authData) {
 
 
 
+
+
+
+
   const userName = authData.name || 'Master Creator';
+
+
 
   const joyfulSpeech = `Yay! Google Account connected, ${userName}! Gemini cloud intelligence is now online and riding shotgun with us!`;
 
+
+
   if (typeof speakUtterance === 'function') {
+
+
 
     speakUtterance(joyfulSpeech, 'HAPPY');
 
+
+
   }
+
+
 
   if (typeof showAiSpeechToast === 'function') {
 
+
+
     showAiSpeechToast('Google Connected! Gemini AI Online!');
 
+
+
   }
+
+
+
+
 
 
 
@@ -18782,2364 +38178,5320 @@ function onGoogleAuthSuccess(authData) {
 
 
 
+
+
+
+
   setTimeout(() => {
+
+
 
     closeGoogleAuthModal();
 
+
+
   }, 2800);
 
+
+
 }
+
+
+
+
 
 
 
 function closeGoogleAuthModal() {
 
+
+
   const modal = document.getElementById('googleAuthModal');
+
+
 
   if (modal) modal.style.display = 'none';
 
+
+
   stopGoogleAuthPolling();
 
+
+
 }
+
+
+
+
 
 
 
 function openGoogleDeviceUrlInBrowser() {
 
+
+
   if (googleDeviceDirectUrl) {
+
+
 
     window.open(googleDeviceDirectUrl, '_blank');
 
+
+
   }
 
+
+
 }
+
+
+
+
 
 
 
 function disconnectGoogleAccount() {
 
+
+
   if (!confirm('Are you sure you want to disconnect your Google Account and return to the local offline Qwen model?')) {
+
+
 
     return;
 
+
+
   }
+
+
+
+
 
 
 
   fetch('/api/auth/google/logout', { method: 'POST' })
 
+
+
     .then(r => r.json())
+
+
 
     .then(() => {
 
+
+
       updateAiEngineMode('LOCAL_GGUF');
+
+
 
       checkGoogleAuthStatus();
 
+
+
       if (typeof speakUtterance === 'function') {
+
+
 
         speakUtterance('Google Account disconnected. Offline local brain is active.', 'DEFAULT');
 
+
+
       }
+
+
 
     })
 
+
+
     .catch(err => alert('Failed to disconnect Google account: ' + err));
 
+
+
 }
+
+
+
+
 
 
 
 function saveGoogleCloudConfig() {
 
+
+
   const cid = document.getElementById('cfgGoogleClientId')?.value.trim() || '';
+
+
 
   const csec = document.getElementById('cfgGoogleClientSecret')?.value.trim() || '';
 
 
 
+
+
+
+
   fetch('/api/auth/google/config', {
+
+
 
     method: 'POST',
 
+
+
     headers: { 'Content-Type': 'application/json' },
+
+
 
     body: JSON.stringify({ client_id: cid, client_secret: csec })
 
+
+
   })
+
+
 
     .then(r => r.json())
 
+
+
     .then(() => {
+
+
 
       alert('Google OAuth Client credentials saved!');
 
+
+
       checkGoogleAuthStatus();
+
+
 
     })
 
+
+
     .catch(err => alert('Failed to save config: ' + err));
 
+
+
 }
+
+
+
+
 
 
 
 function updateAiEngineMode(mode) {
 
+
+
   fetch('/api/ai/settings', {
+
+
 
     method: 'POST',
 
+
+
     headers: { 'Content-Type': 'application/json' },
+
+
 
     body: JSON.stringify({ mode: mode })
 
+
+
   })
+
+
 
     .then(r => r.json())
 
+
+
     .then(data => {
+
+
 
       if (data.settings) currentAiSettings = Object.assign(currentAiSettings, data.settings);
 
+
+
       const selEngine = document.getElementById('cfgAiEngineMode');
+
+
 
       if (selEngine) selEngine.value = mode;
 
+
+
       console.log('[AI] Copilot engine mode updated to:', mode);
+
+
 
     })
 
+
+
     .catch(err => console.warn('[AI] Mode update error:', err));
 
+
+
 }
+
+
+
+
 
 
 
 function updateGeminiModel(model) {
 
+
+
   fetch('/api/ai/settings', {
+
+
 
     method: 'POST',
 
+
+
     headers: { 'Content-Type': 'application/json' },
+
+
 
     body: JSON.stringify({ gemini_model: model })
 
+
+
   })
+
+
 
     .then(r => r.json())
 
+
+
     .then(data => {
+
+
 
       if (data.settings) currentAiSettings = Object.assign(currentAiSettings, data.settings);
 
+
+
       console.log('[AI] Gemini model updated to:', model);
+
+
 
     })
 
+
+
     .catch(err => console.warn('[AI] Model update error:', err));
 
+
+
 }
+
+
+
+
 
 
 
 function deleteSingleTrip(tripId) {
+
   promptDeleteSingleTrip(tripId);
+
 }
+
+
+
 
 
 // --- AUDIO OUTPUT ROUTING (PIPEWIRE / WIREPLUMBER) ---
 
+
+
 function fetchAudioDevices() {
+
   fetch('/api/audio/devices')
+
     .then(r => r.json())
+
     .then(data => {
+
       const isBt = (data.sinks || []).some(s => s.is_bluetooth && s.is_default);
+
       const btnCar = document.getElementById('btnAudioCar');
+
       const btnHdmi = document.getElementById('btnAudioHdmi');
+
       const label = document.getElementById('audioCurrentSinkLabel');
+
       const chk = document.getElementById('chkAutoRouteAudio');
+
       if (chk && data.auto_route !== undefined) chk.checked = !!data.auto_route;
 
+
+
       if (btnCar && btnHdmi) {
+
         if (isBt) {
+
           btnCar.classList.add('active');
+
           btnCar.style.borderColor = '#00e676';
+
           btnCar.style.color = '#00e676';
+
           btnHdmi.classList.remove('active');
+
           btnHdmi.style.borderColor = '';
+
           btnHdmi.style.color = '';
+
         } else {
+
           btnHdmi.classList.add('active');
+
           btnHdmi.style.borderColor = '#00b0ff';
+
           btnHdmi.style.color = '#00b0ff';
+
           btnCar.classList.remove('active');
+
           btnCar.style.borderColor = '';
+
           btnCar.style.color = '';
+
         }
+
       }
+
+
 
       const activeSink = (data.sinks || []).find(s => s.is_default);
+
       if (label && activeSink) {
+
         label.innerText = `Active Sink: ${activeSink.name} (${Math.round(activeSink.volume * 100)}% Vol)`;
+
       }
+
     })
+
     .catch(err => console.warn("[AUDIO] Fetch devices error:", err));
+
 }
+
+
 
 function setAudioOutput(target) {
+
   showAiSpeechToast(`Switching audio output to ${target}...`);
+
   fetch('/api/audio/output', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ sink: target })
+
   })
+
   .then(r => r.json())
+
   .then(res => {
+
     showAiSpeechToast(res.message || `Audio routed to ${target}`);
+
     setTimeout(fetchAudioDevices, 800);
+
   })
+
   .catch(err => showAiSpeechToast("Audio switch error: " + err));
+
 }
 
+
+
 function toggleAutoRouteAudio(enabled) {
+
   fetch('/api/audio/output', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ auto_route: enabled })
+
   })
+
   .then(() => {
+
     showAiSpeechToast(enabled ? "Auto-audio routing enabled (prefers car speakers)." : "Auto-audio routing disabled (manual output mode).");
+
     fetchAudioDevices();
+
   });
+
 }
+
+
 
 // --- PEDAL COMMANDER THROTTLE CONTROLLER WIDGET ---
 
+
+
 let currentPdlMode = 'SPORT';
+
 let currentPdlLevel = 2;
 
+
+
 function sendPdlCommand() {
+
   const pin = localStorage.getItem('carpi5_pdl_pin') || '';
+
   fetch('/api/pedal_commander/set', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ mode: currentPdlMode, level: currentPdlLevel, pin: pin })
+
   })
+
   .then(r => r.json())
+
   .then(data => {
+
     updatePdlBadge(data.connected);
+
     const lastAck = document.getElementById('pdlLastAck');
+
     if (lastAck) {
+
       lastAck.innerText = `Sent ${currentPdlMode} (${currentPdlLevel >= 0 ? '+' : ''}${currentPdlLevel})`;
+
     }
+
     showAiSpeechToast(`⚡ Pedal Commander: ${currentPdlMode} (${currentPdlLevel >= 0 ? '+' : ''}${currentPdlLevel}) Transmitted!`);
+
   })
+
   .catch(err => {
+
     console.warn('Pedal commander send err:', err);
+
   });
+
 }
+
+
 
 function updatePdlBadge(isConnected) {
+
   const badge = document.getElementById('pdlCommanderStatusBadge');
+
   if (badge) {
+
     if (isConnected) {
+
       badge.innerText = '● CONNECTED (BLE UART 18:62:E4:46:73:8B)';
+
       badge.style.background = 'rgba(0,230,118,0.18)';
+
       badge.style.color = '#00e676';
+
       badge.style.borderColor = 'rgba(0,230,118,0.4)';
+
     } else {
+
       badge.innerText = '○ CONNECTING (STANDBY)';
+
       badge.style.background = 'rgba(255,171,0,0.18)';
+
       badge.style.color = '#ffab00';
+
       badge.style.borderColor = 'rgba(255,171,0,0.4)';
+
     }
+
   }
+
 }
+
+
 
 function savePdlPin() {
+
   const input = document.getElementById('pdlPinInput');
+
   if (!input) return;
+
   const pin = input.value.trim();
+
   localStorage.setItem('carpi5_pdl_pin', pin);
+
   fetch('/api/pedal_commander/pin', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ pin: pin })
+
   })
+
   .then(r => r.json())
+
   .then(data => {
+
     showAiSpeechToast(`Pedal Commander S/N ${pin} Saved & Authenticated!`);
+
     sendPdlCommand();
+
   });
+
 }
+
+
 
 function pollPedalCommanderStatus() {
+
   fetch('/api/pedal_commander/status')
+
     .then(r => r.json())
+
     .then(data => {
+
       updatePdlBadge(data.connected);
+
       if (data.mode && data.mode !== currentPdlMode) {
+
         currentPdlMode = data.mode;
+
         updatePdlUI();
+
       }
+
       if (data.level !== undefined && data.level !== currentPdlLevel) {
+
         currentPdlLevel = data.level;
+
         updatePdlUI();
+
       }
+
     })
+
     .catch(() => {});
+
 }
+
+
 
 // Poll Pedal Commander status every 5 seconds
+
 setInterval(pollPedalCommanderStatus, 5000);
+
 setTimeout(pollPedalCommanderStatus, 1500);
 
+
+
 function setPdlMode(mode) {
+
   currentPdlMode = mode;
+
   updatePdlUI();
+
   sendPdlCommand();
+
 }
+
+
 
 function adjustPdlLevel(delta) {
+
   currentPdlLevel = Math.max(-4, Math.min(4, currentPdlLevel + delta));
+
   updatePdlUI();
+
   sendPdlCommand();
+
 }
+
+
 
 function updatePdlUI() {
+
   ['Eco', 'City', 'Sport', 'SportPlus'].forEach(m => {
+
     const btn = document.getElementById(`btnPdl${m}`);
+
     if (btn) {
+
       if (m.toUpperCase().replace('PLUS', '_PLUS') === currentPdlMode.replace('SPORT+', 'SPORT_PLUS')) {
+
         btn.classList.add('active');
+
         btn.style.boxShadow = '0 0 10px rgba(255,119,0,0.5)';
+
       } else {
+
         btn.classList.remove('active');
+
         btn.style.boxShadow = 'none';
+
       }
+
     }
+
   });
+
   const disp = document.getElementById('pdlLevelDisplay');
+
   if (disp) {
+
     disp.innerText = (currentPdlLevel >= 0 ? '+' : '') + currentPdlLevel;
+
     disp.style.color = currentPdlLevel > 0 ? '#ff7700' : (currentPdlLevel < 0 ? '#00e676' : '#fff');
+
   }
+
 }
+
+
 
 // Periodic audio check
+
 setInterval(fetchAudioDevices, 6000);
 
+
+
 // =========================================================================
+
 // 10-BAND STUDIO GRAPHIC EQUALIZER & HARDWARE DSP AUDIO SYSTEM
+
 // =========================================================================
+
+
 
 let audioCtx = null;
+
 let audioSourceNode = null;
+
 let eqFilters = [];
+
 let subBassFilter = null;
+
 let isEqBypassed = false;
+
 let isAudioMuted = false;
 
+
+
 const EQ_FREQS = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+
 const EQ_PRESETS = {
+
   SUICIDEBOYS: [+10, +8, +3, -2, -1, +2, +3, +2, +5, +6],
+
   METALCORE:   [+4,  +6, +5, -1, -3, +2, +6, +5, +4, +3],
+
   DUBSTEP:     [+12, +9, +4,  0, -1, +4, +6, +4, +7, +8],
+
   ROCK:        [+3,  +6, +5, +2, +3, +3, +4, +3, +3, +2],
+
   VOCAL:       [-6,  -3,  0, +1, +3, +6, +6, +4, +2,  0],
+
   FLAT:        [ 0,   0,  0,  0,  0,  0,  0,  0,  0,  0]
+
 };
 
+
+
 let currentEqGains = [+10, +8, +3, -2, -1, +2, +3, +2, +5, +6];
+
 let currentEqPreset = 'SUICIDEBOYS';
 
+
+
 function initAudioEqualizer() {
+
   try {
+
     const saved = localStorage.getItem('carpi5_eq_gains');
+
     if (saved) {
+
       currentEqGains = JSON.parse(saved);
+
     } else {
+
       currentEqGains = [...EQ_PRESETS.BASS];
+
     }
+
     const savedPreset = localStorage.getItem('carpi5_eq_preset');
+
     if (savedPreset) currentEqPreset = savedPreset;
+
   } catch (e) {}
+
+
 
   // Lazily connect Web Audio API on first user interaction / playback
+
   const connectWebAudio = () => {
+
     if (audioCtx) return;
+
     try {
+
       const AudioContext = window.AudioContext || window.webkitAudioContext;
+
       audioCtx = new AudioContext();
+
       audioSourceNode = audioCtx.createMediaElementSource(realAudio);
 
+
+
       // Create 10-band peaking filters
+
       eqFilters = EQ_FREQS.map((freq, idx) => {
+
         const filter = audioCtx.createBiquadFilter();
+
         if (idx === 0) {
+
           filter.type = 'lowshelf';
+
         } else if (idx === EQ_FREQS.length - 1) {
+
           filter.type = 'highshelf';
+
         } else {
+
           filter.type = 'peaking';
+
           filter.Q.value = 1.4;
+
         }
+
         filter.frequency.value = freq;
+
         filter.gain.value = currentEqGains[idx] || 0;
+
         return filter;
+
       });
+
+
 
       // 1. Subsonic High-Pass Filter (Protection for subwoofers below 28Hz)
+
       subsonicFilter = audioCtx.createBiquadFilter();
+
       subsonicFilter.type = 'highpass';
+
       subsonicFilter.frequency.value = isSubsonicFilterActive ? 28 : 10;
+
       subsonicFilter.Q.value = 0.707;
 
+
+
       // 2. Sub-Bass Shelf / Peaking Filter
+
       subBassFilter = audioCtx.createBiquadFilter();
+
       subBassFilter.type = 'lowshelf';
+
       subBassFilter.frequency.value = currentSubBassFreq || 45;
+
       subBassFilter.gain.value = currentSubGain || 0;
 
+
+
       // 3. Connect: Source -> Subsonic -> SubBass -> 10-Band EQ
+
       audioSourceNode.connect(subsonicFilter);
+
       subsonicFilter.connect(subBassFilter);
+
       let prev = subBassFilter;
+
       eqFilters.forEach(f => {
+
         prev.connect(f);
+
         prev = f;
+
       });
 
+
+
       // 4. Hardware Dynamics Compressor / Anti-Clip Brickwall Limiter
+
       autoClipLimiterNode = audioCtx.createDynamicsCompressor();
+
       autoClipLimiterNode.threshold.value = isAntiClipEnabled ? -1.5 : 0.0;
+
       autoClipLimiterNode.knee.value = 0.0;
+
       autoClipLimiterNode.ratio.value = isAntiClipEnabled ? 20.0 : 1.0;
+
       autoClipLimiterNode.attack.value = 0.003;
+
       autoClipLimiterNode.release.value = 0.150;
+
       prev.connect(autoClipLimiterNode);
 
+
+
       // 5. Peak Analyser & Master Destination
+
       clipAnalyser = audioCtx.createAnalyser();
+
       clipAnalyser.fftSize = 256;
+
       clipAnalyser.smoothingTimeConstant = 0.3;
+
       autoClipLimiterNode.connect(clipAnalyser);
+
       clipAnalyser.connect(audioCtx.destination);
+
       startClipMonitor();
+
       console.log("[AUDIO SUITE] Studio DSP Pipeline (10-Band EQ + Subsonic + Anti-Clip Limiter) active!");
+
     } catch (e) {
+
       console.warn("[EQUALIZER] Web Audio connect note:", e);
+
     }
+
   };
 
+
+
   realAudio.addEventListener('play', connectWebAudio, { once: true });
+
   window.addEventListener('click', connectWebAudio, { once: true });
+
 }
+
+
 
 function openEqualizerModal() {
+
   const m = document.getElementById('modalEqualizer');
+
   if (m) {
+
     m.style.display = 'flex';
+
     renderEqSliders();
+
   }
+
 }
+
+
 
 function closeEqualizerModal() {
+
   const m = document.getElementById('modalEqualizer');
+
   if (m) m.style.display = 'none';
+
 }
+
+
 
 function renderEqSliders() {
+
   const container = document.getElementById('eqSlidersGrid');
+
   if (!container) return;
+
   container.innerHTML = '';
 
+
+
   EQ_FREQS.forEach((freq, idx) => {
+
     const val = currentEqGains[idx] || 0;
+
     const label = freq >= 1000 ? `${freq / 1000}k` : `${freq}`;
+
     const col = document.createElement('div');
+
     col.style.cssText = 'display:flex; flex-direction:column; align-items:center; justify-content:space-between; height:100%;';
+
     col.innerHTML = `
+
       <div style="font-size:9.5px; font-weight:800; font-family:var(--font-mono); color:${val > 0 ? '#00e676' : (val < 0 ? '#ff5252' : '#8c9ba5')}; min-height:14px;" id="eqDb_${idx}">${val >= 0 ? '+' : ''}${val}</div>
+
       <input type="range" class="eq-vertical-slider" min="-12" max="12" step="1" value="${val}" oninput="setEqBandGain(${idx}, this.value)" style="writing-mode:bt-lr; -webkit-appearance:slider-vertical; width:18px; height:110px; accent-color:var(--accent-purple); cursor:pointer;">
+
       <div style="font-size:9.5px; font-weight:800; color:var(--text-secondary); margin-top:4px;">${label}</div>
+
     `;
+
     container.appendChild(col);
+
   });
+
+
 
   // Highlight active preset button
+
   ['suicideboys', 'metalcore', 'dubstep', 'rock', 'vocal'].forEach(p => {
+
     const btn = document.getElementById(`btnEqPreset_${p}`);
+
     if (btn) {
+
       if (p.toUpperCase() === currentEqPreset) {
+
         btn.classList.add('active');
+
         btn.style.boxShadow = '0 0 10px rgba(168,85,247,0.5)';
+
       } else {
+
         btn.classList.remove('active');
+
         btn.style.boxShadow = 'none';
+
       }
+
     }
+
   });
+
 }
 
+
+
 function setEqBandGain(idx, val) {
+
   val = parseInt(val);
+
   currentEqGains[idx] = val;
+
   const dbEl = document.getElementById(`eqDb_${idx}`);
+
   if (dbEl) {
+
     dbEl.innerText = `${val >= 0 ? '+' : ''}${val}`;
+
     dbEl.style.color = val > 0 ? '#00e676' : (val < 0 ? '#ff5252' : '#8c9ba5');
+
   }
+
   if (eqFilters[idx] && !isEqBypassed) {
+
     eqFilters[idx].gain.value = val;
+
   }
+
   try {
+
     localStorage.setItem('carpi5_eq_gains', JSON.stringify(currentEqGains));
+
   } catch (e) {}
+
 }
+
+
+
 
 
 function resetEqToFlat() {
+
   currentEqGains = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
   currentEqPreset = 'FLAT';
+
   try {
+
     localStorage.setItem('carpi5_eq_preset', 'FLAT');
+
     localStorage.setItem('carpi5_eq_gains', JSON.stringify(currentEqGains));
+
   } catch (e) {}
 
+
+
   if (eqFilters.length > 0 && !isEqBypassed) {
+
     eqFilters.forEach(f => f.gain.value = 0);
+
   }
+
   const chk = document.getElementById('chkSubBassBoost');
+
   if (chk) chk.checked = false;
+
   if (subBassFilter) subBassFilter.gain.value = 0;
 
+
+
   renderEqSliders();
+
   showAiSpeechToast("↺ Equalizer Reset to Flat (0 dB)");
+
 }
+
+
 
 function applyEqPreset(presetKey) {
+
   const curve = EQ_PRESETS[presetKey];
+
   if (!curve) return;
+
   currentEqPreset = presetKey;
+
   currentEqGains = [...curve];
+
   try {
+
     localStorage.setItem('carpi5_eq_preset', presetKey);
+
     localStorage.setItem('carpi5_eq_gains', JSON.stringify(currentEqGains));
+
   } catch (e) {}
+
+
 
   if (eqFilters.length > 0 && !isEqBypassed) {
+
     eqFilters.forEach((f, i) => {
+
       f.gain.value = currentEqGains[i] || 0;
+
     });
+
   }
+
   renderEqSliders();
+
   showAiSpeechToast(`Sound DSP: Applied ${presetKey.replace('_', ' ')} Preset`);
+
 }
+
+
 
 function toggleBassBoost(checked) {
+
   if (subBassFilter) {
+
     subBassFilter.gain.value = checked ? 6.0 : 0.0;
+
   }
+
   showAiSpeechToast(checked ? "Subwoofer Bass Boost: +6 dB @ 45Hz Active" : "Subwoofer Bass Boost: Off");
+
 }
+
+
 
 function toggleEqBypass() {
+
   isEqBypassed = !isEqBypassed;
+
   const btn = document.getElementById('btnEqBypass');
+
   if (isEqBypassed) {
+
     if (eqFilters.length > 0) eqFilters.forEach(f => f.gain.value = 0);
+
     if (subBassFilter) subBassFilter.gain.value = 0;
+
     if (btn) {
+
       btn.innerText = "DSP: BYPASSED";
+
       btn.style.borderColor = "#ff5252";
+
       btn.style.color = "#ff5252";
+
     }
+
     showAiSpeechToast("Equalizer Bypassed (Flat Output)");
+
   } else {
+
     if (eqFilters.length > 0) {
+
       eqFilters.forEach((f, i) => f.gain.value = currentEqGains[i] || 0);
+
     }
+
     const chk = document.getElementById('chkSubBassBoost');
+
     if (subBassFilter && chk && chk.checked) subBassFilter.gain.value = 6.0;
+
     if (btn) {
+
       btn.innerText = "DSP: ACTIVE";
+
       btn.style.borderColor = "#22c55e";
+
       btn.style.color = "#4ade80";
+
     }
+
     showAiSpeechToast("Equalizer DSP Engaged");
+
   }
+
 }
+
+
 
 // Master Radio Volume Controls
+
 function adjustRadioVolume(delta) {
+
   fetch('/api/audio/volume', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ delta: delta })
+
   })
+
   .then(r => r.json())
+
   .then(() => {
+
     syncRadioVolumeUI();
+
   });
+
 }
+
+
 
 function toggleAudioMute() {
+
   fetch('/api/audio/volume', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ action: 'mute' })
+
   })
+
   .then(r => r.json())
+
   .then(() => {
+
     syncRadioVolumeUI();
+
   });
+
 }
+
+
 
 function syncRadioVolumeUI() {
+
   fetch('/api/audio/volume')
+
     .then(r => r.json())
+
     .then(data => {
+
       const volBar = document.getElementById('mediaVolBar');
+
       const volLabel = document.getElementById('volLabel');
+
       if (volBar && data.volume !== undefined) {
+
         volBar.value = data.volume;
+
       }
+
       if (volLabel && data.volume !== undefined) {
+
         volLabel.innerText = data.muted ? "MUTED" : `${data.volume}%`;
+
         volLabel.style.color = data.muted ? "#ff5252" : "var(--text-secondary)";
+
       }
+
     });
+
 }
+
+
 
 // Bluetooth AVRCP & Steering Wheel Button Handlers
+
 function setupMediaSessionHandlers() {
+
   if ('mediaSession' in navigator) {
+
     try {
+
       navigator.mediaSession.setActionHandler('play', () => {
+
         realAudio.play().catch(() => {});
+
       });
+
       navigator.mediaSession.setActionHandler('pause', () => {
+
         realAudio.pause();
+
       });
+
       navigator.mediaSession.setActionHandler('previoustrack', () => {
+
         prevTrack();
+
       });
+
       navigator.mediaSession.setActionHandler('nexttrack', () => {
+
         nextTrack();
+
       });
+
       navigator.mediaSession.setActionHandler('seekto', (details) => {
+
         if (details.seekTime && realAudio.duration) {
+
           realAudio.currentTime = details.seekTime;
+
         }
+
       });
+
       console.log("[AVRCP] MediaSession action handlers registered for steering wheel controls!");
+
     } catch (e) {
+
       console.warn("[AVRCP] MediaSession handler note:", e);
+
     }
+
   }
+
 }
+
+
 
 function setupHardwareMediaKeys() {
+
   window.addEventListener('keydown', (e) => {
+
     if (e.key === 'MediaTrackNext' || e.keyCode === 176) {
+
       nextTrack();
+
     } else if (e.key === 'MediaTrackPrevious' || e.keyCode === 177) {
+
       prevTrack();
+
     } else if (e.key === 'MediaPlayPause' || e.keyCode === 179) {
+
       togglePlayPause();
+
     }
+
   });
+
 }
 
 
+
+
+
 // ========================================================
+
 // CARPI5 IN-DASH AUDIO SUITE & DSP STUDIO CONTROLS
+
 // ========================================================
+
+
 
 function openAudioSuiteModal() {
+
   const m = document.getElementById('modalEqualizer');
+
   if (m) {
+
     m.style.display = 'flex';
+
     renderEqSliders();
+
     syncAudioSuiteUI();
+
   }
+
 }
+
+
 
 // Keep backward compatibility for existing buttons
+
 function openEqualizerModal() {
+
   openAudioSuiteModal();
+
 }
+
+
 
 function closeAudioSuiteModal() {
+
   const m = document.getElementById('modalEqualizer');
+
   if (m) m.style.display = 'none';
+
 }
+
+
 
 function closeEqualizerModal() {
+
   closeAudioSuiteModal();
+
 }
+
+
 
 function switchAudioSuiteTab(tabKey) {
+
   ['eq', 'anticlip', 'tempo', 'uconnect'].forEach(t => {
+
     const pane = document.getElementById(`audioTabPane_${t}`);
+
     const btn = document.getElementById(`audioTabBtn_${t}`);
+
     if (pane) pane.style.display = (t === tabKey ? 'block' : 'none');
+
     if (btn) {
+
       if (t === tabKey) {
+
         btn.classList.add('active');
+
         btn.style.borderColor = '#c084fc';
+
         btn.style.color = '#fff';
+
         btn.style.background = 'rgba(168, 85, 247, 0.25)';
+
       } else {
+
         btn.classList.remove('active');
+
         btn.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+
         btn.style.color = 'var(--text-secondary)';
+
         btn.style.background = 'rgba(0, 0, 0, 0.25)';
+
       }
+
     }
+
   });
+
 }
+
+
 
 function syncAudioSuiteUI() {
+
   // Sync Limiter
+
   const chkLimiter = document.getElementById('chkAutoLimiter');
+
   if (chkLimiter) chkLimiter.checked = isAntiClipEnabled;
+
   const statusBadge = document.getElementById('antiClipStatusBadge');
+
   if (statusBadge) {
+
     statusBadge.innerText = isAntiClipEnabled ? "ACTIVE (ZERO DISTORTION)" : "BYPASSED (RAW)";
+
     statusBadge.style.color = isAntiClipEnabled ? "var(--accent-green)" : "#ff5252";
+
     statusBadge.style.borderColor = isAntiClipEnabled ? "rgba(0,230,118,0.4)" : "rgba(255,82,82,0.4)";
+
   }
+
+
 
   // Sync Subsonic Filter
+
   const chkSub = document.getElementById('chkSubsonicFilter');
+
   if (chkSub) chkSub.checked = isSubsonicFilterActive;
 
+
+
   // Sync Sub Frequency Buttons
+
   ['35', '45', '60'].forEach(f => {
+
     const btn = document.getElementById(`btnSubFreq_${f}`);
+
     if (btn) {
+
       if (parseInt(f) === currentSubBassFreq) {
+
         btn.classList.add('active');
+
         btn.style.boxShadow = '0 0 10px rgba(192, 132, 252, 0.5)';
+
       } else {
+
         btn.classList.remove('active');
+
         btn.style.boxShadow = 'none';
+
       }
+
     }
+
   });
+
+
 
   // Sync Speed & Tempo
+
   const speedSlider = document.getElementById('mediaSpeedSlider');
+
   if (speedSlider) speedSlider.value = currentPlaybackSpeed;
+
   const speedLabel = document.getElementById('speedValLabel');
+
   if (speedLabel) {
+
     let modeText = "";
+
     if (currentPlaybackSpeed === 1.0) modeText = " (Normal)";
+
     else if (currentPlaybackSpeed === 0.8) modeText = " (Slowed & Throwed)";
+
     else if (currentPlaybackSpeed < 1.0) modeText = " (Slowed)";
+
     else if (currentPlaybackSpeed === 1.25) modeText = " (Nightcore)";
+
     else modeText = " (Fast)";
+
     speedLabel.innerText = `${currentPlaybackSpeed.toFixed(2)}x${modeText}`;
+
   }
+
+
 
   // Sync Pitch Lock
+
   const chkPitch = document.getElementById('chkPitchLock');
+
   if (chkPitch) chkPitch.checked = isPitchLocked;
+
   const pitchStatus = document.getElementById('pitchLockStatus');
+
   if (pitchStatus) {
+
     pitchStatus.innerText = isPitchLocked ? "🔒 NATURAL VOCAL PITCH LOCKED" : "📼 ANALOG TAPE / VINYL PITCH (Authentic Pitch Shift)";
+
     pitchStatus.style.color = isPitchLocked ? "var(--accent-blue)" : "var(--accent-purple)";
+
   }
+
+
 
   // Sync Uconnect Dash Track Text
+
   const dashTrack = document.getElementById('uconnectDashText');
+
   const tTitle = document.getElementById('trackTitle')?.innerText || "CarPi5 In-Dash";
+
   const tArtist = document.getElementById('trackArtist')?.innerText || "Dodge Dart";
+
   if (dashTrack) dashTrack.innerText = `${tArtist} - ${tTitle}`;
+
 }
+
+
 
 function toggleAntiClipLimiter(enable) {
+
   isAntiClipEnabled = !!enable;
+
   try {
+
     localStorage.setItem('carpi5_anticlip_enabled', isAntiClipEnabled ? 'true' : 'false');
+
   } catch (e) {}
+
+
 
   if (autoClipLimiterNode) {
+
     autoClipLimiterNode.threshold.value = isAntiClipEnabled ? -1.5 : 0.0;
+
     autoClipLimiterNode.ratio.value = isAntiClipEnabled ? 20.0 : 1.0;
+
   }
+
   syncAudioSuiteUI();
+
   showAiSpeechToast(isAntiClipEnabled ? "Anti-Clip Limiter: ACTIVE (Zero Digital Clipping)" : "Anti-Clip Limiter: Bypassed");
+
 }
+
+
 
 function toggleSubsonicFilter(enable) {
+
   isSubsonicFilterActive = !!enable;
+
   try {
+
     localStorage.setItem('carpi5_subsonic_active', isSubsonicFilterActive ? 'true' : 'false');
+
   } catch (e) {}
+
   if (subsonicFilter) {
+
     subsonicFilter.frequency.value = isSubsonicFilterActive ? 28 : 10;
+
   }
+
   syncAudioSuiteUI();
+
   showAiSpeechToast(isSubsonicFilterActive ? "Subsonic Filter: 28Hz Subwoofer Protection Active" : "Subsonic Filter: Inactive");
+
 }
+
+
 
 function setSubBassFrequency(freq) {
+
   currentSubBassFreq = parseInt(freq) || 45;
+
   try {
+
     localStorage.setItem('carpi5_sub_freq', currentSubBassFreq.toString());
+
   } catch (e) {}
+
   if (subBassFilter) {
+
     subBassFilter.frequency.value = currentSubBassFreq;
+
   }
+
   syncAudioSuiteUI();
+
   showAiSpeechToast(`Subwoofer Bass Tuned to ${currentSubBassFreq} Hz`);
+
 }
+
+
 
 function setPlaybackTempo(rate) {
+
   rate = parseFloat(rate);
+
   if (isNaN(rate) || rate < 0.25 || rate > 4.0) rate = 1.0;
+
   currentPlaybackSpeed = rate;
+
   if (typeof realAudio !== 'undefined' && realAudio) {
+
     realAudio.playbackRate = currentPlaybackSpeed;
+
     realAudio.preservesPitch = isPitchLocked;
+
   }
+
   syncAudioSuiteUI();
+
   showAiSpeechToast(`Playback Speed: ${rate.toFixed(2)}x`);
+
 }
+
+
 
 function togglePitchLock(locked) {
+
   isPitchLocked = !!locked;
+
   if (typeof realAudio !== 'undefined' && realAudio) {
+
     realAudio.preservesPitch = isPitchLocked;
+
   }
+
   syncAudioSuiteUI();
+
   showAiSpeechToast(isPitchLocked ? "Pitch Lock: Natural Vocal Preserved" : "Pitch Lock Off: Authentic Tape / Vinyl Pitch Shift");
+
 }
+
+
 
 function resyncUconnectDashDisplay() {
+
   const currentTitle = document.getElementById('trackTitle')?.innerText || "CarPi5 In-Dash";
+
   const currentArtist = document.getElementById('trackArtist')?.innerText || "Dodge Dart";
+
   fetch('/api/media/now_playing', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({
+
       title: currentTitle,
+
       artist: currentArtist,
+
       album: "CarPi5 In-Dash",
+
       genre: "Music",
+
       duration: realAudio?.duration || 180,
+
       track_num: (typeof currentTrackIndex !== 'undefined' ? currentTrackIndex + 1 : 1),
+
       total_tracks: (typeof playlist !== 'undefined' ? playlist.length : 1),
+
       status: realAudio?.paused ? 'paused' : 'playing'
+
     })
+
   })
+
   .then(r => r.json())
+
   .then(data => {
+
     showAiSpeechToast(`🚗 Dash Display Re-Synced: ${currentArtist} - ${currentTitle}`);
+
     const dashStatus = document.getElementById('uconnectDashText');
+
     if (dashStatus) dashStatus.innerText = `${currentArtist} - ${currentTitle}`;
+
   })
+
   .catch(err => {
+
     showAiSpeechToast("Uconnect Sync Broadcast sent");
+
   });
+
 }
 
 
+
+
+
 // ==========================================
+
 // CARPI3 ETHERNET DASHCAM & REPLAY CONTROLLER
+
 // ==========================================
+
 let dashcamStatusTimer = null;
 
+
+
 function initDashcamController() {
+
   refreshDashcamStatus();
+
   refreshDashcamClips();
+
   const img = document.getElementById('dashcamLiveImg');
+
   if (img) {
+
     // Refresh live MJPEG stream source
+
     img.src = '/dashcam/stream.mjpg?t=' + Date.now();
+
   }
+
   if (dashcamStatusTimer) clearInterval(dashcamStatusTimer);
+
   dashcamStatusTimer = setInterval(refreshDashcamStatus, 4000);
+
 }
+
+
 
 function refreshDashcamStatus() {
+
   fetch('/dashcam/api/status')
+
     .then(r => r.json())
+
     .then(data => {
+
       const sub = document.getElementById('dashcamSubStatus');
+
       const badge = document.getElementById('dashcamSourceBadge');
+
       const storeText = document.getElementById('dashcamStorageText');
+
       const homeBadge = document.getElementById('homeDashcamBadge');
 
+
+
       if (data && data.online) {
+
         if (sub) sub.innerText = 'Link: Direct Ethernet 10.0.0.2 • Uptime: ' + Math.floor(data.uptime_sec / 60) + 'm • Source: ' + (data.source || 'testpattern').toUpperCase();
+
         if (badge) {
+
           if (data.source === 'csi') {
+
             badge.innerText = 'SENSOR: SONY IMX219 (CSI RIBBON ACTIVE)';
+
             badge.style.color = '#00e676';
+
           } else if (data.source === 'usb') {
+
             badge.innerText = 'SENSOR: USB WEBCAM (' + (data.device || 'v4l2') + ')';
+
             badge.style.color = '#00e676';
+
           } else {
+
             badge.innerText = 'SENSOR: TEST PATTERN (WAITING ON SENSOR)';
+
             badge.style.color = '#ffab00';
+
           }
+
         }
+
         if (storeText && data.disk) {
+
           storeText.innerText = 'Pi 3 Storage: ' + data.disk.used_gb + ' GB used / ' + data.disk.total_gb + ' GB (' + data.disk.used_percent + '%)';
+
         }
+
         if (homeBadge) {
+
           homeBadge.innerHTML = '🎥 CARPI3: ' + (data.source === 'testpattern' ? 'SIM' : 'ONLINE');
+
         }
+
       }
+
     })
+
     .catch(err => {
+
       const sub = document.getElementById('dashcamSubStatus');
+
       if (sub) sub.innerText = 'Link: Connecting to Pi 3 (10.0.0.2:8000)...';
+
     });
+
 }
+
+
 
 function refreshDashcamClips() {
+
   fetch('/dashcam/api/clips')
+
     .then(r => r.json())
+
     .then(data => {
+
       const container = document.getElementById('dashcamClipsList');
+
       const countBadge = document.getElementById('dashcamClipCountBadge');
+
       if (!container) return;
 
+
+
       const clips = (data && data.clips) ? data.clips : [];
+
       if (countBadge) countBadge.innerText = clips.length + ' CLIPS';
 
+
+
       if (clips.length === 0) {
+
         container.innerHTML = '<div style="text-align:center; padding:30px; color:var(--text-secondary); font-size:12px;">No clips recorded yet.<br><span style="font-size:10px;">Clips save automatically every 3 minutes.</span></div>';
+
         return;
+
       }
+
+
 
       let html = '';
+
       clips.forEach(clip => {
+
         html += '<div style="background:rgba(255,255,255,0.03); border:1px solid #1c2636; border-radius:8px; padding:10px 12px; display:flex; justify-content:space-between; align-items:center;">';
+
         html += '  <div>';
+
         html += '    <div style="font-size:12px; font-weight:800; color:#fff; font-family:var(--font-mono);">🎬 ' + clip.filename + '</div>';
+
         html += '    <div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">' + clip.created_at + ' • ' + clip.size_mb + ' MB</div>';
+
         html += '  </div>';
+
         html += '  <div style="display:flex; gap:6px;">';
+
         html += '    <button onclick="playDashcamClip(\'' + clip.filename + '\', \'/dashcam' + clip.url + '\')" class="cluster-action-btn" style="padding:4px 10px; font-size:11px; border-color:var(--accent-blue); color:var(--accent-blue); font-weight:800;">▶ PLAY</button>';
+
         html += '  </div>';
+
         html += '</div>';
+
       });
+
       container.innerHTML = html;
+
     })
+
     .catch(() => {});
+
 }
+
+
 
 function playDashcamClip(filename, url) {
+
   const wrapper = document.getElementById('clipPlayerWrapper');
+
   const video = document.getElementById('clipPlayer');
+
   const title = document.getElementById('activeClipTitle');
+
   if (wrapper && video && title) {
+
     wrapper.style.display = 'block';
+
     title.innerText = filename;
+
     video.src = url;
+
     video.play().catch(() => {});
+
   }
+
 }
+
+
 
 function closeClipPlayer() {
+
   const wrapper = document.getElementById('clipPlayerWrapper');
+
   const video = document.getElementById('clipPlayer');
+
   if (wrapper && video) {
+
     video.pause();
+
     video.src = '';
+
     wrapper.style.display = 'none';
+
   }
+
 }
+
+
 
 function toggleDashcamFullscreen() {
+
   const pane = document.getElementById('dashcamLiveImg') ? document.getElementById('dashcamLiveImg').parentElement : null;
+
   if (!pane) return;
+
   
+
   if (!document.fullscreenElement) {
+
     pane.requestFullscreen().then(() => {
+
       let exitBtn = document.getElementById('dashcamTouchExitBtn');
+
       if (!exitBtn) {
+
         exitBtn = document.createElement('button');
+
         exitBtn.id = 'dashcamTouchExitBtn';
+
         exitBtn.innerText = '✕ EXIT FULLSCREEN';
+
         exitBtn.style.position = 'absolute';
+
         exitBtn.style.top = '16px';
+
         exitBtn.style.right = '16px';
+
         exitBtn.style.zIndex = '999999';
+
         exitBtn.style.padding = '12px 20px';
+
         exitBtn.style.fontSize = '14px';
+
         exitBtn.style.fontWeight = '900';
+
         exitBtn.style.background = 'rgba(255,51,68,0.85)';
+
         exitBtn.style.color = '#fff';
+
         exitBtn.style.border = '2px solid #fff';
+
         exitBtn.style.borderRadius = '12px';
+
         exitBtn.style.boxShadow = '0 4px 15px rgba(0,0,0,0.6)';
+
         exitBtn.onclick = function(e) {
+
           e.stopPropagation();
+
           document.exitFullscreen().catch(() => {});
+
         };
+
         pane.appendChild(exitBtn);
+
       } else {
+
         exitBtn.style.display = 'block';
+
       }
+
     }).catch(() => {});
+
   } else {
+
     document.exitFullscreen().catch(() => {});
+
   }
+
 }
 
+
+
 document.addEventListener('fullscreenchange', () => {
+
   if (!document.fullscreenElement) {
+
     const exitBtn = document.getElementById('dashcamTouchExitBtn');
+
     if (exitBtn) exitBtn.style.display = 'none';
+
   }
+
 });
+
+
+
 
 
 // Hook into navigateTo
+
 const origNavigateTo = window.navigateTo;
+
 window.navigateTo = function(screenName) {
+
   if (screenName === 'dashcam') {
+
     initDashcamController();
+
   }
+
   if (origNavigateTo) origNavigateTo(screenName);
+
 };
+
+
+
 
 
 document.addEventListener('DOMContentLoaded', () => {
+
   const img = document.getElementById('dashcamLiveImg');
+
   if (img) {
+
     img.onclick = toggleDashcamFullscreen;
+
   }
+
 });
 
 
+
+
+
 // ==========================================
+
 // 🧭 LEAFLET MAP & DRAGY TELEMETRY ENGINE
+
 // ==========================================
+
 let leafletMap = null;
+
 let carMarker = null;
+
 let currentGpsData = null;
 
+
+
 function initOrUpdateMap() {
+
   setTimeout(() => {
+
     const mapDiv = document.getElementById('liveMapCanvas');
+
     if (!mapDiv) return;
 
+
+
     if (!leafletMap && typeof L !== 'undefined') {
+
       const initialLat = (currentGpsData && currentGpsData.lat) || 33.4484;
+
       const initialLon = (currentGpsData && currentGpsData.lon) || -112.0740;
 
+
+
       leafletMap = L.map('liveMapCanvas', {
+
         center: [initialLat, initialLon],
+
         zoom: 15,
+
         zoomControl: false,
+
         attributionControl: false
+
       });
+
+
 
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+
         maxZoom: 19,
+
         subdomains: 'abc'
+
       }).addTo(leafletMap);
 
+
+
       const carIcon = L.divIcon({
+
         className: 'car-heading-marker',
+
         html: `<div id="carIconHeading" style="width:28px; height:28px; border-radius:50%; background:rgba(0,176,255,0.3); border:2px solid #00b0ff; box-shadow:0 0 12px #00b0ff; display:flex; align-items:center; justify-content:center; transition:transform 0.3s ease;">
+
                  <div style="width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:12px solid #fff;"></div>
+
                </div>`,
+
         iconSize: [28, 28],
+
         iconAnchor: [14, 14]
+
       });
 
+
+
       carMarker = L.marker([initialLat, initialLon], { icon: carIcon }).addTo(leafletMap);
+
     }
+
     
+
     if (leafletMap) {
+
       leafletMap.invalidateSize();
+
       if (currentGpsData && currentGpsData.lat && currentGpsData.lon && currentGpsData.fix) {
+
         leafletMap.panTo([currentGpsData.lat, currentGpsData.lon]);
+
         if (carMarker) carMarker.setLatLng([currentGpsData.lat, currentGpsData.lon]);
+
       }
+
     }
+
   }, 200);
+
 }
+
+
 
 function recenterMap() {
+
   if (leafletMap && currentGpsData && currentGpsData.lat && currentGpsData.lon) {
+
     leafletMap.setView([currentGpsData.lat, currentGpsData.lon], 16);
+
   }
+
 }
+
+
 
 function updateGpsAndDragyUI(gps) {
+
   if (!gps) return;
+
   currentGpsData = gps;
 
+
+
   // Home card badge
+
   const homeBadge = document.getElementById('homeGpsBadge');
+
   if (homeBadge) {
+
     const fixText = gps.fix ? `🛰️ GPS: LOCKED (${gps.sats})` : `🛰️ SATS: ${gps.sats_in_view || 0}`;
+
     homeBadge.textContent = fixText;
+
     homeBadge.style.color = gps.fix ? 'var(--accent-green)' : 'var(--accent-blue)';
+
     homeBadge.style.borderColor = gps.fix ? 'var(--accent-green)' : 'var(--accent-blue)';
+
   }
+
+
 
   // Maps top HUD
+
   const navFixBadge = document.getElementById('navFixBadge');
+
   if (navFixBadge) {
+
     navFixBadge.textContent = gps.fix ? '3D FIX LOCKED' : (gps.sats_in_view > 0 ? 'ACQUIRING...' : 'SEARCHING SATS');
+
     navFixBadge.style.color = gps.fix ? '#00e676' : '#ffab00';
+
     navFixBadge.style.background = gps.fix ? 'rgba(0,230,118,0.15)' : 'rgba(255,171,0,0.15)';
+
     navFixBadge.style.borderColor = gps.fix ? '#00e676' : '#ffab00';
+
   }
+
+
 
   const navSatsCount = document.getElementById('navSatsCount');
+
   if (navSatsCount) navSatsCount.textContent = `🛰️ ${gps.sats || 0} Locked (${gps.sats_in_view || 0} in view)`;
 
+
+
   const navGpsSpeed = document.getElementById('navGpsSpeed');
+
   if (navGpsSpeed) navGpsSpeed.textContent = (gps.speed_mph || 0.0).toFixed(1);
 
+
+
   const navHeadingVal = document.getElementById('navHeadingVal');
+
   if (navHeadingVal) navHeadingVal.textContent = `${Math.round(gps.heading || 0)}°`;
 
+
+
   const navCardinal = document.getElementById('navCardinal');
+
   if (navCardinal) navCardinal.textContent = gps.heading_cardinal || 'N';
 
+
+
   const navAltitude = document.getElementById('navAltitude');
+
   if (navAltitude) navAltitude.textContent = gps.altitude_ft ? Math.round(gps.altitude_ft) : '--';
 
+
+
   const navCoords = document.getElementById('navCoords');
+
   if (navCoords) {
+
     if (gps.lat && gps.lon) {
+
       navCoords.textContent = `${gps.lat.toFixed(5)}°N, ${gps.lon.toFixed(5)}°W`;
+
     } else {
+
       navCoords.textContent = 'Waiting for satellite fix...';
+
     }
+
   }
+
+
 
   // Update Leaflet Car Position & Rotation
+
   if (leafletMap && carMarker && gps.lat && gps.lon && gps.fix) {
+
     carMarker.setLatLng([gps.lat, gps.lon]);
+
     const headingElem = document.getElementById('carIconHeading');
+
     if (headingElem && typeof gps.heading === 'number') {
+
       headingElem.style.transform = `rotate(${gps.heading}deg)`;
+
     }
+
   }
+
+
 
   // DRAGY PERFORMANCE METRICS
+
   const d = gps.dragy;
+
   if (d) {
+
     const badge = document.getElementById('dragyStateBadge');
+
     if (badge) {
+
       badge.textContent = d.state || 'IDLE';
+
       if (d.state === 'STAGED') {
+
         badge.style.color = '#00e676';
+
         badge.style.background = 'rgba(0,230,118,0.15)';
+
         badge.style.borderColor = '#00e676';
+
       } else if (d.state === 'ACCELERATING') {
+
         badge.style.color = '#ff3d00';
+
         badge.style.background = 'rgba(255,61,0,0.15)';
+
         badge.style.borderColor = '#ff3d00';
+
       } else {
+
         badge.style.color = '#00b0ff';
+
         badge.style.background = 'rgba(0,176,255,0.15)';
+
         badge.style.borderColor = '#00b0ff';
+
       }
+
     }
+
+
 
     const t060 = document.getElementById('dragy060');
+
     if (t060) t060.textContent = d.time_0_60 ? `${d.time_0_60.toFixed(2)}s` : '--';
 
+
+
     const t60ft = document.getElementById('dragy60ft');
+
     if (t60ft) t60ft.textContent = d.time_60ft ? `${d.time_60ft.toFixed(2)}s` : '--';
 
+
+
     const t18mi = document.getElementById('dragy18mi');
+
     if (t18mi) t18mi.textContent = d.time_1_8mi ? `${d.time_1_8mi.toFixed(2)}s` : '--';
 
+
+
     const s18mph = document.getElementById('dragy18mph');
+
     if (s18mph) s18mph.textContent = d.speed_1_8mi ? `@ ${d.speed_1_8mi.toFixed(1)} MPH` : '@ -- MPH';
 
+
+
     const t14mi = document.getElementById('dragy14mi');
+
     if (t14mi) t14mi.textContent = d.time_1_4mi ? `${d.time_1_4mi.toFixed(2)}s` : '--';
 
+
+
     const s14mph = document.getElementById('dragy14mph');
+
     if (s14mph) s14mph.textContent = d.speed_1_4mi ? `@ ${d.speed_1_4mi.toFixed(1)} MPH` : '@ -- MPH';
 
+
+
     const liveTimer = document.getElementById('dragyLiveTimer');
+
     if (liveTimer) liveTimer.textContent = `${(d.current_run_time || 0.0).toFixed(2)}s`;
 
+
+
     const peakG = document.getElementById('dragyPeakG');
+
     if (peakG) peakG.textContent = `${(d.peak_g || 0.0).toFixed(2)} G`;
+
   }
+
 }
 
 
+
+
+
 // ========================================================
+
 // CARPI5 MEDIA HUB & BADASS IN-DASH AUDIO STUDIO EXTENSION
+
 // ========================================================
+
+
 
 let isShuffleActive = false;
+
 let isRepeatActive = false;
+
 let visualizerAnimationId = null;
 
+
+
 function openMusicPlayer() {
+
   navigateTo('music');
+
   startMusicVisualizer();
+
 }
+
+
 
 function launchStremio() {
+
   showAiSpeechToast("Launching Stremio Cinema...");
+
   fetch('/api/media/launch_stremio', { method: 'POST' })
+
     .then(r => r.json())
+
     .then(data => {
+
       console.log("[STREMIO] Launch response:", data);
+
     })
+
     .catch(err => {
+
       console.warn("[STREMIO] Launch error, opening web fallback:", err);
+
       window.open('https://web.stremio.com', '_blank');
+
     });
+
 }
+
+
 
 function toggleShuffle() {
+
   isShuffleActive = !isShuffleActive;
+
   const btn = document.getElementById('btnShuffleToggle');
+
   if (btn) {
+
     btn.style.opacity = isShuffleActive ? '1' : '0.65';
+
     btn.style.color = isShuffleActive ? 'var(--accent-blue)' : '#fff';
+
   }
+
   showAiSpeechToast(isShuffleActive ? "Shuffle: ON" : "Shuffle: OFF");
+
 }
+
+
 
 function toggleRepeat() {
+
   isRepeatActive = !isRepeatActive;
+
   const btn = document.getElementById('btnRepeatToggle');
+
   if (btn) {
+
     btn.style.opacity = isRepeatActive ? '1' : '0.65';
+
     btn.style.color = isRepeatActive ? 'var(--accent-blue)' : '#fff';
+
   }
+
   showAiSpeechToast(isRepeatActive ? "Repeat: ON" : "Repeat: OFF");
+
 }
+
+
 
 function filterPlaylistTracks(query) {
+
   const q = (query || '').toLowerCase().trim();
+
   const listEl = document.getElementById('mediaTrackList');
+
   if (!listEl) return;
+
   const items = listEl.querySelectorAll('.music-track-item');
+
   items.forEach(item => {
+
     const text = item.innerText.toLowerCase();
+
     item.style.display = (!q || text.includes(q)) ? 'flex' : 'none';
+
   });
+
 }
+
+
 
 function rescanMusicLibrary() {
+
   showAiSpeechToast("Scanning audio files...");
+
   fetch('/api/media/tracks')
+
     .then(r => r.json())
+
     .then(data => {
+
       let list = [];
+
       if (Array.isArray(data)) {
+
         list = data;
+
       } else if (data && Array.isArray(data.tracks)) {
+
         list = data.tracks;
+
       }
+
       if (list.length > 0) {
+
         realPlaylist = list;
+
         renderRealTracklist();
+
         showAiSpeechToast(`Found ${realPlaylist.length} tracks`);
+
       } else {
+
         showAiSpeechToast("No tracks found");
+
       }
+
     })
+
     .catch(e => console.error("Error rescanning tracks:", e));
+
 }
 
+
+
 // Hook realAudio events for vinyl spin and visualizer
+
 realAudio.addEventListener('play', () => {
+
   const art = document.getElementById('musicAlbumArtBox');
+
   if (art) art.classList.add('vinyl-spinning');
+
   startMusicVisualizer();
+
 });
+
+
 
 realAudio.addEventListener('pause', () => {
+
   const art = document.getElementById('musicAlbumArtBox');
+
   if (art) art.classList.remove('vinyl-spinning');
+
 });
+
+
 
 realAudio.addEventListener('ended', () => {
+
   const art = document.getElementById('musicAlbumArtBox');
+
   if (art) art.classList.remove('vinyl-spinning');
+
   if (isRepeatActive) {
+
     realAudio.currentTime = 0;
+
     realAudio.play().catch(() => {});
+
   } else if (isShuffleActive && realPlaylist.length > 1) {
+
     let nextIdx = Math.floor(Math.random() * realPlaylist.length);
+
     if (nextIdx === realTrackIdx) nextIdx = (nextIdx + 1) % realPlaylist.length;
+
     loadTrack(nextIdx, true);
+
   } else {
+
     nextTrack();
+
   }
+
 });
 
+
+
 // Canvas Spectrum Equalizer Visualizer
+
 function startMusicVisualizer() {
+
   if (visualizerAnimationId) return;
 
+
+
   const canvas = document.getElementById('musicSpectrumCanvas');
+
   if (!canvas) return;
+
   const ctx = canvas.getContext('2d');
 
+
+
   const barCount = 28;
+
   const barWidth = 7;
+
   const gap = 3;
+
   let phases = Array(barCount).fill(0).map(() => Math.random() * Math.PI * 2);
 
+
+
   function renderFrame() {
+
     if (currentScreen !== 'music') {
+
       visualizerAnimationId = null;
+
       return;
+
     }
+
+
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+
+
     const isPlaying = !realAudio.paused && realAudio.currentTime > 0;
 
+
+
     for (let i = 0; i < barCount; i++) {
+
       let height = 3;
+
       if (isPlaying) {
+
         phases[i] += 0.08 + (i * 0.005);
+
         const wave = Math.sin(phases[i]) * 0.5 + 0.5;
+
         const bassBoost = (i < 8) ? 1.4 : 1.0;
+
         height = Math.max(3, wave * (canvas.height - 4) * bassBoost);
+
       }
+
+
 
       const x = i * (barWidth + gap);
+
       const y = canvas.height - height;
 
+
+
       // Color gradient: cyan to purple/pink
+
       const grad = ctx.createLinearGradient(0, canvas.height, 0, 0);
+
       grad.addColorStop(0, '#00b0ff');
+
       grad.addColorStop(0.7, '#00e676');
+
       grad.addColorStop(1, '#ff4081');
 
+
+
       ctx.fillStyle = grad;
+
       ctx.fillRect(x, y, barWidth, height);
+
     }
+
+
 
     visualizerAnimationId = requestAnimationFrame(renderFrame);
+
   }
+
+
 
   visualizerAnimationId = requestAnimationFrame(renderFrame);
+
 }
+
+
 
 // Update top marquee when track loads
+
 const origLoadTrack = window.loadTrack;
+
 window.loadTrack = function(idx, autoPlay = true) {
+
   if (origLoadTrack) origLoadTrack(idx, autoPlay);
+
   if (realPlaylist && realPlaylist[idx]) {
+
     const t = realPlaylist[idx];
+
     const marquee = document.getElementById('musicTopMarquee');
+
     if (marquee) marquee.innerText = `${t.title || 'Track'} — ${t.artist || 'CarPi5'}`;
+
   }
+
 };
 
+
+
 // ==========================================
+
 // R.U.M. VOICE SPEECH CACHE CONTROLLER
+
 // ==========================================
+
 let pendingDownsizeTier = null;
 
+
+
 function loadTtsCacheStats() {
+
   fetch('/api/audio/cache')
+
     .then(r => r.json())
+
     .then(data => {
+
       if (!data || !data.cache) return;
+
       const c = data.cache;
+
       const limText = document.getElementById('ttsCacheLimitText');
+
       const usedText = document.getElementById('ttsCacheUsedText');
+
       const pctText = document.getElementById('ttsCachePctText');
+
       const countText = document.getElementById('ttsCacheCountText');
+
       const hitsText = document.getElementById('ttsCacheHitsText');
+
       const bar = document.getElementById('ttsCacheProgressBar');
 
+
+
       const limMb = c.limit_mb || 1024;
+
       const usedMb = c.total_mb || 0.0;
+
       const pct = c.usage_pct || 0.0;
 
+
+
       if (limText) limText.innerText = limMb >= 1024 ? `${(limMb / 1024).toFixed(0)} GB` : `${limMb} MB`;
+
       if (usedText) usedText.innerText = `${usedMb.toFixed(1)} MB`;
+
       if (pctText) pctText.innerText = `${pct.toFixed(1)}%`;
+
       if (countText) countText.innerText = c.total_phrases || 0;
+
       if (hitsText) hitsText.innerText = c.total_hits || 0;
+
       if (bar) bar.style.width = `${Math.min(100, Math.max(2, pct))}%`;
 
+
+
       // Update tier buttons active state
+
       document.querySelectorAll('#ttsCacheTierButtons .cache-tier-btn').forEach(btn => {
+
         const mb = parseInt(btn.getAttribute('data-mb'), 10);
+
         if (mb === limMb) {
+
           btn.style.background = "var(--accent-pink)";
+
           btn.style.color = "#000";
+
           btn.style.fontWeight = "900";
+
         } else {
+
           btn.style.background = "transparent";
+
           btn.style.color = "#c7d5e4";
+
           btn.style.fontWeight = "700";
+
         }
+
       });
+
     })
+
     .catch(e => console.warn("[TTS CACHE] Stats fetch error:", e));
+
 }
+
+
 
 function onSelectTtsCacheTier(targetMb) {
+
   fetch('/api/audio/cache/limit', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ limit_mb: targetMb, dry_run: true })
+
   })
+
     .then(r => r.json())
+
     .then(d => {
+
       if (d.impact && d.impact.needs_prune) {
+
         pendingDownsizeTier = targetMb;
+
         const desc = document.getElementById('ttsCacheWarningDesc');
+
         const targetStr = targetMb >= 1024 ? `${targetMb / 1024} GB` : `${targetMb} MB`;
+
         if (desc) {
+
           desc.innerHTML = `Your current speech cache uses <strong>${(d.impact.mb_to_delete + targetMb).toFixed(1)} MB</strong>. Lowering your reserve to <strong>${targetStr}</strong> will automatically prune approximately <strong>${d.impact.mb_to_delete} MB (${d.impact.phrases_to_delete} phrases)</strong> of older, least-frequently-used speech.<br><br>Frequently used phrases will be preserved. Proceed with downsize?`;
+
         }
+
         const m = document.getElementById('ttsCacheWarningModal');
+
         if (m) m.style.display = 'flex';
+
       } else {
+
         applyTtsCacheTier(targetMb);
+
       }
+
     })
+
     .catch(() => applyTtsCacheTier(targetMb));
+
 }
+
+
 
 function closeTtsCacheWarningModal() {
+
   const m = document.getElementById('ttsCacheWarningModal');
+
   if (m) m.style.display = 'none';
+
   pendingDownsizeTier = null;
+
 }
+
+
 
 function confirmTtsCacheDownsize() {
+
   if (pendingDownsizeTier) {
+
     applyTtsCacheTier(pendingDownsizeTier);
+
   }
+
   closeTtsCacheWarningModal();
+
 }
+
+
 
 function applyTtsCacheTier(targetMb) {
+
   fetch('/api/audio/cache/limit', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ limit_mb: targetMb, dry_run: false })
+
   })
+
     .then(r => r.json())
+
     .then(d => {
+
       loadTtsCacheStats();
+
       const targetStr = targetMb >= 1024 ? `${targetMb / 1024} GB` : `${targetMb} MB`;
+
       showAiSpeechToast(`Speech cache reserve set to ${targetStr}`);
+
     })
+
     .catch(e => console.error("Error setting cache limit:", e));
+
 }
+
+
 
 function clearTtsCache() {
+
   if (!confirm("Are you sure you want to clear all cached speech? Future responses will be re-synthesized.")) {
+
     return;
+
   }
+
   fetch('/api/audio/cache/clear', { method: 'POST' })
+
     .then(r => r.json())
+
     .then(d => {
+
       loadTtsCacheStats();
+
       showAiSpeechToast("Speech cache completely cleared");
+
     })
+
     .catch(e => console.error("Error clearing speech cache:", e));
+
 }
+
+
 
 // Auto-load cache stats on boot
+
 setTimeout(loadTtsCacheStats, 1500);
 
+
+
 // ============================================================================
+
 // --- DEDICATED POWERTRAIN OBD-II & ECU DIAGNOSTICS SUITE ---
+
 // ============================================================================
+
 let currentSelectedDtc = null;
+
 let isRumMechanicActive = false;
 
+
+
 function refreshDiagnostics() {
+
   fetch('/api/dtc/status')
+
     .then(r => r.json())
+
     .then(data => {
+
       renderDiagnosticsScreen(data);
+
     })
+
     .catch(err => console.error('[DIAGNOSTICS] Status fetch error:', err));
+
 }
+
+
 
 function renderDiagnosticsScreen(data) {
+
   const milVal = document.getElementById('diagMilVal');
+
   const milCard = document.getElementById('diagMilStatCard');
+
   const faultsVal = document.getElementById('diagFaultsCountVal');
+
   const pendingVal = document.getElementById('diagPendingCountVal');
+
   const codesBadge = document.getElementById('diagCodesBadge');
+
   const codesList = document.getElementById('diagCodesList');
+
   const obdBadge = document.getElementById('diagObdStatusBadge');
 
+
+
   if (obdBadge) {
+
     if (data.connected) {
+
       obdBadge.innerText = '● OBD-II CONNECTED';
+
       obdBadge.style.color = 'var(--accent-green)';
+
       obdBadge.style.borderColor = 'var(--accent-green)';
+
       obdBadge.style.background = 'rgba(0,230,118,0.15)';
+
     } else {
+
       obdBadge.innerText = '○ OBD-II DISCONNECTED / STANDBY';
+
       obdBadge.style.color = '#ff9100';
+
       obdBadge.style.borderColor = '#ff9100';
+
       obdBadge.style.background = 'rgba(255,145,0,0.15)';
+
     }
+
   }
+
+
 
   if (milVal && milCard) {
+
     if (data.mil_active) {
+
       milVal.innerText = 'ACTIVE / MIL ON';
+
       milVal.style.color = 'var(--accent-red)';
+
       milCard.classList.add('alert');
+
     } else {
+
       milVal.innerText = 'OFF / HEALTHY';
+
       milVal.style.color = 'var(--accent-green)';
+
       milCard.classList.remove('alert');
+
     }
+
   }
+
+
 
   const dtcs = data.active_dtcs || [];
+
   if (faultsVal) faultsVal.innerText = `${dtcs.length} CODES`;
+
   if (pendingVal) pendingVal.innerText = `${(data.pending_dtcs || []).length} CODES`;
+
   if (codesBadge) {
+
     codesBadge.innerText = dtcs.length > 0 ? `${dtcs.length} ACTIVE` : 'ALL CLEAR';
+
     codesBadge.style.color = dtcs.length > 0 ? 'var(--accent-red)' : 'var(--accent-green)';
+
   }
+
+
 
   // Freeze frame values
+
   const ff = data.freeze_frame || {};
+
   const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
+
   setEl('ffRpm', `${ff.rpm || '--'} RPM`);
+
   setEl('ffBoost', `${ff.boost_psi !== undefined ? ff.boost_psi.toFixed(1) : '--'} PSI`);
+
   setEl('ffCoolant', `${ff.coolant_temp_f || '--'}°F`);
+
   setEl('ffSpeed', `${ff.speed_mph || '--'} MPH`);
+
   setEl('ffLoad', `${ff.engine_load_pct !== undefined ? ff.engine_load_pct.toFixed(0) : '--'}%`);
+
   setEl('ffThrottle', `${ff.throttle_pct !== undefined ? ff.throttle_pct.toFixed(0) : '--'}%`);
 
+
+
   // Render DTC list
+
   if (codesList) {
+
     if (dtcs.length === 0) {
+
       codesList.innerHTML = `
+
         <div style="text-align:center; padding:24px 12px; color:var(--text-secondary);">
+
           <div style="font-size:26px; margin-bottom:6px;">✅</div>
+
           <div style="font-size:12px; font-weight:800; color:#fff;">NO POWERTRAIN FAULTS DETECTED</div>
+
           <div style="font-size:11px; margin-top:4px;">ECU memory is clear. All systems operating nominally.</div>
+
         </div>
+
       `;
+
       setEl('diagDetailTitle', 'NO FAULT CODES ACTIVE');
+
       setEl('diagDetailSub', 'Magneti Marelli 8GM Powertrain Diagnostic Module');
+
       setEl('diagDetailBody', 'All monitored powertrain circuits, MultiAir variable valve solenoids, and turbo boost control loops are performing within OEM specifications.');
+
       const mBox = document.getElementById('diagMechanicBox');
+
       if (mBox) mBox.style.display = 'none';
+
     } else {
+
       let html = '';
+
       (data.code_details || []).forEach((item, idx) => {
+
         const isActive = (idx === 0);
+
         if (isActive) currentSelectedDtc = item;
+
         html += `
+
           <div class="diag-code-item ${isActive ? 'active' : ''}" onclick="selectDtcDetail('${item.code}')">
+
             <div style="display:flex; justify-content:space-between; align-items:center;">
+
               <span style="font-size:14px; font-weight:900; color:var(--accent-yellow); font-family:var(--font-mono);">${item.code}</span>
+
               <span class="card-badge" style="font-size:9px; background:rgba(255,170,0,0.2); color:var(--accent-yellow); border-color:var(--accent-yellow);">${item.severity_badge || 'FAULT'}</span>
+
             </div>
+
             <div style="font-size:11px; font-weight:800; color:#fff; margin-top:3px;">${item.title || 'Diagnostic Fault'}</div>
+
           </div>
+
         `;
+
       });
+
       codesList.innerHTML = html;
+
       if (currentSelectedDtc) {
+
         renderDtcDetailPanel(currentSelectedDtc);
+
       }
+
     }
+
   }
+
 }
+
+
 
 function selectDtcDetail(code) {
+
   fetch(`/api/dtc/lookup?code=${code}`)
+
     .then(r => r.json())
+
     .then(data => {
+
       currentSelectedDtc = data;
+
       renderDtcDetailPanel(data);
+
     });
+
 }
+
+
 
 function renderDtcDetailPanel(data) {
+
   const title = document.getElementById('diagDetailTitle');
+
   const sub = document.getElementById('diagDetailSub');
+
   const body = document.getElementById('diagDetailBody');
+
   const mBox = document.getElementById('diagMechanicBox');
+
   const mText = document.getElementById('diagMechanicSpeechText');
 
+
+
   if (title) title.innerText = `${data.code}: ${data.title}`;
+
   if (sub) sub.innerText = `Magneti Marelli 8GM • ${data.severity_badge || 'Dodge Dart 1.4L Turbo MultiAir'}`;
+
   if (body) {
+
     body.innerHTML = `
+
       <div style="margin-bottom:8px;"><strong>Description:</strong> ${data.description || ''}</div>
+
       <div style="margin-bottom:8px; color:#ffdd88;"><strong>Recommended Action:</strong> ${data.advice || ''}</div>
+
       <div style="color:var(--text-secondary); font-size:11px;"><strong>Likely MultiAir Root Causes:</strong> ${data.common_causes || 'Check wiring harness and vacuum lines.'}</div>
+
     `;
+
   }
+
   if (mBox && mText) {
+
     mBox.style.display = 'block';
+
     mText.innerText = data.spoken_summary || `Code ${data.code} detected on the Dart. Master, let me check the MultiAir actuators!`;
+
   }
+
 }
+
+
 
 function promptClearDtcCodes() {
+
   if (confirm("Reset Check Engine MIL and clear all active diagnostic codes from ECU memory (Mode 04)?")) {
+
     fetch('/api/dtc/clear', { method: 'POST' })
+
       .then(r => r.json())
+
       .then(() => {
+
         showAiSpeechToast("Codes cleared and CEL reset!");
+
         refreshDiagnostics();
+
       });
+
   }
+
 }
+
+
 
 function toggleRumMechanicMode() {
+
   isRumMechanicActive = !isRumMechanicActive;
+
   const btn = document.getElementById('btnRumMechanicMode');
+
   if (btn) {
+
     if (isRumMechanicActive) {
+
       btn.style.boxShadow = '0 0 16px rgba(255, 64, 129, 0.8)';
+
       speakMechanicBriefing();
+
     } else {
+
       btn.style.boxShadow = 'none';
+
     }
+
   }
+
 }
+
+
 
 function speakMechanicBriefing() {
+
   if (currentSelectedDtc && currentSelectedDtc.spoken_summary) {
+
     speakUtterance(currentSelectedDtc.spoken_summary);
+
   } else {
+
     speakUtterance("Master, powertrain diagnostics are completely clear! The 1.4L MultiAir actuators, Garrett turbo, and oil pressures are looking fantastic!");
+
   }
+
 }
 
+
+
 // ============================================================================
+
 // --- DEDICATED BLACK-BOX TRIP LOGGER & FLIGHT RECORDER ---
+
 // ============================================================================
+
 let currentTripSessionPoints = [];
 
+
+
 function refreshTripsList() {
+
   fetch('/api/trips/recent')
+
     .then(r => r.json())
+
     .then(trips => {
+
       renderTripsList(trips);
+
     })
+
     .catch(err => console.error('[TRIPS] Fetch error:', err));
 
+
+
   fetch('/api/trips/stats')
+
     .then(r => r.json())
+
     .then(stats => {
+
       const badge = document.getElementById('tripLifetimeBadge');
+
       if (badge) {
+
         badge.innerText = `LIFETIME: ${stats.total_miles || 0} MILES • ${stats.total_trips || 0} SESSIONS`;
+
       }
+
     });
+
 }
+
+
 
 function renderTripsList(trips) {
+
   const container = document.getElementById('tripsListContainer');
+
   const countBadge = document.getElementById('tripsCountBadge');
+
   if (countBadge) countBadge.innerText = `${trips.length} SESSIONS`;
+
   if (!container) return;
 
+
+
   if (trips.length === 0) {
+
     container.innerHTML = `
+
       <div style="text-align:center; padding:24px 8px; color:var(--text-secondary); font-size:11.5px;">
+
         <div>📊</div>
+
         <div style="margin-top:6px;">No recorded drive sessions yet.</div>
+
         <div style="font-size:10px; color:#667;">Start driving to record black-box telemetry.</div>
+
       </div>
+
     `;
+
     return;
+
   }
+
+
 
   let html = '';
+
   trips.forEach((t, idx) => {
+
     const isFirst = (idx === 0);
+
     html += `
+
       <div class="trip-item-card ${isFirst ? 'active' : ''}" onclick="selectTripSession(${t.id})">
+
         <div style="display:flex; justify-content:space-between; align-items:center;">
+
           <span style="font-size:12px; font-weight:900; color:#fff;">TRIP #${t.id}</span>
+
           <span style="font-size:10px; color:var(--accent-blue); font-family:var(--font-mono);">${(t.distance_miles || 0).toFixed(1)} mi</span>
+
         </div>
+
         <div style="font-size:10px; color:var(--text-secondary); margin-top:3px;">${t.start_time || 'Recent Drive'} • ${(t.duration_min || 0).toFixed(0)} min</div>
+
         <div style="display:flex; gap:8px; font-size:9.5px; font-family:var(--font-mono); margin-top:4px; color:#a0b8d0;">
+
           <span>TOP: ${(t.max_speed_mph || 0).toFixed(0)} MPH</span>
+
           <span>BOOST: ${(t.max_boost_psi || 0).toFixed(1)} PSI</span>
+
         </div>
+
       </div>
+
     `;
+
   });
+
   container.innerHTML = html;
+
   if (trips.length > 0) {
+
     selectTripSession(trips[0].id);
+
   }
+
 }
+
+
 
 function selectTripSession(tripId) {
+
   fetch(`/api/trips/telemetry?id=${tripId}`)
+
     .then(r => r.json())
+
     .then(points => {
+
       currentTripSessionPoints = points;
+
       renderTripChart(points);
+
     });
+
 }
 
+
+
 function renderTripChart(points) {
+
   const canvas = document.getElementById('tripChartCanvas');
+
   if (!canvas) return;
+
   const ctx = canvas.getContext('2d');
+
   const w = canvas.clientWidth || 400;
+
   const h = canvas.clientHeight || 140;
+
   canvas.width = w;
+
   canvas.height = h;
+
+
 
   ctx.clearRect(0, 0, w, h);
 
+
+
   if (!points || points.length < 2) {
+
     ctx.fillStyle = '#667788';
+
     ctx.font = '12px sans-serif';
+
     ctx.textAlign = 'center';
+
     ctx.fillText('Accumulating telemetry stream points...', w / 2, h / 2);
+
     return;
+
   }
+
+
 
   // Draw Grid Lines
+
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+
   ctx.lineWidth = 1;
+
   for (let y = 0; y < h; y += 30) {
+
     ctx.beginPath();
+
     ctx.moveTo(0, y);
+
     ctx.lineTo(w, y);
+
     ctx.stroke();
+
   }
+
+
 
   // Draw Speed (Cyan)
+
   ctx.beginPath();
+
   ctx.strokeStyle = '#00e5ff';
+
   ctx.lineWidth = 2;
+
   points.forEach((p, i) => {
+
     const x = (i / (points.length - 1)) * w;
+
     const y = h - ((p.speed_mph || 0) / 100) * (h - 20) - 10;
+
     if (i === 0) ctx.moveTo(x, y);
+
     else ctx.lineTo(x, y);
+
   });
+
   ctx.stroke();
+
+
 
   // Draw Boost (Yellow)
+
   ctx.beginPath();
+
   ctx.strokeStyle = '#ffcc00';
+
   ctx.lineWidth = 1.8;
+
   points.forEach((p, i) => {
+
     const x = (i / (points.length - 1)) * w;
+
     const boost = Math.max(0, p.boost_psi || 0);
+
     const y = h - (boost / 25) * (h - 20) - 10;
+
     if (i === 0) ctx.moveTo(x, y);
+
     else ctx.lineTo(x, y);
+
   });
+
   ctx.stroke();
+
 }
+
+
 
 function exportCurrentTripManifest() {
+
   window.open('/api/trips/manifest', '_blank');
+
 }
+
+
 
 function promptClearAllTrips() {
+
   if (confirm("Purge all recorded driving sessions from the vehicle black-box database?")) {
+
     fetch('/api/trips/clear', { method: 'POST' })
+
       .then(r => r.json())
+
       .then(() => {
+
         showAiSpeechToast("Flight records purged.");
+
         refreshTripsList();
+
       });
+
   }
+
 }
 
+
+
 // ============================================================================
+
 // --- SETTINGS CATEGORY TABS & DYNAMIC AUDIO ROUTING ---
+
 // ============================================================================
+
 function switchSettingsCategory(catId) {
+
   const tabs = {
+
     ai: document.getElementById('tabSetCatAi'),
+
     audio: document.getElementById('tabSetCatAudio'),
+
     vehicle: document.getElementById('tabSetCatVehicle'),
+
     conn: document.getElementById('tabSetCatConn'),
+
     theme: document.getElementById('tabSetCatTheme'),
+
     system: document.getElementById('tabSetCatSystem')
+
   };
+
+
 
   Object.keys(tabs).forEach(k => {
+
     if (tabs[k]) {
+
       if (k === catId) tabs[k].classList.add('active');
+
       else tabs[k].classList.remove('active');
+
     }
+
   });
+
+
 
   const accs = {
+
     ai: document.getElementById('accAiGroup'),
+
     audio: document.getElementById('accSystemGroup'),
+
     vehicle: document.getElementById('accPowertrainGroup'),
+
     conn: document.getElementById('accSystemGroup'),
+
     theme: document.getElementById('accSystemGroup'),
+
     system: document.getElementById('accAboutGroup')
+
   };
 
+
+
   Object.values(accs).forEach(el => {
+
     if (el) el.classList.remove('active');
+
   });
 
+
+
   if (accs[catId]) {
+
     accs[catId].classList.add('active');
+
   }
+
+
 
   if (catId === 'audio') {
+
     loadDynamicAudioDevices();
+
     const c = document.getElementById('cardDynamicAudio');
+
     if (c) c.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
   }
+
 }
+
+
 
 function loadDynamicAudioDevices() {
+
   fetch('/api/audio/devices')
+
     .then(r => r.json())
+
     .then(data => {
+
       populateAudioDropdowns(data);
+
     })
+
     .catch(err => console.error('[AUDIO] Devices error:', err));
+
 }
+
+
 
 function populateAudioDropdowns(data) {
+
   const sinkSelect = document.getElementById('audioOutputSinkSelect');
+
   const sourceSelect = document.getElementById('audioInputSourceSelect');
+
   const sinkLabel = document.getElementById('audioCurrentSinkLabel');
+
   const sourceLabel = document.getElementById('audioCurrentSourceLabel');
 
+
+
   if (sinkSelect && data.sinks) {
+
     let html = '';
+
     data.sinks.forEach(s => {
+
       const isSel = s.id === data.active_sink_id || s.is_default;
+
       const type = s.is_bluetooth ? '📻 Bluetooth Uconnect' : (s.name.toLowerCase().includes('hdmi') ? '🖥️ HDMI Display' : '🎧 Audio Device');
+
       html += `<option value="${s.id}" ${isSel ? 'selected' : ''}>${type} (${s.name})</option>`;
+
       if (isSel && sinkLabel) {
+
         sinkLabel.innerText = `Active Output: ${s.name} (${Math.round((s.volume || 1.0) * 100)}% Vol)`;
+
       }
+
     });
+
     sinkSelect.innerHTML = html;
+
   }
+
+
 
   if (sourceSelect && data.sources) {
+
     let html = '';
+
     data.sources.forEach(src => {
+
       const isSel = src.id === data.active_source_id || src.is_default;
+
       const type = src.is_bluetooth ? '📱 Bluetooth Mic' : '🎙️ Microphone';
+
       html += `<option value="${src.id}" ${isSel ? 'selected' : ''}>${type} (${src.name})</option>`;
+
       if (isSel && sourceLabel) {
+
         sourceLabel.innerText = `Active Mic: ${src.name}`;
+
       }
+
     });
+
     sourceSelect.innerHTML = html;
+
   }
+
 }
+
+
 
 function onSelectAudioOutputSink(sinkId) {
+
   if (!sinkId) return;
+
   fetch('/api/audio/output', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ sink: sinkId })
+
   })
+
     .then(r => r.json())
+
     .then(() => {
+
       showAiSpeechToast("Audio output switched!");
+
       loadDynamicAudioDevices();
+
     });
+
 }
+
+
 
 function onSelectAudioInputSource(sourceId) {
+
   if (!sourceId) return;
+
   fetch('/api/audio/input', {
+
     method: 'POST',
+
     headers: { 'Content-Type': 'application/json' },
+
     body: JSON.stringify({ source: sourceId })
+
   })
+
     .then(r => r.json())
+
     .then(() => {
+
       showAiSpeechToast("Microphone source switched!");
+
       loadDynamicAudioDevices();
+
     });
+
 }
 
+
+
 function minimizeFloatingCompanion() {
+
   window.isCompanionMinimizedByUser = true;
+
   const hud = document.getElementById('vrmFloatingHud');
+
   const mini = document.getElementById('vrmMiniBubble');
+
   if (!hud) return;
 
+
+
   if (mini) {
+
     if (hud.style.left && hud.style.top && hud.style.left !== 'auto') {
+
       mini.style.left = Math.max(10, Math.min(window.innerWidth - 180, parseInt(hud.style.left, 10) + 40)) + 'px';
+
       mini.style.top = Math.max(10, Math.min(window.innerHeight - 60, parseInt(hud.style.top, 10) + 270)) + 'px';
+
       mini.style.bottom = 'auto';
+
       mini.style.right = 'auto';
+
     } else {
+
       mini.style.bottom = '24px';
+
       mini.style.right = '24px';
+
       mini.style.left = 'auto';
+
       mini.style.top = 'auto';
+
     }
+
     mini.style.display = 'flex';
+
   }
+
+
 
   hud.style.display = 'none';
 
+
+
   const pill = document.getElementById('rumMinHudPill');
+
   if (pill) {
+
     pill.classList.add('glow-pulse');
+
     setTimeout(() => pill.classList.remove('glow-pulse'), 1500);
+
   }
+
 }
 
+
+
 function expandFloatingCompanion() {
+
   window.isCompanionMinimizedByUser = false;
+
   const hud = document.getElementById('vrmFloatingHud');
+
   const mini = document.getElementById('vrmMiniBubble');
+
   if (mini) mini.style.display = 'none';
+
+
 
   if (!hud) return;
 
+
+
   if (mini && mini.style.left && mini.style.top && mini.style.left !== 'auto') {
+
     const leftVal = Math.max(10, Math.min(window.innerWidth - 260, parseInt(mini.style.left, 10) - 40));
+
     const topVal = Math.max(10, Math.min(window.innerHeight - 340, parseInt(mini.style.top, 10) - 270));
+
     hud.style.left = leftVal + 'px';
+
     hud.style.top = topVal + 'px';
+
     hud.style.bottom = 'auto';
+
     hud.style.right = 'auto';
+
   } else {
+
     hud.style.bottom = '60px';
+
     hud.style.right = '20px';
+
     hud.style.left = 'auto';
+
     hud.style.top = 'auto';
+
   }
+
+
 
   popOutFloatingCompanion(true);
+
 }
+
+
 
 function floatCompanionShotgun(isAuto = false) {
+
   popOutFloatingCompanion(isAuto);
+
 }
+
+
 
 function dismissFloatingHud() {
+
   isShotgunAutoPopped = false;
+
   window.isCompanionMinimizedByUser = false;
+
   const mini = document.getElementById('vrmMiniBubble');
+
   if (mini) mini.style.display = 'none';
+
   dockCompanionToAi();
+
 }
+
+
 
 function toggleRumHudFromPill() {
+
   const hud = document.getElementById('vrmFloatingHud');
+
   const mini = document.getElementById('vrmMiniBubble');
+
   const isHudShowing = (hud && hud.style.display !== 'none');
+
   const isMiniShowing = (mini && mini.style.display !== 'none');
 
+
+
   if (!isHudShowing && !isMiniShowing) {
+
     if (currentScreen === 'ai') {
+
       navigateTo('home');
+
     }
+
     popOutFloatingCompanion();
+
   } else if (isHudShowing) {
+
     minimizeFloatingCompanion();
+
   } else {
+
     expandFloatingCompanion();
+
   }
+
 }
+
+
+
 
 
 // --- PHASE 3: DEDICATED FULL AUDIO SUITE EQ GRID ---
+
 function renderFullAudioSuiteEqGrid() {
+
   const container = document.getElementById('fullAudioSuiteEqGrid');
+
   if (!container) return;
+
   container.innerHTML = '';
 
+
+
   EQ_FREQS.forEach((freq, idx) => {
+
     const val = currentEqGains[idx] || 0;
+
     const label = freq >= 1000 ? `${freq / 1000}k` : `${freq}`;
+
     const col = document.createElement('div');
+
     col.style.cssText = 'display:flex; flex-direction:column; align-items:center; justify-content:space-between; height:185px; flex:1; min-width:44px; padding:0 4px;';
+
     col.innerHTML = `
+
       <div style="font-size:11px; font-weight:800; font-family:var(--font-mono); color:${val > 0 ? '#00e676' : (val < 0 ? '#ff5252' : '#8c9ba5')}; min-height:16px;" id="fullEqDb_${idx}">${val >= 0 ? '+' : ''}${val} dB</div>
+
       <input type="range" class="eq-vertical-slider" min="-12" max="12" step="1" value="${val}" oninput="setFullEqBandGain(${idx}, this.value)" style="writing-mode:bt-lr; -webkit-appearance:slider-vertical; width:28px; height:130px; accent-color:var(--accent-purple); cursor:pointer;">
+
       <div style="font-size:11px; font-weight:800; color:#fff; margin-top:6px;">${label}Hz</div>
+
     `;
+
     container.appendChild(col);
+
   });
+
 }
+
+
 
 function setFullEqBandGain(idx, val) {
+
   setEqBandGain(idx, val);
+
   const dbEl = document.getElementById(`fullEqDb_${idx}`);
+
   if (dbEl) {
+
     val = parseInt(val);
+
     dbEl.innerText = `${val >= 0 ? '+' : ''}${val} dB`;
+
     dbEl.style.color = val > 0 ? '#00e676' : (val < 0 ? '#ff5252' : '#8c9ba5');
+
   }
+
 }
 
+
+
 // --- PHASE 3: WINDOWS 11 "THIS PC" DRIVES OVERVIEW ---
+
 function renderWin11ThisPcView() {
+
   if (typeof syncWin11SidebarActive === 'function') syncWin11SidebarActive('thispc');
+
+
 
   // Full-window screenExplorer view rendered directly
 
+
+
   const fileList = document.getElementById('explorerFileList');
+
   const breadcrumbContainer = document.getElementById('explorerBreadcrumbs');
+
   const footerStatus = document.getElementById('explorerFooterStatus');
+
+
 
   currentExplorerPath = 'thispc';
 
+
+
   if (breadcrumbContainer) {
+
     breadcrumbContainer.innerHTML = '<span class="breadcrumb-segment active" style="font-weight:900; color:#fff;">🖥️ This PC</span>';
+
   }
 
+
+
   if (footerStatus) {
+
     footerStatus.innerText = 'Devices and Drives (7 items)';
+
   }
+
+
 
   if (!fileList) return;
 
-  const drives = [
-    {
-      icon: '💽',
-      name: 'OS System Drive (Root /)',
-      path: '/',
-      sub: '64GB MicroSD / NVMe System Storage',
-      usedPct: 52,
-      freeText: '28.4 GB free of 59.8 GB'
-    },
-    {
-      icon: '💼',
-      name: 'CarPi5 Workspace',
-      path: '/home/nfgodin/CarPi5',
-      sub: 'Backend, 3D VRM Engine & Telemetry',
-      usedPct: 35,
-      freeText: '38.2 GB free of 59.8 GB'
-    },
-    {
-      icon: '🏠',
-      name: 'User Home (~)',
-      path: '/home/nfgodin',
-      sub: 'User Profile, Configuration & Scripts',
-      usedPct: 38,
-      freeText: '36.8 GB free of 59.8 GB'
-    },
-    {
-      icon: '💾',
-      name: 'USB External Media',
-      path: '/media/nfgodin',
-      sub: 'Removable USB Flash Drives & Hard Drives',
-      usedPct: 20,
-      freeText: 'Plug-and-play automotive storage'
-    },
-    {
-      icon: '📹',
-      name: 'Pi 3 Dashcam Network Drive',
-      path: '/home/nfgodin/CarPi5/storage/dashcam_videos',
-      sub: 'Pi 3 (192.168.0.141) H.264 Video Replays',
-      usedPct: 45,
-      freeText: 'Dedicated black-box dashcam drive'
-    },
-    {
-      icon: '🎮',
-      name: 'Retro ROMs & Games',
-      path: '/home/nfgodin/RetroPie/roms',
-      sub: 'RetroArch SNES, GBA, Arcade & PSX',
-      usedPct: 48,
-      freeText: 'Game library storage'
-    },
-    {
-      icon: '🎵',
-      name: 'Music & Audio Library',
-      path: '/home/nfgodin/Music',
-      sub: 'High-Fidelity FLAC & MP3 Albums',
-      usedPct: 28,
-      freeText: 'Local car audio deck library'
-    }
-  ];
+
+
+  let drives = [];
+
+  if (detectedDevices && detectedDevices.length > 0) {
+
+    drives = detectedDevices.map(d => {
+
+      const usedPct = d.total_gb ? Math.round(((d.total_gb - d.free_gb) / d.total_gb) * 100) : 30;
+
+      return {
+
+        icon: d.icon || '💾',
+
+        name: d.name || d.label,
+
+        path: d.path,
+
+        sub: d.is_removable ? 'Removable USB Automotive Storage' : (d.mount_point || d.path),
+
+        usedPct: Math.max(0, Math.min(100, usedPct)),
+
+        freeText: `${d.free_gb} GB free of ${d.total_gb} GB`
+
+      };
+
+    });
+
+  } else {
+
+    drives = [
+
+      { icon: '💽', name: 'OS System Drive (Root /)', path: '/', sub: 'MicroSD / NVMe Storage', usedPct: 50, freeText: 'System Drive' },
+
+      { icon: '💼', name: 'CarPi5 Workspace', path: 'carpi5', sub: 'Backend, 3D Engine & Telemetry', usedPct: 35, freeText: 'Active Workspace' },
+
+      { icon: '🏠', name: 'User Home (~)', path: '~', sub: 'User Profile & Configurations', usedPct: 38, freeText: 'User Home' },
+
+      { icon: '💾', name: 'USB External Media', path: 'usb', sub: 'Removable Storage', usedPct: 20, freeText: 'Automotive Media' },
+
+      { icon: '📹', name: 'Dashcam Storage', path: 'dashcam', sub: 'Video Replays & Dashcam Cache', usedPct: 45, freeText: 'Dashcam Network Storage' },
+
+      { icon: '🎮', name: 'Retro ROMs', path: 'roms', sub: 'Emulation Library', usedPct: 40, freeText: 'Game ROMs' },
+
+      { icon: '🎵', name: 'Music Library', path: 'music', sub: 'Audio Library', usedPct: 30, freeText: 'Local Audio Tracks' }
+
+    ];
+
+  }
+
+
 
   fileList.innerHTML = `
+
     <div class="win11-drives-grid">
+
       ${drives.map(d => `
+
         <div class="win11-drive-card" onclick="loadExplorerDirectory('${d.path}')" title="Click to open ${d.name}">
+
           <div class="win11-drive-header">
+
             <span class="win11-drive-icon">${d.icon}</span>
+
             <div>
+
               <div class="win11-drive-name">${d.name}</div>
+
               <div class="win11-drive-sub">${d.sub}</div>
+
             </div>
+
           </div>
+
           <div class="win11-drive-meter">
+
             <div class="win11-drive-meter-fill ${d.usedPct > 85 ? 'warn' : ''}" style="width: ${d.usedPct}%;"></div>
+
           </div>
+
           <div class="win11-drive-capacity">
+
             <span>${d.path}</span>
+
             <span>${d.freeText}</span>
+
           </div>
+
         </div>
+
       `).join('')}
+
     </div>
+
   `;
+
 }
 
+
+
 // Hook renderExplorerBreadcrumbs to add "This PC" root button
+
 const originalRenderBreadcrumbs = typeof renderExplorerBreadcrumbs === 'function' ? renderExplorerBreadcrumbs : null;
+
 renderExplorerBreadcrumbs = function(breadcrumbs, currentPath) {
+
   const breadcrumbContainer = document.getElementById('explorerBreadcrumbs');
+
   if (!breadcrumbContainer) return;
 
+
+
   if (currentPath === 'thispc') {
+
     breadcrumbContainer.innerHTML = '<span class="breadcrumb-segment active" style="font-weight:900; color:#fff;">🖥️ This PC</span>';
+
     return;
+
   }
+
+
 
   let html = '<span class="breadcrumb-segment" onclick="renderWin11ThisPcView()" style="color:var(--accent-cyan); font-weight:800;">🖥️ This PC</span> <span class="breadcrumb-separator">&gt;</span> ';
 
+
+
   if (!breadcrumbs || breadcrumbs.length === 0) {
+
     html += `<span class="breadcrumb-segment active">${currentPath}</span>`;
+
   } else {
+
     breadcrumbs.forEach((b, idx) => {
+
       const isLast = (idx === breadcrumbs.length - 1);
+
       html += `<span class="breadcrumb-segment ${isLast ? 'active' : ''}" onclick="loadExplorerDirectory('${b.path}')">${b.name}</span>`;
+
       if (!isLast) html += '<span class="breadcrumb-separator">/</span>';
+
     });
+
   }
+
+
 
   breadcrumbContainer.innerHTML = html;
+
   breadcrumbContainer.scrollLeft = breadcrumbContainer.scrollWidth;
+
 };
 
+
+
 // --- PHASE 3: HOME SCREEN CARDS TOUCH REORDER ENGINE ---
+
 function initHomeCardsTouchReorder() {
+
   const grid = document.querySelector('#screenHome .home-cards-grid');
+
   if (!grid || grid._reorderInitialized) return;
+
   grid._reorderInitialized = true;
 
+
+
   // Restore saved card order
+
   applySavedHomeCardOrder(grid);
 
+
+
   let draggedCard = null;
+
   let touchHoldTimer = null;
+
   let isReordering = false;
 
+
+
   grid.querySelectorAll('.launcher-card').forEach(card => {
+
     card.setAttribute('draggable', 'true');
 
+
+
     // Drag and Drop (Mouse / Touch)
+
     card.addEventListener('dragstart', (e) => {
+
       draggedCard = card;
+
       card.classList.add('dragging-card');
+
       e.dataTransfer.effectAllowed = 'move';
+
     });
+
+
 
     card.addEventListener('dragend', () => {
+
       if (draggedCard) draggedCard.classList.remove('dragging-card');
+
       grid.querySelectorAll('.launcher-card').forEach(c => c.classList.remove('drag-over'));
+
       draggedCard = null;
+
       saveHomeCardOrder(grid);
+
     });
+
+
 
     card.addEventListener('dragover', (e) => {
+
       e.preventDefault();
+
       if (!draggedCard || draggedCard === card) return;
+
       card.classList.add('drag-over');
+
     });
+
+
 
     card.addEventListener('dragleave', () => {
+
       card.classList.remove('drag-over');
+
     });
+
+
 
     card.addEventListener('drop', (e) => {
+
       e.preventDefault();
+
       card.classList.remove('drag-over');
+
       if (draggedCard && draggedCard !== card) {
+
         const cards = Array.from(grid.children);
+
         const fromIdx = cards.indexOf(draggedCard);
+
         const toIdx = cards.indexOf(card);
+
         if (fromIdx < toIdx) {
+
           card.after(draggedCard);
+
         } else {
+
           card.before(draggedCard);
+
         }
+
         saveHomeCardOrder(grid);
+
       }
+
     });
+
   });
+
 }
+
+
 
 function saveHomeCardOrder(grid) {
+
   const cards = Array.from(grid.querySelectorAll('.launcher-card'));
+
   const cardIdentifiers = cards.map(c => {
+
     const titleEl = c.querySelector('.card-title');
+
     return titleEl ? titleEl.innerText.trim() : c.className;
+
   });
+
   localStorage.setItem('carpi5_home_card_order', JSON.stringify(cardIdentifiers));
+
 }
+
+
 
 function applySavedHomeCardOrder(grid) {
+
   try {
+
     const saved = localStorage.getItem('carpi5_home_card_order');
+
     if (!saved) return;
+
     const order = JSON.parse(saved);
+
     if (!Array.isArray(order) || order.length === 0) return;
 
+
+
     const cards = Array.from(grid.querySelectorAll('.launcher-card'));
+
     const cardMap = {};
+
     cards.forEach(c => {
+
       const titleEl = c.querySelector('.card-title');
+
       const key = titleEl ? titleEl.innerText.trim() : c.className;
+
       cardMap[key] = c;
+
     });
 
+
+
     order.forEach(key => {
+
       if (cardMap[key]) {
+
         grid.appendChild(cardMap[key]);
+
       }
+
     });
+
   } catch (e) {
+
     console.warn("[HOME REORDER] Order restore error:", e);
+
   }
+
 }
+
+
+
 
 
 // Phase 3 Initialization Hook
+
 window.addEventListener('DOMContentLoaded', () => {
+
   if (typeof initVrmControlsBarState === 'function') initVrmControlsBarState();
+
   if (typeof initHomeCardsTouchReorder === 'function') initHomeCardsTouchReorder();
+
 });
+
 setTimeout(() => {
+
   if (typeof initVrmControlsBarState === 'function') initVrmControlsBarState();
+
   if (typeof initHomeCardsTouchReorder === 'function') initHomeCardsTouchReorder();
+
 }, 600);
 
 
+
+
+
 function syncWin11SidebarActive(path) {
+
   document.querySelectorAll('.win11-nav-item').forEach(b => b.classList.remove('active'));
+
   if (!path || path === 'thispc') {
+
     const el = document.getElementById('win11NavThisPc');
+
     if (el) el.classList.add('active');
-  } else if (path === '/home/nfgodin') {
+
+  } else if (path === '~' || path === 'home' || (path.startsWith('/home/') && path.split('/').filter(Boolean).length === 2)) {
+
     const el = document.getElementById('win11NavHome');
+
     if (el) el.classList.add('active');
-  } else if (path.startsWith('/home/nfgodin/CarPi5')) {
+
+  } else if (path === 'carpi5' || path.includes('CarPi5')) {
+
     const el = document.getElementById('win11NavProject');
+
     if (el) el.classList.add('active');
+
   } else if (path.startsWith('/media')) {
+
     const el = document.getElementById('win11NavUsb');
+
     if (el) el.classList.add('active');
+
   } else if (path.includes('dashcam')) {
+
     const el = document.getElementById('win11NavDashcam');
+
     if (el) el.classList.add('active');
+
   } else if (path.includes('roms') || path.includes('RetroPie')) {
+
     const el = document.getElementById('win11NavRoms');
+
     if (el) el.classList.add('active');
+
   } else if (path.includes('Music')) {
+
     const el = document.getElementById('win11NavMusic');
+
     if (el) el.classList.add('active');
+
   } else if (path === '/') {
+
     const el = document.getElementById('win11NavRoot');
+
     if (el) el.classList.add('active');
+
   }
+
 }
 
 
+
+
+
 // ============================================================================
+
 // --- IN-DASH AUTOMOTIVE LIBRARY & DOCUMENT VIEWER ---
+
 // ============================================================================
+
 function openLibraryBook(bookKey) {
+
   const shelf = document.getElementById('libraryShelfView');
+
   const reader = document.getElementById('libraryReaderView');
+
   const mdContainer = document.getElementById('libraryMarkdownContainer');
+
   const pdfContainer = document.getElementById('libraryPdfContainer');
+
   const titleEl = document.getElementById('libraryBookTitle');
+
   const mdContent = document.getElementById('libraryMarkdownContent');
+
   const pdfFrame = document.getElementById('libraryPdfFrame');
+
+
 
   if (!shelf || !reader) return;
 
+
+
   shelf.style.display = 'none';
+
   reader.style.display = 'flex';
 
+
+
   if (bookKey === 'carpi5_manual') {
+
     if (titleEl) titleEl.innerText = "📖 CARPI5: COMPLETE SYSTEM & ENGINEERING MANUAL";
+
     if (mdContainer) mdContainer.style.display = 'block';
+
     if (pdfContainer) pdfContainer.style.display = 'none';
 
+
+
     if (mdContent) {
+
       mdContent.innerHTML = '<div style="color:var(--text-secondary); padding:40px; text-align:center;">Loading CarPi5 System Manual...</div>';
+
       fetch('/storage/manuals/CarPi5_Complete_System_Manual.md')
+
         .then(r => r.text())
+
         .then(md => {
+
           if (typeof marked !== 'undefined') {
+
             mdContent.innerHTML = marked.parse(md);
+
           } else {
+
             let html = md
+
               .replace(/&/g, '&amp;')
+
               .replace(/</g, '&lt;')
+
               .replace(/>/g, '&gt;')
+
               .replace(/^### (.*$)/gim, '<h3 style="color:#00e5ff; margin-top:16px;">$1</h3>')
+
               .replace(/^## (.*$)/gim, '<h2 style="color:#ff4081; border-bottom:1px solid #1c2636; padding-bottom:6px; margin-top:24px;">$1</h2>')
+
               .replace(/^# (.*$)/gim, '<h1 style="color:#fff; border-bottom:2px solid #00e5ff; padding-bottom:8px;">$1</h1>')
+
               .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
+
               .replace(/\*(.*?)\*/gim, '<em>$1</em>')
+
               .replace(/```([\s\S]*?)```/gim, '<pre style="background:#090d14; border:1px solid #1c2636; padding:12px; border-radius:8px; overflow-x:auto; font-family:monospace; color:#00e676;"><code>$1</code></pre>')
+
               .replace(/`([^`]+)`/gim, '<code style="background:#161f2e; color:#00e5ff; padding:2px 6px; border-radius:4px;">$1</code>')
+
               .replace(/\n\n/gim, '<p style="margin-bottom:12px;"></p>');
+
             mdContent.innerHTML = html;
+
           }
+
           if (typeof initTouchScrollEngine === 'function') {
+
             setTimeout(initTouchScrollEngine, 100);
+
           }
+
         })
+
         .catch(err => {
+
           mdContent.innerHTML = `<div style="color:var(--accent-red); padding:20px;">Failed to load system manual: ${err}</div>`;
+
         });
+
     }
+
   } else if (bookKey === 'dart_owner') {
+
     if (titleEl) titleEl.innerText = "📕 2013 DODGE DART OWNER'S MANUAL (1.4L TURBO MULTIAIR)";
+
     if (mdContainer) mdContainer.style.display = 'none';
+
     if (pdfContainer) pdfContainer.style.display = 'block';
+
     if (pdfFrame) pdfFrame.src = "http://127.0.0.1:8080/storage/manuals/2013-Dodge-Dart-OM.pdf#toolbar=1&navpanes=1";
+
   } else if (bookKey === 'dart_repair') {
+
     if (titleEl) titleEl.innerText = "📙 DODGE DART COLLISION & BODY SERVICE MANUAL (2012-2016)";
+
     if (mdContainer) mdContainer.style.display = 'none';
+
     if (pdfContainer) pdfContainer.style.display = 'block';
+
     if (pdfFrame) pdfFrame.src = "http://127.0.0.1:8080/storage/manuals/Collision_Body_Repair_Manual_Dodge_Dart_2012-2016_253-document.pdf#toolbar=1&navpanes=1";
+
   }
+
 }
 
+
+
 function closeLibraryReader() {
+
   const shelf = document.getElementById('libraryShelfView');
+
   const reader = document.getElementById('libraryReaderView');
+
   const pdfFrame = document.getElementById('libraryPdfFrame');
+
   if (shelf) shelf.style.display = 'grid';
+
   if (reader) reader.style.display = 'none';
+
   if (pdfFrame) pdfFrame.src = 'about:blank';
+
+}
+
+
+
+
+
+function toggleAiChatMinimize() {
+
+  const container = document.getElementById('screenAI');
+
+  const pill = document.getElementById('btnRestoreChatPill');
+
+  if (!container) return;
+
+
+
+  const isClosed = container.classList.contains('chat-closed');
+
+  if (isClosed) {
+
+    // Restore chat panel
+
+    container.classList.remove('chat-closed');
+
+    if (pill) pill.style.display = 'none';
+
+    setAiLayoutMode('SPLIT');
+
+    if (typeof vrmFramingMode !== 'undefined') vrmFramingMode = 'FULL_BODY';
+
+  } else {
+
+    // Minimize chat to view full 3D room
+
+    container.classList.add('chat-closed');
+
+    if (pill) pill.style.display = 'inline-flex';
+
+    setAiLayoutMode('ROOM');
+
+    if (typeof vrmFramingMode !== 'undefined') vrmFramingMode = 'ROOM';
+
+  }
+
+  if (typeof snapCameraToCurrentFraming === 'function') snapCameraToCurrentFraming();
+
+  if (typeof resizeVrmToStage === 'function') resizeVrmToStage();
+
+}
+
+window.toggleAiChatMinimize = toggleAiChatMinimize;
+
+
+
+
+
+// ==========================================
+
+// DUAL-SBC HARDWARE & PERIPHERALS STUDIO
+
+// ==========================================
+
+let hardwareStudioActive = false;
+
+let hardwareStudioTimer = null;
+
+let pi3AutoStreamTimer = null;
+
+let pi3AutoStreamEnabled = false;
+
+
+
+function startHardwareStudioLoop() {
+
+  hardwareStudioActive = true;
+
+  refreshDetailedHardwareSpecs(true);
+
+
+
+  if (hardwareStudioTimer) clearInterval(hardwareStudioTimer);
+
+  hardwareStudioTimer = setInterval(() => {
+
+    if (hardwareStudioActive && currentScreen === 'hardware') {
+
+      refreshDetailedHardwareSpecs(false);
+
+    }
+
+  }, 1600);
+
+
+
+  if (pi3AutoStreamEnabled) {
+
+    startPi3AutoStream();
+
+  }
+
+}
+
+
+
+function stopHardwareStudioLoop() {
+
+  hardwareStudioActive = false;
+
+  if (hardwareStudioTimer) {
+
+    clearInterval(hardwareStudioTimer);
+
+    hardwareStudioTimer = null;
+
+  }
+
+  stopPi3AutoStream();
+
+}
+
+
+
+function startPi3AutoStream() {
+
+  stopPi3AutoStream();
+
+  refreshPi3HardwareStats(false);
+
+  pi3AutoStreamTimer = setInterval(() => {
+
+    if (hardwareStudioActive && pi3AutoStreamEnabled && currentScreen === 'hardware') {
+
+      refreshPi3HardwareStats(false);
+
+    }
+
+  }, 2500);
+
+}
+
+
+
+function stopPi3AutoStream() {
+
+  if (pi3AutoStreamTimer) {
+
+    clearInterval(pi3AutoStreamTimer);
+
+    pi3AutoStreamTimer = null;
+
+  }
+
+}
+
+
+
+function togglePi3AutoStream(chk) {
+
+  pi3AutoStreamEnabled = !!(chk && chk.checked);
+
+  const badge = document.getElementById('hwPi3StatusBadge');
+
+  if (pi3AutoStreamEnabled) {
+
+    if (badge) {
+
+      badge.textContent = 'AUTO-STREAMING (2.5s)';
+
+      badge.className = 'hw-badge hw-badge-cyan';
+
+    }
+
+    startPi3AutoStream();
+
+  } else {
+
+    stopPi3AutoStream();
+
+    if (badge) {
+
+      badge.textContent = 'STANDBY / ON-DEMAND';
+
+      badge.className = 'hw-badge hw-badge-yellow';
+
+    }
+
+  }
+
+}
+
+
+
+function refreshDetailedHardwareSpecs(force = false) {
+
+  fetch('/api/system/detailed_specs')
+
+    .then(r => r.json())
+
+    .then(data => {
+
+      // 1. Header Uptime
+
+      const uptimePill = document.getElementById('hwUptimePill');
+
+      if (uptimePill && data.uptime_str) {
+
+        uptimePill.textContent = 'UPTIME: ' + data.uptime_str;
+
+      }
+
+
+
+      // 2. CPU Overall & Cores
+
+      const cpu = data.cpu || {};
+
+      const totalCpuBadge = document.getElementById('hwCpuTotalBadge');
+
+      if (totalCpuBadge) {
+
+        totalCpuBadge.textContent = 'OVERALL: ' + (cpu.total_pct || 0) + '%';
+
+      }
+
+
+
+      const cores = cpu.cores || [];
+
+      cores.forEach((c) => {
+
+        const id = c.id;
+
+        const freqEl = document.getElementById(`hwCore${id}Freq`);
+
+        const fillEl = document.getElementById(`hwCore${id}Fill`);
+
+        const valEl = document.getElementById(`hwCore${id}Val`);
+
+
+
+        if (freqEl) freqEl.textContent = (c.freq_ghz ? c.freq_ghz.toFixed(2) : '2.40') + ' GHz';
+
+        if (fillEl) {
+
+          const pct = Math.max(0, Math.min(100, c.pct || 0));
+
+          fillEl.style.width = pct + '%';
+
+          if (pct > 80) fillEl.style.background = 'var(--accent-red, #ef4444)';
+
+          else if (pct > 55) fillEl.style.background = 'var(--accent-yellow, #eab308)';
+
+          else fillEl.style.background = '#00f0ff';
+
+        }
+
+        if (valEl) valEl.textContent = (c.pct || 0).toFixed(1) + '%';
+
+      });
+
+
+
+      // 3. SoC Thermal & Voltage
+
+      const soc = data.soc || {};
+
+      const socTempEl = document.getElementById('hwSocTemp');
+
+      const socTempFEl = document.getElementById('hwSocTempF');
+
+      const coreVoltEl = document.getElementById('hwCoreVolt');
+
+      const underVoltEl = document.getElementById('hwUnderVolt');
+
+      const throttleBadge = document.getElementById('hwThrottleBadge');
+
+
+
+      if (socTempEl && soc.temp_c != null) socTempEl.textContent = soc.temp_c.toFixed(1) + ' °C';
+
+      if (socTempFEl && soc.temp_f != null) socTempFEl.textContent = soc.temp_f.toFixed(1) + ' °F';
+
+      if (coreVoltEl && soc.voltage_v != null) coreVoltEl.textContent = soc.voltage_v.toFixed(4) + ' V';
+
+
+
+      if (underVoltEl) {
+
+        underVoltEl.textContent = soc.under_voltage ? 'LOW VOLTAGE' : 'NOMINAL';
+
+        underVoltEl.style.color = soc.under_voltage ? '#ef4444' : '#10b981';
+
+      }
+
+
+
+      if (throttleBadge) {
+
+        if (soc.is_throttled) {
+
+          throttleBadge.textContent = 'THERMAL THROTTLED';
+
+          throttleBadge.className = 'hw-badge hw-badge-red';
+
+        } else if (soc.under_voltage) {
+
+          throttleBadge.textContent = 'UNDER-VOLTAGE';
+
+          throttleBadge.className = 'hw-badge hw-badge-yellow';
+
+        } else {
+
+          throttleBadge.textContent = (soc.throttled_hex || '0x0') + ' NOMINAL';
+
+          throttleBadge.className = 'hw-badge hw-badge-green';
+
+        }
+
+      }
+
+
+
+      // 4. VideoCore VII GPU
+
+      const gpu = data.gpu || {};
+
+      const v3dEl = document.getElementById('hwGpuV3dClock');
+
+      const gpuCoreEl = document.getElementById('hwGpuCoreClock');
+
+      const gpuMemEl = document.getElementById('hwGpuMem');
+
+      if (v3dEl) v3dEl.textContent = (gpu.v3d_clock_mhz || 960) + ' MHz';
+
+      if (gpuCoreEl) gpuCoreEl.textContent = (gpu.core_clock_mhz || 910) + ' MHz';
+
+      if (gpuMemEl) gpuMemEl.textContent = (gpu.gpu_mem_mb || 8) + ' MB';
+
+
+
+      // 5. Hailo-10H NPU Accelerator
+
+      const npu = data.npu || {};
+
+      const npuBadge = document.getElementById('hwNpuStatusBadge');
+
+      const npuTops = document.getElementById('hwNpuTops');
+
+      const npuRam = document.getElementById('hwNpuRam');
+
+      const npuLive = document.getElementById('hwNpuLive');
+
+      const npuNode = document.getElementById('hwNpuNode');
+
+
+
+      if (npuBadge) {
+
+        npuBadge.textContent = npu.detected ? 'NPU ACTIVE • 40 TOPS' : 'SLOT READY • M.2 HAT+';
+
+        npuBadge.className = npu.detected ? 'hw-badge hw-badge-green' : 'hw-badge hw-badge-purple';
+
+      }
+
+      if (npuTops) npuTops.textContent = npu.tops_capacity || '40 TOPS';
+
+      if (npuRam) npuRam.textContent = npu.onboard_ram || '8 GB';
+
+      if (npuLive) {
+
+        npuLive.textContent = npu.detected ? 'ONLINE (ACTIVE)' : 'READY / UNPOPULATED';
+
+        npuLive.style.color = npu.detected ? '#10b981' : '#fbbf24';
+
+      }
+
+      if (npuNode && npu.nodes && npu.nodes.length) {
+
+        npuNode.textContent = npu.nodes[0];
+
+      }
+
+
+
+      // 6. Memory & Storage
+
+      const ram = data.ram || {};
+
+      const ramText = document.getElementById('hwRamText');
+
+      const ramFill = document.getElementById('hwRamFill');
+
+      if (ramText) ramText.textContent = `${ram.used_mb || 0} MB / ${ram.total_mb || 8058} MB (${(ram.pct || 0).toFixed(1)}%)`;
+
+      if (ramFill) ramFill.style.width = Math.min(100, ram.pct || 0) + '%';
+
+
+
+      const swapText = document.getElementById('hwSwapText');
+
+      const swapFill = document.getElementById('hwSwapFill');
+
+      if (swapText) swapText.textContent = `${ram.swap_used_mb || 0} MB / ${ram.swap_total_mb || 2047} MB (${(ram.swap_pct || 0).toFixed(1)}%)`;
+
+      if (swapFill) swapFill.style.width = Math.min(100, ram.swap_pct || 0) + '%';
+
+
+
+      const st = data.storage || {};
+
+      const stText = document.getElementById('hwStorageText');
+
+      const stFill = document.getElementById('hwStorageFill');
+
+      if (stText) stText.textContent = `${st.used_gb || 0} GB / ${st.total_gb || 0} GB (${(st.pct || 0).toFixed(1)}%)`;
+
+      if (stFill) stFill.style.width = Math.min(100, st.pct || 0) + '%';
+
+
+
+      // 7. Peripherals List
+
+      const periph = data.peripherals || {};
+
+      const periphList = document.getElementById('hwPeriphList');
+
+      if (periphList && periph.usb_devices && periph.usb_devices.length) {
+
+        let itemsHtml = '';
+
+        periph.usb_devices.forEach(u => {
+
+          itemsHtml += `<div class="hw-periph-item"><span class="hw-periph-tag">USB</span><span class="hw-periph-name">${u}</span></div>`;
+
+        });
+
+        itemsHtml += `<div class="hw-periph-item"><span class="hw-periph-tag">PCIe</span><span class="hw-periph-name">Raspberry Pi RP1 PCIe 2.0 Southbridge Controller</span></div>`;
+
+        if (periph.interfaces) {
+
+          periph.interfaces.forEach(net => {
+
+            itemsHtml += `<div class="hw-periph-item"><span class="hw-periph-tag" style="border-color:#3b82f6; color:#60a5fa;">NET</span><span class="hw-periph-name">${net.name}: ${net.ip} (${net.speed_mbps || 100} Mbps)</span></div>`;
+
+          });
+
+        }
+
+        periphList.innerHTML = itemsHtml;
+
+      }
+
+    })
+
+    .catch(err => {
+
+      console.warn('[HW_STUDIO] Failed fetching specs:', err);
+
+    });
+
+}
+
+
+
+function refreshPi3HardwareStats(force = false) {
+
+  const btn = document.getElementById('btnRefreshPi3');
+
+  const badge = document.getElementById('hwPi3StatusBadge');
+
+  const notice = document.getElementById('hwPi3Notice');
+
+  if (btn) btn.textContent = '⏳ QUERYING...';
+
+
+
+  fetch('/api/system/pi3_hardware')
+
+    .then(r => r.json())
+
+    .then(data => {
+
+      if (btn) btn.textContent = '🔄 REFRESH PI 3 STATS';
+
+      if (data.connected && data.status === 'ONLINE') {
+
+        if (badge) {
+
+          badge.textContent = `ONLINE (${data.host || '10.0.0.2'})`;
+
+          badge.className = 'hw-badge hw-badge-green';
+
+        }
+
+        const hw = data.hardware || {};
+
+        const elCpu = document.getElementById('hwPi3Cpu');
+
+        const elLoad = document.getElementById('hwPi3Load');
+
+        const elTemp = document.getElementById('hwPi3Temp');
+
+        const elTempF = document.getElementById('hwPi3TempF');
+
+        const elRam = document.getElementById('hwPi3Ram');
+
+        const elRamPct = document.getElementById('hwPi3RamPct');
+
+        const elCam = document.getElementById('hwPi3Camera');
+
+        const elRec = document.getElementById('hwPi3Rec');
+
+
+
+        if (elCpu) elCpu.textContent = (hw.cpu_pct != null ? hw.cpu_pct.toFixed(1) + '%' : '--');
+
+        if (elLoad) elLoad.textContent = '1m Load: ' + (hw.load_1m != null ? hw.load_1m.toFixed(2) : '--');
+
+        if (elTemp) elTemp.textContent = (hw.temp_c != null ? hw.temp_c.toFixed(1) + ' °C' : '--');
+
+        if (elTempF) elTempF.textContent = (hw.temp_f != null ? hw.temp_f.toFixed(1) + ' °F' : '--');
+
+        if (elRam) elRam.textContent = (hw.ram_used_mb != null ? `${hw.ram_used_mb} / ${hw.ram_total_mb} MB` : '--');
+
+        if (elRamPct) elRamPct.textContent = (hw.ram_pct != null ? `${hw.ram_pct}% Utilized` : '1 GB LPDDR2');
+
+
+
+        if (elCam) elCam.textContent = data.recording ? '🔴 RECORDING' : 'READY';
+
+        if (elRec) elRec.textContent = `Clips: ${data.clip_count != null ? data.clip_count : (data.disk && data.disk.clip_count ? data.disk.clip_count : '--')}`;
+
+        if (notice) notice.innerHTML = `✅ <b>Connected:</b> ${data.model || 'Raspberry Pi 3 Model B'} on ${data.host}. Telemetry refreshed at ${data.last_updated}.`;
+
+      } else {
+
+        if (badge) {
+
+          badge.textContent = 'OFFLINE / STANDBY';
+
+          badge.className = 'hw-badge hw-badge-yellow';
+
+        }
+
+        const elCpu = document.getElementById('hwPi3Cpu');
+
+        const elTemp = document.getElementById('hwPi3Temp');
+
+        const elRam = document.getElementById('hwPi3Ram');
+
+        const elCam = document.getElementById('hwPi3Camera');
+
+        if (elCpu) elCpu.textContent = 'OFFLINE';
+
+        if (elTemp) elTemp.textContent = 'STANDBY';
+
+        if (elRam) elRam.textContent = 'STANDBY';
+
+        if (elCam) elCam.textContent = 'OFFLINE';
+
+        if (notice) notice.innerHTML = `⚠️ <b>${data.message || 'Pi 3 Co-Processor not reachable on direct Ethernet (10.0.0.2).'}</b> (Single-shot query completed without consuming bus bandwidth).`;
+
+      }
+
+    })
+
+    .catch(err => {
+
+      if (btn) btn.textContent = '🔄 REFRESH PI 3 STATS';
+
+      if (badge) {
+
+        badge.textContent = 'OFFLINE';
+
+        badge.className = 'hw-badge hw-badge-yellow';
+
+      }
+
+      if (notice) notice.textContent = 'Failed connecting to Pi 3 co-processor proxy: ' + err.message;
+
+    });
+
+}
+
+
+
+window.startHardwareStudioLoop = startHardwareStudioLoop;
+
+window.stopHardwareStudioLoop = stopHardwareStudioLoop;
+
+window.refreshDetailedHardwareSpecs = refreshDetailedHardwareSpecs;
+
+window.refreshPi3HardwareStats = refreshPi3HardwareStats;
+
+window.togglePi3AutoStream = togglePi3AutoStream;
+
+
+// --- DYNAMIC CAMERA OCCLUSION FADING (RAYCAST WALL DITHERING) ---
+const _occRaycaster = new THREE.Raycaster();
+let _occFadeCandidateMeshes = [];
+let _occLastScanTime = 0;
+
+function updateCameraOcclusionFading() {
+  if (!vrmCamera || !currentVrm || !currentVrm.scene || !vrmEnvironmentGroup) return;
+
+  const now = Date.now();
+  if (now - _occLastScanTime > 1500) {
+    _occLastScanTime = now;
+    _occFadeCandidateMeshes = [];
+    vrmEnvironmentGroup.traverse(child => {
+      if (child.isMesh && child.userData && child.userData.isFadableWall) {
+        _occFadeCandidateMeshes.push(child);
+      }
+    });
+  }
+
+  if (!_occFadeCandidateMeshes.length) return;
+
+  const targetPos = new THREE.Vector3();
+  if (currentVrm.humanoid && currentVrm.humanoid.getNormalizedBoneNode('chest')) {
+    currentVrm.humanoid.getNormalizedBoneNode('chest').getWorldPosition(targetPos);
+  } else {
+    currentVrm.scene.getWorldPosition(targetPos);
+    targetPos.y += 0.85;
+  }
+
+  const camPos = vrmCamera.position;
+  const dir = new THREE.Vector3().subVectors(targetPos, camPos);
+  const dist = dir.length();
+  if (dist < 0.2) return;
+  dir.normalize();
+
+  _occRaycaster.set(camPos, dir);
+  _occRaycaster.far = Math.max(0.1, dist - 0.20);
+
+  const hits = _occRaycaster.intersectObjects(_occFadeCandidateMeshes, false);
+  const hitSet = new Set(hits.map(h => h.object));
+
+  // Fade hit walls smoothly to 0.22 opacity
+  for (let i = 0; i < _occFadeCandidateMeshes.length; i++) {
+    const mesh = _occFadeCandidateMeshes[i];
+    if (!mesh.material) continue;
+
+    if (!mesh.userData.origMatSetup) {
+      mesh.userData.origMatSetup = true;
+      mesh.userData.origOpacity = mesh.material.opacity !== undefined ? mesh.material.opacity : 1.0;
+      mesh.userData.origTransparent = mesh.material.transparent || false;
+    }
+
+    if (hitSet.has(mesh)) {
+      mesh.material.transparent = true;
+      mesh.material.opacity = THREE.MathUtils.lerp(mesh.material.opacity, 0.22, 0.18);
+    } else if (mesh.material.opacity < 0.98) {
+      mesh.material.opacity = THREE.MathUtils.lerp(mesh.material.opacity, 1.0, 0.18);
+      if (mesh.material.opacity >= 0.98) {
+        mesh.material.opacity = 1.0;
+        mesh.material.transparent = mesh.userData.origTransparent;
+      }
+    }
+  }
 }

@@ -21,12 +21,12 @@ import hashlib
 import zipfile
 import csv
 import io
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
 
 class TripLogger:
     def __init__(self, db_path: Optional[str] = None, archive_dir: Optional[str] = None):
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         self.db_path = db_path or os.path.join(os.path.dirname(__file__), "vehicle_data.db")
         self.archive_dir = archive_dir or os.path.join(base_dir, "storage", "trip_archives")
         os.makedirs(self.archive_dir, exist_ok=True)
@@ -504,6 +504,152 @@ class TripLogger:
         if now - self.last_purge_time > 600:
             self.last_purge_time = now
             self.purge_old_trips()
+
+    def _get_target_trip_id(self, trip_id: Optional[int] = None) -> Optional[int]:
+        """Resolves trip_id or falls back to active or most recent recorded trip."""
+        if trip_id is not None and trip_id > 0:
+            return trip_id
+        if self.current_trip_id:
+            return self.current_trip_id
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                c = conn.cursor()
+                c.execute("SELECT id FROM trips ORDER BY id DESC LIMIT 1")
+                row = c.fetchone()
+                if row:
+                    return row[0]
+        except Exception as e:
+            print(f"[TRIP_LOG] Error getting target trip ID: {e}")
+        return None
+
+    def get_trip_csv_bytes(self, trip_id: Optional[int] = None) -> Tuple[Optional[bytes], str]:
+        """Generates raw 28-channel high-resolution CSV bytes and filename for direct download."""
+        target_id = self._get_target_trip_id(trip_id)
+        if not target_id:
+            return None, ""
+
+        with self.lock:
+            try:
+                with sqlite3.connect(self.db_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    c = conn.cursor()
+                    c.execute("SELECT * FROM trips WHERE id = ?", (target_id,))
+                    trip_row = c.fetchone()
+                    if not trip_row:
+                        return None, ""
+                    trip_data = dict(trip_row)
+
+                    c.execute("SELECT * FROM trip_telemetry_points WHERE trip_id = ? ORDER BY id ASC", (target_id,))
+                    points_rows = c.fetchall()
+            except Exception as e:
+                print(f"[TRIP_LOG] Error fetching CSV data: {e}")
+                return None, ""
+
+        points_list = [dict(r) for r in points_rows]
+        csv_buffer = io.StringIO()
+        fieldnames = [
+            "Date", "Time_12H", "Time_24H", "Elapsed_Time", "Timestamp_Unix", "Speed_MPH", "Speed_KPH", "RPM", "Boost_PSI",
+            "Vacuum_inHg", "Throttle_Pct", "Pedal_Pos_Pct", "Engine_Load_Pct", "Coolant_Temp_F",
+            "Intake_Temp_F", "Battery_Volts", "AFR", "Timing_Advance_Deg", "Fuel_Level_Pct",
+            "Fuel_Burn_GPH", "Instant_MPG", "Ambient_Temp_F", "Baro_kPa", "Distance_Miles", "Gear", "DTC_Count", "Engine_Runtime_Sec", "Engine_Hours"
+        ]
+        writer = csv.DictWriter(csv_buffer, fieldnames=fieldnames)
+        writer.writeheader()
+        for p in points_list:
+            ts = p.get('timestamp', 0)
+            t_str = p.get('time_str', '')
+            d_str = t_str.split(' ')[0] if ' ' in t_str else time.strftime('%Y-%m-%d', time.localtime(ts))
+            t_24 = t_str.split(' ')[1] if ' ' in t_str else time.strftime('%H:%M:%S', time.localtime(ts))
+            t_12 = p.get('time_12h') or time.strftime('%I:%M:%S %p', time.localtime(ts))
+            el_str = p.get('elapsed_str', '')
+
+            writer.writerow({
+                "Date": d_str,
+                "Time_12H": t_12,
+                "Time_24H": t_24,
+                "Elapsed_Time": el_str,
+                "Timestamp_Unix": f"{ts:.2f}",
+                "Speed_MPH": f"{p.get('speed_mph', 0):.1f}",
+                "Speed_KPH": f"{(p.get('speed_mph', 0) * 1.60934):.1f}",
+                "RPM": f"{p.get('rpm', 0):.0f}",
+                "Boost_PSI": f"{p.get('boost_psi', 0):.1f}",
+                "Vacuum_inHg": f"{p.get('vacuum_inhg', 0):.1f}",
+                "Throttle_Pct": f"{p.get('throttle_pct', 0):.1f}",
+                "Pedal_Pos_Pct": f"{p.get('pedal_pos_pct', 0):.1f}",
+                "Engine_Load_Pct": f"{p.get('engine_load_pct', 0):.1f}",
+                "Coolant_Temp_F": f"{p.get('coolant_temp_f', 0):.1f}",
+                "Intake_Temp_F": f"{p.get('intake_temp_f', 0):.1f}",
+                "Battery_Volts": f"{p.get('battery_volts', 0):.1f}",
+                "AFR": f"{p.get('afr', 14.7):.2f}",
+                "Timing_Advance_Deg": f"{p.get('timing_advance_deg', 0):.1f}",
+                "Fuel_Level_Pct": f"{p.get('fuel_level_pct', 0):.1f}",
+                "Fuel_Burn_GPH": f"{p.get('fuel_gph', 0):.2f}",
+                "Instant_MPG": f"{p.get('fuel_mpg_instant', 0):.1f}",
+                "Ambient_Temp_F": f"{p.get('ambient_temp_f', 0):.1f}",
+                "Baro_kPa": f"{p.get('baro_kpa', 0):.1f}",
+                "Distance_Miles": f"{p.get('distance_miles', 0):.3f}",
+                "Gear": p.get("gear", "N"),
+                "DTC_Count": p.get("dtc_count", 0),
+                "Engine_Runtime_Sec": p.get("engine_runtime_sec", 0),
+                "Engine_Hours": f"{(p.get('engine_runtime_sec', 0) / 3600.0):.2f}"
+            })
+
+        date_part = trip_data.get('start_time', '').replace(':', '-').replace(' ', '_')
+        filename = f"Trip_{date_part}_ID{target_id}_telemetry.csv"
+        return csv_buffer.getvalue().encode("utf-8"), filename
+
+    def get_manifest_html(self, trip_id: Optional[int] = None) -> Optional[str]:
+        """Constructs and returns the court-ready printable black-box manifest HTML."""
+        target_id = self._get_target_trip_id(trip_id)
+        if not target_id:
+            return None
+
+        with self.lock:
+            try:
+                with sqlite3.connect(self.db_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    c = conn.cursor()
+                    c.execute("SELECT * FROM trips WHERE id = ?", (target_id,))
+                    trip_row = c.fetchone()
+                    if not trip_row:
+                        return None
+                    trip_data = dict(trip_row)
+
+                    c.execute("SELECT * FROM trip_telemetry_points WHERE trip_id = ? ORDER BY id ASC", (target_id,))
+                    points_rows = c.fetchall()
+            except Exception as e:
+                print(f"[TRIP_LOG] Error fetching manifest data: {e}")
+                return None
+
+        points_list = [dict(r) for r in points_rows]
+        csv_bytes, _ = self.get_trip_csv_bytes(target_id)
+        sha256 = hashlib.sha256(csv_bytes).hexdigest() if csv_bytes else "UNSIGNED"
+        is_interim = bool(trip_data.get("is_active", 0) == 1)
+        return self._build_manifest_html(trip_data, points_list, sha256, is_interim)
+
+    def get_trip_zip_path(self, trip_id: Optional[int] = None) -> Tuple[Optional[str], str]:
+        """Returns the filesystem path to the trip's ZIP archive, compiling it on demand if needed."""
+        target_id = self._get_target_trip_id(trip_id)
+        if not target_id:
+            return None, ""
+
+        # Check if already archived and exists
+        with self.lock:
+            try:
+                with sqlite3.connect(self.db_path) as conn:
+                    c = conn.cursor()
+                    c.execute("SELECT archive_path FROM trips WHERE id = ?", (target_id,))
+                    row = c.fetchone()
+                    if row and row[0] and os.path.exists(row[0]) and target_id != self.current_trip_id:
+                        return row[0], os.path.basename(row[0])
+            except Exception:
+                pass
+
+        # Compile fresh on demand
+        zip_path = self.export_and_zip_trip(target_id, is_interim=(target_id == self.current_trip_id))
+        if zip_path and os.path.exists(zip_path):
+            return zip_path, os.path.basename(zip_path)
+        return None, ""
 
     def export_and_zip_trip(self, trip_id: int, is_interim: bool = False) -> Optional[str]:
         """

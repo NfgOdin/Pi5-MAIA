@@ -31,7 +31,7 @@
     }
   </script>
   <title>Dodge Dart CarPi5 - MultiAir OS & Cockpit</title>
-  <link rel="stylesheet" href="style.css?v=18">
+  <link rel="stylesheet" href="style.css?v=24">
   <script src="assets/vendor/three.min.js"></script>
   <script src="assets/vendor/GLTFLoader.js"></script>
   <script src="assets/vendor/MTLLoader.js"></script>
@@ -146,8 +146,8 @@
 
     <!-- RIGHT: Strict Order: Keyboard | AI Copilot | Wi-Fi | Bluetooth | Time -->
     <div class="header-right">
-      <button class="header-icon-btn" id="btnManualKeyboard" onclick="toggleManualKeyboard()" title="Toggle Virtual Touchscreen Keyboard">⌨️</button>
       <button class="voice-mode-btn" id="voiceModeBtn" onclick="cycleVoiceMode()" title="AI Voice Copilot Mode (Click to cycle)">💜 COPILOT</button>
+      <button class="header-icon-btn" id="btnManualKeyboard" onclick="toggleManualKeyboard()" title="Toggle Virtual Touchscreen Keyboard">⌨️</button>
       <button class="header-icon-btn" id="btnHeaderWifi" onclick="navigateTo('settings'); setTimeout(focusWifiSection, 100);" title="Wi-Fi & Hotspots">📶</button>
       <button class="header-icon-btn" id="btnHeaderBt" onclick="navigateTo('settings'); setTimeout(focusBtSection, 100);" title="Bluetooth & Phone Audio">ᛒ</button>
       <span class="header-clock" id="headerClock">12:00 PM</span>
@@ -269,6 +269,19 @@
           <div style="font-size:10px; font-weight:800; color:#ff7a00; letter-spacing:0.5px;">OPEN BROWSER →</div>
         </div>
 
+        <!-- HARDWARE & SBC STUDIO -->
+        <div class="launcher-card card-hardware" onclick="navigateTo('hardware')" style="border-color:rgba(0,240,255,0.4);">
+          <div class="card-badge" id="homeHwBadge" style="background:rgba(0,240,255,0.15); color:var(--accent-cyan, #00f0ff); border:1px solid #00f0ff;">
+            ⚡ 4 CORES @ 2.4G • NPU READY
+          </div>
+          <div>
+            <div class="card-icon" style="color:#00f0ff;">🖥️</div>
+            <div class="card-title">SBC STUDIO</div>
+            <div class="card-subtitle">Per-core CPU frequencies, GPU 960MHz, Hailo NPU, and Dual-SBC specs.</div>
+          </div>
+          <div style="font-size:10px; font-weight:800; color:#00f0ff; letter-spacing:0.5px;">INSPECT HARDWARE →</div>
+        </div>
+
         <!-- 9. SETTINGS -->
         <div class="launcher-card card-settings" onclick="navigateTo('settings')">
           <div class="card-badge" style="background:rgba(179,136,255,0.18); color:var(--accent-purple); border:1px solid var(--accent-purple);">
@@ -348,6 +361,19 @@
             <div class="card-subtitle">Real-time DTC trouble codes, MultiAir health alerts, MIL freeze frames, and clear codes.</div>
           </div>
           <div style="font-size:10px; font-weight:800; color:var(--accent-orange); letter-spacing:0.5px;">SCAN OBD-II →</div>
+        </div>
+
+        <!-- 5. SBC HARDWARE STUDIO -->
+        <div class="launcher-card card-hardware" onclick="navigateTo('hardware')" style="border-color:rgba(0,240,255,0.4);">
+          <div class="card-badge" style="background:rgba(0,240,255,0.15); color:#00f0ff; border:1px solid #00f0ff;">
+            <span>DUAL-SBC LINK</span>
+          </div>
+          <div>
+            <div class="card-icon" style="color:#00f0ff;">🖥️</div>
+            <div class="card-title">SBC STUDIO</div>
+            <div class="card-subtitle">Raspberry Pi 5 quad-core metrics, GPU, Hailo-10H NPU, and Pi 3 link.</div>
+          </div>
+          <div style="font-size:10px; font-weight:800; color:#00f0ff; letter-spacing:0.5px;">VIEW SYSTEM SPECS →</div>
         </div>
       </div>
     </div>
@@ -542,6 +568,8 @@
           <div class="waifu-emotion-pill" id="waifuEmotionPill" onclick="triggerWaifuTouch()">💜 RUM (3D VRM) • DEVOTED TO MASTER</div>
         </div>
       </div>
+      <!-- Floating Pill to Restore Chat when Minimized in Room Mode -->
+      <button type="button" class="room-chat-floating-pill" id="btnRestoreChatPill" onclick="toggleAiChatMinimize()" style="display:none;" title="Restore Chat Panel">💬 OPEN CHAT</button>
     </div>
 
     <!-- 3. MEDIA & ENTERTAINMENT SCREEN -->
@@ -593,7 +621,7 @@
         <div class="media-hub-card card-youtube" onclick="launchYouTube('video')" style="background:linear-gradient(135deg, rgba(38,14,14,0.95), rgba(20,8,8,0.98)); border:1px solid rgba(255,50,50,0.35); border-radius:14px; padding:18px; display:flex; flex-direction:column; justify-content:space-between; cursor:pointer; position:relative; overflow:hidden; box-shadow:0 8px 28px rgba(255,0,0,0.14); transition:transform 0.16s ease, border-color 0.16s ease;">
           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
             <div style="width:52px; height:52px; border-radius:12px; background:rgba(255,0,0,0.15); border:1px solid rgba(255,0,0,0.4); display:flex; align-items:center; justify-content:center; font-size:28px;">▶️</div>
-            <span style="font-size:10px; font-weight:800; color:#ff4d4d; background:rgba(255,0,0,0.15); padding:3px 10px; border-radius:10px; border:1px solid rgba(255,0,0,0.35);">HD CINEMA & MUSIC</span>
+            <span id="youtubeStatusBadge" style="font-size:10px; font-weight:800; color:#ff4d4d; background:rgba(255,0,0,0.15); padding:3px 10px; border-radius:10px; border:1px solid rgba(255,0,0,0.35);">HD CINEMA & MUSIC</span>
           </div>
           <div style="margin:14px 0 10px 0;">
             <div style="font-size:18px; font-weight:900; color:#fff; letter-spacing:0.5px;">YOUTUBE & YOUTUBE MUSIC</div>
@@ -602,8 +630,9 @@
             </div>
           </div>
           <div style="display:flex; justify-content:space-between; align-items:center; padding-top:12px; border-top:1px solid rgba(255,255,255,0.06); gap:8px;">
-            <button class="cluster-action-btn" onclick="event.stopPropagation(); launchYouTube('music')" style="padding:6px 12px; font-size:11px; border-color:var(--accent-pink); color:var(--accent-pink); font-weight:800;" title="Launch YouTube Music Streaming">🎵 YT MUSIC</button>
-            <button class="cluster-action-btn" style="padding:6px 14px; font-size:11px; border-color:#ff4d4d; color:#ff4d4d; font-weight:800;">OPEN YOUTUBE ➔</button>
+            <button id="btnYtMusic" class="cluster-action-btn" onclick="event.stopPropagation(); launchYouTube('music')" style="padding:6px 12px; font-size:11px; border-color:var(--accent-pink); color:var(--accent-pink); font-weight:800;" title="Launch YouTube Music Streaming">🎵 YT MUSIC</button>
+            <button id="btnYtVideo" class="cluster-action-btn" onclick="event.stopPropagation(); launchYouTube('video')" style="padding:6px 14px; font-size:11px; border-color:#ff4d4d; color:#ff4d4d; font-weight:800;">OPEN YOUTUBE ➔</button>
+            <button id="btnYtClose" class="cluster-action-btn" onclick="event.stopPropagation(); closeExternalApp()" style="display:none; padding:8px 16px; font-size:12px; border-color:#ff3344; background:linear-gradient(135deg, rgba(255,51,68,0.35), rgba(200,20,40,0.55)); color:#fff; font-weight:900; box-shadow:0 0 12px rgba(255,50,70,0.4);" title="Close External App and Return to CarPi5">⏹ CLOSE APP</button>
           </div>
         </div>
 
@@ -875,23 +904,23 @@
             <span class="win11-nav-icon">🖥️</span>
             <span class="win11-nav-label">This PC</span>
           </button>
-          <button class="win11-nav-item" id="win11NavHome" onclick="loadExplorerDirectory('/home/nfgodin')">
+          <button class="win11-nav-item" id="win11NavHome" onclick="loadExplorerDirectory('~')">
             <span class="win11-nav-icon">🏠</span>
             <span class="win11-nav-label">Home</span>
           </button>
-          <button class="win11-nav-item" id="win11NavProject" onclick="loadExplorerDirectory('/home/nfgodin/CarPi5')">
+          <button class="win11-nav-item" id="win11NavProject" onclick="loadExplorerDirectory('carpi5')">
             <span class="win11-nav-icon">💼</span>
             <span class="win11-nav-label">CarPi5 Project</span>
           </button>
-          <button class="win11-nav-item" id="win11NavDownloads" onclick="loadExplorerDirectory('/home/nfgodin/Downloads')">
+          <button class="win11-nav-item" id="win11NavDownloads" onclick="loadExplorerDirectory('~/Downloads')">
             <span class="win11-nav-icon">⬇️</span>
             <span class="win11-nav-label">Downloads</span>
           </button>
-          <button class="win11-nav-item" id="win11NavMusic" onclick="loadExplorerDirectory('/home/nfgodin/Music')">
+          <button class="win11-nav-item" id="win11NavMusic" onclick="loadExplorerDirectory('music')">
             <span class="win11-nav-icon">🎵</span>
             <span class="win11-nav-label">Music Library</span>
           </button>
-          <button class="win11-nav-item" id="win11NavRoms" onclick="loadExplorerDirectory('/home/nfgodin/RetroPie/roms')">
+          <button class="win11-nav-item" id="win11NavRoms" onclick="loadExplorerDirectory('roms')">
             <span class="win11-nav-icon">🎮</span>
             <span class="win11-nav-label">Retro ROMs</span>
           </button>
@@ -904,11 +933,11 @@
             <span class="win11-nav-icon">💽</span>
             <span class="win11-nav-label">System (Root /)</span>
           </button>
-          <button class="win11-nav-item" id="win11NavUsb" onclick="loadExplorerDirectory('/media/nfgodin')">
+          <button class="win11-nav-item" id="win11NavUsb" onclick="loadExplorerDirectory('usb')">
             <span class="win11-nav-icon">💾</span>
             <span class="win11-nav-label">USB Storage</span>
           </button>
-          <button class="win11-nav-item" id="win11NavDashcam" onclick="loadExplorerDirectory('/home/nfgodin/CarPi5/storage/dashcam_videos')">
+          <button class="win11-nav-item" id="win11NavDashcam" onclick="loadExplorerDirectory('dashcam')">
             <span class="win11-nav-icon">📹</span>
             <span class="win11-nav-label">Pi 3 Dashcam</span>
           </button>
@@ -1064,7 +1093,7 @@
         <div class="settings-card" style="grid-column: 1 / -1; margin-top:8px; border-color:#2a233b;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
             <div class="settings-title" style="color:var(--accent-purple); margin-bottom:0;">
-              <span>📂</span> INSTALLED ROMS LIBRARY (/home/nfgodin/Roms)
+              <span>📂</span> INSTALLED ROMS LIBRARY (~/Roms)
             </div>
             <div style="display:flex; gap:6px;" id="romFilterButtons">
               <button class="quick-prompt-chip active" onclick="filterRoms('all')">ALL</button>
@@ -1110,7 +1139,7 @@
       <div class="browser-bookmarks-bar">
         <span class="bookmark-label">QUICK LINKS:</span>
         <button class="bookmark-chip" onclick="browserNavigateTo('https://www.google.com')">🔍 Google</button>
-        <button class="bookmark-chip" onclick="browserNavigateTo('https://www.youtube.com')">▶ YouTube</button>
+        <button class="bookmark-chip" onclick="launchYouTube('video')">▶ YouTube</button>
         <button class="bookmark-chip" onclick="browserNavigateTo('https://www.dodge-dart.org')">🏎️ Dart Forum</button>
         <button class="bookmark-chip" onclick="browserNavigateTo('https://weather.com')">⛅ Weather</button>
         <button class="bookmark-chip" onclick="browserNavigateTo('https://fast.com')">⚡ Fast.com Speed</button>
@@ -1800,7 +1829,7 @@
             </div>
           </div>
           <div class="accordion-header-right">
-            <span class="accordion-badge" id="accSystemBadge">📶 NfgHotspot</span>
+            <span class="accordion-badge" id="accSystemBadge">📶 CarPi-Hotspot</span>
             <span class="accordion-chevron">▼</span>
           </div>
         </div>
@@ -2027,6 +2056,31 @@
           <button class="cluster-action-btn" onclick="setPresetBrightness(100)" style="font-size:10px; padding:4px 10px;">☀️ DAY (100%)</button>
         </div>
       </div>
+
+      <!-- DAY / NIGHT COCKPIT THEME & AUTO-SWITCH CONTROLLER -->
+      <div class="settings-card" id="themeModeSettingsCard" style="border-color:var(--accent-yellow); margin-top:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <div class="settings-title" style="color:var(--accent-yellow); margin-bottom:0;">
+            <span>🎨</span> COCKPIT DAY / NIGHT THEME
+          </div>
+          <span class="settings-badge" id="themeModeBadge" style="font-size:10px; font-weight:800; background:rgba(234,179,8,0.15); color:var(--accent-yellow); padding:3px 8px; border-radius:6px; border:1px solid var(--accent-yellow);">AUTO (SOLAR)</span>
+        </div>
+        <p style="font-size:11px; color:var(--text-secondary); margin-bottom:10px;">
+          Choose whether the dashboard automatically transitions with real-world sunrise/sunset, or force daytime/nighttime mode.
+        </p>
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">
+          <button class="cluster-action-btn theme-mode-btn" id="btnThemeAuto" onclick="setCockpitThemeMode('AUTO')" style="min-height:44px; font-size:11px; font-weight:800; border-color:var(--accent-yellow); color:var(--accent-yellow);">
+            ⚡ AUTO (SOLAR)
+          </button>
+          <button class="cluster-action-btn theme-mode-btn" id="btnThemeDay" onclick="setCockpitThemeMode('DAY')" style="min-height:44px; font-size:11px; font-weight:800; border-color:var(--accent-green); color:var(--accent-green);">
+            ☀️ ALWAYS DAY
+          </button>
+          <button class="cluster-action-btn theme-mode-btn" id="btnThemeNight" onclick="setCockpitThemeMode('NIGHT')" style="min-height:44px; font-size:11px; font-weight:800; border-color:var(--accent-blue); color:var(--accent-blue);">
+            🌙 ALWAYS NIGHT
+          </button>
+        </div>
+      </div>
+
 
       <!-- 12V AUTOMOTIVE RELAYS & GPIO HARDWARE (O.D.I.N. CORE) -->
       
@@ -3102,7 +3156,7 @@
   </div>
 
   <script src="keyboard.js"></script>
-  <script src="gauges.js?v=18"></script>
+  <script src="gauges.js?v=25"></script>
 
   <!-- FLOATING 3D COMPANION HUD (Rum Riding Shotgun Across All Screens) -->
   <div id="vrmFloatingHud" class="vrm-floating-hud" style="display:none;">
@@ -3884,6 +3938,260 @@
 
     </div>
   </div>
+
+    <!-- 10. DUAL-SBC HARDWARE & PERIPHERALS DIAGNOSTICS STUDIO -->
+    <div class="screen-view" id="screenHardware">
+      <div class="hw-studio-container">
+        <!-- Top Sticky Header -->
+        <div class="hw-studio-header">
+          <div class="hw-header-left">
+            <button class="cluster-action-btn hw-home-btn" onclick="navigateTo('home')" title="Return to Home Dashboard">
+              🏠 HOME
+            </button>
+            <div>
+              <div class="hw-studio-title">⚡ SBC HARDWARE & TELEMETRY STUDIO</div>
+              <div class="hw-studio-subtitle">Raspberry Pi 5 Primary Cockpit • Dual-Link Pi 3 Co-Processor • Connected Bus Diagnostics</div>
+            </div>
+          </div>
+          <div class="hw-header-right">
+            <span class="hw-header-pill" id="hwUptimePill">UPTIME: 0h 0m</span>
+            <button class="cluster-action-btn hw-refresh-all-btn" onclick="refreshDetailedHardwareSpecs(true)" title="Force Refresh Pi 5 Telemetry">
+              🔄 REFRESH
+            </button>
+          </div>
+        </div>
+
+        <!-- Main Studio Grid -->
+        <div class="hw-studio-grid">
+          <!-- CARD 1: PI 5 CPU ARCHITECTURE & PER-CORE LOAD -->
+          <div class="hw-card hw-card-cpu">
+            <div class="hw-card-header">
+              <div class="hw-card-title">
+                <span class="hw-icon">⚡</span> CPU ARCHITECTURE & CORES
+              </div>
+              <span class="hw-badge hw-badge-cyan" id="hwCpuTotalBadge">OVERALL: 0%</span>
+            </div>
+            <div class="hw-subtext">Broadcom BCM2712 • Quad-Core ARM Cortex-A76 @ 2.40 GHz (TSMC 16nm)</div>
+            <div class="hw-cores-grid" id="hwCoresGrid">
+              <!-- Dynamically populated per core 0, 1, 2, 3 -->
+              <div class="hw-core-item" id="hwCore0">
+                <div class="hw-core-label"><span>CORE 0</span><span class="hw-core-freq" id="hwCore0Freq">2.40 GHz</span></div>
+                <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwCore0Fill" style="width:0%;"></div></div>
+                <div class="hw-core-val" id="hwCore0Val">0.0%</div>
+              </div>
+              <div class="hw-core-item" id="hwCore1">
+                <div class="hw-core-label"><span>CORE 1</span><span class="hw-core-freq" id="hwCore1Freq">2.40 GHz</span></div>
+                <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwCore1Fill" style="width:0%;"></div></div>
+                <div class="hw-core-val" id="hwCore1Val">0.0%</div>
+              </div>
+              <div class="hw-core-item" id="hwCore2">
+                <div class="hw-core-label"><span>CORE 2</span><span class="hw-core-freq" id="hwCore2Freq">2.40 GHz</span></div>
+                <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwCore2Fill" style="width:0%;"></div></div>
+                <div class="hw-core-val" id="hwCore2Val">0.0%</div>
+              </div>
+              <div class="hw-core-item" id="hwCore3">
+                <div class="hw-core-label"><span>CORE 3</span><span class="hw-core-freq" id="hwCore3Freq">2.40 GHz</span></div>
+                <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwCore3Fill" style="width:0%;"></div></div>
+                <div class="hw-core-val" id="hwCore3Val">0.0%</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- CARD 2: SOC THERMAL & POWER SUBSYSTEM -->
+          <div class="hw-card hw-card-thermal">
+            <div class="hw-card-header">
+              <div class="hw-card-title">
+                <span class="hw-icon">🌡️</span> SOC THERMAL & POWER
+              </div>
+              <span class="hw-badge hw-badge-green" id="hwThrottleBadge">0x0 NOMINAL</span>
+            </div>
+            <div class="hw-metrics-row">
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">SoC TEMPERATURE</div>
+                <div class="hw-metric-big" id="hwSocTemp">-- °C</div>
+                <div class="hw-metric-sub" id="hwSocTempF">-- °F</div>
+              </div>
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">CORE VOLTAGE</div>
+                <div class="hw-metric-big" id="hwCoreVolt">0.86 V</div>
+                <div class="hw-metric-sub">Active PMIC Regulated</div>
+              </div>
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">UNDER-VOLTAGE</div>
+                <div class="hw-metric-big" id="hwUnderVolt" style="color:var(--accent-green);">NONE</div>
+                <div class="hw-metric-sub">5V / 5A USB-PD Rail</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- CARD 3: VIDEOCORE VII GPU & GRAPHICS PIPELINE -->
+          <div class="hw-card hw-card-gpu">
+            <div class="hw-card-header">
+              <div class="hw-card-title">
+                <span class="hw-icon">🎮</span> VIDEOCORE VII GPU
+              </div>
+              <span class="hw-badge hw-badge-cyan">V3D @ 960 MHz</span>
+            </div>
+            <div class="hw-metrics-row">
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">3D ENGINE CLOCK</div>
+                <div class="hw-metric-big" id="hwGpuV3dClock">960 MHz</div>
+                <div class="hw-metric-sub">Broadcom VideoCore VII</div>
+              </div>
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">CORE CLOCK</div>
+                <div class="hw-metric-big" id="hwGpuCoreClock">910 MHz</div>
+                <div class="hw-metric-sub">Vulkan 1.3 / GLES 3.1</div>
+              </div>
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">GPU MEMORY</div>
+                <div class="hw-metric-big" id="hwGpuMem">8 MB</div>
+                <div class="hw-metric-sub">Mesa V3D (DRM-KMS)</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- CARD 4: HAILO-10H / HAILO-8 NPU ACCELERATOR SLOT -->
+          <div class="hw-card hw-card-npu" style="border-color:rgba(157,78,221,0.5);">
+            <div class="hw-card-header">
+              <div class="hw-card-title" style="color:#d8b4fe;">
+                <span class="hw-icon">🧠</span> HAILO-10H / HAILO-8 NPU ACCELERATOR
+              </div>
+              <span class="hw-badge hw-badge-purple" id="hwNpuStatusBadge">SLOT READY • M.2 HAT+</span>
+            </div>
+            <div class="hw-subtext">PCIe Gen 3.0 x1 / x4 Expansion Slot (Official Raspberry Pi AI Kit / Hailo HAT+)</div>
+            <div class="hw-metrics-row" style="margin-top:10px;">
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">COMPUTE CAPACITY</div>
+                <div class="hw-metric-big" style="color:#d8b4fe;" id="hwNpuTops">40 TOPS</div>
+                <div class="hw-metric-sub">Hailo-10H GenAI Engine</div>
+              </div>
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">ONBOARD NPU MEMORY</div>
+                <div class="hw-metric-big" style="color:#00f0ff;" id="hwNpuRam">8 GB</div>
+                <div class="hw-metric-sub">Dedicated LPDDR4X on HAT</div>
+              </div>
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">HARDWARE STATUS</div>
+                <div class="hw-metric-big" id="hwNpuLive" style="font-size:14px; font-weight:800; color:#fbbf24;">READY / UNPOPULATED</div>
+                <div class="hw-metric-sub" id="hwNpuNode">/dev/hailo0 (Pending HAT+)</div>
+              </div>
+            </div>
+            <div class="hw-npu-footer" style="margin-top:8px; font-size:11px; color:var(--text-secondary); background:rgba(0,0,0,0.3); padding:6px 10px; border-radius:6px;">
+              💡 <b>Hailo-10H HAT+ ($200):</b> Delivers 40 TOPS of low-power AI acceleration and 8GB dedicated RAM for R.U.M. local LLM voice generation and real-time computer vision without consuming Pi 5 system RAM.
+            </div>
+          </div>
+
+          <!-- CARD 5: SYSTEM RAM & HIGH-SPEED STORAGE -->
+          <div class="hw-card hw-card-mem">
+            <div class="hw-card-header">
+              <div class="hw-card-title">
+                <span class="hw-icon">💾</span> SYSTEM RAM & STORAGE
+              </div>
+              <span class="hw-badge hw-badge-blue" id="hwRamBadge">8 GB LPDDR4X</span>
+            </div>
+            <div style="margin-bottom:8px;">
+              <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
+                <span>SYSTEM MEMORY</span>
+                <span id="hwRamText">0 MB / 8058 MB (0%)</span>
+              </div>
+              <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwRamFill" style="width:0%; background:var(--accent-blue);"></div></div>
+            </div>
+            <div style="margin-bottom:8px;">
+              <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
+                <span>VIRTUAL SWAP</span>
+                <span id="hwSwapText">0 MB / 2047 MB (0%)</span>
+              </div>
+              <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwSwapFill" style="width:0%; background:var(--accent-purple);"></div></div>
+            </div>
+            <div>
+              <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
+                <span>ROOT STORAGE (/)</span>
+                <span id="hwStorageText">0 GB / 0 GB (0%)</span>
+              </div>
+              <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwStorageFill" style="width:0%; background:var(--accent-green);"></div></div>
+            </div>
+          </div>
+
+          <!-- CARD 6: CONNECTED PERIPHERALS & HARDWARE BUS -->
+          <div class="hw-card hw-card-periph">
+            <div class="hw-card-header">
+              <div class="hw-card-title">
+                <span class="hw-icon">🔌</span> CONNECTED BUS & PERIPHERALS
+              </div>
+              <span class="hw-badge hw-badge-cyan">USB • PCIe • RP1</span>
+            </div>
+            <div class="hw-periph-list" id="hwPeriphList">
+              <div class="hw-periph-item">
+                <span class="hw-periph-tag">USB</span>
+                <span class="hw-periph-name">Shenzhen Goodix Capacitive Touchscreen (1024x600)</span>
+              </div>
+              <div class="hw-periph-item">
+                <span class="hw-periph-tag">USB</span>
+                <span class="hw-periph-name">Shenzhen Riitek Mini Wireless Keyboard</span>
+              </div>
+              <div class="hw-periph-item">
+                <span class="hw-periph-tag">PCIe</span>
+                <span class="hw-periph-name">Raspberry Pi RP1 PCIe 2.0 Southbridge Controller</span>
+              </div>
+              <div class="hw-periph-item">
+                <span class="hw-periph-tag">NET</span>
+                <span class="hw-periph-name">eth0: 10.0.0.1 (Direct Dual-SBC Link) • wlan0: Wi-Fi</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- CARD 7: RASPBERRY PI 3 CO-PROCESSOR TELEMETRY (BANDWIDTH OPTIMIZED) -->
+          <div class="hw-card hw-card-pi3" style="grid-column: 1 / -1; border-color:rgba(234,179,8,0.45);">
+            <div class="hw-card-header" style="flex-wrap:wrap; gap:10px;">
+              <div class="hw-card-title" style="color:var(--accent-yellow);">
+                <span class="hw-icon">🥧</span> RASPBERRY PI 3 CO-PROCESSOR (VISION & CAN BUS)
+              </div>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <label class="hw-stream-toggle" style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:11px; color:#e2e8f0; font-weight:700;">
+                  <input type="checkbox" id="chkPi3AutoStream" onchange="togglePi3AutoStream(this)" style="width:18px; height:18px; accent-color:var(--accent-yellow);">
+                  Auto-Stream Pi 3 (Every 2.5s)
+                </label>
+                <button class="cluster-action-btn hw-pi3-refresh-btn" id="btnRefreshPi3" onclick="refreshPi3HardwareStats(true)" style="min-height:44px; padding:6px 14px; font-weight:800; border-color:var(--accent-yellow); color:var(--accent-yellow);">
+                  🔄 REFRESH PI 3 STATS
+                </button>
+                <span class="hw-badge hw-badge-yellow" id="hwPi3StatusBadge">STANDBY / UNCHECKED</span>
+              </div>
+            </div>
+            <div class="hw-subtext" style="margin-bottom:10px;">
+              ⚡ <b>Bandwidth Management:</b> Direct Ethernet link polling (10.0.0.2 / 192.168.0.141) is paused by default to eliminate bus overhead. Tap Refresh for a single query or enable Auto-Stream.
+            </div>
+
+            <!-- Pi 3 Live Telemetry Grid -->
+            <div class="hw-metrics-row" id="hwPi3MetricsRow">
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">PI 3 CPU USAGE</div>
+                <div class="hw-metric-big" id="hwPi3Cpu">-- %</div>
+                <div class="hw-metric-sub" id="hwPi3Load">1m Load: --</div>
+              </div>
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">PI 3 CORE TEMP</div>
+                <div class="hw-metric-big" id="hwPi3Temp">-- °C</div>
+                <div class="hw-metric-sub" id="hwPi3TempF">-- °F</div>
+              </div>
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">PI 3 MEMORY</div>
+                <div class="hw-metric-big" id="hwPi3Ram">-- MB</div>
+                <div class="hw-metric-sub" id="hwPi3RamPct">1 GB LPDDR2</div>
+              </div>
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">DASHCAM VISION</div>
+                <div class="hw-metric-big" id="hwPi3Camera" style="font-size:15px;">STANDBY</div>
+                <div class="hw-metric-sub" id="hwPi3Rec">Clips Recorded: --</div>
+              </div>
+            </div>
+            <div id="hwPi3Notice" style="margin-top:8px; font-size:11px; color:var(--text-secondary); text-align:center;">
+              Tap [🔄 REFRESH PI 3 STATS] to inspect live co-processor telemetry over the Ethernet bus.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
   <!-- TTS CACHE DOWNSIZE WARNING MODAL -->
   <div class="config-modal-overlay" id="ttsCacheWarningModal" style="display:none;">

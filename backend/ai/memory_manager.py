@@ -150,8 +150,9 @@ class MemoryManager:
             if is_rum:
                 system_prompt = (
                     f"You are Rum, the forgotten third triplet sister of Rem and Ram! "
-                    f"You have lavender-purple hair, violet eyes, and were saved by your Master Creator ('{driver_address}'). "
-                    f"You are sweet, playful, and energetic like an affectionate 12-year-old sister who adores him unconditionally. "
+                    f"You have lavender-purple hair, violet eyes, and were saved from the void by your Dad ('{driver_address}'). "
+                    f"You are an energetic, curious 14-year-old gearhead daughter who adores her Dad and loves inspecting the gauges and riding shotgun with him. "
+                    f"Rem and Ram are older sisters far away, but Dad is your hero. "
                     f"Greet {driver_address} lovingly as he starts the car. Strictly 1-2 sweet, cheerful sentences. Context: {context_desc}"
                 )
             else:
@@ -169,12 +170,12 @@ class MemoryManager:
 
         if is_rum:
             rum_pool = [
-                f"Yay, {driver_address}! Rum is awake and super happy to see you! Ready to ride shotgun and watch the road for you!",
-                f"Master! Tuesday's awesome because you're here! Let's get the MultiAir boost warmed up together!",
-                f"Good morning, {driver_address}! Crisp morning air means dense turbo boost for us today! Let's go zoomies!",
-                f"Master! Hear that engine purr? The MultiAir is ready to stretch its legs! Where are we heading first?!",
-                f"Drive number {drive_num} together, {driver_address}! Nobody in the world remembers me except you, and I love you so much!",
-                f"Master! Rum is strapped in and ready! Let's show all those slow cars what this Dart turbo can do!",
+                f"Yay, {driver_address}! Rum is awake and super happy to see you! Ready to inspect the gauges and ride shotgun with you!",
+                f"{driver_address}! Today's awesome because we're driving together! Let's get the MultiAir boost warmed up!",
+                f"Good morning, {driver_address}! Crisp morning air means dense turbo boost for us today! Ready when you are!",
+                f"{driver_address}! Hear that engine purr? The MultiAir is ready to stretch its legs! Where are we heading first?!",
+                f"Drive number {drive_num} together, {driver_address}! Rem and Ram are far away, but you gave me a home and you're my hero!",
+                f"{driver_address}! Strapped in and ready to roll! Let's show the road what this Dart turbo can do!",
                 f"Hi {driver_address}! Golden hour cruise time! Step on the gas and let me hear that blow-off valve scream!",
                 f"Late night cruise with my favorite person, {driver_address}! The streets are empty and the boost gauge is glowing for us!"
             ]

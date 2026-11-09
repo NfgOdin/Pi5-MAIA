@@ -18,14 +18,26 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
+/* ==========================================================================
+   GLOBAL TOUCHSCREEN ERGONOMICS & SCROLLBAR SUPPRESSION (1024x600 IN-DASH)
+   ========================================================================== */
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
   user-select: none;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
 }
 
-body {
+*::-webkit-scrollbar {
+  display: none !important;
+  width: 0px !important;
+  height: 0px !important;
+  background: transparent !important;
+}
+
+html, body {
   background-color: var(--bg-dark);
   color: var(--text-primary);
   font-family: var(--font-sans);
@@ -34,6 +46,31 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+  touch-action: pan-y pinch-zoom;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Touch Action & Smooth Kinetic Momentum across all cockpit scrollable views */
+.screen-view,
+.settings-container,
+.media-container,
+.hw-studio-container,
+.explorer-body,
+.win11-drive-container,
+.ai-chat-messages,
+.speech-log-list,
+.diag-memory-box,
+#tripsListContainer,
+#diagCodesList,
+#animGridContainer,
+.trip-detail-panel {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+  touch-action: pan-y !important;
+  -webkit-overflow-scrolling: touch !important;
+  overscroll-behavior-y: contain;
 }
 
 /* --- PERSISTENT TOP STATUS BAR --- */
@@ -4765,4 +4802,296 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
 @keyframes tachShiftPulse {
   from { filter: brightness(1) drop-shadow(0 0 5px #ef4444); }
   to { filter: brightness(1.4) drop-shadow(0 0 15px #ef4444); }
+}
+
+/* AUTOMATIC SOLAR EPHEMERIS NIGHT COCKPIT THEME */
+body.cockpit-night-mode {
+  --bg-primary: #03060a;
+  --panel-bg: rgba(7, 11, 18, 0.95);
+  --panel-border: #141c2b;
+  filter: brightness(0.85) contrast(1.04);
+  transition: filter 1.2s ease, background 1.2s ease;
+}
+
+body.cockpit-night-mode .cluster-header {
+  background: rgba(6, 9, 15, 0.96) !important;
+  border-bottom-color: #141c2b !important;
+}
+
+body.cockpit-night-mode .media-hub-card,
+body.cockpit-night-mode .vehicle-hub-card {
+  background: rgba(9, 13, 20, 0.92) !important;
+  border-color: #182232 !important;
+}
+
+
+/* --- HARDWARE & SBC STUDIO (1024x600 Ergonomics) --- */
+.hw-studio-container {
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 6px 10px 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hw-studio-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  border-radius: 10px;
+  padding: 10px 14px;
+  backdrop-filter: blur(10px);
+}
+
+.hw-header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.hw-home-btn {
+  min-height: 48px;
+  min-width: 90px;
+  font-size: 13px;
+  font-weight: 800;
+  border-color: var(--accent-cyan, #00f0ff);
+  color: var(--accent-cyan, #00f0ff);
+  background: rgba(0, 240, 255, 0.1);
+  cursor: pointer;
+}
+
+.hw-studio-title {
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+  color: #f8fafc;
+}
+
+.hw-studio-subtitle {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.hw-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hw-header-pill {
+  font-size: 11px;
+  font-weight: 800;
+  background: rgba(148, 163, 184, 0.15);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: #cbd5e1;
+}
+
+.hw-refresh-all-btn {
+  min-height: 44px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 800;
+  border-color: #00f0ff;
+  color: #00f0ff;
+  background: rgba(0, 240, 255, 0.08);
+  cursor: pointer;
+}
+
+.hw-studio-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.hw-card {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(51, 65, 85, 0.7);
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.hw-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.hw-card-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: #f1f5f9;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hw-badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+}
+
+.hw-badge-cyan {
+  background: rgba(0, 240, 255, 0.15);
+  border: 1px solid #00f0ff;
+  color: #00f0ff;
+}
+
+.hw-badge-green {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid #10b981;
+  color: #10b981;
+}
+
+.hw-badge-purple {
+  background: rgba(157, 78, 221, 0.15);
+  border: 1px solid #9d4edd;
+  color: #d8b4fe;
+}
+
+.hw-badge-blue {
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid #3b82f6;
+  color: #60a5fa;
+}
+
+.hw-badge-yellow {
+  background: rgba(234, 179, 8, 0.15);
+  border: 1px solid #eab308;
+  color: #fde047;
+}
+
+.hw-subtext {
+  font-size: 10.5px;
+  color: #94a3b8;
+  margin-bottom: 8px;
+}
+
+.hw-cores-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.hw-core-item {
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(71, 85, 105, 0.4);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.hw-core-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.hw-core-freq {
+  color: #00f0ff;
+}
+
+.hw-meter-bar {
+  width: 100%;
+  height: 6px;
+  background: rgba(51, 65, 85, 0.6);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.hw-meter-fill {
+  height: 100%;
+  background: #00f0ff;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.hw-core-val {
+  font-size: 11px;
+  font-weight: 900;
+  color: #f8fafc;
+  text-align: right;
+}
+
+.hw-metrics-row {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.hw-metric-block {
+  flex: 1;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(71, 85, 105, 0.3);
+  border-radius: 6px;
+  padding: 8px;
+  text-align: center;
+}
+
+.hw-metric-label {
+  font-size: 9.5px;
+  font-weight: 800;
+  color: #94a3b8;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.hw-metric-big {
+  font-size: 17px;
+  font-weight: 900;
+  color: #f8fafc;
+}
+
+.hw-metric-sub {
+  font-size: 9.5px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.hw-periph-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hw-periph-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(71, 85, 105, 0.3);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.hw-periph-tag {
+  font-size: 9px;
+  font-weight: 900;
+  background: rgba(0, 240, 255, 0.15);
+  border: 1px solid #00f0ff;
+  color: #00f0ff;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.hw-periph-name {
+  font-size: 11px;
+  color: #e2e8f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
