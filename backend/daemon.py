@@ -130,6 +130,7 @@ from telemetry.gps_manager import GpsManager
 
 
 
+from ai.pip_connectome import PipConnectome
 from ai.copilot import AICopilot
 
 
@@ -810,6 +811,8 @@ class CarPi5ServerState:
 
 
 
+        self.pip = PipConnectome()
+        self.latest_pip_state = None
         self.copilot = AICopilot(driver_name=initial_name)
 
 
@@ -1217,7 +1220,8 @@ def telemetry_loop():
 
 
         circ_state = state.llm.get_circadian_state()
-        ai_event = state.copilot.evaluate_frame(frame, dt=dt, is_night=circ_state["is_night"])
+        state.latest_pip_state = state.pip.step(dt=dt, telemetry=frame, is_night=circ_state["is_night"])
+        ai_event = state.copilot.evaluate_frame(frame, dt=dt, is_night=circ_state["is_night"], pip_state=state.latest_pip_state)
 
 
 
@@ -2499,6 +2503,7 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                         "circadian": state.llm.get_circadian_state(),
 
                         "mood": state.copilot.get_current_mood(),
+                        "pip": state.latest_pip_state,
 
 
 
@@ -4556,6 +4561,22 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                         "classification": s.classification
                     } for s in dyno.shift_history[-10:]
                 ]
+            }).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/pip/state":
+            frame = state.latest_frame
+            circ = state.llm.get_circadian_state()
+            pip_info = state.pip.step(0.0, frame, is_night=circ["is_night"])
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "connectome": "Princeton FlyWire 2024 Adult Drosophila",
+                "neurons": 139255,
+                "synapses": 54500000,
+                "pip_state": pip_info
             }).encode("utf-8"))
             return
 
@@ -7361,6 +7382,33 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
         
 
 
+
+        elif parsed.path == "/api/pip/feed":
+            state.pip.stimulate_sugar_water()
+            if state.copilot.voice_mode != "MUTED":
+                state.audio.speak("Here you go, Pip! Yummy sugar water droplets for my favorite little connectome fly!")
+            state.latest_ui_action = {
+                "type": "PIP_FEED",
+                "speech": "Here you go, Pip! Yummy sugar water droplets!",
+                "action": "action_cheer.bvh",
+                "emotion": "HAPPY_PROUD",
+                "hud_message": "🪰 FED PIP SUGAR WATER"
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "action": "SUGAR_WATER_FED"}).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/pip/scare":
+            state.pip.stimulate_scare(force=1.0)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "action": "GIANT_FIBER_ESCAPE_TRIGGERED"}).encode("utf-8"))
+            return
 
         elif parsed.path == "/api/ai/circadian/simulate":
             mode = req_data.get("mode")

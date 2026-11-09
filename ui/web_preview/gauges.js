@@ -3271,6 +3271,10 @@ function connectTelemetryStream() {
       if (typeof setWaifuEmotion === 'function' && data.mood.emotion) {
         setWaifuEmotion(data.mood.emotion);
       }
+
+    if (data.pip) {
+      handlePipConnectomeStream(data.pip);
+    }
     }
 
     if (data.action) {
@@ -6767,6 +6771,21 @@ function handleAiAction(action) {
   
 
 
+
+  if (action.type === 'PIP_INTERACTION' || action.type === 'PIP_FEED') {
+    showAiSpeechToast(action.speech);
+    setWaifuEmotion(action.emotion || 'HAPPY_PROUD');
+    if (action.action && typeof playVrmAction === 'function') {
+      playVrmAction(action.action, 4500);
+    }
+    if (action.type === 'PIP_FEED') {
+      if (typeof attachPipDropperToRum === 'function') attachPipDropperToRum();
+      setTimeout(() => {
+        if (typeof detachPipDropperFromRum === 'function') detachPipDropperFromRum();
+      }, 5000);
+    }
+    return;
+  }
 
   if (action.type === 'SHOWER_THOUGHT') {
     showAiSpeechToast(action.speech);
@@ -25064,6 +25083,64 @@ let showDynoPeak = false;
 let lastObservedShiftScore = null;
 let shiftScoreFadeTimer = null;
 
+// Phase 5: Pip Connectome SNN & Dual-Life Interaction
+let latestPipState = null;
+
+function feedPipSugarWater() {
+  fetch('/api/pip/feed', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      console.log("[PIP FEED RESULT]", data);
+    })
+    .catch(e => console.warn("Pip feed error:", e));
+}
+
+function scarePipGiantFiber() {
+  fetch('/api/pip/scare', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => console.log("[PIP SCARE RESULT]", data))
+    .catch(e => console.warn("Pip scare error:", e));
+}
+
+function handlePipConnectomeStream(pip) {
+  if (!pip) return;
+  latestPipState = pip;
+
+  if (pip.state) flyState = pip.state;
+  if (pip.heading !== undefined) window._flyTargetHeading = pip.heading;
+
+  if (pip.state === 'PERCHED' || pip.rum_interaction === 'PERCHED_ON_RUM') {
+    if (typeof attachPipDropperToRum === 'function') attachPipDropperToRum();
+  } else if (pip.state === 'FLYING' || pip.state === 'ESCAPE') {
+    if (typeof isHoldingDropper !== 'undefined' && isHoldingDropper && !pipDropperDetachTimer) {
+      pipDropperDetachTimer = setTimeout(() => {
+        if (typeof detachPipDropperFromRum === 'function') detachPipDropperFromRum();
+        pipDropperDetachTimer = null;
+      }, 3500);
+    }
+  }
+
+  // Update Pip status pill on AI room stage
+  const pipPill = document.getElementById('pipConnectomePill');
+  if (pipPill) {
+    const s = pip.state || 'FLYING';
+    const energy = Math.round(pip.energy_pct || 90);
+    if (pip.gf_spike_active) {
+      pipPill.innerText = `🪰 PIP: GF EVASIVE SPIKE! • ${energy}%`;
+      pipPill.style.color = '#ff4081';
+      pipPill.style.borderColor = '#ff4081';
+    } else if (s === 'PERCHED') {
+      pipPill.innerText = `🪰 PIP: PERCHED • ${energy}%`;
+      pipPill.style.color = 'var(--accent-green)';
+      pipPill.style.borderColor = 'var(--accent-green)';
+    } else {
+      pipPill.innerText = `🪰 PIP: CX COMPASS • ${s} • ${energy}%`;
+      pipPill.style.color = 'var(--accent-yellow)';
+      pipPill.style.borderColor = 'rgba(255,204,0,0.4)';
+    }
+  }
+}
+
 function toggleDynoPeakView() {
   showDynoPeak = !showDynoPeak;
   updateDynoBadgeUI();
@@ -34288,6 +34365,14 @@ function updateConnectomeFly(delta, time) {
     flyPos.y += fwdY * curSpeed * delta;
 
     flyPos.z += fwdZ * curSpeed * delta;
+
+    // Biological SNN 3D position attractor coupling
+    if (latestPipState && latestPipState.position) {
+      const p = latestPipState.position;
+      flyPos.x += (p.x - flyPos.x) * Math.min(1.0, delta * 3.2);
+      flyPos.y += (p.y - flyPos.y) * Math.min(1.0, delta * 3.2);
+      flyPos.z += (p.z - flyPos.z) * Math.min(1.0, delta * 3.2);
+    }
 
 
 

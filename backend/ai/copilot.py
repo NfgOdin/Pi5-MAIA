@@ -42,6 +42,7 @@ class AICopilot:
         self.last_shift_praise_time = 0.0
         self.last_spool_warning_time = 0.0
         self.last_dyno_praise_time = 0.0
+        self.last_pip_praise_time = 0.0
 
     def set_voice_mode(self, mode: str):
         """Set voice mode: 'MUTED', 'ALERTS_ONLY', or 'COPILOT'."""
@@ -129,7 +130,7 @@ class AICopilot:
         ]
         return random.choice(thoughts)
 
-    def evaluate_frame(self, frame: Any, dt: float = 0.04, is_night: bool = False) -> Optional[Dict[str, Any]]:
+    def evaluate_frame(self, frame: Any, dt: float = 0.04, is_night: bool = False, pip_state: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """
         Evaluate a single telemetry frame.
         Respects voice mode, affect engine, and once-per-trip latches.
@@ -251,7 +252,44 @@ class AICopilot:
                 "hud_message": f"⚡ DYNO PULL: {int(whp_val)} WHP"
             }
 
-        # 4. MultiAir Warmup Ready (ONCE PER TRIP)
+        # 7. Pip Biological Connectome Dual-Life Interaction
+        if pip_state and pip_state.get('rum_interaction') and time_since_speech > 6.0:
+            p_event = pip_state['rum_interaction']
+            if p_event == "PERCHED_ON_RUM" and (now - self.last_pip_praise_time > 60.0):
+                self.last_pip_praise_time = now
+                self.last_spoken_time = now
+                return {
+                    "type": "PIP_INTERACTION",
+                    "priority": 3,
+                    "emotion": "HAPPY_PROUD",
+                    "action": "action_cheer.bvh",
+                    "speech": f"Hey Pip! Are you resting your little wings? Here is a drop of sweet nectar, good little fly!",
+                    "hud_message": "🪰 PIP PERCHED: RUM FEEDING NECTAR"
+                }
+            elif p_event == "BUZZING_NEAR_DAD" and (now - self.last_pip_praise_time > 75.0):
+                self.last_pip_praise_time = now
+                self.last_spoken_time = now
+                return {
+                    "type": "PIP_INTERACTION",
+                    "priority": 3,
+                    "emotion": "HAPPY",
+                    "action": "action_wave.bvh",
+                    "speech": f"Careful Pip! Don't buzz in {self.driver_name}'s ear while he's driving!",
+                    "hud_message": f"🪰 PIP BUZZING NEAR {self.driver_name.upper()}"
+                }
+            elif p_event == "STARTLED_BY_TURBO" and (now - self.last_pip_praise_time > 50.0):
+                self.last_pip_praise_time = now
+                self.last_spoken_time = now
+                return {
+                    "type": "PIP_INTERACTION",
+                    "priority": 3,
+                    "emotion": "EXCITED",
+                    "action": "action_nod.bvh",
+                    "speech": f"Whoa, our turbo boost startled Pip! Look at his giant fiber reflex zoom!",
+                    "hud_message": "🪰 PIP ESCAPE SACCADE"
+                }
+
+        # 8. MultiAir Warmup Ready (ONCE PER TRIP)
         if frame.multiair_ready and not self.warmup_ready_spoken and self.cold_warning_spoken:
             self.warmup_ready_spoken = True
             if time_since_speech > 8.0:

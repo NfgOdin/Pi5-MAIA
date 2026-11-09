@@ -568,7 +568,10 @@
           </div>
           <!-- 2D Procedural Anime Face (Fallback when 2D active) -->
           <canvas id="waifuFaceCanvas" width="340" height="420" class="waifu-face-canvas" style="display:none;" onclick="triggerWaifuTouch()"></canvas>
-          <div class="waifu-emotion-pill" id="waifuEmotionPill" onclick="triggerWaifuTouch()">💜 R.U.M. (3D VRM) • DEVOTED & READY</div>
+          <div style="position:absolute; bottom:14px; right:16px; display:flex; gap:8px; z-index:15; pointer-events:auto;">
+            <div class="waifu-emotion-pill" id="waifuEmotionPill" onclick="triggerWaifuTouch()" style="position:static;">💜 R.U.M. (3D VRM) • DEVOTED & READY</div>
+            <div class="waifu-emotion-pill" id="pipConnectomePill" onclick="feedPipSugarWater()" style="position:static; cursor:pointer;" title="Tap to feed Pip sugar water from dropper">🪰 PIP: CX COMPASS • FLYING • 95%</div>
+          </div>
         </div>
       </div>
       <!-- Floating Pill to Restore Chat when Minimized in Room Mode -->
