@@ -224,6 +224,18 @@ class LLMClient:
 
         # Automatically warm up the local GGUF model in the background on Pi 5
 
+        # Phase 8 Offline Vector Memory & MultiAir Maintenance RAG
+        try:
+            from backend.ai.rag_memory import RagMemoryEngine
+            self.rag_memory = RagMemoryEngine()
+        except ImportError:
+            try:
+                from ai.rag_memory import RagMemoryEngine
+                self.rag_memory = RagMemoryEngine()
+            except Exception as e:
+                print(f"[LLM] RAG memory init note: {e}")
+                self.rag_memory = None
+
         if self.settings.get("mode") in ("LOCAL", "LOCAL_GGUF"):
 
             threading.Thread(target=self._preload_local_gguf, daemon=True).start()
@@ -1189,6 +1201,12 @@ class LLMClient:
         if lore_injection:
             system_prompt += f"\n[GROUNDED KNOWLEDGE INJECTION:\n{lore_injection}]"
 
+        # Phase 8 Semantic Vector RAG Retrieval (Trips, Maintenance, Vehicle Memory)
+        if hasattr(self, "rag_memory") and self.rag_memory:
+            rag_injection = self.rag_memory.retrieve_context_for_prompt(user_message, top_k=2, threshold=0.35)
+            if rag_injection:
+                system_prompt += f"\n[RECALLED CARPI MEMORY & VEHICLE RECORDS:\n{rag_injection}]" 
+
         if live_telemetry:
 
             telem_context = (
@@ -1755,7 +1773,37 @@ class LLMClient:
 
 
 
-        # --- INTENT: 0-60 Time Query ---
+        # --- INTENT: Maintenance / Oil / Service / Spark Plugs ---
+        if any(w in msg_l for w in ["oil", "maintenance", "service", "spark plug", "plugs", "schedule", "odometer", "screen", "actuator"]):
+            if hasattr(self, "rag_memory") and self.rag_memory:
+                maint = self.rag_memory.get_maintenance_status()
+                odo = maint["current_odometer"]
+                if "plug" in msg_l:
+                    plug_item = next((i for i in maint["items"] if i["item_key"] == "SPARK_PLUGS"), None)
+                    if plug_item:
+                        rem = plug_item["miles_remaining"]
+                        return f"Our NGK SIKR9A7 laser iridium spark plugs are gapped to 0.026 inch! At {odo:,} miles, they have {rem:,} miles remaining before the 30,000-mile replacement!"
+                elif "screen" in msg_l or "actuator" in msg_l:
+                    scr_item = next((i for i in maint["items"] if i["item_key"] == "MULTIAIR_SCREEN"), None)
+                    if scr_item:
+                        return f"The MultiAir solenoid actuator screen (Mopar 55238665) has {scr_item['miles_remaining']:,} miles remaining before its 30,000-mile cleaning! It keeps clean oil flowing to our intake valves!"
+                else:
+                    oil_item = next((i for i in maint["items"] if i["item_key"] == "ENGINE_OIL"), None)
+                    if oil_item:
+                        rem = oil_item["miles_remaining"]
+                        if rem <= 0:
+                            return f"{address}, our 5W-40 full synthetic oil is overdue by {abs(rem):,} miles! Let's get that fresh Pennzoil Euro in so our UniAir brick stays protected!"
+                        else:
+                            return f"We're running Pennzoil Platinum Euro 5W-40! At {odo:,} miles, we have {rem:,} miles left until our next oil change, {address}!"
+
+        # --- INTENT: Trip History / Past Drives ---
+        if any(w in msg_l for w in ["trip", "drive yesterday", "past drive", "trips", "how far"]):
+            if hasattr(self, "rag_memory") and self.rag_memory:
+                matches = self.rag_memory.search(user_message, top_k=1, threshold=0.42)
+                if matches and matches[0]["category"] == "TRIP_LOG":
+                    return f"From our flight logs: {matches[0]['content']}"
+
+        # --- INTENT: 0-60 Time ---
 
         if any(w in msg_l for w in ["0-60", "zero to sixty", "acceleration", "launch time"]):
 

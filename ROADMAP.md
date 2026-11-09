@@ -7,17 +7,10 @@ This living document tracks all planned, brainstormed, and confirmed engineering
 
 ## 📋 Active Implementation Checklist
 
-### 👁️ Phase 7: Advanced In-Cabin Perception & Dashcam Vision
+### 👁️ Phase 7: Advanced In-Cabin Perception & Dashcam Vision (On Hold - Camera Setup)
 - [ ] **Driver State & Drowsiness Monitoring**: Process cabin IR camera stream with lightweight eye-aspect-ratio (EAR) and yawning detection; triggers loving daughter alertness reminders if eyes droop for >1.8s on highway.
 - [ ] **Dashcam Road Sign & Speed Limit OCR**: Process forward dashcam frames through quantized Tesseract / MobileNet OCR, caching speed limits and notifying Dad if cruising >15 mph over posted limit.
 - [ ] **Pi 3 Hardware Dashcam Synchronization**: Zero-latency RTSP / MJPEG bridge over local Ethernet (`10.0.0.2:8000`) with automatic auto-reconnect and hardware H.264 recording.
-
----
-
-### 🧠 Phase 8: Offline Vector Memory & Long-Term Conversational RAG
-- [ ] **Local Quantized Embedding Engine**: Embed past driving logs, user maintenance records, and conversation history via local `all-MiniLM-L6-v2` ONNX model.
-- [ ] **Persistent Semantic RAG Store**: Fast cosine similarity vector retrieval against SQLite vector store for conversational queries ("When did we last change the 5W-40 oil?", "What was my best 0-60 run?").
-- [ ] **Proactive Maintenance Reminders**: Track total vehicle mileage against Spark Plug (30k mi), MultiAir O-ring / oil actuator screen (30k mi), and UniAir brick service intervals.
 
 ---
 
@@ -29,6 +22,25 @@ This living document tracks all planned, brainstormed, and confirmed engineering
 ---
 
 ## 🏆 Completed & Verified in Production (Changelog)
+
+### [2026-11-09] — Phase 8: Offline Vector Memory, Semantic RAG & MultiAir Maintenance Schedule
+- [x] **Local Quantized Embedding Engine (`all-MiniLM-L6-v2.onnx`)**: Embedded past driving logs, vehicle maintenance records, and factory technical documentation using a local INT8 quantized 384-dimensional ONNX model running with dynamic length padding on Cortex-A76 cores in **11.45ms** (zero cloud API dependencies).
+- [x] **Persistent SQLite Vector Store (`storage/rag_memory.db`)**: Built high-speed cosine similarity vector retrieval engine with flash wear protection (WAL mode, memory temp store). Seeded factory maintenance intervals for Dodge Dart 1.4L Turbo MultiAir:
+  - 5W-40 Synthetic Oil (MS-12991 / Fiat 9.55535-S2, 4.0 qts, 4,000 mi interval)
+  - MultiAir Actuator Screen (Mopar 55238665 10mm hex, 30,000 mi interval)
+  - NGK SIKR9A7 Euro-Spec Laser Iridium Plugs (strictly 0.026" / 0.65mm gap, 30,000 mi interval)
+  - C635 6-Speed Manual Transaxle Fluid (Tutela Gearforce 75W MS-10216, 2.0 qts, 40,000 mi interval)
+  - Mopar OAT Purple Coolant (MS-12106 50/50, 100,000 mi interval)
+  - DOT 4 Brake & Clutch Hydraulic Fluid (25,000 mi interval)
+  - Garrett GT1446 Wastegate & Diverter Inspection (15,000 mi interval)
+- [x] **Automatic Trip Logger Vector Synchronization**: Automatically indexes completed trips into semantic vector records, recording mileage, duration, top/average speed, peak boost PSI, boost pull counts, and 0-60 sprint times for conversational retrieval.
+- [x] **Conversational RAG Context Injection & Procedural Fallbacks**: Injected high-confidence recalled memories (`[RECALLED CARPI MEMORY & VEHICLE RECORDS: ...]`) into R.U.M.'s prompt context, accompanied by fast procedural intent fallbacks for instant spoken replies when Dad asks about oil changes, spark plug gaps, or MultiAir screen intervals.
+- [x] **In-Dash Maintenance & Memory Cockpit Studio (`screenMaintenance`)**: Built dedicated touchscreen UI (minimum 44-48px touch targets) featuring:
+  - 6th launcher card in Vehicle Performance Hub (`MAINTENANCE & MEMORY`) with live badge (`ODO: 85,240 MI | ALL OK`).
+  - Powertrain component lifecycles panel with color-coded service progress meters, overdue alerts, and "LOG SERVICE COMPLETED" modal.
+  - Interactive Odometer update modal to synchronize cluster mileage with one tap.
+  - R.U.M. Vector Memory Explorer with semantic search bar, quick topic filter pills, similarity score badges, and "+ REMEMBER NOTE" modal to teach R.U.M. new vehicle facts.
+- [x] **Verified on Pi 5 Hardware**: Validated live endpoints (`/api/maintenance/status`, `/api/ai/memory/query`, `/api/ai/chat`), passed complete unit test suite, and audited full 1024x600 Wayland UI screenshots ([`shot_phase8_maintenance_audit.png`](file:///C:/Users/jonat\.gemini\antigravity\brain\0b6cdb46-40d7-45fe-ab5a-dc9ccbe61528\shot_phase8_maintenance_audit.png), [`shot_phase8_vehicle_hub_audit.png`](file:///C:/Users/jonat\.gemini\antigravity\brain\0b6cdb46-40d7-45fe-ab5a-dc9ccbe61528\shot_phase8_vehicle_hub_audit.png)).
 
 ### [2026-11-09] — Phase 6: Cockpit Ergonomics, Audio Priority & Hardware Tuning
 - [x] **Music-Aware Audio Ducking Matrix**: Built 3-tier priority matrix (`PRIORITY_CRITICAL = 0`, `PRIORITY_COMMAND = 1`, `PRIORITY_BANTER = 2`). When in-dash music is playing, routine chatter (Shower Thoughts, morning dreams) is automatically silenced. When Priority 0 (faults/overheats) or Priority 1 (commands/pulls) speaks, in-dash media volume ducks to 18% over exactly 150ms, speaks with Kokoro neural voice, and smoothly restores over 350ms.

@@ -375,6 +375,19 @@
           </div>
           <div style="font-size:10px; font-weight:800; color:#00f0ff; letter-spacing:0.5px;">VIEW SYSTEM SPECS →</div>
         </div>
+
+        <!-- 6. MAINTENANCE & MEMORY -->
+        <div class="launcher-card card-maint" onclick="navigateTo('maintenance')" style="border-color:rgba(180,82,255,0.4); cursor:pointer;">
+          <div class="card-badge" id="vehHubMaintBadge" style="background:rgba(180,82,255,0.18); color:#b452ff; border:1px solid #b452ff;">
+            <span>ODO: 85,240 MI | ALL OK</span>
+          </div>
+          <div>
+            <div class="card-icon" style="color:#b452ff;">🛠️</div>
+            <div class="card-title">MAINTENANCE & MEMORY</div>
+            <div class="card-subtitle">MultiAir service intervals, oil life, spark plugs, transaxle, and R.U.M. vector recall memory.</div>
+          </div>
+          <div style="font-size:10px; font-weight:800; color:#b452ff; letter-spacing:0.5px;">VIEW SERVICE & MEMORY →</div>
+        </div>
       </div>
     </div>
 
@@ -2701,6 +2714,97 @@
       </div>
     </div>
 
+    <!-- 11. MULTIAIR MAINTENANCE SCHEDULE & R.U.M. VECTOR MEMORY -->
+    <div class="screen-view" id="screenMaintenance">
+      <div class="maint-container">
+        <!-- Top Sticky Header -->
+        <div class="maint-header-bar">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <button class="cluster-action-btn maint-home-btn" onclick="navigateTo('vehicle')" title="Back to Vehicle Hub">
+              🏎️ VEHICLE
+            </button>
+            <div>
+              <div class="maint-header-title">🛠️ DODGE DART 1.4T MULTIAIR SERVICE & R.U.M. MEMORY</div>
+              <div class="maint-header-sub">Factory Maintenance Intervals • Hydraulic Actuator Health • Offline Semantic Vector RAG</div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div class="maint-odometer-pill">
+              ODOMETER: <span id="maintOdometerVal" style="color:#00f0ff; font-weight:900;">85,240</span> MI
+            </div>
+            <button class="cluster-action-btn" onclick="openOdometerModal()" style="border-color:#38bdf8; color:#38bdf8; font-weight:800; min-height:44px;">
+              ✏️ EDIT ODO
+            </button>
+            <button class="cluster-action-btn" onclick="refreshMaintenanceData(true)" style="border-color:#a855f7; color:#d8b4fe; font-weight:800; min-height:44px;">
+              🔄 REFRESH
+            </button>
+            <button class="cockpit-home-btn" onclick="navigateTo('home')" style="margin:0; padding:6px 14px; font-size:12px;" title="Back to Cockpit Home">
+              🏠 HOME
+            </button>
+          </div>
+        </div>
+
+        <!-- Global Status & Alerts Banner -->
+        <div id="maintAlertBanner" class="maint-alert-banner maint-alert-ok">
+          <span id="maintAlertIcon">✅</span>
+          <span id="maintAlertText">ALL MULTIAIR POWERTRAIN SYSTEMS WITHIN FACTORY SERVICE INTERVALS</span>
+        </div>
+
+        <!-- Two-Column Main Split View -->
+        <div class="maint-main-split">
+          <!-- Left Column: Component Service Schedules & Progress Bars -->
+          <div class="maint-panel maint-items-col">
+            <div class="maint-panel-header">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:16px;">⏱️</span>
+                <span class="maint-panel-title">POWERTRAIN COMPONENT LIFECYCLES</span>
+              </div>
+              <span id="maintSummaryCountBadge" class="maint-badge maint-badge-purple">7 TRACKED ITEMS</span>
+            </div>
+            <div class="maint-items-list" id="maintItemsList">
+              <!-- Dynamically populated via renderMaintenanceItems() -->
+              <div style="text-align:center; padding:30px; color:#94a3b8;">Loading maintenance schedules...</div>
+            </div>
+          </div>
+
+          <!-- Right Column: R.U.M. Semantic Vector Recall & Offline Memory Explorer -->
+          <div class="maint-panel maint-memory-col">
+            <div class="maint-panel-header">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:16px;">🧠</span>
+                <span class="maint-panel-title">R.U.M. VECTOR MEMORY & FLIGHT LOGS</span>
+              </div>
+              <button class="cluster-action-btn" onclick="openRememberModal()" style="min-height:36px; padding:4px 10px; font-size:11px; font-weight:800; border-color:#00f0ff; color:#00f0ff;">
+                + REMEMBER NOTE
+              </button>
+            </div>
+
+            <!-- Memory Search Bar -->
+            <div class="maint-search-box">
+              <input type="text" id="maintSearchInput" class="maint-search-input" placeholder="Query R.U.M. memory (e.g. 'oil spec', 'plug gap', 'trip')..." onkeydown="if(event.key==='Enter') submitMaintSearch()">
+              <button class="maint-search-btn" onclick="submitMaintSearch()">🔍 SEARCH</button>
+            </div>
+
+            <!-- Topic Quick-Query Pills -->
+            <div class="maint-pills-row">
+              <button class="maint-pill-btn" onclick="quickQueryMemory('engine oil')">🛢️ Oil Spec</button>
+              <button class="maint-pill-btn" onclick="quickQueryMemory('spark plugs')">⚡ Spark Plugs</button>
+              <button class="maint-pill-btn" onclick="quickQueryMemory('actuator screen')">🧼 MultiAir Screen</button>
+              <button class="maint-pill-btn" onclick="quickQueryMemory('transaxle fluid')">⚙️ C635 Transaxle</button>
+              <button class="maint-pill-btn" onclick="quickQueryMemory('trip')">🏎️ Recent Trips</button>
+            </div>
+
+            <!-- Search Results / Vector Memory Cards -->
+            <div class="maint-results-list" id="maintSearchResults">
+              <div class="maint-memory-empty">
+                Tap a topic above or type a search to query R.U.M.'s 384-dimensional offline semantic vector database.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
 </div> <!-- END view-container -->
 
   <!-- BOTTOM PERSISTENT DOCK / NAVIGATION BAR (6 BUTTONS) -->
@@ -4195,6 +4299,84 @@
               Tap [🔄 REFRESH PI 3 STATS] to inspect live co-processor telemetry over the Ethernet bus.
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ODOMETER ADJUSTMENT MODAL -->
+    <div class="config-modal-overlay" id="maintOdometerModal" style="display:none;">
+      <div class="config-modal-content" style="max-width:440px; border-color:#38bdf8;">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
+          <span style="font-size:24px;">🏎️</span>
+          <h3 style="font-size:16px; font-weight:900; color:#fff;">UPDATE VEHICLE ODOMETER</h3>
+        </div>
+        <p style="font-size:12px; color:#c7d5e4; line-height:1.5; margin-bottom:14px;">
+          Enter the current odometer mileage shown on your Dodge Dart instrument cluster. All maintenance intervals and service alerts will recalculate dynamically.
+        </p>
+        <div style="margin-bottom:16px;">
+          <label style="display:block; font-size:11px; font-weight:800; color:#94a3b8; margin-bottom:6px;">ODOMETER READING (MILES):</label>
+          <input type="number" id="maintModalOdoInput" class="maint-modal-input" placeholder="85240" min="0" max="999999">
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:10px;">
+          <button class="graph-close-btn" onclick="closeOdometerModal()">CANCEL</button>
+          <button class="cluster-action-btn" onclick="submitOdometerUpdate()" style="background:#0284c7; color:#fff; font-weight:900; font-size:12px; padding:8px 18px; min-height:44px;">
+            SAVE ODOMETER
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOG COMPLETED SERVICE MODAL -->
+    <div class="config-modal-overlay" id="maintServiceModal" style="display:none;">
+      <div class="config-modal-content" style="max-width:480px; border-color:#a855f7;">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
+          <span style="font-size:24px;">🔧</span>
+          <h3 style="font-size:16px; font-weight:900; color:#fff;" id="maintServiceModalTitle">LOG COMPLETED SERVICE</h3>
+        </div>
+        <p style="font-size:12px; color:#c7d5e4; line-height:1.5; margin-bottom:14px;">
+          Record completed maintenance. This will reset the service interval counter, advance your maintenance log, and automatically index a semantic memory record for R.U.M.
+        </p>
+        <input type="hidden" id="maintServiceModalItemKey" value="">
+        <div style="margin-bottom:12px;">
+          <label style="display:block; font-size:11px; font-weight:800; color:#94a3b8; margin-bottom:6px;">SERVICE MILEAGE:</label>
+          <input type="number" id="maintServiceModalMileage" class="maint-modal-input" placeholder="85240">
+        </div>
+        <div style="margin-bottom:16px;">
+          <label style="display:block; font-size:11px; font-weight:800; color:#94a3b8; margin-bottom:6px;">TECHNICIAN NOTES & BRAND/PART DETAILS:</label>
+          <input type="text" id="maintServiceModalNotes" class="maint-modal-input" placeholder="e.g., Replaced with 4.0 qts Pennzoil Euro 5W-40 & Mopar filter">
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:10px;">
+          <button class="graph-close-btn" onclick="closeServiceModal()">CANCEL</button>
+          <button class="cluster-action-btn" onclick="submitServiceLog()" style="background:#9333ea; color:#fff; font-weight:900; font-size:12px; padding:8px 18px; min-height:44px;">
+            CONFIRM & LOG SERVICE
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TEACH R.U.M. A MEMORY NOTE MODAL -->
+    <div class="config-modal-overlay" id="maintRememberModal" style="display:none;">
+      <div class="config-modal-content" style="max-width:480px; border-color:#00f0ff;">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
+          <span style="font-size:24px;">🧠</span>
+          <h3 style="font-size:16px; font-weight:900; color:#fff;">TEACH R.U.M. A NEW MEMORY</h3>
+        </div>
+        <p style="font-size:12px; color:#c7d5e4; line-height:1.5; margin-bottom:14px;">
+          Add a custom automotive note or fact. R.U.M. will generate a 384-dimensional dense vector embedding and store it in offline long-term memory for conversational recall.
+        </p>
+        <div style="margin-bottom:12px;">
+          <label style="display:block; font-size:11px; font-weight:800; color:#94a3b8; margin-bottom:6px;">NOTE TITLE:</label>
+          <input type="text" id="maintRememberTitle" class="maint-modal-input" placeholder="e.g. Installed K&N High-Flow Air Filter">
+        </div>
+        <div style="margin-bottom:16px;">
+          <label style="display:block; font-size:11px; font-weight:800; color:#94a3b8; margin-bottom:6px;">MEMORY DETAILS & INSTRUCTIONS:</label>
+          <textarea id="maintRememberContent" class="maint-modal-input" rows="3" style="resize:vertical;" placeholder="e.g. Installed K&N drop-in filter at 85,240 miles. Clean and oil every 15,000 miles."></textarea>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:10px;">
+          <button class="graph-close-btn" onclick="closeRememberModal()">CANCEL</button>
+          <button class="cluster-action-btn" onclick="submitRememberNote()" style="background:#0891b2; color:#fff; font-weight:900; font-size:12px; padding:8px 18px; min-height:44px;">
+            SAVE TO MEMORY
+          </button>
         </div>
       </div>
     </div>

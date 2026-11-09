@@ -1540,7 +1540,9 @@ function navigateTo(screenId) {
 
     settings: document.getElementById('screenSettings'),
 
-    library: document.getElementById('screenLibrary')
+    library: document.getElementById('screenLibrary'),
+
+    maintenance: document.getElementById('screenMaintenance')
 
 
 
@@ -1591,6 +1593,11 @@ function navigateTo(screenId) {
     attachMultimeterToRum();
   } else {
     detachMultimeterFromRum();
+  }
+
+  // Phase 8: MultiAir Maintenance & Vector Memory Refresh Lifecycle
+  if (screenId === 'maintenance') {
+    refreshMaintenanceData();
   }
 
 
@@ -6834,7 +6841,7 @@ function handleAiAction(action) {
 
   if (action.type === 'navigate') {
 
-    const validScreens = ['home', 'gauges', 'ai', 'media', 'music', 'games', 'settings', 'dashcam'];
+    const validScreens = ['home', 'gauges', 'ai', 'media', 'music', 'games', 'settings', 'dashcam', 'maintenance'];
 
     if (validScreens.includes(action.target)) {
 
@@ -19921,7 +19928,7 @@ fetchTripLogs();
 
 function initTouchScrollEngine() {
   const scrollTargets = document.querySelectorAll(
-    '.screen-view, #screenSettings, #screenHome, #screenMedia, #screenGames, #screenLibrary, #screenVehicle, #screenHardware, ' +
+    '.screen-view, #screenSettings, #screenHome, #screenMedia, #screenGames, #screenLibrary, #screenVehicle, #screenHardware, #screenMaintenance, .maint-items-list, .maint-results-list, ' +
     '.hw-studio-container, .win11-drive-container, #libraryMarkdownContainer, #libraryReaderView, #libraryShelfView, ' +
     '#gpioBoardPinsContainer, #romsGrid, #fileListGrid, .explorer-body, .explorer-tree, .ai-chat-messages, #aiChatMessages, ' +
     '#animGridContainer, #tripsListContainer, .trip-detail-panel, #diagCodesList, .diag-detail-panel, #trackListContainer, ' +
@@ -44002,3 +44009,334 @@ function updateCameraOcclusionFading() {
     }
   }
 }
+
+
+// ============================================================================
+// PHASE 8: MULTIAIR MAINTENANCE & R.U.M. VECTOR MEMORY SUITE
+// ============================================================================
+let currentMaintenanceData = null;
+
+function refreshMaintenanceData(userTriggered = false) {
+  fetch('/api/maintenance/status')
+    .then(r => r.json())
+    .then(data => {
+      currentMaintenanceData = data;
+      const odo = data.current_odometer || 85240;
+      const odoEl = document.getElementById('maintOdometerVal');
+      if (odoEl) odoEl.textContent = odo.toLocaleString();
+
+      // Update Vehicle Hub Badge
+      const hubBadge = document.getElementById('vehHubMaintBadge');
+      if (hubBadge) {
+        if (data.alerts && data.alerts.length > 0) {
+          hubBadge.innerHTML = `<span>ODO: ${odo.toLocaleString()} MI | ⚠️ ${data.alerts.length} DUE</span>`;
+          hubBadge.style.color = 'var(--accent-red)';
+          hubBadge.style.borderColor = 'var(--accent-red)';
+          hubBadge.style.background = 'rgba(255, 51, 68, 0.2)';
+        } else {
+          hubBadge.innerHTML = `<span>ODO: ${odo.toLocaleString()} MI | ALL OK</span>`;
+          hubBadge.style.color = '#b452ff';
+          hubBadge.style.borderColor = '#b452ff';
+          hubBadge.style.background = 'rgba(180, 82, 255, 0.18)';
+        }
+      }
+
+      // Update Global Alert Banner
+      const banner = document.getElementById('maintAlertBanner');
+      const bannerIcon = document.getElementById('maintAlertIcon');
+      const bannerText = document.getElementById('maintAlertText');
+      if (banner && bannerIcon && bannerText) {
+        if (data.alerts && data.alerts.length > 0) {
+          const hasOverdue = data.items && data.items.some(i => i.status === 'DUE_NOW');
+          banner.className = 'maint-alert-banner ' + (hasOverdue ? 'maint-alert-danger' : 'maint-alert-warn');
+          bannerIcon.textContent = hasOverdue ? '🚨' : '⚠️';
+          bannerText.textContent = data.alerts.join(' • ');
+        } else {
+          banner.className = 'maint-alert-banner maint-alert-ok';
+          bannerIcon.textContent = '✅';
+          bannerText.textContent = 'ALL MULTIAIR POWERTRAIN SYSTEMS WITHIN FACTORY SERVICE INTERVALS';
+        }
+      }
+
+      // Render Item Cards
+      if (data.items) {
+        renderMaintenanceItems(data.items, odo);
+        const countBadge = document.getElementById('maintSummaryCountBadge');
+        if (countBadge) countBadge.textContent = `${data.items.length} TRACKED ITEMS`;
+      }
+
+      if (userTriggered && window.showToast) {
+        window.showToast("Maintenance schedules refreshed");
+      }
+    })
+    .catch(err => {
+      console.warn('[MAINT] Status fetch note:', err);
+    });
+}
+
+function renderMaintenanceItems(items, currentOdo) {
+  const container = document.getElementById('maintItemsList');
+  if (!container) return;
+
+  if (!items || items.length === 0) {
+    container.innerHTML = '<div style="text-align:center; padding:30px; color:#64748b;">No maintenance items recorded.</div>';
+    return;
+  }
+
+  container.innerHTML = items.map(item => {
+    let badgeClass = 'maint-badge-green';
+    let meterColor = '#10b981';
+    let statusLabel = 'OK';
+
+    if (item.status === 'DUE_NOW') {
+      badgeClass = 'maint-badge-red';
+      meterColor = '#ef4444';
+      statusLabel = 'OVERDUE';
+    } else if (item.status === 'DUE_SOON') {
+      badgeClass = 'maint-badge-yellow';
+      meterColor = '#eab308';
+      statusLabel = 'DUE SOON';
+    }
+
+    const pct = Math.min(100, Math.max(0, item.percent_used || 0));
+    const rem = item.miles_remaining;
+    const remText = rem <= 0 
+      ? `<span style="color:#ef4444; font-weight:900;">OVERDUE BY ${Math.abs(rem).toLocaleString()} MI</span>`
+      : `<span style="color:${rem < 1000 ? '#fde047' : '#94a3b8'};">${rem.toLocaleString()} mi remaining</span>`;
+
+    const safeName = (item.name || '').replace(/'/g, "\\'");
+    const safeKey = (item.item_key || '').replace(/'/g, "\\'");
+
+    return `
+      <div class="maint-item-card" data-key="${item.item_key}">
+        <div class="maint-item-top">
+          <div>
+            <div class="maint-item-name">${item.name}</div>
+            <div class="maint-item-spec">${item.part_number || 'OEM Standard Specification'}</div>
+          </div>
+          <span class="maint-badge ${badgeClass}">${statusLabel} (${pct}%)</span>
+        </div>
+
+        <div class="maint-meter-track">
+          <div class="maint-meter-fill" style="width: ${pct}%; background: ${meterColor};"></div>
+        </div>
+
+        <div class="maint-item-footer">
+          <div>
+            <span>Interval: ${item.interval_miles.toLocaleString()} mi</span> • 
+            <span>Last: ${item.last_service_mileage.toLocaleString()} mi (${item.last_service_date})</span> • 
+            ${remText}
+          </div>
+          <button class="maint-log-btn" onclick="openServiceModal('${safeKey}', '${safeName}', ${currentOdo})">
+            ✓ LOG SERVICE
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// Odometer Modal Controls
+function openOdometerModal() {
+  const modal = document.getElementById('maintOdometerModal');
+  const input = document.getElementById('maintModalOdoInput');
+  const odoEl = document.getElementById('maintOdometerVal');
+  if (input && odoEl) {
+    input.value = odoEl.textContent.replace(/,/g, '').trim();
+  }
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeOdometerModal() {
+  const modal = document.getElementById('maintOdometerModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function submitOdometerUpdate() {
+  const input = document.getElementById('maintModalOdoInput');
+  if (!input) return;
+  const val = parseInt(input.value, 10);
+  if (isNaN(val) || val < 0) {
+    alert("Please enter a valid mileage.");
+    return;
+  }
+
+  fetch('/api/maintenance/odometer', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ odometer: val })
+  })
+  .then(r => r.json())
+  .then(res => {
+    closeOdometerModal();
+    refreshMaintenanceData();
+    if (window.showToast) window.showToast(`Odometer updated to ${val.toLocaleString()} mi`);
+  })
+  .catch(err => {
+    console.error('[MAINT] Odometer update error:', err);
+    closeOdometerModal();
+  });
+}
+
+// Service Modal Controls
+function openServiceModal(itemKey, itemName, currentOdo) {
+  const modal = document.getElementById('maintServiceModal');
+  const title = document.getElementById('maintServiceModalTitle');
+  const keyInput = document.getElementById('maintServiceModalItemKey');
+  const mileInput = document.getElementById('maintServiceModalMileage');
+  const noteInput = document.getElementById('maintServiceModalNotes');
+
+  if (title) title.textContent = `LOG COMPLETED: ${itemName}`;
+  if (keyInput) keyInput.value = itemKey;
+  if (mileInput) mileInput.value = currentOdo || (currentMaintenanceData ? currentMaintenanceData.current_odometer : 85240);
+  if (noteInput) noteInput.value = '';
+
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeServiceModal() {
+  const modal = document.getElementById('maintServiceModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function submitServiceLog() {
+  const keyInput = document.getElementById('maintServiceModalItemKey');
+  const mileInput = document.getElementById('maintServiceModalMileage');
+  const noteInput = document.getElementById('maintServiceModalNotes');
+
+  const key = keyInput ? keyInput.value : '';
+  const mileage = parseInt(mileInput ? mileInput.value : '0', 10);
+  const notes = noteInput ? noteInput.value.trim() : '';
+
+  if (!key || isNaN(mileage) || mileage <= 0) {
+    alert("Please provide valid mileage.");
+    return;
+  }
+
+  fetch('/api/maintenance/record', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ item_key: key, mileage: mileage, notes: notes })
+  })
+  .then(r => r.json())
+  .then(res => {
+    closeServiceModal();
+    refreshMaintenanceData();
+    quickQueryMemory(key.toLowerCase());
+    if (window.showToast) window.showToast(`Service logged at ${mileage.toLocaleString()} mi!`);
+  })
+  .catch(err => {
+    console.error('[MAINT] Service log error:', err);
+    closeServiceModal();
+  });
+}
+
+// Remember Note Modal Controls
+function openRememberModal() {
+  const modal = document.getElementById('maintRememberModal');
+  const titleInput = document.getElementById('maintRememberTitle');
+  const contentInput = document.getElementById('maintRememberContent');
+  if (titleInput) titleInput.value = '';
+  if (contentInput) contentInput.value = '';
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeRememberModal() {
+  const modal = document.getElementById('maintRememberModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function submitRememberNote() {
+  const titleInput = document.getElementById('maintRememberTitle');
+  const contentInput = document.getElementById('maintRememberContent');
+  const title = titleInput ? titleInput.value.trim() : '';
+  const content = contentInput ? contentInput.value.trim() : '';
+
+  if (!title || !content) {
+    alert("Please enter both a title and details.");
+    return;
+  }
+
+  fetch('/api/ai/memory/remember', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: title, content: content, category: 'DRIVER_LOG' })
+  })
+  .then(r => r.json())
+  .then(res => {
+    closeRememberModal();
+    quickQueryMemory(title);
+    if (window.showToast) window.showToast("Memory indexed into R.U.M. vector store!");
+  })
+  .catch(err => {
+    console.error('[MAINT] Remember error:', err);
+    closeRememberModal();
+  });
+}
+
+// Semantic Memory Search Controls
+function submitMaintSearch() {
+  const input = document.getElementById('maintSearchInput');
+  if (!input) return;
+  const q = input.value.trim();
+  if (q) queryRumVectorMemory(q);
+}
+
+function quickQueryMemory(query) {
+  const input = document.getElementById('maintSearchInput');
+  if (input) input.value = query;
+  queryRumVectorMemory(query);
+}
+
+function queryRumVectorMemory(query) {
+  const resultsContainer = document.getElementById('maintSearchResults');
+  if (!resultsContainer) return;
+
+  resultsContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">Searching vector database...</div>';
+
+  fetch('/api/ai/memory/query?q=' + encodeURIComponent(query))
+    .then(r => r.json())
+    .then(data => {
+      const results = data.results || [];
+      if (results.length === 0) {
+        resultsContainer.innerHTML = `
+          <div class="maint-memory-empty">
+            No semantic matches found for "<b>${query}</b>". R.U.M. searches specifications, service logs, and flight records.
+          </div>
+        `;
+        return;
+      }
+
+      resultsContainer.innerHTML = results.map(r => {
+        let catColor = '#a855f7';
+        if (r.category === 'SPECIFICATION') catColor = '#00f0ff';
+        else if (r.category === 'MAINTENANCE') catColor = '#10b981';
+        else if (r.category === 'TRIP_LOG') catColor = '#3b82f6';
+        else if (r.category === 'DRIVER_LOG') catColor = '#f59e0b';
+
+        return `
+          <div class="maint-memory-card">
+            <div class="maint-memory-card-header">
+              <div style="display:flex; align-items:center; gap:6px;">
+                <span style="font-size:9px; font-weight:900; background:rgba(255,255,255,0.08); color:${catColor}; padding:2px 6px; border-radius:4px; border:1px solid ${catColor};">
+                  ${r.category}
+                </span>
+                <span class="maint-memory-title">${r.title}</span>
+              </div>
+              <span class="maint-memory-similarity">SIM: ${(r.similarity * 100).toFixed(1)}%</span>
+            </div>
+            <div class="maint-memory-body">${r.content}</div>
+          </div>
+        `;
+      }).join('');
+    })
+    .catch(err => {
+      console.error('[MAINT] Memory query note:', err);
+      resultsContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#ef4444;">Error querying vector memory.</div>';
+    });
+}
+
+// Automatically load maintenance status on system boot
+setTimeout(() => {
+  refreshMaintenanceData();
+}, 2500);

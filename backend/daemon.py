@@ -801,6 +801,17 @@ class CarPi5ServerState:
         ))
         self._vosk_model = None
         self._vosk_wake_rec = None
+        # Phase 8 Offline Vector Memory & Maintenance Engine
+        try:
+            from backend.ai.rag_memory import RagMemoryEngine
+            self.rag = RagMemoryEngine()
+        except ImportError:
+            try:
+                from ai.rag_memory import RagMemoryEngine
+                self.rag = RagMemoryEngine()
+            except Exception as e:
+                print(f"[DAEMON] RAG Memory init note: {e}")
+                self.rag = None
 
 
 
@@ -1286,6 +1297,12 @@ def telemetry_loop():
 
 
             state.trip_logger.log_telemetry_sample(asdict(frame))
+            # Phase 8 Odometer accumulation & periodic trip memory vector sync
+            if getattr(state, "rag", None) and frame:
+                if frame.speed_mph and frame.speed_mph > 2.0:
+                    state.rag.advance_odometer(frame.speed_mph * 1.0 / 3600.0)
+                if tick_count % (25 * 30) == 0:
+                    state.rag.sync_completed_trips()
 
 
 
@@ -2998,6 +3015,23 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
 
 
+        elif parsed.path == "/api/maintenance/status":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            status_data = state.rag.get_maintenance_status() if getattr(state, "rag", None) else {"error": "rag_unavailable"}
+            self.wfile.write(json.dumps(status_data).encode("utf-8"))
+            return
+        elif parsed.path == "/api/ai/memory/query":
+            q = parse_qs(parsed.query).get("q", [""])[0]
+            results = state.rag.search(q, top_k=5) if (getattr(state, "rag", None) and q) else []
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"query": q, "results": results}).encode("utf-8"))
+            return
         elif parsed.path == "/api/audio/duck_status":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -3009,6 +3043,40 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                 "is_speaking": getattr(state.audio, "is_speaking", False),
                 "is_music_playing": getattr(state, "is_music_playing", False)
             }).encode("utf-8"))
+            return
+        elif parsed.path == "/api/maintenance/record":
+            key = req_data.get("item_key")
+            mileage = int(req_data.get("mileage", 0))
+            notes = req_data.get("notes", "")
+            ok = state.rag.record_service(key, mileage, notes) if getattr(state, "rag", None) else False
+            self.send_response(200 if ok else 400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok" if ok else "error", "item_key": key, "mileage": mileage}).encode("utf-8"))
+            return
+        elif parsed.path == "/api/maintenance/odometer":
+            odo = int(req_data.get("odometer", 0))
+            if getattr(state, "rag", None) and odo > 0:
+                state.rag.set_odometer(odo)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "odometer": odo}).encode("utf-8"))
+            return
+        elif parsed.path == "/api/ai/memory/remember":
+            title = req_data.get("title", "")
+            content_text = req_data.get("content", "")
+            cat = req_data.get("category", "CUSTOM_NOTE")
+            doc_id = f"custom_{int(time.time())}"
+            if getattr(state, "rag", None) and title and content_text:
+                state.rag.add_document(doc_id, cat, title, content_text, metadata=req_data.get("metadata", {}))
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "doc_id": doc_id, "title": title}).encode("utf-8"))
             return
         elif parsed.path == "/api/telemetry/headlights":
             self.send_response(200)

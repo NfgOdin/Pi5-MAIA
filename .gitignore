@@ -8,6 +8,7 @@ _ref_sbc_core/
 *.bak
 models/*.gguf
 models/*.bin
+models/embeddings/*.onnx
 node_modules/
 
 # Allow model textures and 3D assets in ui/web_preview
@@ -23,3 +24,4 @@ backend/ai/ai_settings.json
 backend/ai/google_oauth_tokens.json
 storage/trip_archives/
 storage/tts_cache/
+storage/*.db
