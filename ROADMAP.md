@@ -16,6 +16,27 @@ This living document tracks all planned, brainstormed, and confirmed engineering
 
 ## 🏆 Completed & Verified in Production (Changelog)
 
+### [2026-11-10] — Phase 10: Wake Word Acoustic Noise Rejection, Dynamic Speed Awareness & Route Navigation Voice Engine
+- [x] **Kaldi Grammar & Acoustic Prefix Expansion (`backend/daemon.py`)**: Expanded Vosk wake word recognition grammar with comprehensive phonetic variants (`"hey rum"`, `"hey run"`, `"hey ron"`, `"hey rome"`, `"hey room"`, `"hey drum"`, `"hey rob"`, `"hey ram"`, `"hey rem"`). Resolves cabin road-rumble masking and eliminates single-word `"hey"` drops.
+- [x] **Instant Audio Acknowledgment Cue (`backend/daemon.py`, `audio_player.py`)**: Wired zero-latency (<15ms) voice earcon acknowledgment (`state.audio.play_acknowledgment(...)`) immediately upon spotting `"Hey Rum"` in standby mode, playing authentic R.U.M. responses ("I'm here!", "Listening!", "All ears!") so the driver has immediate audible confirmation.
+- [x] **Moving Cabin Adaptive Noise Floor & VAD Tuning (`backend/daemon.py`)**: Replaced static 350 RMS noise clamp with dynamic slew-limited moving average tracking up to 750 RMS. Expanded trailing silence threshold from 500ms to 700ms (900ms in convo) to prevent chopping natural pauses between "Hey" and "Rum" while suppressing highway cabin rumble and HVAC noise.
+- [x] **Dynamic Speed Awareness & Milestone Commentary (`backend/ai/copilot.py`)**:
+  - **Highway Cruising Milestone (>65 MPH)**: Spoken daughter cruise confirmation with 6th gear overdrive & resting vacuum telemetry note.
+  - **Spirited Speed Warning (>82 MPH)**: In-character highway patrol radar trap advisory with rearview mirror reminder.
+  - **Triple-Digit Alert (>100 MPH)**: High-priority steering grip advisory for spirited highway pulls.
+  - **Emergency Deceleration & Hard Braking (>18 MPH/s drop or $G_y < -0.55G$)**: Real-time braking grip check ("ABS and pads held firm, you okay Dad?").
+- [x] **High Lateral-G Cornering & Elevation Awareness (`backend/ai/copilot.py`)**:
+  - **Lateral Cornering Force ($|G_x| \ge 0.60G$)**: Contextual apex praise ("MultiAir chassis glued to the asphalt, nice line Dad!").
+  - **Mountain Ascent Milestone (>4,500 ft)**: Atmospheric density commentary on Garrett turbocharger automatic wastegate altitude compensation.
+  - **GPS 3D Fix Acquisition Lock**: Automatic spoken notice when GPS locks 3D satellite constellation and loads offline Arizona maps.
+  - **Dragy Launch Slip Announcement**: Spoken debrief when a verified Dragy 0–60 MPH sprint run finishes.
+- [x] **Cockpit Navigation & Vehicle Voice Commands (`gauges.js`)**: Added voice intent routing for:
+  - "Open maps" / "Navigation" / "Show map" -> navigates to `#screenMaps`, recenters Arizona Leaflet map, speaks audio confirmation.
+  - "Where are we?" / "What are our coordinates?" -> announces real-time coordinates (${lat}^\circ\text{N}, {lon}^\circ\text{W}$), altitude in feet, and heading cardinal.
+  - "Open drag launch" / "Christmas tree" -> switches to `#screenDragy` studio.
+  - "What's our G-force?" -> reports live lateral and longitudinal Gs from `gps.g_forces`.
+- [x] **Verified on Pi 5 Hardware**: Deployed to Raspberry Pi 5 (`192.168.0.131`), passed full unit test suite (8/8 logic contract tests, 10/10 voice intent tests), verified live daemon startup with expanded Kaldi grammar compilation, and audited in production.
+
 ### [2026-11-10] — Phase 9: High-G Drag Launch Control, NHRA Christmas Tree & G-G Friction Circle (Commits: `b6c6500`, `aa254ef`)
 - [x] **Dedicated Drag Launch Control Studio (`#screenDragy`)**: Built full-screen in-dash performance telemetry environment inside the Vehicle Hub (`screenVehicle`), designed specifically for the 1024x600 capacitive touchscreen with ≥44px touch targets.
 - [x] **NHRA Christmas Tree Staging Tower**: Integrated realistic twin-lens staging tree featuring Pre-Stage (⚪⚪), Stage (⚪⚪), 3-step Amber drop (🟡🟡), Green Launch (🟢🟢), and Red Foul Light (🔴🔴). Supports Sportsman (0.500s interval) and Pro Tree (0.400s flash) countdown modes, with millisecond-precision reaction time ($RT$) tracking and foul start detection.

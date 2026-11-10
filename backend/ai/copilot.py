@@ -45,6 +45,17 @@ class AICopilot:
         self.last_dyno_praise_time = 0.0
         self.last_pip_praise_time = 0.0
 
+        # Phase 10: Speed, Lateral G & Route / Elevation Awareness Latches
+        self.last_cruising_speed_praise = 0.0
+        self.last_spirited_speed_warn = 0.0
+        self.last_triple_digit_warn = 0.0
+        self.last_hard_braking_time = 0.0
+        self.last_high_latg_time = 0.0
+        self.gps_fix_announced = False
+        self.high_altitude_announced = False
+        self.prev_speed = 0.0
+        self.prev_speed_time = time.time()
+
     @staticmethod
     def _get_val(frame: Any, attr: str, default: Any = None) -> Any:
         """Safely extracts an attribute or dict key from frame, falling back to default if None."""
@@ -155,10 +166,10 @@ class AICopilot:
         ]
         return random.choice(thoughts)
 
-    def evaluate_frame(self, frame: Any, dt: float = 0.04, is_night: bool = False, pip_state: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    def evaluate_frame(self, frame: Any, dt: float = 0.04, is_night: bool = False, pip_state: Optional[Dict[str, Any]] = None, gps_data: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """
         Evaluate a single telemetry frame.
-        Respects voice mode, affect engine, and once-per-trip latches.
+        Respects voice mode, affect engine, speed milestones, and once-per-trip latches.
         """
         if not isinstance(dt, (int, float)) or not math.isfinite(dt) or dt <= 0.0:
             dt = 0.04
@@ -181,6 +192,17 @@ class AICopilot:
         boost_val = self._get_float(frame, 'boost_psi', 0.0)
         intake_temp = self._get_val(frame, 'intake_temp_f', None)
         zero_to_sixty = self._get_val(frame, 'zero_to_sixty_time', None)
+
+        # Track speed delta and deceleration
+        speed = self._get_float(frame, "speed_mph", self._get_float(frame, "speed", 0.0))
+        if speed <= 0.0 and gps_data:
+            speed = self._get_float(gps_data, "speed_mph", 0.0)
+        
+        dt_speed = max(0.05, now - self.prev_speed_time)
+        decel_rate = (self.prev_speed - speed) / dt_speed if self.prev_speed > speed else 0.0
+        initial_speed_before_step = self.prev_speed
+        self.prev_speed = speed
+        self.prev_speed_time = now
 
         # If completely muted, return only silent HUD events for critical faults
         if self.voice_mode == "MUTED":
@@ -338,7 +360,7 @@ class AICopilot:
                     "hud_message": "MULTIAIR NOMINAL: FULL BOOST OK"
                 }
 
-        # 5. Hard Pull Detector & Debrief (Only on high-boost pulls >= 15 PSI)
+        # 9. Hard Pull Detector & Debrief (Only on high-boost pulls >= 15 PSI)
         if boost_val > 12.0 and throttle_pct > 80.0:
             self.is_in_pull = True
             if boost_val > self.max_pull_boost:
@@ -361,12 +383,111 @@ class AICopilot:
                     "hud_message": f"PULL DEBRIEF: {peak} PSI PEAK"
                 }
 
-        # 6. Spontaneous Highway Cruising "Shower Thoughts" (Every 15-25 minutes of steady highway driving)
-        speed = self._get_float(frame, "speed_mph", self._get_float(frame, "speed", 0.0))
-        boost = boost_val
-        throttle = throttle_pct
-        
-        is_cruising = (speed >= 45.0 and 8.0 <= throttle <= 38.0 and -14.0 <= boost <= -0.5)
+        # 10. Hard Braking & Rapid Deceleration Alert (>18 MPH/s or G < -0.55G)
+        long_g = self._get_float(gps_data.get("g_forces", {}) if gps_data else {}, "longitudinal", 0.0)
+        if (decel_rate >= 18.0 or long_g <= -0.55) and initial_speed_before_step >= 35.0:
+            if time_since_speech > 10.0 and (now - self.last_hard_braking_time > 45.0):
+                self.last_hard_braking_time = now
+                self.last_spoken_time = now
+                return {
+                    "type": "WARNING",
+                    "priority": 1,
+                    "emotion": "CONCERNED",
+                    "speech": f"Whoa, heavy braking! ABS and pads held firm, you okay {self.driver_name}?",
+                    "hud_message": f"🛑 HARD BRAKING: -{int(decel_rate)} MPH/s"
+                }
+
+        # 11. High Lateral G Cornering Praise (|Gx| >= 0.60G)
+        lat_g = abs(self._get_float(gps_data.get("g_forces", {}) if gps_data else {}, "lateral", 0.0))
+        if lat_g <= 0.0:
+            lat_g = abs(self._get_float(frame, "lateral_accel", 0.0))
+        if lat_g >= 0.60 and speed >= 25.0 and time_since_speech > 12.0 and (now - self.last_high_latg_time > 60.0):
+            self.last_high_latg_time = now
+            self.last_spoken_time = now
+            return {
+                "type": "PERFORMANCE",
+                "priority": 2,
+                "emotion": "EXCITED",
+                "speech": f"Hold on! That was {lat_g:.2f} lateral Gs through that apex! Dart's chassis is glued to the asphalt, nice line {self.driver_name}!",
+                "hud_message": f"🏎️ CORNERING G: {lat_g:.2f}G"
+            }
+
+        # 12. Speed Awareness Milestones
+        if speed >= 100.0 and time_since_speech > 8.0 and (now - self.last_triple_digit_warn > 300.0):
+            self.last_triple_digit_warn = now
+            self.last_spoken_time = now
+            return {
+                "type": "WARNING",
+                "priority": 1,
+                "emotion": "EXCITED",
+                "speech": f"{self.driver_name}! Triple digits—{int(speed)} miles per hour! Keep both hands on the wheel, our Dart is flying!",
+                "hud_message": f"⚡ 100+ MPH: {int(speed)} MPH"
+            }
+        elif speed >= 82.0 and time_since_speech > 15.0 and (now - self.last_spirited_speed_warn > 480.0):
+            self.last_spirited_speed_warn = now
+            self.last_spoken_time = now
+            return {
+                "type": "INFO",
+                "priority": 3,
+                "emotion": "CONCERNED",
+                "speech": f"Whoa {self.driver_name}, {int(speed)} miles per hour! Highway patrol loves radar traps on this stretch, watch your mirrors!",
+                "hud_message": f"⚠️ SPEED ADVISORY: {int(speed)} MPH"
+            }
+        elif speed >= 65.0 and throttle_pct < 35.0 and boost_val < 2.0 and time_since_speech > 30.0 and (now - self.last_cruising_speed_praise > 720.0):
+            self.last_cruising_speed_praise = now
+            self.last_spoken_time = now
+            return {
+                "type": "INFO",
+                "priority": 3,
+                "emotion": "HAPPY_PROUD",
+                "speech": f"Cruising at {int(speed)} miles per hour, {self.driver_name}! 6th gear engaged, boost at resting vacuum. Safe travels!",
+                "hud_message": f"🛣️ CRUISE: {int(speed)} MPH"
+            }
+
+        # 13. GPS 3D Fix Acquisition Announcement (Once per trip)
+        if gps_data and gps_data.get("fix") and not self.gps_fix_announced:
+            self.gps_fix_announced = True
+            if time_since_speech > 8.0:
+                sats = gps_data.get("sats", 0)
+                self.last_spoken_time = now
+                return {
+                    "type": "INFO",
+                    "priority": 3,
+                    "emotion": "HAPPY_PROUD",
+                    "speech": f"GPS satellite lock acquired with {sats} satellites, {self.driver_name}! Cockpit navigation and offline Arizona map are tracking our coordinates.",
+                    "hud_message": f"🛰️ GPS LOCKED: {sats} SATS"
+                }
+
+        # 14. Mountain Elevation Ascent Milestone (>4,500 ft)
+        alt_ft = self._get_float(gps_data, "altitude_ft", 0.0) if gps_data else 0.0
+        if alt_ft >= 4500.0 and not self.high_altitude_announced and time_since_speech > 20.0:
+            self.high_altitude_announced = True
+            self.last_spoken_time = now
+            return {
+                "type": "INFO",
+                "priority": 3,
+                "emotion": "THOUGHTFUL",
+                "speech": f"Notice that crisp mountain air, {self.driver_name}? We just climbed past {int(alt_ft)} feet! Our Garrett turbocharger automatically compensates for thin air.",
+                "hud_message": f"🏔️ ELEVATION: {int(alt_ft)} FT"
+            }
+
+        # 15. Dragy Launch Run Spoken Announcement
+        dragy = gps_data.get("dragy") if gps_data else None
+        if dragy and dragy.get("time_0_60"):
+            t0_60 = self._get_float(dragy, "time_0_60", 0.0)
+            if t0_60 > 0.0 and t0_60 != self.last_announced_0_60 and time_since_speech > 5.0:
+                self.last_announced_0_60 = t0_60
+                self.last_spoken_time = now
+                return {
+                    "type": "PERFORMANCE",
+                    "priority": 1,
+                    "emotion": "EXCITED",
+                    "speech": f"Dragy launch verified! Zero to sixty in {t0_60:.2f} seconds! Great launch, {self.driver_name}!",
+                    "hud_message": f"⚡ DRAGY 0-60: {t0_60:.2f}s"
+                }
+
+        # 16. Spontaneous Highway Cruising "Shower Thoughts" (Every 15-25 minutes of steady highway driving)
+        is_cruising = (speed >= 45.0 and 8.0 <= throttle_pct <= 38.0 and -14.0 <= boost_val <= -0.5)
         if is_cruising:
             self.cruising_seconds += dt
         else:
@@ -386,7 +507,7 @@ class AICopilot:
                     "hud_message": "💭 R.U.M. Shower Thought"
                 }
 
-        # 7. 0-60 MPH Launch Silent HUD Record
+        # 17. 0-60 MPH Launch Silent HUD Record Fallback
         if zero_to_sixty and zero_to_sixty != self.last_announced_0_60:
             self.last_announced_0_60 = zero_to_sixty
             return {

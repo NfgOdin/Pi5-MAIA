@@ -1241,7 +1241,7 @@ def telemetry_loop():
 
         circ_state = state.llm.get_circadian_state()
         state.latest_pip_state = state.pip.step(dt=dt, telemetry=frame, is_night=circ_state["is_night"])
-        ai_event = state.copilot.evaluate_frame(frame, dt=dt, is_night=circ_state["is_night"], pip_state=state.latest_pip_state)
+        ai_event = state.copilot.evaluate_frame(frame, dt=dt, is_night=circ_state["is_night"], pip_state=state.latest_pip_state, gps_data=state.gps.get_telemetry())
 
 
 
@@ -1415,33 +1415,16 @@ def usb_mic_listener_loop():
 
 
     PHONETIC_RUM_PREFIXES = [
-
-
-
         "hey rum", "hi rum", "hello rum", "okay rum", "ok rum", "yo rum",
-
-
-
         "hey ram", "hi ram", "hello ram", "okay ram", "ok ram",
-
-
-
         "hey rem", "hi rem", "hello rem", "okay rem", "ok rem",
-
-
-
-        "hey ron", "hi ron", "hello ron", "hey rob", "hi rob",
-
-
-
-        "hey rome", "hi rome", "hey room", "hi room",
-
-
-
-        "hey run", "hey rung", "hey drum", "r.u.m.", "r.u.m"
-
-
-
+        "hey ron", "hi ron", "hello ron", "okay ron", "ok ron",
+        "hey run", "hi run", "hello run", "okay run", "ok run",
+        "hey rob", "hi rob", "hello rob", "okay rob", "ok rob",
+        "hey rome", "hi rome", "hello rome", "okay rome",
+        "hey room", "hi room", "hello room", "okay room",
+        "hey drum", "hi drum", "hello drum",
+        "hey rung", "r.u.m.", "r.u.m"
     ]
 
 
@@ -1451,13 +1434,7 @@ def usb_mic_listener_loop():
 
 
     STANDALONE_RUM_WORDS = {
-
-
-
-        "rum", "r.u.m.", "r.u.m", "rem", "ram"
-
-
-
+        "rum", "r.u.m.", "r.u.m", "rem", "ram", "ron", "run", "rob", "rome", "room", "drum"
     }
 
 
@@ -1558,8 +1535,18 @@ def usb_mic_listener_loop():
                         if not hasattr(state, "_vosk_wake_rec") or state._vosk_wake_rec is None:
                             grammar = json.dumps([
                                 "hey rum", "hi rum", "hello rum", "okay rum", "ok rum", "yo rum",
-                                "rum", "hey rem", "hi rem", "hello rem", "rem",
-                                "hey ram", "hi ram", "hello ram", "ram",
+                                "hey ram", "hi ram", "hello ram", "okay ram", "ok ram",
+                                "hey rem", "hi rem", "hello rem", "okay rem", "ok rem",
+                                "hey ron", "hi ron", "hello ron", "okay ron", "ok ron",
+                                "hey run", "hi run", "hello run", "okay run", "ok run",
+                                "hey rob", "hi rob", "hello rob", "okay rob", "ok rob",
+                                "hey rome", "hi rome", "hello rome", "okay rome",
+                                "hey room", "hi room", "hello room", "okay room",
+                                "hey drum", "hi drum", "hello drum",
+                                "rum", "rem", "ram", "ron", "run", "rob", "rome", "room", "drum",
+                                "speed", "boost", "temperature", "coolant", "map", "maps", "navigation", "nav",
+                                "where", "location", "drag", "launch", "home", "gauges",
+                                "hey", "hi", "hello",
                                 "[unk]"
                             ])
                             state._vosk_wake_rec = vosk.KaldiRecognizer(state._vosk_model, 16000, grammar)
@@ -1740,17 +1727,12 @@ def usb_mic_listener_loop():
 
 
                 if not is_convo and normalized_text.lower().strip(" !?.") == "hey rum":
-
-
-
                     state.listen_once_requested = True
-
-
-
+                    try:
+                        state.audio.play_acknowledgment(state.llm.settings.get("personality", "RUM"))
+                    except Exception as ack_err:
+                        print(f"[VOICE MIC] Ack play note: {ack_err}", flush=True)
                 elif state.listen_once_requested and not state.live_convo_mode:
-
-
-
                     state.listen_once_requested = False
 
 
@@ -1963,27 +1945,14 @@ def usb_mic_listener_loop():
 
 
 
-                # Update adaptive ambient noise floor on quiet frames
+                # Update adaptive ambient noise floor on quiet frames in moving car cabin
+                if not in_speech:
+                    if rms < 900.0:
+                        noise_rms = (noise_rms * 0.94) + (rms * 0.06)
+                    noise_rms = max(45.0, min(750.0, noise_rms))
 
-
-
-                if not in_speech and rms < 350.0:
-
-
-
-                    noise_rms = (noise_rms * 0.92) + (rms * 0.08)
-
-
-
-
-
-
-
-                trig_rms = max(72.0, noise_rms * (1.35 if is_convo else 1.45))
-
-
-
-                trig_peak = max(320, int(noise_rms * 3.2))
+                trig_rms = max(75.0, noise_rms * (1.30 if is_convo else 1.40))
+                trig_peak = max(340, int(noise_rms * 3.0))
 
 
 
@@ -2059,7 +2028,8 @@ def usb_mic_listener_loop():
 
 
 
-                    if silence_frames >= 5 or len(speech_chunks) >= 48:
+                    max_silence = 9 if is_convo else 7
+                    if silence_frames >= max_silence or len(speech_chunks) >= 52:
 
 
 

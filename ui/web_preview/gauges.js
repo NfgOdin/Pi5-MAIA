@@ -8930,25 +8930,16 @@ function handleSpokenTranscript(text, isFromMic = true) {
 
 
   const wakePrefixes = [
-
-
-
     'hey rum', 'hi rum', 'hello rum', 'okay rum', 'ok rum', 'yo rum', 'rum',
-
-
-
-    'hey ram', 'hi ram', 'ram', 'hey rem', 'hi rem', 'rem',
-
-
-
-    'hey ron', 'ron', 'hey rome', 'rome', 'hey room', 'room',
-
-
-
-    'hey run', 'hey rob', 'hey drum', 'r.u.m.', 'r.u.m'
-
-
-
+    'hey ram', 'hi ram', 'hello ram', 'okay ram', 'ok ram', 'ram',
+    'hey rem', 'hi rem', 'hello rem', 'okay rem', 'ok rem', 'rem',
+    'hey ron', 'hi ron', 'hello ron', 'okay ron', 'ok ron', 'ron',
+    'hey run', 'hi run', 'hello run', 'okay run', 'ok run', 'run',
+    'hey rob', 'hi rob', 'hello rob', 'okay rob', 'ok rob', 'rob',
+    'hey rome', 'hi rome', 'hello rome', 'okay rome', 'rome',
+    'hey room', 'hi room', 'hello room', 'okay room', 'room',
+    'hey drum', 'hi drum', 'hello drum', 'drum',
+    'r.u.m.', 'r.u.m'
   ];
 
 
@@ -9010,6 +9001,57 @@ function handleSpokenTranscript(text, isFromMic = true) {
 
 
   // 1. Direct Vehicle Telemetry Queries
+
+  if (cleanCmd.includes('where are we') || cleanCmd.includes('where am i') || cleanCmd.includes('location') || cleanCmd.includes('coordinates') || cleanCmd.includes('what road') || cleanCmd.includes('heading')) {
+    navigateTo('maps');
+    if (typeof recenterMap === 'function') recenterMap();
+    let reply = "Waiting for satellite lock, Master! Searching for GPS satellites above.";
+    if (currentGpsData && currentGpsData.fix && currentGpsData.lat && currentGpsData.lon) {
+      const lat = currentGpsData.lat.toFixed(4);
+      const lon = Math.abs(currentGpsData.lon).toFixed(4);
+      const alt = currentGpsData.altitude_ft ? Math.round(currentGpsData.altitude_ft) : 0;
+      const card = currentGpsData.heading_cardinal || 'North';
+      const spd = Math.round(currentGpsData.speed_mph || (latestTelemetry && latestTelemetry.speed_mph) || 0);
+      reply = `We are cruising at ${spd} MPH, heading ${card} at ${alt} feet elevation. Coordinates: ${lat}°N, ${lon}°W!`;
+    }
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
+
+  if (cleanCmd.includes('map') || cleanCmd.includes('navigation') || cleanCmd.includes('gps') || cleanCmd.includes('route') || cleanCmd.includes('nav')) {
+    navigateTo('maps');
+    if (typeof recenterMap === 'function') recenterMap();
+    const reply = "Switching to Cockpit Navigation! Offline Arizona map is active.";
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
+
+  if (cleanCmd.includes('drag') || cleanCmd.includes('christmas tree') || cleanCmd.includes('launch control') || cleanCmd.includes('staging') || cleanCmd.includes('quarter mile')) {
+    navigateTo('dragy');
+    const reply = "Opening Drag Launch Control and Christmas Tree staging, Master!";
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
+
+  if (cleanCmd.includes('g force') || cleanCmd.includes('g-force') || cleanCmd.includes('lateral g') || cleanCmd.includes('friction circle')) {
+    let latG = "0.00";
+    let longG = "0.00";
+    if (currentGpsData && currentGpsData.g_forces) {
+      latG = (currentGpsData.g_forces.lateral || 0).toFixed(2);
+      longG = (currentGpsData.g_forces.longitudinal || 0).toFixed(2);
+    }
+    const reply = `Live lateral cornering force is ${latG} Gs, longitudinal acceleration is ${longG} Gs, Master!`;
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
 
 
 
