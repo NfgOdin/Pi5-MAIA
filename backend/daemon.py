@@ -2298,18 +2298,40 @@ def start_external_app_supervisor():
 # --- COCKPIT MAP TILE CACHE & UPSTREAM PROXY ---
 MAP_TILE_CACHE_DIR = Path(__file__).resolve().parent.parent / "storage" / "map_tiles"
 MAP_TILE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+MAP_TILE_DB_PATH = MAP_TILE_CACHE_DIR / "arizona_offline.db"
+
+def _get_tile_from_sqlite(style: str, z: int, x: int, y: int):
+    if not MAP_TILE_DB_PATH.exists():
+        return None, None
+    try:
+        norm_style = "streets" if style in ("osm", "streets") else style
+        with sqlite3.connect(str(MAP_TILE_DB_PATH), timeout=0.8, check_same_thread=False) as conn:
+            row = conn.execute(
+                "SELECT data, content_type FROM map_tiles WHERE (style=? OR style=?) AND z=? AND x=? AND y=?",
+                (norm_style, style, z, x, y)
+            ).fetchone()
+            if row and row[0]:
+                return row[0], row[1]
+    except Exception as e:
+        logger.debug(f"SQLite tile read error: {e}")
+    return None, None
 
 def get_cached_map_tile(style: str, z: int, x: int, y: int):
     """
     Returns (bytes, content_type) for the requested tile, or (None, content_type).
-    Normalizes standard Leaflet {z}/{x}/{y} coordinates, caches locally to disk
-    in storage/map_tiles/{style}/{z}_{x}_{y}.ext, and fetches upstream with
-    a fully compliant User-Agent header (eliminating 403 / blocked tile issues).
+    Checks offline SQLite database (arizona_offline.db) first, then local disk cache,
+    and falls back to upstream proxy with policy-compliant User-Agent header.
     """
     style = (style or "dark").lower()
     ext = "jpg" if style in ("dark", "satellite") else "png"
     content_type = "image/jpeg" if ext == "jpg" else "image/png"
 
+    # 1. High-Speed Offline SQLite Archive Lookup (<0.5ms)
+    db_data, db_content_type = _get_tile_from_sqlite(style, z, x, y)
+    if db_data:
+        return db_data, (db_content_type or content_type)
+
+    # 2. Local Disk Cache File Lookup
     style_dir = MAP_TILE_CACHE_DIR / style
     style_dir.mkdir(parents=True, exist_ok=True)
     cache_file = style_dir / f"{z}_{x}_{y}.{ext}"
@@ -2320,6 +2342,7 @@ def get_cached_map_tile(style: str, z: int, x: int, y: int):
         except Exception as e:
             logger.warning(f"Error reading cached tile {cache_file}: {e}")
 
+    # 3. Upstream Proxy Fetch
     headers = {
         "User-Agent": "CarPi5-Automotive-Cockpit/1.0 (https://github.com/NfgOdin/Pi5-MAIA; carpi5@local.net)"
     }
@@ -2346,7 +2369,16 @@ def get_cached_map_tile(style: str, z: int, x: int, y: int):
                 try:
                     cache_file.write_bytes(data)
                 except Exception as ce:
-                    logger.debug(f"Failed to cache tile: {ce}")
+                    logger.debug(f"Failed to cache tile file: {ce}")
+                try:
+                    norm_style = "streets" if style in ("osm", "streets") else style
+                    with sqlite3.connect(str(MAP_TILE_DB_PATH), timeout=1.0, check_same_thread=False) as conn:
+                        conn.execute(
+                            "INSERT OR REPLACE INTO map_tiles (style, z, x, y, content_type, data) VALUES (?, ?, ?, ?, ?, ?)",
+                            (norm_style, z, x, y, content_type, data)
+                        )
+                except Exception:
+                    pass
                 return data, content_type
     except Exception as e:
         logger.debug(f"Upstream map tile fetch failed ({upstream_url}): {e}")
