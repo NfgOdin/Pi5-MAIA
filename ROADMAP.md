@@ -23,6 +23,12 @@ This living document tracks all planned, brainstormed, and confirmed engineering
 
 ## 🏆 Completed & Verified in Production (Changelog)
 
+### [2026-11-10] — Cockpit Maps Overhaul: Upstream Tile Proxy, Local Disk Cache & Multi-Theme Selector (Commit: `d7cd3d7`)
+- [x] **Upstream Policy-Compliant Tile Proxy (`backend/daemon.py`)**: Added `/api/maps/tiles/{style}/{z}/{x}/{y}.png` endpoint injecting custom automotive `User-Agent: CarPi5-Automotive-Cockpit/1.0`, eliminating OpenStreetMap 403 / "Access Blocked" policy violations.
+- [x] **Local Flash-Friendly Disk Cache (`storage/map_tiles/`)**: Automatically caches fetched vector/raster tiles to local disk on demand, accelerating panning speed and enabling offline viewing of previously traveled corridors without network access.
+- [x] **Multi-Theme Map Selector (`gauges.js`, `index.html`)**: Integrated in-dash 44px touch theme toggle cycling between **🗺️ STREETS** (OpenStreetMap full-color street & POI rendering), **🌙 DARK** (ESRI Dark Gray Canvas night mode), and **🛰️ SATELLITE** (ESRI World Imagery).
+- [x] **Kiosk `file:///` URL Normalization**: Hardened Leaflet tile URL addressing to target `http://127.0.0.1:8080` under native Wayland Chromium `file://` kiosk execution, resolving black map container anomalies. Verified live on Pi 5 touchscreen display via full-screen Wayland screenshots.
+
 ### [2026-11-10] — Argon Production Release: Multi-Agent Full-Stack Audit, Hardware Hardening & QA Certification
 - [x] **DOM Hierarchy & Touchscreen Layout Integrity (`index.html`, `style.css`)**: Relocated `#screenHardware` inside `.view-container` directly below the 48px persistent header (`top: 48px, height: 550px`), collapsed 3D VRM overlay controls by default (`▼ CONTROLS`) so R.U.M.'s face is never obstructed, and hardened `.waifu-emotion-pill` with dark glassmorphism (`rgba(10, 14, 22, 0.90)`) for crisp legibility over the 3D floor.
 - [x] **Zero Fake Code & Honest Offline Telemetry (`obd_reader.py`, `diagnostics.py`, `gps_manager.py`, `system_monitor.py`)**: Enforced strict `None` / `connected: False` resting states when physical OBD-II / GPS buses are disconnected (`telemetry_mode == "LIVE"`), added MultiAir solenoid DTC `P1066`, and wired in-character offline OBD status reporting in `llm_client.py`.
