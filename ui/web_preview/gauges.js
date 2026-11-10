@@ -40778,6 +40778,72 @@ let carMarker = null;
 
 let currentGpsData = null;
 
+let currentMapTileLayer = null;
+
+let currentMapTheme = 'dark'; // 'dark' | 'streets' | 'satellite'
+
+
+
+function toggleMapTheme() {
+
+  if (!leafletMap) return;
+
+  if (currentMapTheme === 'dark') {
+
+    currentMapTheme = 'streets';
+
+  } else if (currentMapTheme === 'streets') {
+
+    currentMapTheme = 'satellite';
+
+  } else {
+
+    currentMapTheme = 'dark';
+
+  }
+
+
+
+  if (currentMapTileLayer) {
+
+    leafletMap.removeLayer(currentMapTileLayer);
+
+  }
+
+
+
+  const apiBase = window.location.origin.startsWith('http') ? '' : 'http://127.0.0.1:8080';
+
+  const url = `${apiBase}/api/maps/tiles/${currentMapTheme}/{z}/{x}/{y}.png`;
+
+  currentMapTileLayer = L.tileLayer(url, {
+
+    maxZoom: 19,
+
+    attribution: currentMapTheme === 'streets'
+
+      ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+
+      : '&copy; Esri &mdash; National Geographic, DeLorme, NAVTEQ'
+
+  }).addTo(leafletMap);
+
+
+
+  const btn = document.getElementById('mapThemeBtn');
+
+  if (btn) {
+
+    if (currentMapTheme === 'dark') btn.innerHTML = '🌙 DARK';
+
+    else if (currentMapTheme === 'streets') btn.innerHTML = '🗺️ STREETS';
+
+    else btn.innerHTML = '🛰️ SATELLITE';
+
+  }
+
+}
+
 
 
 function initOrUpdateMap() {
@@ -40812,11 +40878,19 @@ function initOrUpdateMap() {
 
 
 
-      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      const apiBase = window.location.origin.startsWith('http') ? '' : 'http://127.0.0.1:8080';
+
+      const tileUrl = `${apiBase}/api/maps/tiles/${currentMapTheme}/{z}/{x}/{y}.png`;
+
+      currentMapTileLayer = L.tileLayer(tileUrl, {
 
         maxZoom: 19,
 
-        subdomains: 'abc'
+        attribution: currentMapTheme === 'streets'
+
+          ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+
+          : '&copy; Esri &mdash; National Geographic, DeLorme, NAVTEQ'
 
       }).addTo(leafletMap);
 

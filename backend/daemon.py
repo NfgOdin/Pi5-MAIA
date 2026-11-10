@@ -67,7 +67,7 @@ import re
 
 
 import urllib.parse
-
+import urllib.request
 import getpass
 
 
@@ -2295,6 +2295,64 @@ def start_external_app_supervisor():
     print("[DAEMON] ExternalAppSupervisor started successfully!")
 
 
+# --- COCKPIT MAP TILE CACHE & UPSTREAM PROXY ---
+MAP_TILE_CACHE_DIR = Path(__file__).resolve().parent.parent / "storage" / "map_tiles"
+MAP_TILE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+def get_cached_map_tile(style: str, z: int, x: int, y: int):
+    """
+    Returns (bytes, content_type) for the requested tile, or (None, content_type).
+    Normalizes standard Leaflet {z}/{x}/{y} coordinates, caches locally to disk
+    in storage/map_tiles/{style}/{z}_{x}_{y}.ext, and fetches upstream with
+    a fully compliant User-Agent header (eliminating 403 / blocked tile issues).
+    """
+    style = (style or "dark").lower()
+    ext = "jpg" if style in ("dark", "satellite") else "png"
+    content_type = "image/jpeg" if ext == "jpg" else "image/png"
+
+    style_dir = MAP_TILE_CACHE_DIR / style
+    style_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = style_dir / f"{z}_{x}_{y}.{ext}"
+
+    if cache_file.exists():
+        try:
+            return cache_file.read_bytes(), content_type
+        except Exception as e:
+            logger.warning(f"Error reading cached tile {cache_file}: {e}")
+
+    headers = {
+        "User-Agent": "CarPi5-Automotive-Cockpit/1.0 (https://github.com/NfgOdin/Pi5-MAIA; carpi5@local.net)"
+    }
+    upstream_url = None
+    if style == "dark":
+        # ESRI World Dark Gray Canvas: {z}/{y}/{x}
+        upstream_url = f"https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+    elif style == "satellite":
+        # ESRI World Imagery: {z}/{y}/{x}
+        upstream_url = f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+    elif style in ("osm", "streets"):
+        # OpenStreetMap: {z}/{x}/{y}
+        upstream_url = f"https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+        ext = "png"
+        content_type = "image/png"
+    else:
+        upstream_url = f"https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+
+    try:
+        req = urllib.request.Request(upstream_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=4.5) as resp:
+            data = resp.read()
+            if data and len(data) > 64:
+                try:
+                    cache_file.write_bytes(data)
+                except Exception as ce:
+                    logger.debug(f"Failed to cache tile: {ce}")
+                return data, content_type
+    except Exception as e:
+        logger.debug(f"Upstream map tile fetch failed ({upstream_url}): {e}")
+
+    return None, content_type
+
 
 class CarPi5Handler(SimpleHTTPRequestHandler):
 
@@ -2414,11 +2472,29 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             self.end_headers()
 
-
-
             return
 
-
+        elif parsed.path.startswith("/api/maps/tiles/"):
+            parts = [p for p in parsed.path.split("/") if p]
+            try:
+                style = parts[3] if len(parts) >= 7 else "dark"
+                z = int(parts[4] if len(parts) >= 7 else parts[3])
+                x = int(parts[5] if len(parts) >= 7 else parts[4])
+                y = int((parts[6] if len(parts) >= 7 else parts[5]).split(".")[0])
+            except Exception:
+                self.send_error(400, "Invalid tile coordinates")
+                return
+            tile_data, content_type = get_cached_map_tile(style, z, x, y)
+            if tile_data:
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Cache-Control", "public, max-age=604800, immutable")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-Length", str(len(tile_data)))
+                self.end_headers()
+            else:
+                self.send_error(502, "Map tile unavailable")
+            return
 
         super().do_HEAD()
 
@@ -4557,6 +4633,41 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             self.wfile.write(json.dumps(state.gps.get_telemetry()).encode("utf-8"))
 
+            return
+
+        elif parsed.path.startswith("/api/maps/tiles/"):
+            parts = [p for p in parsed.path.split("/") if p]
+            try:
+                if len(parts) >= 7:
+                    # /api/maps/tiles/{style}/{z}/{x}/{y}.png
+                    style = parts[3]
+                    z = int(parts[4])
+                    x = int(parts[5])
+                    y = int(parts[6].split(".")[0])
+                elif len(parts) == 6:
+                    # /api/maps/tiles/{z}/{x}/{y}.png (default: dark)
+                    style = "dark"
+                    z = int(parts[3])
+                    x = int(parts[4])
+                    y = int(parts[5].split(".")[0])
+                else:
+                    self.send_error(400, "Invalid tile path format")
+                    return
+            except Exception:
+                self.send_error(400, "Invalid tile coordinates")
+                return
+
+            tile_data, content_type = get_cached_map_tile(style, z, x, y)
+            if tile_data:
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Cache-Control", "public, max-age=604800, immutable")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-Length", str(len(tile_data)))
+                self.end_headers()
+                self.wfile.write(tile_data)
+            else:
+                self.send_error(502, "Map tile unavailable")
             return
 
 
