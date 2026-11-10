@@ -1472,6 +1472,8 @@ function navigateTo(screenId) {
 
   if (screenId === 'trips') screenId = 'trip';
 
+  if (screenId === 'drag_launch') screenId = 'dragy';
+
   if (screenId !== "gauges" && isGaugeFullscreen) {
 
     exitFullscreenGauges();
@@ -1544,9 +1546,7 @@ function navigateTo(screenId) {
 
     maintenance: document.getElementById('screenMaintenance'),
 
-    dragy: document.getElementById('screenDragy'),
-
-    drag_launch: document.getElementById('screenDragy')
+    dragy: document.getElementById('screenDragy')
 
 
 
