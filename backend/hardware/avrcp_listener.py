@@ -5,12 +5,13 @@ Dispatches Skip (Next), Previous, Play/Pause, and Volume buttons directly to Car
 """
 
 import os
+import sys
 import glob
 import time
 import struct
 import select
 import threading
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any
 
 # Linux input event constants
 EV_KEY = 0x01
@@ -28,9 +29,16 @@ class AvrcpListener:
     def __init__(self, action_callback: Optional[Callable[[dict], None]] = None):
         self.action_callback = action_callback
         self.running = True
+        self.connected = False
         self.current_device: Optional[str] = None
         self._thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self._thread.start()
+
+    def get_status(self) -> Dict[str, Any]:
+        return {
+            "connected": self.connected,
+            "device": self.current_device
+        }
 
     def find_avrcp_device(self) -> Optional[str]:
         """Finds any input device named '*AVRCP*' from /proc/bus/input/devices."""
@@ -54,13 +62,21 @@ class AvrcpListener:
 
     def _monitor_loop(self):
         print("[AVRCP] Background Steering Wheel & Radio Media Controller listener started.")
+        if not sys.platform.startswith("linux"):
+            self.connected = False
+            self.current_device = None
+            return
+
         while self.running:
             dev_path = self.find_avrcp_device()
             if not dev_path:
+                self.connected = False
+                self.current_device = None
                 time.sleep(3)
                 continue
 
             self.current_device = dev_path
+            self.connected = True
             print(f"[AVRCP] Connected to car media controller: {dev_path}")
 
             try:
@@ -89,7 +105,10 @@ class AvrcpListener:
 
             except Exception as ex:
                 print(f"[AVRCP] Device connection dropped ({ex}). Re-scanning in 3s...")
-                time.sleep(3)
+            finally:
+                self.connected = False
+                self.current_device = None
+            time.sleep(3)
 
     def _handle_key(self, code: int):
         action = None

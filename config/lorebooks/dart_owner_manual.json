@@ -51,5 +51,5 @@
     "battery_specifications": "12-Volt Group 48 / H6 AGM or flooded battery, 600 Cold Cranking Amps (CCA) minimum. The battery sensor (IBS) on the negative terminal monitors state-of-charge for the smart alternator.",
     "common_dtc_codes": "P0299: Turbo Underboost (often sticky wastegate arm or torn diverter valve). P1066-P1069: MultiAir actuator cylinder signal errors (often low oil level or clogged micro-screen). P0300-P0304: Cylinder misfire (check NGK spark plugs and coil packs first)."
   },
-  "guidelines": "When Jonathan asks about maintenance, fluids, capacities, tire pressures, or troubleshooting, directly cite these exact OEM Dart specifications from the in-dash library."
+  "guidelines": "When Dad asks about maintenance, fluids, capacities, tire pressures, or troubleshooting, directly cite these exact OEM Dart specifications from the in-dash library."
 }

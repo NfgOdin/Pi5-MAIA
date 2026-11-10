@@ -15,6 +15,7 @@ import time
 import threading
 import urllib.request
 import urllib.parse
+import urllib.error
 from typing import Dict, Any, Optional
 
 DEFAULT_TOKEN_FILE = os.path.join(os.path.dirname(__file__), "google_oauth_tokens.json")
@@ -100,6 +101,12 @@ class GoogleAuthManager:
 
     def start_device_flow(self, client_id: Optional[str] = None, client_secret: Optional[str] = None) -> Dict[str, Any]:
         """Initiates the OAuth 2.0 Device Authorization Grant."""
+        # Cancel any existing polling outside lock to avoid deadlock with poll thread
+        self.poll_cancel_event.set()
+        old_thread = self.poll_thread
+        if old_thread and old_thread.is_alive() and old_thread is not threading.current_thread():
+            old_thread.join(timeout=1.0)
+
         with self.lock:
             cid = client_id or self.client_id
             csec = client_secret or self.client_secret
@@ -112,11 +119,6 @@ class GoogleAuthManager:
 
             self.client_id = cid
             self.client_secret = csec
-
-            # Cancel any existing polling
-            self.poll_cancel_event.set()
-            if self.poll_thread and self.poll_thread.is_alive():
-                self.poll_thread.join(timeout=1.0)
             self.poll_cancel_event.clear()
 
             # Request device code from Google

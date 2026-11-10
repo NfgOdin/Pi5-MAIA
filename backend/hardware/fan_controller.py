@@ -28,7 +28,9 @@ Features:
 
 import os
 import sys
+import glob
 import time
+import subprocess
 import threading
 from typing import Dict, Any, Optional
 
@@ -38,25 +40,37 @@ try:
 except ImportError:
     GPIOZERO_AVAILABLE = False
 
+ARGON_ONE_I2C_ADDR = 0x1A  # Argon ONE V3 / Pi 5 I2C fan controller address (0x1a / 0x01a)
+
 
 class FanController:
-    """Controls a 4-wire PWM fan (Delta AFB0812SH or compatible) on Raspberry Pi 5."""
+    """Controls active cooling on Raspberry Pi 5 (Native RP1 hwmon PWM, Argon ONE V3 I2C 0x1a, sysfs cooling_device, or 4-wire GPIO PWM)."""
 
-    def __init__(self, pwm_pin: int = 12, tach_pin: int = 24, pwm_freq_hz: int = 8000):
+    def __init__(self, pwm_pin: int = 12, tach_pin: int = 24, pwm_freq_hz: int = 8000, enable_gpio_pwm: bool = False):
         self.is_linux = sys.platform.startswith("linux")
         self.pwm_pin = pwm_pin
         self.tach_pin = tach_pin
         self.pwm_freq_hz = pwm_freq_hz
+        self.enable_gpio_pwm = enable_gpio_pwm
 
-        # State
+        # State (Rule 2: Zero fake RPM or temperature when hardware is disconnected)
         self.mode = "AUTO"  # "AUTO" or "MANUAL"
         self.duty_cycle_pct = 20.0  # 0.0 to 100.0%
         self.target_rpm = 0
         self.actual_rpm = 0
-        self.last_temp_c = 45.0
+        self.last_temp_c = 0.0
         self.hardware_active = False
+        self.backend_type = "offline"
 
-        # Internal objects
+        # Hardware backend handles
+        self.hwmon_pwm_path: Optional[str] = None
+        self.hwmon_tach_path: Optional[str] = None
+        self.cooling_dev_path: Optional[str] = None
+        self.cooling_max_state: int = 0
+        self.i2c_bus: Optional[Any] = None
+        self.argon_i2c_addr: int = ARGON_ONE_I2C_ADDR
+
+        # Internal GPIO objects
         self.pwm_device: Optional[Any] = None
         self.tach_device: Optional[Any] = None
         self.pulse_count = 0
@@ -76,9 +90,71 @@ class FanController:
         self.start()
 
     def _init_hardware(self):
-        """Hardware fan controller disabled to keep all GPIO pins free."""
+        """
+        Probes cooling hardware in priority order without clobbering 40-pin GPIO by default:
+        1. Native Raspberry Pi 5 RP1 hwmon PWM fan (/sys/class/hwmon/hwmon*/pwm1 & fan1_input)
+        2. Argon ONE V3 / Pi 5 I2C fan controller on /dev/i2c-1 address 0x1a (0x01a)
+        3. Linux sysfs thermal cooling_device (pwm-fan / rpi-fan)
+        4. Optional 40-pin GPIO PWM (Delta AFB0812SH) when enable_gpio_pwm=True
+        """
         self.hardware_active = False
-        return
+        self.backend_type = "offline"
+        if not self.is_linux:
+            return
+
+        # 1. Check Native Pi 5 hwmon PWM fan
+        for hw_dir in sorted(glob.glob("/sys/class/hwmon/hwmon*")):
+            pwm_p = os.path.join(hw_dir, "pwm1")
+            tach_p = os.path.join(hw_dir, "fan1_input")
+            if os.path.exists(pwm_p) or os.path.exists(tach_p):
+                self.hwmon_pwm_path = pwm_p if os.path.exists(pwm_p) else None
+                self.hwmon_tach_path = tach_p if os.path.exists(tach_p) else None
+                self.hardware_active = True
+                self.backend_type = "pi5_hwmon_pwm"
+                print(f"[FAN] Native Pi 5 hwmon cooling active: pwm={self.hwmon_pwm_path}, tach={self.hwmon_tach_path}")
+                return
+
+        # 2. Check Argon ONE V3 / Pi 5 I2C Fan Controller at 0x1a on /dev/i2c-1
+        if os.path.exists("/dev/i2c-1"):
+            for mod_name in ("smbus2", "smbus"):
+                try:
+                    smbus_mod = __import__(mod_name)
+                    bus = smbus_mod.SMBus(1)
+                    # Probe slave 0x1a safely
+                    bus.read_byte(self.argon_i2c_addr)
+                    self.i2c_bus = bus
+                    self.hardware_active = True
+                    self.backend_type = "argon_i2c_0x1a"
+                    print(f"[FAN] Argon ONE I2C fan controller detected on /dev/i2c-1 at 0x{self.argon_i2c_addr:02x}")
+                    return
+                except Exception:
+                    pass
+
+        # 3. Check Linux sysfs cooling_device fallback
+        for cd_dir in sorted(glob.glob("/sys/class/thermal/cooling_device*")):
+            try:
+                type_p = os.path.join(cd_dir, "type")
+                cur_p = os.path.join(cd_dir, "cur_state")
+                max_p = os.path.join(cd_dir, "max_state")
+                if os.path.exists(type_p) and os.path.exists(cur_p) and os.path.exists(max_p):
+                    with open(type_p, "r") as f:
+                        cd_type = f.read().strip().lower()
+                    if "fan" in cd_type or "pwm" in cd_type:
+                        with open(max_p, "r") as f:
+                            max_st = int(f.read().strip())
+                        if max_st > 0:
+                            self.cooling_dev_path = cur_p
+                            self.cooling_max_state = max_st
+                            self.hardware_active = True
+                            self.backend_type = "sysfs_cooling_device"
+                            print(f"[FAN] Sysfs cooling device active: {cd_dir} ({cd_type}, max_state={max_st})")
+                            return
+            except Exception:
+                pass
+
+        # 4. Optional 40-pin GPIO PWM mode
+        if self.enable_gpio_pwm:
+            self._init_hardware_disabled()
 
     def _init_hardware_disabled(self):
         """Initializes gpiozero PWM output at 25kHz and tachometer input."""
@@ -129,7 +205,22 @@ class FanController:
         self.pulse_count += 1
 
     def _calculate_rpm(self) -> int:
-        """Calculates RPM based on pulses accumulated since last read."""
+        """Calculates RPM from hwmon fan1_input or GPIO tachometer pulses (0 when hardware is offline)."""
+        if not self.hardware_active:
+            self.actual_rpm = 0
+            return 0
+
+        if self.hwmon_tach_path and os.path.exists(self.hwmon_tach_path):
+            try:
+                with open(self.hwmon_tach_path, "r") as f:
+                    self.actual_rpm = max(0, int(f.read().strip()))
+                return self.actual_rpm
+            except Exception:
+                pass
+
+        if not self.tach_device:
+            return self.actual_rpm
+
         now = time.time()
         elapsed = now - self.last_tach_time
         if elapsed < 0.2:
@@ -151,14 +242,24 @@ class FanController:
         return self.actual_rpm
 
     def _read_soc_temperature(self) -> float:
-        """Reads Raspberry Pi 5 SoC core temperature in Celsius."""
+        """Reads Raspberry Pi 5 SoC core temperature in Celsius, or 0.0 when sensor is unavailable (Rule 2)."""
         if self.is_linux:
             try:
                 with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
                     return round(float(f.read().strip()) / 1000.0, 1)
             except Exception:
                 pass
-        return 48.0  # Emulation baseline
+            try:
+                out = subprocess.check_output(
+                    ["vcgencmd", "measure_temp"],
+                    stderr=subprocess.DEVNULL,
+                    timeout=1.5
+                ).decode("utf-8")
+                if "temp=" in out:
+                    return round(float(out.split("=")[1].split("'")[0]), 1)
+            except Exception:
+                pass
+        return 0.0
 
     def _compute_target_duty(self, temp_c: float) -> float:
         """Calculates target duty cycle % according to the thermal curve."""
@@ -173,20 +274,51 @@ class FanController:
         return round(max(self.IDLE_DUTY_PCT, min(100.0, target)), 1)
 
     def set_duty_cycle(self, pct: float) -> bool:
-        """Sets fan duty cycle (0.0 to 100.0%)."""
+        """Sets fan duty cycle (0.0 to 100.0%) across active hardware backend."""
         pct = max(0.0, min(100.0, float(pct)))
         with self.lock:
             self.duty_cycle_pct = pct
-            if self.hardware_active and self.pwm_device:
+            if not self.hardware_active:
+                self.actual_rpm = 0
+                return False
+
+            # 1. Native Pi 5 hwmon PWM (0..255)
+            if self.backend_type == "pi5_hwmon_pwm" and self.hwmon_pwm_path:
+                try:
+                    pwm_255 = int(round((pct / 100.0) * 255.0))
+                    with open(self.hwmon_pwm_path, "w") as f:
+                        f.write(str(pwm_255))
+                except Exception as e:
+                    print(f"[FAN] Error writing hwmon PWM: {e}")
+
+            # 2. Argon ONE V3 / Pi 5 I2C fan controller (0x1a)
+            elif self.backend_type == "argon_i2c_0x1a" and self.i2c_bus:
+                speed_int = int(round(pct))
+                try:
+                    # Argon ONE V3 register 0x80 + fallback direct byte write
+                    try:
+                        self.i2c_bus.write_byte_data(self.argon_i2c_addr, 0x80, speed_int)
+                    except Exception:
+                        self.i2c_bus.write_byte(self.argon_i2c_addr, speed_int)
+                except Exception as e:
+                    print(f"[FAN] Error writing Argon ONE I2C (0x1a): {e}")
+
+            # 3. Sysfs thermal cooling_device fallback
+            elif self.backend_type == "sysfs_cooling_device" and self.cooling_dev_path and self.cooling_max_state > 0:
+                try:
+                    target_state = int(round((pct / 100.0) * self.cooling_max_state))
+                    with open(self.cooling_dev_path, "w") as f:
+                        f.write(str(target_state))
+                except Exception as e:
+                    print(f"[FAN] Error writing cooling_device state: {e}")
+
+            # 4. 40-Pin GPIO PWM
+            elif self.pwm_device:
                 try:
                     self.pwm_device.value = pct / 100.0
                 except Exception as e:
                     print(f"[FAN] Error updating PWM hardware: {e}")
 
-        # Update simulated RPM for preview/emulation
-        # Delta AFB0812SH max rated speed is ~4000 RPM
-        if not self.hardware_active:
-            self.actual_rpm = int((pct / 100.0) * 4000)
         return True
 
     def set_mode(self, mode: str, manual_pct: Optional[float] = None) -> Dict[str, Any]:
@@ -203,14 +335,17 @@ class FanController:
         return self.get_status()
 
     def get_status(self) -> Dict[str, Any]:
-        """Returns comprehensive fan telemetry and diagnostic metrics."""
+        """Returns comprehensive fan telemetry and diagnostic metrics (Rule 2 compliant)."""
         temp_c = self._read_soc_temperature()
-        temp_f = round(temp_c * 9.0 / 5.0 + 32.0, 1)
-        rpm = self._calculate_rpm() if self.hardware_active else self.actual_rpm
+        temp_f = round(temp_c * 9.0 / 5.0 + 32.0, 1) if temp_c > 0.0 else 0.0
+        rpm = self._calculate_rpm() if self.hardware_active else 0
 
         return {
+            "connected": self.hardware_active,
+            "backend": self.backend_type,
+            "argon_i2c_addr": f"0x{self.argon_i2c_addr:02x}",
             "mode": self.mode,
-            "duty_cycle_pct": round(self.duty_cycle_pct, 1),
+            "duty_cycle_pct": round(self.duty_cycle_pct, 1) if self.hardware_active else 0.0,
             "actual_rpm": rpm,
             "temp_c": temp_c,
             "temp_f": temp_f,
@@ -218,7 +353,7 @@ class FanController:
             "pwm_pin": self.pwm_pin,
             "tach_pin": self.tach_pin,
             "pwm_freq_hz": self.pwm_freq_hz,
-            "fan_model": "Delta AFB0812SH",
+            "fan_model": "Argon ONE V3 / Pi 5 Active PWM" if self.backend_type in ("argon_i2c_0x1a", "pi5_hwmon_pwm") else "Delta AFB0812SH",
             "is_critical": temp_c >= self.TEMP_CRITICAL_C
         }
 
@@ -259,13 +394,22 @@ class FanController:
             time.sleep(2.0)
 
     def start(self):
-        """Fan controller is disabled; no background thread started."""
-        self.running = False
-        return
+        """Starts the closed-loop thermal monitor thread when fan hardware is detected."""
+        if not self.hardware_active or self.running:
+            return
+        self.running = True
+        self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True, name="FanControllerThread")
+        self.monitor_thread.start()
 
     def stop(self):
-        """Stops the controller and releases GPIO resources."""
+        """Stops the controller and releases GPIO/I2C resources."""
         self.running = False
+        if self.i2c_bus:
+            try:
+                self.i2c_bus.close()
+            except Exception:
+                pass
+            self.i2c_bus = None
         if self.pwm_device:
             try:
                 self.pwm_device.close()

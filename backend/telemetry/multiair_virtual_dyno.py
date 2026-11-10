@@ -69,6 +69,8 @@ class MultiAirVirtualDyno:
         self.estimated_oil_temp_f: float = 75.0
         self.multiair_status: str = "COLD_PROTECT"
         self.multiair_ready: bool = False
+        self.safe_boost_limit_psi: float = 7.0
+        self._first_frame_seen: bool = False
 
         # Garrett GT1446 Wastegate & Diverter Health Tracking
         self.in_spool_pull: bool = False
@@ -91,12 +93,26 @@ class MultiAirVirtualDyno:
         self.total_shift_score: int = 0
         self.total_shift_count: int = 0
 
+    @staticmethod
+    def _safe_float(val: Any, default: float = 0.0) -> float:
+        """Safely convert sensor input to finite float, guarding against None, NaN, or Inf."""
+        if val is None:
+            return default
+        try:
+            f = float(val)
+            return f if math.isfinite(f) else default
+        except (ValueError, TypeError):
+            return default
+
     def compute_volumetric_efficiency(self, rpm: float, boost_psi: float) -> float:
         """
         Dodge Dart 1.4L MultiAir Volumetric Efficiency curve.
         The electro-hydraulic UniAir system maximizes valve lift and duration
         between 2,500 and 4,500 RPM, while the small GT1446 turbine chokes beyond 5,500 RPM.
         """
+        rpm = max(0.0, self._safe_float(rpm, 0.0))
+        boost_psi = self._safe_float(boost_psi, 0.0)
+
         if rpm <= 1000:
             ve = 0.74
         elif rpm <= 2000:
@@ -128,44 +144,57 @@ class MultiAirVirtualDyno:
         """
         Evaluate real-time physics, thermodynamics, spool health, and shift ergonomics.
         """
-        valid_boost = boost_psi if (boost_psi is not None) else 0.0
-        valid_coolant = coolant_temp_f if (coolant_temp_f is not None) else 190.0
-        valid_iat = intake_temp_f if (intake_temp_f is not None) else 80.0
+        valid_speed = max(0.0, self._safe_float(speed_mph, 0.0))
+        valid_rpm = max(0.0, self._safe_float(rpm, 0.0))
+        valid_gear = str(gear).strip() if gear is not None else "N"
+        valid_throttle = max(0.0, min(100.0, self._safe_float(throttle_pct, 0.0)))
+        valid_boost = self._safe_float(boost_psi, 0.0)
+        valid_iat = max(-60.0, min(300.0, self._safe_float(intake_temp_f, 80.0)))
+        valid_dt = self._safe_float(dt, 0.04)
+        if valid_dt <= 0.0:
+            valid_dt = 0.04
+        valid_dt = min(valid_dt, 5.0)
 
         # -------------------------------------------------------------
         # 1. MultiAir UniAir Brick Thermal & Hydraulic Viscosity State
         # -------------------------------------------------------------
         # Engine oil heats slower than coolant during warm-up, and runs slightly
         # hotter under prolonged turbo boost.
-        if getattr(self, '_first_frame_seen', False) is False:
-            self._first_frame_seen = True
-            if valid_coolant >= 150.0:
-                self.estimated_oil_temp_f = valid_coolant * 0.92
+        if coolant_temp_f is not None:
+            valid_coolant = max(-40.0, min(300.0, self._safe_float(coolant_temp_f, 75.0)))
+            if not self._first_frame_seen:
+                self._first_frame_seen = True
+                if valid_coolant >= 150.0:
+                    self.estimated_oil_temp_f = valid_coolant * 0.92
 
-        if valid_coolant < 160.0:
-            self.estimated_oil_temp_f = valid_coolant * 0.88
-        else:
-            boost_thermal_load = max(0.0, valid_boost) * 0.4
-            target_oil = valid_coolant + 5.0 + boost_thermal_load
-            # Smoothly lag oil temperature
-            self.estimated_oil_temp_f += (target_oil - self.estimated_oil_temp_f) * (dt / 15.0)
+            if valid_coolant < 160.0:
+                self.estimated_oil_temp_f = valid_coolant * 0.88
+            else:
+                boost_thermal_load = max(0.0, valid_boost) * 0.4
+                target_oil = valid_coolant + 5.0 + boost_thermal_load
+                # Smoothly lag oil temperature with bounded alpha in (0, 1]
+                alpha = min(1.0, valid_dt / 15.0)
+                self.estimated_oil_temp_f += (target_oil - self.estimated_oil_temp_f) * alpha
 
         if self.estimated_oil_temp_f < 150.0:
             self.multiair_status = "COLD_PROTECT"
             self.multiair_ready = False
+            self.safe_boost_limit_psi = 7.0  # < 7.5 PSI until 5W-40 oil > 150°F
         elif self.estimated_oil_temp_f > 235.0:
             self.multiair_status = "THERMAL_ALERT"
             self.multiair_ready = True
+            self.safe_boost_limit_psi = 14.0
         else:
             self.multiair_status = "WARM_OPTIMAL"
             self.multiair_ready = True
+            self.safe_boost_limit_psi = 22.0
 
         # -------------------------------------------------------------
         # 2. Realtime Virtual Dyno (WHP & WTQ)
         # -------------------------------------------------------------
-        if rpm > 600 and throttle_pct > 5.0:
-            # Intake Air Temperature in Kelvin
-            iat_kelvin = (valid_iat - 32.0) * (5.0 / 9.0) + 273.15
+        if valid_rpm > 600 and valid_throttle > 5.0:
+            # Intake Air Temperature in Kelvin (clamped >= 200K to prevent division by zero)
+            iat_kelvin = max(200.0, (valid_iat - 32.0) * (5.0 / 9.0) + 273.15)
             # Manifold Absolute Pressure in Pa (Globe, AZ baro ~88.0 kPa + boost in kPa)
             boost_kpa = valid_boost * 6.89476
             map_kpa = max(25.0, 88.0 + boost_kpa)
@@ -173,33 +202,33 @@ class MultiAirVirtualDyno:
 
             # Air Density in intake plenum (kg/m3)
             rho_air = map_pa / (GAS_CONSTANT_AIR * iat_kelvin)
-            ve = self.compute_volumetric_efficiency(rpm, valid_boost)
+            ve = self.compute_volumetric_efficiency(valid_rpm, valid_boost)
 
             # Volumetric displacement rate (m3/s) for 4-stroke engine
-            volume_rate = DISPLACEMENT_M3 * (rpm / 120.0)
+            volume_rate = DISPLACEMENT_M3 * (valid_rpm / 120.0)
             # Mass air flow rate (g/s)
             maf_gps = volume_rate * rho_air * ve * 1000.0
 
             # Thermodynamic Brake Horsepower
             # Standard automotive combustion factor: 1 g/s of air ~ 1.25 Crank HP
-            throttle_factor = min(1.0, max(0.1, throttle_pct / 85.0))
+            throttle_factor = min(1.0, max(0.1, valid_throttle / 85.0))
             crank_hp = (maf_gps / 0.74) * throttle_factor
 
             # Wheel Horsepower & Wheel Torque
             whp = max(0.0, crank_hp * DRIVETRAIN_EFFICIENCY)
-            wtq = (whp * 5252.0) / max(rpm, 800.0)
+            wtq = (whp * 5252.0) / max(valid_rpm, 800.0)
 
             # Cap realistic boundaries for Dart 1.4T on GT1446 turbo (max ~235 WHP, 255 WTQ)
             self.current_whp = round(min(240.0, whp), 1)
             self.current_wtq = round(min(265.0, wtq), 1)
 
             # Track peak power
-            if self.current_whp > self.peak_whp and rpm > 2000:
+            if self.current_whp > self.peak_whp and valid_rpm > 2000:
                 self.peak_whp = self.current_whp
-                self.peak_whp_rpm = round(rpm, 0)
-            if self.current_wtq > self.peak_wtq and rpm > 1800:
+                self.peak_whp_rpm = round(valid_rpm, 0)
+            if self.current_wtq > self.peak_wtq and valid_rpm > 1800:
                 self.peak_wtq = self.current_wtq
-                self.peak_wtq_rpm = round(rpm, 0)
+                self.peak_wtq_rpm = round(valid_rpm, 0)
         else:
             # Idle, coasting, or decelerating
             self.current_whp = 0.0
@@ -210,22 +239,23 @@ class MultiAirVirtualDyno:
         # -------------------------------------------------------------
         now = time.time()
         is_spool_candidate = (
-            throttle_pct >= 75.0 and
-            gear in ("2", "3", "4") and
-            rpm >= 2100 and
-            rpm <= 4800
+            valid_throttle >= 75.0 and
+            valid_gear in ("2", "3", "4") and
+            valid_rpm >= 2100 and
+            valid_rpm <= 4800 and
+            self.multiair_status != "COLD_PROTECT"
         )
 
         if is_spool_candidate:
-            if not self.in_spool_pull:
+            if not self.in_spool_pull or valid_gear != self.spool_pull_gear or valid_rpm < self.spool_start_rpm:
                 self.in_spool_pull = True
                 self.spool_start_time = now
-                self.spool_start_rpm = rpm
+                self.spool_start_rpm = valid_rpm
                 self.spool_start_boost = valid_boost
-                self.spool_pull_gear = gear
+                self.spool_pull_gear = valid_gear
             else:
                 # Active pull ongoing - check if we reached peak spool (>= 12 PSI or RPM > 3500)
-                rpm_delta = rpm - self.spool_start_rpm
+                rpm_delta = valid_rpm - self.spool_start_rpm
                 boost_delta = valid_boost - self.spool_start_boost
                 if rpm_delta >= 1000 and boost_delta >= 6.0:
                     gradient = (boost_delta / rpm_delta) * 1000.0
@@ -239,7 +269,7 @@ class MultiAirVirtualDyno:
                         start_time=self.spool_start_time,
                         start_rpm=self.spool_start_rpm,
                         start_boost=self.spool_start_boost,
-                        peak_rpm=rpm,
+                        peak_rpm=valid_rpm,
                         peak_boost=valid_boost,
                         gradient_psi_per_1000rpm=self.latest_spool_gradient,
                         health_score=self.wastegate_health_pct,
@@ -252,77 +282,90 @@ class MultiAirVirtualDyno:
                     # Reset pull to prevent re-triggering during the same gear sweep
                     self.in_spool_pull = False
         else:
-            if self.in_spool_pull and (now - self.spool_start_time > 3.0 or throttle_pct < 50.0):
+            if self.in_spool_pull and (now - self.spool_start_time > 3.0 or valid_throttle < 50.0):
                 self.in_spool_pull = False
 
         # -------------------------------------------------------------
         # 4. C635 Manual Transmission Rev-Match & Shift Quality Scoring
         # -------------------------------------------------------------
-        if gear != self.last_gear:
-            # Shift detected!
-            old_gear = self.last_gear
-            new_gear = gear
-            self.last_gear = gear
+        if valid_gear != self.last_gear:
+            prev_gear = self.last_gear
+            self.last_gear = valid_gear
 
-            if old_gear in GEAR_RATIOS and new_gear in GEAR_RATIOS:
-                old_ratio = GEAR_RATIOS[old_gear]
-                new_ratio = GEAR_RATIOS[new_gear]
-                is_downshift = new_ratio > old_ratio  # Higher numeric ratio = lower numerical gear
+            if prev_gear in GEAR_RATIOS and valid_gear not in GEAR_RATIOS:
+                # Entering clutch-in / neutral transition ("N", "⇄", "〜") from an engaged gear
+                self.gear_transition_from = prev_gear
+                self.gear_transition_start_time = now
+            elif valid_gear in GEAR_RATIOS:
+                # Engaged a valid forward gear: resolve origin gear (direct or across clutch transition)
+                old_gear = None
+                if prev_gear in GEAR_RATIOS:
+                    old_gear = prev_gear
+                elif self.gear_transition_from in GEAR_RATIOS and (now - self.gear_transition_start_time) <= 5.0:
+                    old_gear = self.gear_transition_from
 
-                # Calculate theoretical synchronized RPM for the new gear at current vehicle speed
-                # speed_kph = (rpm * TIRE * 60) / (1000 * ratio * final_drive)
-                # RPM_target = (speed_mph * 1.60934 * 1000 * ratio * final_drive) / (TIRE * 60)
-                speed_kph = speed_mph * 1.60934
-                target_rpm = (speed_kph * 1000.0 * new_ratio * FINAL_DRIVE) / (TIRE_CIRCUMFERENCE_M * 60.0)
+                self.gear_transition_from = valid_gear
+                new_gear = valid_gear
 
-                delta_rpm = abs(rpm - target_rpm)
-                self.latest_shift_delta = round(delta_rpm, 0)
+                if old_gear in GEAR_RATIOS and new_gear in GEAR_RATIOS and old_gear != new_gear:
+                    old_ratio = GEAR_RATIOS[old_gear]
+                    new_ratio = GEAR_RATIOS[new_gear]
+                    is_downshift = new_ratio > old_ratio  # Higher numeric ratio = lower numerical gear
 
-                if is_downshift:
-                    # Heel-toe rev-match evaluation
-                    if delta_rpm <= 120.0:
-                        score = 100
-                        classification = "PERFECT_REV_MATCH"
-                    elif delta_rpm <= 260.0:
-                        score = 90
-                        classification = "CLEAN_REV_MATCH"
-                    elif delta_rpm <= 480.0:
-                        score = 75
-                        classification = "ACCEPTABLE_REV_MATCH"
+                    # Calculate theoretical synchronized RPM for the new gear at current vehicle speed
+                    # speed_kph = (rpm * TIRE * 60) / (1000 * ratio * final_drive)
+                    # RPM_target = (speed_mph * 1.60934 * 1000 * ratio * final_drive) / (TIRE * 60)
+                    speed_kph = valid_speed * 1.60934
+                    target_rpm = (speed_kph * 1000.0 * new_ratio * FINAL_DRIVE) / (TIRE_CIRCUMFERENCE_M * 60.0)
+
+                    delta_rpm = abs(valid_rpm - target_rpm)
+                    self.latest_shift_delta = round(delta_rpm, 0)
+
+                    if is_downshift:
+                        # Heel-toe rev-match evaluation (0-100 PTS)
+                        if delta_rpm <= 120.0:
+                            score = 100
+                            classification = "PERFECT_REV_MATCH"
+                        elif delta_rpm <= 260.0:
+                            score = 90
+                            classification = "CLEAN_REV_MATCH"
+                        elif delta_rpm <= 480.0:
+                            score = 75
+                            classification = "ACCEPTABLE_REV_MATCH"
+                        else:
+                            score = max(0, min(100, max(35, int(70 - (delta_rpm - 480.0) / 15.0))))
+                            classification = "CLUTCH_JERK"
                     else:
-                        score = max(35, int(70 - (delta_rpm - 480.0) / 15.0))
-                        classification = "CLUTCH_JERK"
-                else:
-                    # Upshift evaluation (smooth rev drop matching)
-                    if delta_rpm <= 180.0:
-                        score = 100
-                        classification = "PERFECT_UPSHIFT"
-                    elif delta_rpm <= 350.0:
-                        score = 90
-                        classification = "SMOOTH_UPSHIFT"
-                    else:
-                        score = max(40, int(75 - (delta_rpm - 350.0) / 20.0))
-                        classification = "LUGGING_OR_JERK"
+                        # Upshift evaluation (smooth rev drop matching, 0-100 PTS)
+                        if delta_rpm <= 180.0:
+                            score = 100
+                            classification = "PERFECT_UPSHIFT"
+                        elif delta_rpm <= 350.0:
+                            score = 90
+                            classification = "SMOOTH_UPSHIFT"
+                        else:
+                            score = max(0, min(100, max(40, int(75 - (delta_rpm - 350.0) / 20.0))))
+                            classification = "LUGGING_OR_JERK"
 
-                self.latest_shift_score = score
-                self.latest_shift_type = classification
-                self.total_shift_score += score
-                self.total_shift_count += 1
+                    self.latest_shift_score = score
+                    self.latest_shift_type = classification
+                    self.total_shift_score += score
+                    self.total_shift_count += 1
 
-                shift_event = ShiftEvent(
-                    timestamp=now,
-                    from_gear=old_gear,
-                    to_gear=new_gear,
-                    speed_mph=round(speed_mph, 1),
-                    actual_rpm=round(rpm, 0),
-                    target_rpm=round(target_rpm, 0),
-                    delta_rpm=round(delta_rpm, 0),
-                    score=score,
-                    classification=classification
-                )
-                self.shift_history.append(shift_event)
-                if len(self.shift_history) > 20:
-                    self.shift_history.pop(0)
+                    shift_event = ShiftEvent(
+                        timestamp=now,
+                        from_gear=old_gear,
+                        to_gear=new_gear,
+                        speed_mph=round(valid_speed, 1),
+                        actual_rpm=round(valid_rpm, 0),
+                        target_rpm=round(target_rpm, 0),
+                        delta_rpm=round(delta_rpm, 0),
+                        score=score,
+                        classification=classification
+                    )
+                    self.shift_history.append(shift_event)
+                    if len(self.shift_history) > 20:
+                        self.shift_history.pop(0)
 
         avg_shift = round(self.total_shift_score / max(1, self.total_shift_count), 1) if self.total_shift_count > 0 else 100.0
 
@@ -336,6 +379,7 @@ class MultiAirVirtualDyno:
             "multiair_oil_temp_f": round(self.estimated_oil_temp_f, 1),
             "multiair_status": self.multiair_status,
             "multiair_ready": self.multiair_ready,
+            "safe_boost_limit_psi": self.safe_boost_limit_psi,
             "spool_gradient": self.latest_spool_gradient,
             "wastegate_health_pct": self.wastegate_health_pct,
             "latest_shift_score": self.latest_shift_score,

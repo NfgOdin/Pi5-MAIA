@@ -1814,7 +1814,7 @@ class AudioPlayer:
 
                         self.is_speaking = True
 
-                        subprocess.run(["espeak-ng", "-v", "en-us", text], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        subprocess.run(["espeak-ng", "-v", "en-us", text], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15.0)
 
                     except Exception:
 
@@ -1852,7 +1852,7 @@ class AudioPlayer:
 
                     ]
 
-                    res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+                    res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=4.0)
 
                     if res.returncode == 0 and os.path.exists(pitched_path) and os.path.getsize(pitched_path) > 1000:
 
@@ -2155,6 +2155,50 @@ class AudioPlayer:
         """Empties the speech cache."""
 
         return self.cache_mgr.clear()
+
+    def set_system_volume(self, volume_pct: int) -> bool:
+        """Sets master hardware volume (0-100%) via wpctl, pactl, or amixer with strict timeouts."""
+        if not sys.platform.startswith("linux"):
+            return False
+        pct = max(0, min(100, int(volume_pct)))
+        env = os.environ.copy()
+        env["XDG_RUNTIME_DIR"] = "/run/user/1000"
+        for cmd in (
+            ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{pct / 100.0:.2f}"],
+            ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{pct}%"],
+            ["amixer", "-q", "sset", "Master", f"{pct}%"]
+        ):
+            try:
+                res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, timeout=1.5)
+                if res.returncode == 0:
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def get_system_volume(self) -> Optional[int]:
+        """Reads master hardware volume (0-100%) via wpctl, pactl, or amixer with strict timeouts."""
+        if not sys.platform.startswith("linux"):
+            return None
+        env = os.environ.copy()
+        env["XDG_RUNTIME_DIR"] = "/run/user/1000"
+        try:
+            res = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], capture_output=True, text=True, env=env, timeout=1.5)
+            if res.returncode == 0 and "Volume:" in res.stdout:
+                val = float(res.stdout.split("Volume:")[1].strip().split()[0])
+                return max(0, min(100, int(round(val * 100.0))))
+        except Exception:
+            pass
+        try:
+            res = subprocess.run(["amixer", "sget", "Master"], capture_output=True, text=True, env=env, timeout=1.5)
+            if res.returncode == 0:
+                m = re.search(r"\[(\d+)%\]", res.stdout)
+                if m:
+                    return max(0, min(100, int(m.group(1))))
+        except Exception:
+            pass
+        return None
+
 
 
 

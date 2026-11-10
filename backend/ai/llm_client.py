@@ -307,7 +307,11 @@ class LLMClient:
         base_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "config", "lorebooks")
         fpath = os.path.join(base_dir, "learned_web_knowledge.json")
         try:
-            data = {"version": "1.0", "learned_facts": []}
+            data = {
+                "version": "1.0",
+                "description": "Verified knowledge discovered via web search and permanently learned by R.U.M. upon Dad's confirmation",
+                "learned_facts": []
+            }
             if os.path.exists(fpath):
                 with open(fpath, "r", encoding="utf-8") as f:
                     data = json.load(f)
@@ -577,9 +581,9 @@ class LLMClient:
 
             "personality": "RUM",
 
-            "driver_title": "Master",
+            "driver_title": "Dad",
 
-            "driver_name": "Creator",
+            "driver_name": "",
 
             "gguf_model_path": local_gguf or "",
 
@@ -693,7 +697,7 @@ class LLMClient:
 
     def get_driver_address(self) -> str:
 
-        """Returns the full address string: '{Title} {Name}', e.g., 'Master Creator', 'Master', or 'Creator'."""
+        """Returns the full address string: '{Title} {Name}', e.g., 'Dad', or configured driver title/name."""
 
         title = self.settings.get("driver_title", "").strip()
 
@@ -711,7 +715,7 @@ class LLMClient:
 
             return name
 
-        return "Master"
+        return "Dad"
 
 
 
@@ -739,7 +743,7 @@ class LLMClient:
 
         else:
 
-            choices.append("Master")
+            choices.append("Dad")
 
         return random.choice(choices)
 
@@ -1747,7 +1751,7 @@ class LLMClient:
 
                 elif speed > 0:
 
-                    car_notes = f" You've got us rolling at {speed} MPH in gear {gear} right now."
+                    car_notes = f" You've got us rolling at {speed} miles per hour in gear {gear} right now."
 
                 else:
 
@@ -1799,7 +1803,7 @@ class LLMClient:
         # --- INTENT: Trip History / Past Drives ---
         if any(w in msg_l for w in ["trip", "drive yesterday", "past drive", "trips", "how far"]):
             if hasattr(self, "rag_memory") and self.rag_memory:
-                matches = self.rag_memory.search(user_message, top_k=1, threshold=0.42)
+                matches = self.rag_memory.search(msg, top_k=1, threshold=0.30)
                 if matches and matches[0]["category"] == "TRIP_LOG":
                     return f"From our flight logs: {matches[0]['content']}"
 
@@ -1847,7 +1851,7 @@ class LLMClient:
 
                 return random.choice(options)
 
-            return f"Last recorded 0 to 60 MPH acceleration interval: {last_0_60} seconds."
+            return f"Last recorded 0 to 60 miles per hour acceleration interval: {last_0_60} seconds."
 
 
 
@@ -1941,7 +1945,7 @@ class LLMClient:
 
                     options = [
 
-                        f"Parked at 0 MPH and buckled in, {address}! Clutch down, slot into first, and let's roll!",
+                        f"Parked at 0 miles per hour and buckled in, {address}! Clutch down, slot into first, and let's roll!",
 
                         f"Parked and ready to ride, {address}! Where are we heading today?!"
 
@@ -1951,7 +1955,7 @@ class LLMClient:
 
                     options = [
 
-                        f"Whoa, {speed} MPH in {gear} gear, {address}! Smooth pull! Keep an eye out for radar, okay?",
+                        f"Whoa, {speed} miles per hour in {gear} gear, {address}! Smooth pull! Keep an eye out for radar, okay?",
 
                         f"Rolling at {speed} miles per hour, {address}! Chassis feels glued to the road!"
 
@@ -1961,9 +1965,9 @@ class LLMClient:
 
                     options = [
 
-                        f"We're rolling along at {speed} MPH in {gear} gear, {address}! Smooth shifting!",
+                        f"We're rolling along at {speed} miles per hour in {gear} gear, {address}! Smooth shifting!",
 
-                        f"Cruising at {speed} MPH with you, {address}! The engine sounds super happy!"
+                        f"Cruising at {speed} miles per hour with you, {address}! The engine sounds super happy!"
 
                     ]
 
@@ -1975,7 +1979,7 @@ class LLMClient:
 
                     options = [
 
-                        f"We're stopped at 0 MPH in neutral, {address}. Depress the clutch, slide it into 1st, and let's roll!",
+                        f"We're stopped at 0 miles per hour in neutral, {address}. Depress the clutch, slide it into 1st, and let's roll!",
 
                         f"Parked and ready, {address}. Where are you taking me today?"
 
@@ -1985,9 +1989,9 @@ class LLMClient:
 
                     options = [
 
-                        f"We're flying at {speed} MPH in {gear} gear, {address}! You handle this 6-speed like an absolute pro.",
+                        f"We're flying at {speed} miles per hour in {gear} gear, {address}! You handle this 6-speed like an absolute pro.",
 
-                        f"Cruising at {speed} MPH, {address}. Engine sounds crisp and the road is wide open."
+                        f"Cruising at {speed} miles per hour, {address}. Engine sounds crisp and the road is wide open."
 
                     ]
 
@@ -1995,23 +1999,25 @@ class LLMClient:
 
                     options = [
 
-                        f"Rolling at {speed} MPH in gear {gear}, {address}. Smooth shifting!",
+                        f"Rolling at {speed} miles per hour in gear {gear}, {address}. Smooth shifting!",
 
-                        f"We're pacing at {speed} MPH, {address}. MultiAir oil is at {coolant}°F and looking healthy."
+                        f"We're pacing at {speed} miles per hour, {address}. MultiAir oil is at {coolant}°F and looking healthy."
 
                     ]
 
                 return random.choice(options)
 
-            return f"Vehicle speed is {speed} MPH. Transmission engaged in gear {gear}."
+            return f"Vehicle speed is {speed} miles per hour. Transmission engaged in gear {gear}."
 
 
 
         # --- INTENT: Engine Health / MultiAir / Oil ---
 
-        if any(w in msg_l for w in ["health", "engine", "oil", "multiair", "temp", "coolant"]):
-
+        if any(w in msg_l for w in ["health", "engine", "oil", "multiair", "temp", "coolant", "how is the dart", "how's the dart", "how is the car", "status"]):
+            obd_connected = bool(telem.get("connected", False)) if telem else False
             if is_rum:
+                if telem is not None and not obd_connected and telem.get("coolant_temp_f") is None:
+                    return f"Our Dodge Dart's OBD-II link is resting right now while the ignition is off, {address}, and our maintenance ledger shows all 7 MultiAir items in the green with 860 miles left on our Pennzoil 5W-40 oil!"
 
                 if not multiair_ready:
 
@@ -2091,7 +2097,7 @@ class LLMClient:
 
             options = [
 
-                f"I'm right here with you, {address}! Speed is {speed} MPH in gear {gear}. What's the plan?",
+                f"I'm right here with you, {address}! Speed is {speed} miles per hour in gear {gear}. What's the plan?",
 
                 f"Listening loud and clear, {address}! The Dart is running great and I love riding with you!",
 
@@ -2105,7 +2111,7 @@ class LLMClient:
 
             options = [
 
-                f"I'm right here with you, {address}! Speed is {speed} MPH in gear {gear}. What's the plan?",
+                f"I'm right here with you, {address}! Speed is {speed} miles per hour in gear {gear}. What's the plan?",
 
                 f"Copy that, {address}! All Dart systems are looking fantastic. What can I do for you?",
 

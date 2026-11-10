@@ -30,7 +30,7 @@ if systemctl is-active --quiet NetworkManager; then
     
     # Enable IP forwarding for USB mobile phone tethering
     sudo sysctl -w net.ipv4.ip_forward=1
-    echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.d/99-carpi-routing.conf > /dev/null
+    echo "net.ipv4.ip_forward=1" | sudo tee /etc/sysctl.d/99-carpi-routing.conf > /dev/null
     
     # Bring up the hotspot
     nmcli con up "CarPi-Hotspot"
@@ -39,6 +39,10 @@ else
     echo "[+] Installing hostapd & dnsmasq fallback (Legacy OS)..."
     sudo apt-get update -y
     sudo apt-get install -y hostapd dnsmasq iptables
+    
+    # Enable IP forwarding for routing / tethering
+    sudo sysctl -w net.ipv4.ip_forward=1
+    echo "net.ipv4.ip_forward=1" | sudo tee /etc/sysctl.d/99-carpi-routing.conf > /dev/null
     
     # Configure static IP for wlan0 in dhcpcd.conf
     if ! grep -q "interface wlan0" /etc/dhcpcd.conf 2>/dev/null; then

@@ -41,7 +41,7 @@ DART_14T_DTC_DATABASE: Dict[str, Dict[str, str]] = {
         "severity_color": "#ff7700",
         "description": "Cylinder #2 failed to complete a proper combustion stroke.",
         "common_causes": "1. Worn cylinder #2 spark plug or burnt electrode.\n2. Failing Bosch/Mopar ignition coil pack on cylinder #2.\n3. MultiAir hydraulic solenoid sticking on intake valve #2.",
-        "advice": "Swap coil pack #2 with cylinder #1. If code moves to P0301, replace the coil. Check spark plug gap (0.025\")."
+        "advice": "Swap coil pack #2 with cylinder #1. If code moves to P0301, replace the coil. Check spark plug gap (0.026 inch)."
     },
     "P0128": {
         "title": "Coolant Temp Below Thermostat Regulating Temp",
@@ -60,6 +60,15 @@ DART_14T_DTC_DATABASE: Dict[str, Dict[str, str]] = {
         "description": "Oil pressure switch circuit failed. MultiAir valve actuation depends entirely on high oil pressure.",
         "common_causes": "1. Extremely low engine oil level (MultiAir will cease running).\n2. Failed Chrysler oil pressure sending unit (very common failure).\n3. Damaged sensor harness near oil filter housing.",
         "advice": "Shut engine off and check oil dipstick! If oil level is full, the sensor sending unit has likely failed."
+    },
+    "P1066": {
+        "title": "MultiAir Cylinder 1 Solenoid Valve Switch-Off Timing",
+        "severity": "High",
+        "severity_badge": "CHECK 5W-40 OIL & SCREEN",
+        "severity_color": "#ff3344",
+        "description": "The UniAir electro-hydraulic intake valve actuator on Cylinder 1 detected abnormal solenoid response timing.",
+        "common_causes": "1. Incorrect oil viscosity (requires strictly SAE 5W-40 Full Synthetic MS-12991).\n2. Clogged MultiAir actuator oil supply micro-screen (Mopar 55238665).\n3. Low engine oil level aerating the hydraulic brick.",
+        "advice": "Verify oil level on dipstick immediately, change to fresh 5W-40 Euro full synthetic oil, and inspect the MultiAir filter screen."
     }
 }
 
@@ -68,7 +77,7 @@ class DiagnosticManager:
         self.db = DART_14T_DTC_DATABASE
 
     def explain_code(self, code: str) -> Dict[str, Any]:
-        code = code.strip().upper()
+        code = str(code or "UNKNOWN").strip().upper()
         if code in self.db:
             entry = self.db[code]
             return {

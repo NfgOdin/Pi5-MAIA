@@ -13,6 +13,7 @@ import os
 import sys
 import time
 import glob
+import shutil
 import subprocess
 from typing import Dict, Any, Optional, List
 
@@ -41,7 +42,7 @@ class SystemMonitor:
         return None
 
     def get_soc_temperature(self) -> float:
-        """Returns SoC temperature in Celsius."""
+        """Returns SoC temperature in Celsius, or 0.0 when no hardware thermal sensor is present (Rule 2)."""
         if self.is_linux:
             # 1. Try Linux thermal zone
             try:
@@ -50,18 +51,33 @@ class SystemMonitor:
             except Exception:
                 pass
 
-            # 2. Try vcgencmd
+            # 2. Try vcgencmd with strict timeout
             try:
-                out = subprocess.check_output(["vcgencmd", "measure_temp"]).decode("utf-8")
+                out = subprocess.check_output(
+                    ["vcgencmd", "measure_temp"],
+                    stderr=subprocess.DEVNULL,
+                    timeout=1.5
+                ).decode("utf-8")
                 # e.g., temp=48.2'C
                 if "temp=" in out:
                     val = out.split("=")[1].split("'")[0]
-                    return float(val)
+                    return round(float(val), 1)
             except Exception:
                 pass
 
-        # Development / Simulation Fallback (Normal operating temp around 46-52°C)
-        return 48.5
+        # 3. Try psutil sensors_temperatures if available
+        if PSUTIL_AVAILABLE and hasattr(psutil, "sensors_temperatures"):
+            try:
+                temps = psutil.sensors_temperatures() or {}
+                for entries in temps.values():
+                    for entry in entries:
+                        if entry.current and entry.current > 0:
+                            return round(float(entry.current), 1)
+            except Exception:
+                pass
+
+        # Rule 2 Compliance: No fake temperature when thermal sensor is unavailable
+        return 0.0
 
     def get_throttled_status(self) -> Dict[str, Any]:
         """Checks Raspberry Pi under-voltage and thermal throttling state via vcgencmd."""
@@ -71,11 +87,15 @@ class SystemMonitor:
             "freq_capped": False,
             "soft_temp_limit": False,
             "raw_hex": "0x0",
-            "message": "Thermal & Voltage Nominal"
+            "message": "Thermal & Voltage Nominal" if self.is_linux else "Hardware Telemetry Offline"
         }
         if self.is_linux:
             try:
-                out = subprocess.check_output(["vcgencmd", "get_throttled"]).decode("utf-8")
+                out = subprocess.check_output(
+                    ["vcgencmd", "get_throttled"],
+                    stderr=subprocess.DEVNULL,
+                    timeout=1.5
+                ).decode("utf-8")
                 # e.g., throttled=0x0
                 if "throttled=" in out:
                     raw_val = int(out.split("=")[1].strip(), 16)
@@ -95,11 +115,11 @@ class SystemMonitor:
 
     def get_system_health(self) -> Dict[str, Any]:
         temp_c = self.get_soc_temperature()
-        temp_f = round(temp_c * 9.0 / 5.0 + 32.0, 1)
+        temp_f = round(temp_c * 9.0 / 5.0 + 32.0, 1) if temp_c > 0.0 else 0.0
 
         cpu_pct = 0.0
         ram_used_mb = 0
-        ram_total_mb = 8192
+        ram_total_mb = 0
         ram_pct = 0.0
 
         if PSUTIL_AVAILABLE:
@@ -111,6 +131,22 @@ class SystemMonitor:
                 ram_pct = vm.percent
             except Exception:
                 pass
+        elif self.is_linux and os.path.exists("/proc/meminfo"):
+            try:
+                mem_kb = {}
+                with open("/proc/meminfo", "r") as f:
+                    for line in f:
+                        parts = line.split(":")
+                        if len(parts) == 2:
+                            mem_kb[parts[0].strip()] = int(parts[1].strip().split()[0])
+                tot_kb = mem_kb.get("MemTotal", 0)
+                avail_kb = mem_kb.get("MemAvailable", mem_kb.get("MemFree", 0))
+                if tot_kb > 0:
+                    ram_total_mb = tot_kb // 1024
+                    ram_used_mb = max(0, (tot_kb - avail_kb) // 1024)
+                    ram_pct = round(((tot_kb - avail_kb) / tot_kb) * 100.0, 1)
+            except Exception:
+                pass
 
         uptime_sec = int(time.time() - self.start_time)
         hours = uptime_sec // 3600
@@ -119,6 +155,7 @@ class SystemMonitor:
         throttling = self.get_throttled_status()
 
         return {
+            "connected": bool(self.is_linux and temp_c > 0.0),
             "soc_temp_c": temp_c,
             "soc_temp_f": temp_f,
             "cpu_pct": cpu_pct,
@@ -176,7 +213,7 @@ class SystemMonitor:
                         khz = int(f.read().strip())
                         mhz = round(khz / 1000.0, 1)
                 except Exception:
-                    mhz = 2400.0
+                    mhz = 0.0
                 pct = core_pcts[i] if i < len(core_pcts) else 0.0
                 core_freqs.append({
                     "id": i,
@@ -186,42 +223,65 @@ class SystemMonitor:
                 })
 
         if not core_freqs:
-            for i in range(4):
+            ps_freqs = []
+            if PSUTIL_AVAILABLE:
+                try:
+                    ps_freqs = psutil.cpu_freq(percpu=True) or []
+                    if not ps_freqs:
+                        single_f = psutil.cpu_freq()
+                        if single_f:
+                            ps_freqs = [single_f] * max(4, len(core_pcts))
+                except Exception:
+                    ps_freqs = []
+            num_cores = max(4, len(core_pcts))
+            for i in range(num_cores):
                 pct = core_pcts[i] if i < len(core_pcts) else 0.0
+                mhz = round(float(ps_freqs[i].current), 1) if i < len(ps_freqs) and ps_freqs[i] and ps_freqs[i].current else 0.0
                 core_freqs.append({
                     "id": i,
                     "pct": pct,
-                    "freq_mhz": 2400.0,
-                    "freq_ghz": 2.40
+                    "freq_mhz": mhz,
+                    "freq_ghz": round(mhz / 1000.0, 2)
                 })
 
-        # 2. SoC & Vcgencmd Telemetry
+        # 2. SoC & Vcgencmd Telemetry (Rule 2: Zero fake clock/voltage placeholders)
         temp_c = self.get_soc_temperature()
-        voltage_v = 0.8621
-        v3d_mhz = 960.0
-        core_mhz = 910.0
-        arm_mhz = 2400.0
-        gpu_mem_mb = 8
-        arm_mem_mb = 1016
+        voltage_v = 0.0
+        v3d_mhz = 0.0
+        core_mhz = 0.0
+        arm_mhz = max((c["freq_mhz"] for c in core_freqs), default=0.0)
+        gpu_mem_mb = 0
+        arm_mem_mb = 0
 
         if self.is_linux:
             try:
-                out = subprocess.check_output(["vcgencmd", "measure_volts", "core"], stderr=subprocess.DEVNULL).decode()
+                out = subprocess.check_output(["vcgencmd", "measure_volts", "core"], stderr=subprocess.DEVNULL, timeout=1.5).decode()
                 if "volt=" in out:
                     voltage_v = round(float(out.split("=")[1].replace("V", "").strip()), 4)
             except Exception:
                 pass
 
             try:
-                out = subprocess.check_output(["vcgencmd", "measure_clock", "v3d"], stderr=subprocess.DEVNULL).decode()
+                out = subprocess.check_output(["vcgencmd", "measure_clock", "v3d"], stderr=subprocess.DEVNULL, timeout=1.5).decode()
                 if "frequency(" in out:
                     hz = int(out.split("=")[1].strip())
                     v3d_mhz = round(hz / 1000000.0, 1)
             except Exception:
                 pass
 
+            if v3d_mhz <= 0.0:
+                for df_path in glob.glob("/sys/class/devfreq/*/cur_freq"):
+                    try:
+                        with open(df_path, "r") as f:
+                            hz = int(f.read().strip())
+                            if hz > 0:
+                                v3d_mhz = round(hz / 1000000.0, 1)
+                                break
+                    except Exception:
+                        pass
+
             try:
-                out = subprocess.check_output(["vcgencmd", "measure_clock", "core"], stderr=subprocess.DEVNULL).decode()
+                out = subprocess.check_output(["vcgencmd", "measure_clock", "core"], stderr=subprocess.DEVNULL, timeout=1.5).decode()
                 if "frequency(" in out:
                     hz = int(out.split("=")[1].strip())
                     core_mhz = round(hz / 1000000.0, 1)
@@ -229,22 +289,23 @@ class SystemMonitor:
                 pass
 
             try:
-                out = subprocess.check_output(["vcgencmd", "measure_clock", "arm"], stderr=subprocess.DEVNULL).decode()
+                out = subprocess.check_output(["vcgencmd", "measure_clock", "arm"], stderr=subprocess.DEVNULL, timeout=1.5).decode()
                 if "frequency(" in out:
                     hz = int(out.split("=")[1].strip())
-                    arm_mhz = round(hz / 1000000.0, 1)
+                    if hz > 0:
+                        arm_mhz = round(hz / 1000000.0, 1)
             except Exception:
                 pass
 
             try:
-                out = subprocess.check_output(["vcgencmd", "get_mem", "gpu"], stderr=subprocess.DEVNULL).decode()
+                out = subprocess.check_output(["vcgencmd", "get_mem", "gpu"], stderr=subprocess.DEVNULL, timeout=1.5).decode()
                 if "gpu=" in out:
                     gpu_mem_mb = int(out.split("=")[1].replace("M", "").strip())
             except Exception:
                 pass
 
             try:
-                out = subprocess.check_output(["vcgencmd", "get_mem", "arm"], stderr=subprocess.DEVNULL).decode()
+                out = subprocess.check_output(["vcgencmd", "get_mem", "arm"], stderr=subprocess.DEVNULL, timeout=1.5).decode()
                 if "arm=" in out:
                     arm_mem_mb = int(out.split("=")[1].replace("M", "").strip())
             except Exception:
@@ -252,12 +313,12 @@ class SystemMonitor:
 
         throttling = self.get_throttled_status()
 
-        # 3. RAM & Swap
-        ram_total = 8192
+        # 3. RAM & Swap (Rule 2: True OS values only)
+        ram_total = 0
         ram_used = 0
-        ram_free = 8192
+        ram_free = 0
         ram_pct = 0.0
-        swap_total = 2048
+        swap_total = 0
         swap_used = 0
         swap_pct = 0.0
 
@@ -275,12 +336,38 @@ class SystemMonitor:
                 swap_pct = sm.percent
             except Exception:
                 pass
+        elif self.is_linux and os.path.exists("/proc/meminfo"):
+            try:
+                mem_kb = {}
+                with open("/proc/meminfo", "r") as f:
+                    for line in f:
+                        parts = line.split(":")
+                        if len(parts) == 2:
+                            mem_kb[parts[0].strip()] = int(parts[1].strip().split()[0])
+                tot_kb = mem_kb.get("MemTotal", 0)
+                avail_kb = mem_kb.get("MemAvailable", mem_kb.get("MemFree", 0))
+                sw_tot_kb = mem_kb.get("SwapTotal", 0)
+                sw_free_kb = mem_kb.get("SwapFree", 0)
+                if tot_kb > 0:
+                    ram_total = tot_kb // 1024
+                    ram_free = avail_kb // 1024
+                    ram_used = max(0, ram_total - ram_free)
+                    ram_pct = round((ram_used / ram_total) * 100.0, 1)
+                if sw_tot_kb > 0:
+                    swap_total = sw_tot_kb // 1024
+                    swap_used = max(0, (sw_tot_kb - sw_free_kb) // 1024)
+                    swap_pct = round((swap_used / swap_total) * 100.0, 1)
+            except Exception:
+                pass
 
-        # 4. Storage / Disk
-        storage_total_gb = 64.0
-        storage_used_gb = 14.0
-        storage_free_gb = 50.0
-        storage_pct = 22.0
+        if arm_mem_mb == 0 and ram_total > 0:
+            arm_mem_mb = ram_total
+
+        # 4. Storage / Disk & NVMe Audit (Rule 2: True filesystem & NVMe values)
+        storage_total_gb = 0.0
+        storage_used_gb = 0.0
+        storage_free_gb = 0.0
+        storage_pct = 0.0
 
         if PSUTIL_AVAILABLE:
             try:
@@ -291,6 +378,35 @@ class SystemMonitor:
                 storage_pct = du.percent
             except Exception:
                 pass
+        if storage_total_gb <= 0.0:
+            try:
+                du = shutil.disk_usage('/')
+                storage_total_gb = round(du.total / (1024**3), 1)
+                storage_used_gb = round(du.used / (1024**3), 1)
+                storage_free_gb = round(du.free / (1024**3), 1)
+                storage_pct = round((du.used / du.total) * 100.0, 1) if du.total > 0 else 0.0
+            except Exception:
+                pass
+
+        nvme_detected = False
+        nvme_model = None
+        nvme_temp_c = None
+        if self.is_linux:
+            nvme_dirs = sorted(glob.glob("/sys/class/nvme/nvme*"))
+            if nvme_dirs:
+                nvme_detected = True
+                try:
+                    with open(os.path.join(nvme_dirs[0], "model"), "r") as f:
+                        nvme_model = f.read().strip()
+                except Exception:
+                    pass
+                for t_file in glob.glob(os.path.join(nvme_dirs[0], "hwmon*", "temp1_input")):
+                    try:
+                        with open(t_file, "r") as f:
+                            nvme_temp_c = round(float(f.read().strip()) / 1000.0, 1)
+                            break
+                    except Exception:
+                        pass
 
         # 5. Hailo-10H / Hailo-8 NPU Hardware Audit
         hailo_detected = False
@@ -302,7 +418,7 @@ class SystemMonitor:
                 hailo_nodes = hailo_devs
             else:
                 try:
-                    lspci_out = subprocess.check_output(["lspci", "-nn"], stderr=subprocess.DEVNULL).decode()
+                    lspci_out = subprocess.check_output(["lspci", "-nn"], stderr=subprocess.DEVNULL, timeout=1.5).decode()
                     if "1e60:" in lspci_out.lower() or "hailo" in lspci_out.lower():
                         hailo_detected = True
                 except Exception:
@@ -312,7 +428,7 @@ class SystemMonitor:
         usb_devices = []
         if self.is_linux:
             try:
-                lsusb_out = subprocess.check_output(["lsusb"], stderr=subprocess.DEVNULL).decode().strip().splitlines()
+                lsusb_out = subprocess.check_output(["lsusb"], stderr=subprocess.DEVNULL, timeout=1.5).decode().strip().splitlines()
                 for line in lsusb_out:
                     if "root hub" not in line.lower():
                         parts = line.split("ID ")
@@ -351,10 +467,11 @@ class SystemMonitor:
             "uptime_str": f"{hours}h {mins}m",
             "uptime_sec": uptime_sec,
             "soc": {
+                "connected": bool(self.is_linux and temp_c > 0.0),
                 "model": "Broadcom BCM2712 Quad-Core Cortex-A76",
                 "arch": "ARMv8.2-A (64-Bit TSMC 16nm)",
                 "temp_c": temp_c,
-                "temp_f": round(temp_c * 9.0 / 5.0 + 32.0, 1),
+                "temp_f": round(temp_c * 9.0 / 5.0 + 32.0, 1) if temp_c > 0.0 else 0.0,
                 "voltage_v": voltage_v,
                 "arm_clock_mhz": arm_mhz,
                 "arm_clock_ghz": round(arm_mhz / 1000.0, 2),
@@ -400,7 +517,10 @@ class SystemMonitor:
                 "total_gb": storage_total_gb,
                 "used_gb": storage_used_gb,
                 "free_gb": storage_free_gb,
-                "pct": storage_pct
+                "pct": storage_pct,
+                "nvme_detected": nvme_detected,
+                "nvme_model": nvme_model,
+                "nvme_temp_c": nvme_temp_c
             },
             "peripherals": {
                 "usb_devices": usb_devices,

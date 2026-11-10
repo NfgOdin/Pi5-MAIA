@@ -4,13 +4,14 @@ Phase 3: Dynamic Affect Valence-Arousal Engine & Highway Cruising Shower Thought
 """
 
 import time
+import math
 import random
 from typing import Optional, Dict, Any, List
 from .diagnostics import DiagnosticManager
 
 class AICopilot:
     def __init__(self, driver_name: str = "Dad"):
-        self.driver_name = driver_name
+        self.driver_name = driver_name or "Dad"
         self.diagnostics = DiagnosticManager()
         
         # Voice Mode: "MUTED", "ALERTS_ONLY", "COPILOT"
@@ -44,28 +45,52 @@ class AICopilot:
         self.last_dyno_praise_time = 0.0
         self.last_pip_praise_time = 0.0
 
+    @staticmethod
+    def _get_val(frame: Any, attr: str, default: Any = None) -> Any:
+        """Safely extracts an attribute or dict key from frame, falling back to default if None."""
+        if frame is None:
+            return default
+        if isinstance(frame, dict):
+            val = frame.get(attr, default)
+        else:
+            val = getattr(frame, attr, default)
+        return default if val is None else val
+
+    @classmethod
+    def _get_float(cls, frame: Any, attr: str, default: float = 0.0) -> float:
+        val = cls._get_val(frame, attr, default)
+        try:
+            f = float(val)
+            return f if math.isfinite(f) else default
+        except (ValueError, TypeError):
+            return default
+
     def set_voice_mode(self, mode: str):
         """Set voice mode: 'MUTED', 'ALERTS_ONLY', or 'COPILOT'."""
-        self.voice_mode = mode.upper()
+        self.voice_mode = (mode or "COPILOT").strip().upper()
         print(f"[AI COPILOT] Voice mode set to: {self.voice_mode}")
 
     def update_affect_state(self, frame: Any, is_night: bool = False, dt: float = 0.04):
         """Updates continuous 2D emotional valence and arousal based on live vehicle dynamics."""
-        if not getattr(frame, 'connected', True):
+        if not self._get_val(frame, 'connected', True):
             return
 
-        boost = getattr(frame, 'boost_psi', 0.0) or 0.0
-        throttle = getattr(frame, 'throttle_pct', 0.0) or 0.0
-        coolant = getattr(frame, 'coolant_temp_f', 195.0) or 195.0
-        speed = getattr(frame, 'speed_mph', getattr(frame, 'speed', 0.0)) or 0.0
-        has_dtcs = bool(getattr(frame, 'active_dtcs', None))
+        if not isinstance(dt, (int, float)) or not math.isfinite(dt) or dt <= 0.0:
+            dt = 0.04
+        dt = min(float(dt), 0.25)
+
+        boost = self._get_float(frame, 'boost_psi', 0.0)
+        throttle = self._get_float(frame, 'throttle_pct', 0.0)
+        coolant = self._get_float(frame, 'coolant_temp_f', 195.0)
+        speed = self._get_float(frame, 'speed_mph', self._get_float(frame, 'speed', 0.0))
+        has_dtcs = bool(self._get_val(frame, 'active_dtcs', None))
 
         # 1. Determine instantaneous target valence & arousal
         if coolant >= 218.0 or has_dtcs:
             # Overheat or active DTC warning
             target_valence = -0.65
             target_arousal = 0.85
-        elif getattr(frame, 'virtual_whp', 0.0) >= 150.0:
+        elif self._get_float(frame, 'virtual_whp', 0.0) >= 150.0:
             # High-power Virtual Dyno pull
             target_valence = 0.95
             target_arousal = 0.98
@@ -73,7 +98,7 @@ class AICopilot:
             # High-boost turbo pull
             target_valence = 0.92
             target_arousal = 0.95
-        elif getattr(frame, 'multiair_status', None) == 'COLD_PROTECT' and boost > 8.0:
+        elif self._get_val(frame, 'multiair_status', None) == 'COLD_PROTECT' and boost > 8.0:
             # Cold oil boost concern
             target_valence = -0.40
             target_arousal = 0.70
@@ -135,6 +160,10 @@ class AICopilot:
         Evaluate a single telemetry frame.
         Respects voice mode, affect engine, and once-per-trip latches.
         """
+        if not isinstance(dt, (int, float)) or not math.isfinite(dt) or dt <= 0.0:
+            dt = 0.04
+        dt = min(float(dt), 0.25)
+
         now = time.time()
         time_since_speech = now - self.last_spoken_time
 
@@ -142,29 +171,37 @@ class AICopilot:
         self.update_affect_state(frame, is_night=is_night, dt=dt)
 
         # If vehicle is disconnected or key is off, do not evaluate alerts
-        if not getattr(frame, 'connected', True):
+        if not self._get_val(frame, 'connected', True):
             return None
+
+        coolant_temp = self._get_val(frame, 'coolant_temp_f', None)
+        active_dtcs = self._get_val(frame, 'active_dtcs', None)
+        multiair_ready = bool(self._get_val(frame, 'multiair_ready', True))
+        throttle_pct = self._get_float(frame, 'throttle_pct', 0.0)
+        boost_val = self._get_float(frame, 'boost_psi', 0.0)
+        intake_temp = self._get_val(frame, 'intake_temp_f', None)
+        zero_to_sixty = self._get_val(frame, 'zero_to_sixty_time', None)
 
         # If completely muted, return only silent HUD events for critical faults
         if self.voice_mode == "MUTED":
-            if frame.coolant_temp_f is not None and frame.coolant_temp_f >= 220.0:
-                return {"type": "CRITICAL", "priority": 0, "speech": "", "hud_message": "HIGH TEMP: " + str(int(frame.coolant_temp_f)) + "°F"}
+            if coolant_temp is not None and float(coolant_temp) >= 220.0:
+                return {"type": "CRITICAL", "priority": 0, "speech": "", "hud_message": "HIGH TEMP: " + str(int(float(coolant_temp))) + "°F"}
             return None
 
         # 1. CRITICAL: Coolant Overheat Alert (> 220°F) - Always fires in ALERTS_ONLY and COPILOT
-        if frame.coolant_temp_f is not None and frame.coolant_temp_f >= 220.0 and time_since_speech > 30.0:
+        if coolant_temp is not None and float(coolant_temp) >= 220.0 and time_since_speech > 30.0:
             self.last_spoken_time = now
             return {
                 "type": "CRITICAL",
                 "priority": 0,
                 "emotion": "CONCERNED",
-                "speech": f"Warning! Engine coolant is elevated at {int(frame.coolant_temp_f)} degrees. Check temperatures, {self.driver_name}!",
-                "hud_message": f"HIGH TEMP ALERT: {int(frame.coolant_temp_f)}°F"
+                "speech": f"Warning! Engine coolant is elevated at {int(float(coolant_temp))} degrees. Check temperatures, {self.driver_name}!",
+                "hud_message": f"HIGH TEMP ALERT: {int(float(coolant_temp))}°F"
             }
 
         # 2. DIAGNOSTICS: Check Engine Light Code Announcement (fires in ALERTS_ONLY and COPILOT)
-        if frame.active_dtcs:
-            for code in frame.active_dtcs:
+        if active_dtcs:
+            for code in active_dtcs:
                 if code not in self.announced_dtcs and time_since_speech > 4.0:
                     self.announced_dtcs.add(code)
                     explanation = self.diagnostics.explain_code(code)
@@ -184,10 +221,9 @@ class AICopilot:
         # --- THE FOLLOWING ONLY RUN IN "COPILOT" MODE ---
 
         # 3. MultiAir UniAir Brick Cold Protection
-        multiair_status = getattr(frame, 'multiair_status', 'WARM_OPTIMAL')
-        boost_val = getattr(frame, 'boost_psi', 0.0) or 0.0
-        oil_temp = getattr(frame, 'multiair_oil_temp_f', 120.0) or 120.0
-        if (not frame.multiair_ready or multiair_status == "COLD_PROTECT") and (frame.throttle_pct > 65.0 or boost_val > 7.5):
+        multiair_status = self._get_val(frame, 'multiair_status', 'WARM_OPTIMAL')
+        oil_temp = self._get_float(frame, 'multiair_oil_temp_f', 120.0)
+        if (not multiair_ready or multiair_status == "COLD_PROTECT") and (throttle_pct > 65.0 or boost_val > 7.5):
             if not self.cold_warning_spoken and time_since_speech > 6.0:
                 self.cold_warning_spoken = True
                 self.last_spoken_time = now
@@ -200,8 +236,8 @@ class AICopilot:
                 }
 
         # 4. Garrett GT1446 Wastegate & Diverter Valve Slop Warning
-        wastegate_health = getattr(frame, 'wastegate_spool_health', 100.0)
-        spool_grad = getattr(frame, 'wastegate_spool_gradient', 9.8)
+        wastegate_health = self._get_float(frame, 'wastegate_spool_health', 100.0)
+        spool_grad = self._get_float(frame, 'wastegate_spool_gradient', 9.8)
         if wastegate_health < 70.0 and (now - self.last_spool_warning_time > 300.0) and time_since_speech > 8.0:
             self.last_spool_warning_time = now
             self.last_spoken_time = now
@@ -214,9 +250,9 @@ class AICopilot:
             }
 
         # 5. C635 Manual Rev-Match & Downshift Quality Feedback
-        shift_score = getattr(frame, 'last_shift_score', None)
-        shift_type = getattr(frame, 'last_shift_type', None)
-        shift_delta = getattr(frame, 'last_shift_delta', None)
+        shift_score = self._get_val(frame, 'last_shift_score', None)
+        shift_type = self._get_val(frame, 'last_shift_type', None)
+        shift_delta = self._get_float(frame, 'last_shift_delta', 0.0)
         if shift_score is not None:
             if shift_type == "PERFECT_REV_MATCH" and (now - self.last_shift_praise_time > 60.0) and time_since_speech > 6.0:
                 self.last_shift_praise_time = now
@@ -225,10 +261,10 @@ class AICopilot:
                     "type": "PERFORMANCE",
                     "priority": 3,
                     "emotion": "HAPPY_PROUD",
-                    "speech": f"✨ Butter smooth heel-toe downshift, {self.driver_name}! Perfect rev-match!",
-                    "hud_message": f"🎯 PERFECT REV-MATCH: 100 PTS (Δ{int(shift_delta or 0)} RPM)"
+                    "speech": f"Butter smooth heel-toe downshift, {self.driver_name}! Perfect rev-match!",
+                    "hud_message": f"🎯 PERFECT REV-MATCH: 100 PTS (Δ{int(shift_delta)} RPM)"
                 }
-            elif shift_type == "CLUTCH_JERK" and (shift_delta or 0) > 550 and (now - self.last_shift_praise_time > 75.0) and time_since_speech > 6.0:
+            elif shift_type == "CLUTCH_JERK" and shift_delta > 550 and (now - self.last_shift_praise_time > 75.0) and time_since_speech > 6.0:
                 self.last_shift_praise_time = now
                 self.last_spoken_time = now
                 return {
@@ -236,11 +272,11 @@ class AICopilot:
                     "priority": 3,
                     "emotion": "CONCERNED",
                     "speech": f"Oof, clutch jerk! Give the throttle a tiny blip on that downshift so we don't shock the transaxle, {self.driver_name}!",
-                    "hud_message": f"⚠️ CLUTCH JERK: Δ{int(shift_delta or 0)} RPM"
+                    "hud_message": f"⚠️ CLUTCH JERK: Δ{int(shift_delta)} RPM"
                 }
 
         # 6. Virtual Dyno Peak Pull Celebration
-        whp_val = getattr(frame, 'virtual_whp', 0.0) or 0.0
+        whp_val = self._get_float(frame, 'virtual_whp', 0.0)
         if whp_val >= 165.0 and (now - self.last_dyno_praise_time > 120.0) and time_since_speech > 8.0:
             self.last_dyno_praise_time = now
             self.last_spoken_time = now
@@ -290,7 +326,7 @@ class AICopilot:
                 }
 
         # 8. MultiAir Warmup Ready (ONCE PER TRIP)
-        if frame.multiair_ready and not self.warmup_ready_spoken and self.cold_warning_spoken:
+        if multiair_ready and not self.warmup_ready_spoken and self.cold_warning_spoken:
             self.warmup_ready_spoken = True
             if time_since_speech > 8.0:
                 self.last_spoken_time = now
@@ -303,20 +339,20 @@ class AICopilot:
                 }
 
         # 5. Hard Pull Detector & Debrief (Only on high-boost pulls >= 15 PSI)
-        if frame.boost_psi is not None and frame.boost_psi > 12.0 and frame.throttle_pct > 80.0:
+        if boost_val > 12.0 and throttle_pct > 80.0:
             self.is_in_pull = True
-            if frame.boost_psi > self.max_pull_boost:
-                self.max_pull_boost = frame.boost_psi
+            if boost_val > self.max_pull_boost:
+                self.max_pull_boost = boost_val
 
-        elif self.is_in_pull and frame.throttle_pct < 25.0:
+        elif self.is_in_pull and throttle_pct < 25.0:
             self.is_in_pull = False
-            peak = self.max_pull_boost
+            peak = round(self.max_pull_boost, 1)
             self.max_pull_boost = 0.0
             
             # Cooldown of at least 25 seconds between pull debriefs so it doesn't talk on every shift!
             if peak >= 15.0 and time_since_speech > 25.0:
                 self.last_spoken_time = now
-                iat_str = f"{int(frame.intake_temp_f)} degrees" if frame.intake_temp_f is not None else "nominal"
+                iat_str = f"{int(float(intake_temp))} degrees" if intake_temp is not None else "nominal"
                 return {
                     "type": "PERFORMANCE",
                     "priority": 2,
@@ -326,9 +362,9 @@ class AICopilot:
                 }
 
         # 6. Spontaneous Highway Cruising "Shower Thoughts" (Every 15-25 minutes of steady highway driving)
-        speed = getattr(frame, "speed_mph", getattr(frame, "speed", 0.0)) or 0.0
-        boost = getattr(frame, "boost_psi", 0.0) or 0.0
-        throttle = getattr(frame, "throttle_pct", 0.0) or 0.0
+        speed = self._get_float(frame, "speed_mph", self._get_float(frame, "speed", 0.0))
+        boost = boost_val
+        throttle = throttle_pct
         
         is_cruising = (speed >= 45.0 and 8.0 <= throttle <= 38.0 and -14.0 <= boost <= -0.5)
         if is_cruising:
@@ -351,14 +387,14 @@ class AICopilot:
                 }
 
         # 7. 0-60 MPH Launch Silent HUD Record
-        if frame.zero_to_sixty_time and frame.zero_to_sixty_time != self.last_announced_0_60:
-            self.last_announced_0_60 = frame.zero_to_sixty_time
+        if zero_to_sixty and zero_to_sixty != self.last_announced_0_60:
+            self.last_announced_0_60 = zero_to_sixty
             return {
                 "type": "LAUNCH",
                 "priority": 1,
                 "emotion": "EXCITED",
                 "speech": "",
-                "hud_message": f"0-60 MPH: {frame.zero_to_sixty_time}s"
+                "hud_message": f"0-60 MPH: {zero_to_sixty}s"
             }
 
         return None

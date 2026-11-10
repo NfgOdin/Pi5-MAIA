@@ -111,14 +111,18 @@ class GpioController:
             try:
                 import gpiozero
                 from gpiozero.pins.lgpio import LGPIOFactory
-                gpiozero.Device.pin_factory = LGPIOFactory()
+                try:
+                    gpiozero.Device.pin_factory = LGPIOFactory()
+                except Exception:
+                    # Fallback for Pi 5 kernels where RP1 40-pin header is exposed on gpiochip4
+                    gpiozero.Device.pin_factory = LGPIOFactory(chip=4)
                 self.hardware_active = True
                 print("[GPIO] Hardware GPIO initialized via gpiozero + LGPIOFactory (Pi 5 RP1 native).")
             except Exception as e:
-                print(f"[GPIO] Real hardware GPIO unavailable ({e}). Virtual emulation active.")
+                print(f"[GPIO] Real hardware GPIO unavailable ({e}). Reporting offline state (Rule 2).")
                 self.hardware_active = False
         else:
-            print("[GPIO] Running in dev environment. Virtual GPIO emulation active.")
+            print("[GPIO] Non-Linux environment. Hardware GPIO offline (connected=False).")
             self.hardware_active = False
 
     def get_pins_status(self) -> List[Dict[str, Any]]:
@@ -127,6 +131,7 @@ class GpioController:
             pins_copy = []
             for p in PIN_MAP_40:
                 item = dict(p)
+                item["connected"] = self.hardware_active
                 bcm = item["bcm"]
                 if bcm is not None:
                     item["state"] = self.pin_states.get(bcm, False)
@@ -142,6 +147,7 @@ class GpioController:
             for r in RELAY_PRESETS:
                 r_copy = dict(r)
                 bcm = r["bcm"]
+                r_copy["connected"] = self.hardware_active
                 r_copy["state"] = self.pin_states.get(bcm, False)
                 relays.append(r_copy)
             return relays
@@ -262,7 +268,7 @@ class GpioController:
         self.morse_thread.start()
 
     def load_persistent_states(self):
-        """Loads saved pin configurations from gpio_state.json (ODIN parity)."""
+        """Loads saved pin configurations from gpio_state.json without clobbering inactive I2C/SPI/UART mux pins."""
         if os.path.exists(self.state_file):
             try:
                 with open(self.state_file, "r", encoding="utf-8") as f:
@@ -271,12 +277,16 @@ class GpioController:
                         bcm = int(bcm_str)
                         if bcm in self.pin_states:
                             mode = info.get("mode", "OUT")
-                            state = info.get("state", False)
+                            state = bool(info.get("state", False))
                             duty = float(info.get("duty_cycle", 0.0))
-                            if mode == "PWM":
+                            self.pin_modes[bcm] = mode
+                            self.pin_states[bcm] = state
+                            self.pin_duty_cycles[bcm] = duty
+                            # Only claim hardware GPIO output at boot if pin was actively energized
+                            if mode == "PWM" and duty > 0.0:
                                 self.set_pwm(bcm, duty)
-                            else:
-                                self.set_pin(bcm, state)
+                            elif state:
+                                self.set_pin(bcm, True)
                 print("[GPIO] Restored persistent pin states from file.")
             except Exception as e:
                 print(f"[GPIO] Error loading persistent state: {e}")

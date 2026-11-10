@@ -63,7 +63,7 @@ class MiniLMEmbeddingEngine:
 
     def embed_text(self, text: str) -> np.ndarray:
         """Embeds single text string into a 384-dim normalized vector."""
-        if not text or not text.strip():
+        if not text or not isinstance(text, str) or not text.strip():
             return np.zeros(self.dimension, dtype=np.float32)
 
         if self.ready and self.session and self.tokenizer:
@@ -98,11 +98,24 @@ class MiniLMEmbeddingEngine:
         return self._fallback_hash_embedding(text)
 
     def _fallback_hash_embedding(self, text: str) -> np.ndarray:
+        import re, zlib
         vec = np.zeros(self.dimension, dtype=np.float32)
-        words = text.lower().split()
+        stopwords = {
+            "the", "a", "an", "in", "on", "at", "to", "for", "of", "and", "or",
+            "is", "are", "was", "were", "with", "by", "from", "as", "what",
+            "when", "where", "how", "should", "i", "we", "you", "my", "our", "use"
+        }
+        words = [w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in stopwords]
+        if not words:
+            words = re.findall(r"[a-z0-9]+", text.lower())
         for w in words:
-            h = hash(w) % self.dimension
-            vec[h] += 1.0
+            # Deterministic CRC32 + stem prefix hashing for high recall without ONNX
+            h1 = zlib.crc32(w.encode("utf-8")) % self.dimension
+            vec[h1] += 1.0
+            if len(w) >= 5:
+                stem = w[:5]
+                h2 = zlib.crc32(stem.encode("utf-8")) % self.dimension
+                vec[h2] += 0.5
         norm = np.linalg.norm(vec)
         if norm > 0:
             vec /= norm
@@ -116,13 +129,14 @@ class RagMemoryEngine:
     """
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = str(db_path or RAG_DB_PATH)
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self.embed_engine = MiniLMEmbeddingEngine()
         self._init_db()
         self._seed_factory_maintenance()
 
     @contextmanager
     def _get_connection(self):
-        conn = sqlite3.connect(self.db_path, timeout=10.0)
+        conn = sqlite3.connect(self.db_path, timeout=10.0, check_same_thread=False)
         try:
             conn.execute("PRAGMA journal_mode = WAL;")
             conn.execute("PRAGMA synchronous = NORMAL;")
@@ -327,35 +341,59 @@ class RagMemoryEngine:
     # -------------------------------------------------------------
     def search(self, query: str, top_k: int = 5, threshold: float = 0.30) -> List[Dict[str, Any]]:
         """Retrieves top matching documents via cosine similarity."""
+        if not query or not isinstance(query, str) or not query.strip():
+            return []
         query_vec = self.embed_engine.embed_text(query)
         if np.all(query_vec == 0):
             return []
 
         results = []
-        with self._get_connection() as conn:
-            c = conn.cursor()
-            c.execute("""
-                SELECT d.doc_id, d.category, d.title, d.content, d.metadata_json, e.vector
-                FROM rag_documents d
-                JOIN rag_embeddings e ON d.doc_id = e.doc_id
-            """)
-            rows = c.fetchall()
+        try:
+            with self._get_connection() as conn:
+                c = conn.cursor()
+                c.execute("""
+                    SELECT d.doc_id, d.category, d.title, d.content, d.metadata_json, e.vector
+                    FROM rag_documents d
+                    JOIN rag_embeddings e ON d.doc_id = e.doc_id
+                """)
+                rows = c.fetchall()
 
-            for doc_id, category, title, content, meta_json, vec_blob in rows:
-                doc_vec = np.frombuffer(vec_blob, dtype=np.float32)
-                sim = float(np.dot(query_vec, doc_vec))
-                if sim >= threshold:
-                    results.append({
-                        "doc_id": doc_id,
-                        "category": category,
-                        "title": title,
-                        "content": content,
-                        "metadata": json.loads(meta_json or "{}"),
-                        "similarity": round(sim, 4)
-                    })
+                for doc_id, category, title, content, meta_json, vec_blob in rows:
+                    if not vec_blob:
+                        continue
+                    doc_vec = np.frombuffer(vec_blob, dtype=np.float32)
+                    if doc_vec.shape[0] != self.embed_engine.dimension:
+                        continue
+                    sim = float(np.dot(query_vec, doc_vec))
+                    if not np.isfinite(sim):
+                        continue
+                    if sim >= threshold:
+                        try:
+                            meta_obj = json.loads(meta_json) if meta_json else {}
+                            if not isinstance(meta_obj, dict):
+                                meta_obj = {}
+                        except Exception:
+                            meta_obj = {}
+                        results.append({
+                            "doc_id": doc_id,
+                            "category": category,
+                            "title": title,
+                            "content": content,
+                            "metadata": meta_obj,
+                            "similarity": round(sim, 4)
+                        })
+        except sqlite3.OperationalError:
+            try:
+                self._init_db()
+            except Exception:
+                pass
+            return []
+        except Exception as e:
+            print(f"[RAG MEMORY] Search error: {e}")
+            return []
 
         results.sort(key=lambda x: x["similarity"], reverse=True)
-        return results[:top_k]
+        return results[:max(1, int(top_k))]
 
     def retrieve_context_for_prompt(self, query: str, top_k: int = 2, threshold: float = 0.35) -> Optional[str]:
         """Formats high-confidence semantic matches into a concise snippet for LLM injection."""
@@ -372,23 +410,34 @@ class RagMemoryEngine:
     # Odometer & Maintenance State
     # -------------------------------------------------------------
     def get_odometer(self) -> int:
-        with self._get_connection() as conn:
-            c = conn.cursor()
-            c.execute("SELECT value FROM vehicle_state WHERE key = 'odometer_miles'")
-            row = c.fetchone()
-            return int(row[0]) if row else 85240
+        try:
+            with self._get_connection() as conn:
+                c = conn.cursor()
+                c.execute("SELECT value FROM vehicle_state WHERE key = 'odometer_miles'")
+                row = c.fetchone()
+                return int(float(row[0])) if row and row[0] is not None else 85240
+        except Exception:
+            return 85240
 
     def set_odometer(self, miles: int):
-        with self._get_connection() as conn:
-            c = conn.cursor()
-            c.execute("INSERT OR REPLACE INTO vehicle_state (key, value) VALUES ('odometer_miles', ?)", (str(int(miles)),))
-            conn.commit()
+        try:
+            safe_miles = max(0, int(float(miles)))
+            with self._get_connection() as conn:
+                c = conn.cursor()
+                c.execute("INSERT OR REPLACE INTO vehicle_state (key, value) VALUES ('odometer_miles', ?)", (str(safe_miles),))
+                conn.commit()
+        except Exception as e:
+            print(f"[RAG MEMORY] Error setting odometer: {e}")
 
     def advance_odometer(self, delta_miles: float):
-        if delta_miles > 0:
-            cur = self.get_odometer()
-            new_odo = cur + int(round(delta_miles))
-            self.set_odometer(new_odo)
+        try:
+            delta_val = float(delta_miles)
+            if np.isfinite(delta_val) and delta_val > 0:
+                cur = self.get_odometer()
+                new_odo = cur + int(round(delta_val))
+                self.set_odometer(new_odo)
+        except Exception:
+            pass
 
     def get_maintenance_status(self) -> Dict[str, Any]:
         """Calculates miles remaining and status alerts for all MultiAir scheduled service items."""
@@ -445,30 +494,43 @@ class RagMemoryEngine:
 
     def record_service(self, item_key: str, mileage: int, notes: str = "") -> bool:
         """Logs completed maintenance, updates interval tracker, and indexes service event into RAG vector memory."""
+        if not item_key or not isinstance(item_key, str):
+            return False
+        item_key = item_key.strip().upper()
+        try:
+            mileage = max(0, int(float(mileage)))
+        except (ValueError, TypeError):
+            mileage = self.get_odometer()
+        notes = str(notes or "").strip()
+
         now_date = datetime.now().strftime("%Y-%m-%d")
         now_ts = datetime.now().isoformat()
 
-        with self._get_connection() as conn:
-            c = conn.cursor()
-            c.execute("SELECT item_name FROM maintenance_items WHERE item_key = ?", (item_key,))
-            row = c.fetchone()
-            if not row:
-                return False
-            name = row[0]
+        try:
+            with self._get_connection() as conn:
+                c = conn.cursor()
+                c.execute("SELECT item_name FROM maintenance_items WHERE item_key = ?", (item_key,))
+                row = c.fetchone()
+                if not row:
+                    return False
+                name = row[0]
 
-            # 1. Update maintenance items table
-            c.execute("""
-                UPDATE maintenance_items
-                SET last_service_mileage = ?, last_service_date = ?
-                WHERE item_key = ?
-            """, (mileage, now_date, item_key))
+                # 1. Update maintenance items table
+                c.execute("""
+                    UPDATE maintenance_items
+                    SET last_service_mileage = ?, last_service_date = ?
+                    WHERE item_key = ?
+                """, (mileage, now_date, item_key))
 
-            # 2. Append to service log history
-            c.execute("""
-                INSERT INTO service_history (item_key, service_date, mileage, technician_notes, created_at)
-                VALUES (?, ?, ?, ?, ?)
-            """, (item_key, now_date, mileage, notes, now_ts))
-            conn.commit()
+                # 2. Append to service log history
+                c.execute("""
+                    INSERT INTO service_history (item_key, service_date, mileage, technician_notes, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (item_key, now_date, mileage, notes, now_ts))
+                conn.commit()
+        except Exception as e:
+            print(f"[RAG MEMORY] Error recording service: {e}")
+            return False
 
         # Update odometer if service was performed at higher mileage
         if mileage > self.get_odometer():
@@ -497,7 +559,7 @@ class RagMemoryEngine:
             return
 
         try:
-            with sqlite3.connect(v_db) as conn:
+            with sqlite3.connect(v_db, timeout=5.0) as conn:
                 conn.row_factory = sqlite3.Row
                 c = conn.cursor()
                 c.execute("""
@@ -519,22 +581,30 @@ class RagMemoryEngine:
                     if r_c.fetchone():
                         continue
 
-                dist = round(t["distance_miles"] or 0.0, 1)
-                dur = round(t["duration_min"] or 0.0, 1)
-                max_s = round(t["max_speed_mph"] or 0.0, 1)
-                avg_s = round(t["avg_speed_mph"] or 0.0, 1)
-                boost = round(t["max_boost_psi"] or 0.0, 1)
-                coolant = round(t["peak_coolant_f"] or 0.0, 1)
-                zero_60 = round(t["best_zero_to_sixty"], 2) if t["best_zero_to_sixty"] else None
+                raw_start = t["start_time"]
+                if raw_start is None:
+                    date_str = datetime.now().strftime("%Y-%m-%d")
+                elif isinstance(raw_start, (int, float)):
+                    date_str = datetime.fromtimestamp(float(raw_start)).strftime("%Y-%m-%d")
+                else:
+                    date_str = str(raw_start)[:10] or datetime.now().strftime("%Y-%m-%d")
+
+                dist = round(float(t["distance_miles"] or 0.0), 1)
+                dur = round(float(t["duration_min"] or 0.0), 1)
+                max_s = round(float(t["max_speed_mph"] or 0.0), 1)
+                avg_s = round(float(t["avg_speed_mph"] or 0.0), 1)
+                boost = round(float(t["max_boost_psi"] or 0.0), 1)
+                coolant = round(float(t["peak_coolant_f"] or 0.0), 1)
+                zero_60 = round(float(t["best_zero_to_sixty"]), 2) if t["best_zero_to_sixty"] else None
 
                 summary = (
-                    f"Trip #{t_id} on {t['start_time'][:10]}: Covered {dist} miles in {dur} minutes. "
-                    f"Top speed was {max_s} miles per hour with an average cruising speed of {avg_s} mph. "
-                    f"Garrett GT1446 turbo pushed peak boost of {boost} PSI across {t['boost_pulls_count'] or 0} boost pulls. "
+                    f"Trip #{t_id} on {date_str}: Covered {dist} miles in {dur} minutes. "
+                    f"Top speed was {max_s} miles per hour with an average cruising speed of {avg_s} miles per hour. "
+                    f"Garrett GT1446 turbo pushed peak boost of {boost} PSI across {int(t['boost_pulls_count'] or 0)} boost pulls. "
                     f"Peak engine coolant temperature reached {coolant}°F. "
                 )
                 if zero_60:
-                    summary += f"Best 0 to 60 mph acceleration sprint was {zero_60} seconds! "
+                    summary += f"Best 0 to 60 miles per hour acceleration sprint was {zero_60} seconds! "
 
                 self.add_document(
                     doc_id=doc_id,

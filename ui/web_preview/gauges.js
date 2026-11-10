@@ -42,7 +42,7 @@ function initVrmControlsBarState() {
 
 
 
-  if (saved === '1') {
+  if (saved !== '0') {
 
     bar.classList.add('collapsed');
 
@@ -116,11 +116,11 @@ function publishNowPlaying(status = 'playing') {
 
       title: t.title || "Track",
 
-      artist: t.artist || "$uicideboy$",
+      artist: t.artist || "Unknown Artist",
 
       album: t.album || "CarPi5 In-Dash",
 
-      genre: t.genre || "G59 / Hip-Hop",
+      genre: t.genre || "In-Dash Audio",
 
       year: t.year || "2024",
 
@@ -19929,10 +19929,10 @@ fetchTripLogs();
 function initTouchScrollEngine() {
   const scrollTargets = document.querySelectorAll(
     '.screen-view, #screenSettings, #screenHome, #screenMedia, #screenGames, #screenLibrary, #screenVehicle, #screenHardware, #screenMaintenance, .maint-items-list, .maint-results-list, ' +
-    '.hw-studio-container, .win11-drive-container, #libraryMarkdownContainer, #libraryReaderView, #libraryShelfView, ' +
-    '#gpioBoardPinsContainer, #romsGrid, #fileListGrid, .explorer-body, .explorer-tree, .ai-chat-messages, #aiChatMessages, ' +
-    '#animGridContainer, #tripsListContainer, .trip-detail-panel, #diagCodesList, .diag-detail-panel, #trackListContainer, ' +
-    '#fullAudioSuiteEqGrid, #mediaTrackList, .device-tabs-row, #animCategoriesBar, .media-container, .settings-container, ' +
+    '.hw-studio-container, .win11-drive-container, .win11-viewport-content, #explorerFileList, .win11-sidebar, #libraryMarkdownContainer, #libraryReaderView, #libraryShelfView, ' +
+    '#gpioBoardPinsContainer, #romsGrid, #romsListContainer, #fileListGrid, .explorer-body, .explorer-tree, .ai-chat-messages, #aiChatMessages, ' +
+    '#animGridContainer, #tripsListContainer, .trip-detail-panel, #recentTripsTableContainer, #diagCodesList, .diag-detail-panel, #trackListContainer, ' +
+    '#fullAudioSuiteEqGrid, #mediaTrackList, .music-playlist-panel, #dashcamClipsList, #wifiNetworkList, #btDeviceList, .device-tabs-row, #animCategoriesBar, .media-container, .settings-container, ' +
     '.speech-log-list, .diag-memory-box, .app-drawer-grid'
   );
 
@@ -28370,9 +28370,9 @@ function initVrmEngine() {
 
 
 
-          // R.U.M. head tracking towards the fruit fly when nearby
+          // R.U.M. head tracking towards the fruit fly when actively feeding Pip with the dropper (maintains direct forward eye contact with Dad otherwise)
 
-          if (connectomeFlyEnabled && connectomeFlyGroup && !isSpeaking && !isReacting) {
+          if (connectomeFlyEnabled && connectomeFlyGroup && isHoldingDropper && !isSpeaking && !isReacting && !(Date.now() < rumGazeRetentionUntil)) {
 
             const rx = vrmRoamCurrentPos.x;
 
@@ -37288,39 +37288,29 @@ function updateBasketballPhysics(delta) {
 
 
 
-    // Follow Rum position with smooth right-side offset
+    // Universal Humanoid Hand Tracking: Bind basketball dribble to rightHand bone world coordinates
+    const rightHand = (vrmBones && vrmBones.rightHand) || (vrmHumanoidMap && vrmHumanoidMap.rightHand);
+    let targetX = vrmRoamCurrentPos.x + 0.36;
+    let targetZ = vrmRoamCurrentPos.z + 0.26;
 
-    const targetX = vrmRoamCurrentPos.x + 0.36;
-
-    const targetZ = vrmRoamCurrentPos.z + 0.26;
+    if (rightHand && typeof rightHand.getWorldPosition === 'function') {
+      const handWorldPos = new THREE.Vector3();
+      rightHand.getWorldPosition(handWorldPos);
+      if (Math.hypot(handWorldPos.x - vrmRoamCurrentPos.x, handWorldPos.z - vrmRoamCurrentPos.z) < 1.2) {
+        targetX = handWorldPos.x;
+        targetZ = handWorldPos.z + 0.06;
+      }
+      if (bounceHeight > 0.45) {
+        // Hand hovers and guides downward
+        rightHand.rotation.x = -0.3;
+        rightHand.rotation.z = 0.2;
+      }
+    }
 
     basketballMesh.position.x = targetX;
-
     basketballMesh.position.z = targetZ;
-
     basketballMesh.position.y = floorY + bounceHeight;
-
     basketballMesh.rotation.x += delta * 7.5;
-
-
-
-    // Universal Humanoid Hand Tracking: Position right hand right on top of ball during down-push
-
-    const rightHand = (vrmBones && vrmBones.rightHand) || (vrmHumanoidMap && vrmHumanoidMap.rightHand);
-
-    if (rightHand) {
-
-      if (bounceHeight > 0.45) {
-
-        // Hand hovers and guides downward
-
-        rightHand.rotation.x = -0.3;
-
-        rightHand.rotation.z = 0.2;
-
-      }
-
-    }
 
   } else if (basketballState === 'TOSS') {
 

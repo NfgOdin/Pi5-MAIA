@@ -13,12 +13,14 @@ import os
 import json
 import time
 import random
+import threading
 from datetime import datetime, date
 from typing import Dict, Any, Optional, List
 
 class MemoryManager:
     def __init__(self, memory_file: Optional[str] = None):
         self.memory_file = memory_file or os.path.join(os.path.dirname(__file__), "ai_memory.json")
+        self._lock = threading.RLock()
         self.memory = self._load_memory()
 
     def _load_memory(self) -> Dict[str, Any]:
@@ -44,22 +46,25 @@ class MemoryManager:
             ]
         }
 
-        if os.path.exists(self.memory_file):
-            try:
-                with open(self.memory_file, "r") as f:
-                    data = json.load(f)
-                    default_memory.update(data)
-            except Exception as e:
-                print(f"[MEMORY] Error reading memory file: {e}")
+        with self._lock:
+            if os.path.exists(self.memory_file):
+                try:
+                    with open(self.memory_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        if isinstance(data, dict):
+                            default_memory.update(data)
+                except Exception as e:
+                    print(f"[MEMORY] Error reading memory file: {e}")
 
         return default_memory
 
     def save_memory(self):
-        try:
-            with open(self.memory_file, "w") as f:
-                json.dump(self.memory, f, indent=2)
-        except Exception as e:
-            print(f"[MEMORY] Error saving memory: {e}")
+        with self._lock:
+            try:
+                with open(self.memory_file, "w", encoding="utf-8") as f:
+                    json.dump(self.memory, f, indent=2)
+            except Exception as e:
+                print(f"[MEMORY] Error saving memory: {e}")
 
     def record_boot(self) -> Dict[str, Any]:
         """Called once upon application startup. Increments session counter and computes downtime."""
@@ -84,7 +89,14 @@ class MemoryManager:
             "current_time": now
         }
 
-    def detect_holiday(self, dt: datetime) -> Optional[str]:
+    def detect_holiday(self, dt: Optional[Any] = None) -> Optional[str]:
+        if dt is None:
+            dt = datetime.now()
+        elif isinstance(dt, str):
+            try:
+                dt = datetime.fromisoformat(dt)
+            except Exception:
+                dt = datetime.now()
         m, d = dt.month, dt.day
         if m == 1 and d == 1:
             return "New Year's Day"

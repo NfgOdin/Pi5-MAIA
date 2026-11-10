@@ -24,6 +24,15 @@ import io
 from typing import Dict, List, Any, Optional, Tuple
 
 
+class _ClosingConnection(sqlite3.Connection):
+    """SQLite Connection subclass that guarantees connection closing on context manager exit."""
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            return super().__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            self.close()
+
+
 class TripLogger:
     def __init__(self, db_path: Optional[str] = None, archive_dir: Optional[str] = None):
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -69,8 +78,8 @@ class TripLogger:
         self.purge_old_trips()
 
     def _get_connection(self):
-        """Flash Wear Protection & RAM-optimized SQLite Connection."""
-        conn = sqlite3.connect(self.db_path, timeout=10.0)
+        """Flash Wear Protection & RAM-optimized SQLite Connection with guaranteed close on exit."""
+        conn = sqlite3.connect(self.db_path, timeout=10.0, factory=_ClosingConnection)
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.execute("PRAGMA synchronous = NORMAL;")
         conn.execute("PRAGMA temp_store = MEMORY;")
@@ -249,6 +258,11 @@ class TripLogger:
             "auto_log_enabled": self.auto_log_enabled
         }
 
+    def set_retention_days(self, days: int) -> int:
+        """Sets the trip retention policy in days (0 = keep forever) and purges expired trips."""
+        self.update_settings({"retention_days": max(0, int(days))})
+        return self.retention_days
+
     def start_trip(self):
         with self.lock:
             self.trip_start_time = time.time()
@@ -356,7 +370,17 @@ class TripLogger:
         z60 = telem.get("zero_to_sixty_time")
         engine_runtime = int(telem.get("engine_runtime_sec") or 0)
 
-        # Automatic Trip Start/Stop Detection
+        # Automatic Trip Start/Stop Detection (Rule 2: do not record disconnected hardware frames)
+        if telem.get("connected") is False:
+            if self.engine_off_start_time is None:
+                self.engine_off_start_time = now
+            elif (now - self.engine_off_start_time) > 120:
+                if self.current_trip_id and (now - self.trip_start_time) > 30:
+                    print(f"[TRIP_LOG] Hardware disconnected for > 2 min. Auto-finalizing Trip #{self.current_trip_id}.")
+                    self.end_current_trip()
+                    self.current_trip_id = None
+            return
+
         if rpm > 400 or speed > 1.0:
             self.engine_off_start_time = None
             if not self.current_trip_id:
@@ -424,9 +448,11 @@ class TripLogger:
             idle_min = round(self.idle_duration_sec / 60.0, 1)
             avg_speed = round(sum(self.speed_samples) / len(self.speed_samples), 1) if self.speed_samples else round(self.max_speed, 1)
             avg_rpm = round(sum(self.rpm_samples) / len(self.rpm_samples), 0) if self.rpm_samples else round(self.max_rpm, 0)
-            avg_mpg = round(sum(self.mpg_samples) / len(self.mpg_samples), 1) if self.mpg_samples else 28.5
+            avg_mpg = round(sum(self.mpg_samples) / len(self.mpg_samples), 1) if self.mpg_samples else 0.0
             avg_afr = round(sum(self.afr_samples) / len(self.afr_samples), 2) if self.afr_samples else 14.7
-            fuel_used_gal = round((self.distance_miles / max(5.0, avg_mpg)) + (idle_min * (fuel_gph or 0.2) / 60.0), 2)
+            driving_fuel_gal = (self.distance_miles / max(5.0, avg_mpg)) if (self.distance_miles > 0.0 and avg_mpg > 0.0) else 0.0
+            idle_fuel_gal = (idle_min * (fuel_gph if fuel_gph > 0.0 else (0.2 if rpm > 300 else 0.0)) / 60.0)
+            fuel_used_gal = round(driving_fuel_gal + idle_fuel_gal, 2)
 
             time_str = time.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -566,12 +592,14 @@ class TripLogger:
         writer = csv.DictWriter(csv_buffer, fieldnames=fieldnames)
         writer.writeheader()
         for p in points_list:
-            ts = p.get('timestamp', 0)
-            t_str = p.get('time_str', '')
+            ts = float(p.get('timestamp') or 0.0)
+            t_str = p.get('time_str') or ''
             d_str = t_str.split(' ')[0] if ' ' in t_str else time.strftime('%Y-%m-%d', time.localtime(ts))
             t_24 = t_str.split(' ')[1] if ' ' in t_str else time.strftime('%H:%M:%S', time.localtime(ts))
             t_12 = p.get('time_12h') or time.strftime('%I:%M:%S %p', time.localtime(ts))
-            el_str = p.get('elapsed_str', '')
+            el_str = p.get('elapsed_str') or ''
+            spd_mph = float(p.get('speed_mph') or 0.0)
+            eng_rt = int(p.get('engine_runtime_sec') or 0)
 
             writer.writerow({
                 "Date": d_str,
@@ -579,29 +607,29 @@ class TripLogger:
                 "Time_24H": t_24,
                 "Elapsed_Time": el_str,
                 "Timestamp_Unix": f"{ts:.2f}",
-                "Speed_MPH": f"{p.get('speed_mph', 0):.1f}",
-                "Speed_KPH": f"{(p.get('speed_mph', 0) * 1.60934):.1f}",
-                "RPM": f"{p.get('rpm', 0):.0f}",
-                "Boost_PSI": f"{p.get('boost_psi', 0):.1f}",
-                "Vacuum_inHg": f"{p.get('vacuum_inhg', 0):.1f}",
-                "Throttle_Pct": f"{p.get('throttle_pct', 0):.1f}",
-                "Pedal_Pos_Pct": f"{p.get('pedal_pos_pct', 0):.1f}",
-                "Engine_Load_Pct": f"{p.get('engine_load_pct', 0):.1f}",
-                "Coolant_Temp_F": f"{p.get('coolant_temp_f', 0):.1f}",
-                "Intake_Temp_F": f"{p.get('intake_temp_f', 0):.1f}",
-                "Battery_Volts": f"{p.get('battery_volts', 0):.1f}",
-                "AFR": f"{p.get('afr', 14.7):.2f}",
-                "Timing_Advance_Deg": f"{p.get('timing_advance_deg', 0):.1f}",
-                "Fuel_Level_Pct": f"{p.get('fuel_level_pct', 0):.1f}",
-                "Fuel_Burn_GPH": f"{p.get('fuel_gph', 0):.2f}",
-                "Instant_MPG": f"{p.get('fuel_mpg_instant', 0):.1f}",
-                "Ambient_Temp_F": f"{p.get('ambient_temp_f', 0):.1f}",
-                "Baro_kPa": f"{p.get('baro_kpa', 0):.1f}",
-                "Distance_Miles": f"{p.get('distance_miles', 0):.3f}",
-                "Gear": p.get("gear", "N"),
-                "DTC_Count": p.get("dtc_count", 0),
-                "Engine_Runtime_Sec": p.get("engine_runtime_sec", 0),
-                "Engine_Hours": f"{(p.get('engine_runtime_sec', 0) / 3600.0):.2f}"
+                "Speed_MPH": f"{spd_mph:.1f}",
+                "Speed_KPH": f"{(spd_mph * 1.60934):.1f}",
+                "RPM": f"{float(p.get('rpm') or 0.0):.0f}",
+                "Boost_PSI": f"{float(p.get('boost_psi') or 0.0):.1f}",
+                "Vacuum_inHg": f"{float(p.get('vacuum_inhg') or 0.0):.1f}",
+                "Throttle_Pct": f"{float(p.get('throttle_pct') or 0.0):.1f}",
+                "Pedal_Pos_Pct": f"{float(p.get('pedal_pos_pct') or 0.0):.1f}",
+                "Engine_Load_Pct": f"{float(p.get('engine_load_pct') or 0.0):.1f}",
+                "Coolant_Temp_F": f"{float(p.get('coolant_temp_f') or 0.0):.1f}",
+                "Intake_Temp_F": f"{float(p.get('intake_temp_f') or 0.0):.1f}",
+                "Battery_Volts": f"{float(p.get('battery_volts') or 0.0):.1f}",
+                "AFR": f"{float(p.get('afr') or 14.7):.2f}",
+                "Timing_Advance_Deg": f"{float(p.get('timing_advance_deg') or 0.0):.1f}",
+                "Fuel_Level_Pct": f"{float(p.get('fuel_level_pct') or 0.0):.1f}",
+                "Fuel_Burn_GPH": f"{float(p.get('fuel_gph') or 0.0):.2f}",
+                "Instant_MPG": f"{float(p.get('fuel_mpg_instant') or 0.0):.1f}",
+                "Ambient_Temp_F": f"{float(p.get('ambient_temp_f') or 0.0):.1f}",
+                "Baro_kPa": f"{float(p.get('baro_kpa') or 0.0):.1f}",
+                "Distance_Miles": f"{float(p.get('distance_miles') or 0.0):.3f}",
+                "Gear": p.get("gear") or "N",
+                "DTC_Count": int(p.get("dtc_count") or 0),
+                "Engine_Runtime_Sec": eng_rt,
+                "Engine_Hours": f"{(eng_rt / 3600.0):.2f}"
             })
 
         date_part = trip_data.get('start_time', '').replace(':', '-').replace(' ', '_')
@@ -698,12 +726,14 @@ class TripLogger:
         writer = csv.DictWriter(csv_buffer, fieldnames=fieldnames)
         writer.writeheader()
         for p in points_list:
-            ts = p.get('timestamp', 0)
-            t_str = p.get('time_str', '')
+            ts = float(p.get('timestamp') or 0.0)
+            t_str = p.get('time_str') or ''
             d_str = t_str.split(' ')[0] if ' ' in t_str else time.strftime('%Y-%m-%d', time.localtime(ts))
             t_24 = t_str.split(' ')[1] if ' ' in t_str else time.strftime('%H:%M:%S', time.localtime(ts))
             t_12 = p.get('time_12h') or time.strftime('%I:%M:%S %p', time.localtime(ts))
-            el_str = p.get('elapsed_str', '')
+            el_str = p.get('elapsed_str') or ''
+            spd_mph = float(p.get('speed_mph') or 0.0)
+            eng_rt = int(p.get('engine_runtime_sec') or 0)
 
             writer.writerow({
                 "Date": d_str,
@@ -711,29 +741,29 @@ class TripLogger:
                 "Time_24H": t_24,
                 "Elapsed_Time": el_str,
                 "Timestamp_Unix": f"{ts:.2f}",
-                "Speed_MPH": f"{p.get('speed_mph', 0):.1f}",
-                "Speed_KPH": f"{(p.get('speed_mph', 0) * 1.60934):.1f}",
-                "RPM": f"{p.get('rpm', 0):.0f}",
-                "Boost_PSI": f"{p.get('boost_psi', 0):.1f}",
-                "Vacuum_inHg": f"{p.get('vacuum_inhg', 0):.1f}",
-                "Throttle_Pct": f"{p.get('throttle_pct', 0):.1f}",
-                "Pedal_Pos_Pct": f"{p.get('pedal_pos_pct', 0):.1f}",
-                "Engine_Load_Pct": f"{p.get('engine_load_pct', 0):.1f}",
-                "Coolant_Temp_F": f"{p.get('coolant_temp_f', 0):.1f}",
-                "Intake_Temp_F": f"{p.get('intake_temp_f', 0):.1f}",
-                "Battery_Volts": f"{p.get('battery_volts', 0):.1f}",
-                "AFR": f"{p.get('afr', 14.7):.2f}",
-                "Timing_Advance_Deg": f"{p.get('timing_advance_deg', 0):.1f}",
-                "Fuel_Level_Pct": f"{p.get('fuel_level_pct', 0):.1f}",
-                "Fuel_Burn_GPH": f"{p.get('fuel_gph', 0):.2f}",
-                "Instant_MPG": f"{p.get('fuel_mpg_instant', 0):.1f}",
-                "Ambient_Temp_F": f"{p.get('ambient_temp_f', 0):.1f}",
-                "Baro_kPa": f"{p.get('baro_kpa', 0):.1f}",
-                "Distance_Miles": f"{p.get('distance_miles', 0):.3f}",
-                "Gear": p.get("gear", "N"),
-                "DTC_Count": p.get("dtc_count", 0),
-                "Engine_Runtime_Sec": p.get("engine_runtime_sec", 0),
-                "Engine_Hours": f"{(p.get('engine_runtime_sec', 0) / 3600.0):.2f}"
+                "Speed_MPH": f"{spd_mph:.1f}",
+                "Speed_KPH": f"{(spd_mph * 1.60934):.1f}",
+                "RPM": f"{float(p.get('rpm') or 0.0):.0f}",
+                "Boost_PSI": f"{float(p.get('boost_psi') or 0.0):.1f}",
+                "Vacuum_inHg": f"{float(p.get('vacuum_inhg') or 0.0):.1f}",
+                "Throttle_Pct": f"{float(p.get('throttle_pct') or 0.0):.1f}",
+                "Pedal_Pos_Pct": f"{float(p.get('pedal_pos_pct') or 0.0):.1f}",
+                "Engine_Load_Pct": f"{float(p.get('engine_load_pct') or 0.0):.1f}",
+                "Coolant_Temp_F": f"{float(p.get('coolant_temp_f') or 0.0):.1f}",
+                "Intake_Temp_F": f"{float(p.get('intake_temp_f') or 0.0):.1f}",
+                "Battery_Volts": f"{float(p.get('battery_volts') or 0.0):.1f}",
+                "AFR": f"{float(p.get('afr') or 14.7):.2f}",
+                "Timing_Advance_Deg": f"{float(p.get('timing_advance_deg') or 0.0):.1f}",
+                "Fuel_Level_Pct": f"{float(p.get('fuel_level_pct') or 0.0):.1f}",
+                "Fuel_Burn_GPH": f"{float(p.get('fuel_gph') or 0.0):.2f}",
+                "Instant_MPG": f"{float(p.get('fuel_mpg_instant') or 0.0):.1f}",
+                "Ambient_Temp_F": f"{float(p.get('ambient_temp_f') or 0.0):.1f}",
+                "Baro_kPa": f"{float(p.get('baro_kpa') or 0.0):.1f}",
+                "Distance_Miles": f"{float(p.get('distance_miles') or 0.0):.3f}",
+                "Gear": p.get("gear") or "N",
+                "DTC_Count": int(p.get("dtc_count") or 0),
+                "Engine_Runtime_Sec": eng_rt,
+                "Engine_Hours": f"{(eng_rt / 3600.0):.2f}"
             })
         csv_bytes = csv_buffer.getvalue().encode("utf-8")
 
@@ -789,24 +819,24 @@ class TripLogger:
             try: dtc_list = json.loads(trip["dtc_list"])
             except: pass
 
-        start_time = trip.get("start_time", "Unknown")
-        end_time = trip.get("end_time", "In Progress" if is_interim else "Finished")
-        duration = f"{trip.get('duration_min', 0):.1f} min"
-        distance = f"{trip.get('distance_miles', 0):.2f} miles"
-        top_speed = f"{trip.get('max_speed_mph', 0):.1f} MPH"
-        avg_speed = f"{trip.get('avg_speed_mph', 0):.1f} MPH"
-        peak_boost = f"{trip.get('max_boost_psi', 0):.1f} PSI"
-        peak_rpm = f"{trip.get('max_rpm', 0):.0f} RPM"
-        peak_coolant = f"{trip.get('peak_coolant_f', 0):.1f} °F"
-        avg_mpg = f"{trip.get('avg_mpg', 0):.1f} MPG"
-        fuel_used = f"{trip.get('fuel_used_gal', 0):.2f} gal"
-        idle_time = f"{trip.get('idle_duration_min', 0):.1f} min"
-        peak_load = f"{trip.get('peak_load_pct', 0):.1f}%"
-        avg_afr = f"{trip.get('avg_afr', 14.7):.2f}:1"
-        min_v = f"{trip.get('min_volts', 0):.1f} V"
-        max_v = f"{trip.get('max_volts', 0):.1f} V"
-        zero60 = f"{trip.get('best_zero_to_sixty', 'N/A')} s" if trip.get('best_zero_to_sixty') else "N/A"
-        engine_runtime_total = trip.get('engine_runtime_sec', 0) or 0
+        start_time = trip.get("start_time") or "Unknown"
+        end_time = trip.get("end_time") or ("In Progress" if is_interim else "Finished")
+        duration = f"{float(trip.get('duration_min') or 0.0):.1f} min"
+        distance = f"{float(trip.get('distance_miles') or 0.0):.2f} miles"
+        top_speed = f"{float(trip.get('max_speed_mph') or 0.0):.1f} MPH"
+        avg_speed = f"{float(trip.get('avg_speed_mph') or 0.0):.1f} MPH"
+        peak_boost = f"{float(trip.get('max_boost_psi') or 0.0):.1f} PSI"
+        peak_rpm = f"{float(trip.get('max_rpm') or 0.0):.0f} RPM"
+        peak_coolant = f"{float(trip.get('peak_coolant_f') or 0.0):.1f} °F"
+        avg_mpg = f"{float(trip.get('avg_mpg') or 0.0):.1f} MPG"
+        fuel_used = f"{float(trip.get('fuel_used_gal') or 0.0):.2f} gal"
+        idle_time = f"{float(trip.get('idle_duration_min') or 0.0):.1f} min"
+        peak_load = f"{float(trip.get('peak_load_pct') or 0.0):.1f}%"
+        avg_afr = f"{float(trip.get('avg_afr') or 14.7):.2f}:1"
+        min_v = f"{float(trip.get('min_volts') or 0.0):.1f} V"
+        max_v = f"{float(trip.get('max_volts') or 0.0):.1f} V"
+        zero60 = f"{trip.get('best_zero_to_sixty')} s" if trip.get('best_zero_to_sixty') else "N/A"
+        engine_runtime_total = int(trip.get('engine_runtime_sec') or 0)
         engine_hours_display = f"{(engine_runtime_total / 3600.0):.2f} hrs" if engine_runtime_total > 0 else "N/A" 
 
         # Downsample points for preview table (up to 20 representative timeline points)
@@ -814,21 +844,21 @@ class TripLogger:
         step = max(1, len(points) // 20) if points else 1
         for idx in range(0, len(points), step):
             p = points[idx]
-            ts_row = p.get('timestamp', 0)
+            ts_row = float(p.get('timestamp') or 0.0)
             t12_val = p.get('time_12h') or time.strftime('%I:%M:%S %p', time.localtime(ts_row))
-            el_val = p.get('elapsed_str', '')
+            el_val = p.get('elapsed_str') or ''
             sample_rows_html += f"""
             <tr>
-                <td><strong>{t12_val}</strong> <span style="color:#8b949e; font-size:10px;">({p.get('time_str', '')})</span></td>
+                <td><strong>{t12_val}</strong> <span style="color:#8b949e; font-size:10px;">({p.get('time_str') or ''})</span></td>
                 <td style="color:#8b949e; font-family:monospace;">{el_val}</td>
-                <td><strong style="color:#58a6ff;">{p.get('speed_mph', 0):.1f} MPH</strong></td>
-                <td>{p.get('rpm', 0):.0f}</td>
-                <td>{p.get('boost_psi', 0):.1f} PSI</td>
-                <td>{p.get('throttle_pct', 0):.0f}%</td>
-                <td>{p.get('engine_load_pct', 0):.0f}%</td>
-                <td>{p.get('coolant_temp_f', 0):.0f}°F</td>
-                <td>{p.get('afr', 14.7):.2f}</td>
-                <td>{p.get('battery_volts', 0):.1f}V</td>
+                <td><strong style="color:#58a6ff;">{float(p.get('speed_mph') or 0.0):.1f} MPH</strong></td>
+                <td>{float(p.get('rpm') or 0.0):.0f}</td>
+                <td>{float(p.get('boost_psi') or 0.0):.1f} PSI</td>
+                <td>{float(p.get('throttle_pct') or 0.0):.0f}%</td>
+                <td>{float(p.get('engine_load_pct') or 0.0):.0f}%</td>
+                <td>{float(p.get('coolant_temp_f') or 0.0):.0f}°F</td>
+                <td>{float(p.get('afr') or 14.7):.2f}</td>
+                <td>{float(p.get('battery_volts') or 0.0):.1f}V</td>
             </tr>
             """
 

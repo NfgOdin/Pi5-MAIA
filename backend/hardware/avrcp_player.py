@@ -44,7 +44,7 @@ class AvrcpPlayerManager:
             "track_num": 1,
             "total_tracks": 1
         }
-        self.playback_status = "playing"
+        self.playback_status = "paused"
         self._player_obj = None
         self._media_iface = None
         self._sys_bus = None
@@ -300,10 +300,17 @@ class AvrcpPlayerManager:
                     alias_str = "CarPi"
                 adapter = self._sys_bus.get_object('org.bluez', '/org/bluez/hci0')
                 props = dbus.Interface(adapter, 'org.freedesktop.DBus.Properties')
-                props.Set('org.bluez.Adapter1', 'Alias', dbus.String(alias_str))
+                props.Set('org.bluez.Adapter1', 'Alias', dbus.String(alias_str), timeout=1.5)
                 print(f"[AVRCP LEGACY SYNC] Broadcasted to Dodge Dart Uconnect Display: '{alias_str}'", flush=True)
             except Exception as e:
                 print(f"[AVRCP LEGACY SYNC] Note: {e}", flush=True)
+
+    def get_status(self) -> Dict[str, Any]:
+        return {
+            "connected": self.is_registered,
+            "playback_status": self.playback_status,
+            "current_track": dict(self.current_track)
+        }
 
     def set_status(self, status: str):
         self.playback_status = "playing" if status == "playing" else "paused"

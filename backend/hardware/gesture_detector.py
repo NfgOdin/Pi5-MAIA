@@ -152,14 +152,19 @@ class ElementaryMotionDetector:
 
 class InCabinGestureController:
     """
-    Background Camera Worker & Device Lifecycle Manager for In-Cabin Gestures.
-    Attempts hardware V4L2 device binding (PS4 camera or USB webcam).
-    Gracefully reports true offline state if camera hardware is not plugged in (Rule 2).
+    Background Camera & I2C Gesture Sensor Worker & Device Lifecycle Manager for In-Cabin Gestures.
+    Supports:
+    1. PAJ7620U2 I2C Hardware Gesture Sensor on /dev/i2c-1 (0x73)
+    2. V4L2 Camera (PS4 Eye Camera / USB Webcam) via Hassenstein-Reichardt Correlator (EMD)
+    Gracefully reports true offline state (connected: False) if no sensor hardware is plugged in (Rule 2).
     """
+    PAJ7620_I2C_ADDR = 0x73
+
     def __init__(self, device_path: str = "/dev/video0"):
         self.device_path = device_path
         self.running = False
         self.connected = False
+        self.active_backend = "offline"
         self.thread: Optional[threading.Thread] = None
         self.last_gesture: Optional[Dict[str, Any]] = None
         self.lock = threading.Lock()
@@ -192,14 +197,15 @@ class InCabinGestureController:
         with self.lock:
             return {
                 "connected": self.connected,
+                "backend": self.active_backend,
                 "device": self.device_path,
-                "engine": "Hassenstein-Reichardt Correlator (EMD)",
+                "engine": "PAJ7620U2 I2C (0x73)" if self.active_backend == "paj7620_i2c" else "Hassenstein-Reichardt Correlator (EMD)",
                 "last_gesture": self.last_gesture,
                 "status": "ACTIVE" if self.connected else "STANDBY_NO_HARDWARE"
             }
 
     def start(self):
-        """Starts background hardware camera loop if supported."""
+        """Starts background hardware camera / I2C gesture loop if supported."""
         if self.running:
             return
         self.running = True
@@ -211,24 +217,86 @@ class InCabinGestureController:
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=1.0)
 
+    def _probe_paj7620_i2c(self) -> Optional[Any]:
+        """Probes PAJ7620U2 I2C gesture sensor at 0x73 on /dev/i2c-1."""
+        if not sys.platform.startswith("linux") or not os.path.exists("/dev/i2c-1"):
+            return None
+        for mod_name in ("smbus2", "smbus"):
+            try:
+                smbus_mod = __import__(mod_name)
+                bus = smbus_mod.SMBus(1)
+                try:
+                    # Select Bank 0 (0xEF -> 0x00) and verify part ID low byte at 0x00 == 0x20
+                    bus.write_byte_data(self.PAJ7620_I2C_ADDR, 0xEF, 0x00)
+                    part_id = bus.read_byte_data(self.PAJ7620_I2C_ADDR, 0x00)
+                    if part_id == 0x20:
+                        return bus
+                except Exception:
+                    pass
+                bus.close()
+            except Exception:
+                pass
+        return None
+
     def _worker_loop(self):
-        """Continuous camera capture loop with graceful V4L2 probe."""
-        print(f"[EMD GESTURE] Initializing Elementary Motion Detector on {self.device_path}...")
+        """Continuous I2C PAJ7620U2 / V4L2 camera capture loop with strict Rule 2 offline fallback."""
+        print(f"[EMD GESTURE] Initializing Gesture Controller (I2C 0x73 / V4L2 {self.device_path})...")
         while self.running:
-            # Check if video device exists in Linux
-            if not os.path.exists(self.device_path):
+            # 1. Try PAJ7620U2 I2C Gesture Sensor (0x73) first
+            i2c_bus = self._probe_paj7620_i2c()
+            if i2c_bus is not None:
                 with self.lock:
-                    self.connected = False
+                    self.connected = True
+                    self.active_backend = "paj7620_i2c"
+                print("[EMD GESTURE] Connected to PAJ7620U2 I2C Gesture Sensor at 0x73!")
+                try:
+                    while self.running:
+                        flags = i2c_bus.read_byte_data(self.PAJ7620_I2C_ADDR, 0x43)
+                        if flags:
+                            if flags & 0x01:
+                                self._on_gesture_detected("SWIPE_UP", 95.0)
+                            elif flags & 0x02:
+                                self._on_gesture_detected("SWIPE_DOWN", 95.0)
+                            elif flags & 0x04:
+                                self._on_gesture_detected("SWIPE_LEFT", 95.0)
+                            elif flags & 0x08:
+                                self._on_gesture_detected("SWIPE_RIGHT", 95.0)
+                            elif flags & 0x10:
+                                self._on_gesture_detected("LOOM_PUSH", 95.0)
+                            time.sleep(0.35)
+                        else:
+                            time.sleep(0.03)
+                except Exception as i2c_err:
+                    print(f"[EMD GESTURE] PAJ7620U2 I2C disconnected: {i2c_err}")
+                finally:
+                    try:
+                        i2c_bus.close()
+                    except Exception:
+                        pass
+                    with self.lock:
+                        self.connected = False
+                        self.active_backend = "offline"
                 time.sleep(3.0)
                 continue
 
+            # 2. Check if V4L2 video device exists in Linux
+            if not sys.platform.startswith("linux") or not os.path.exists(self.device_path):
+                with self.lock:
+                    self.connected = False
+                    self.active_backend = "offline"
+                time.sleep(3.0)
+                continue
+
+            cap = None
             try:
                 # Attempt to open V4L2 device via OpenCV if present
                 import cv2
                 cap = cv2.VideoCapture(self.device_path)
                 if not cap.isOpened():
+                    cap.release()
                     with self.lock:
                         self.connected = False
+                        self.active_backend = "offline"
                     time.sleep(3.0)
                     continue
 
@@ -237,13 +305,28 @@ class InCabinGestureController:
                 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
                 cap.set(cv2.CAP_PROP_FPS, 30)
 
+                # Verify at least one real frame can be read before reporting connected=True
+                ret, first_frame = cap.read()
+                if not ret or first_frame is None:
+                    cap.release()
+                    with self.lock:
+                        self.connected = False
+                        self.active_backend = "offline"
+                    time.sleep(3.0)
+                    continue
+
                 with self.lock:
                     self.connected = True
+                    self.active_backend = "v4l2_emd"
                 print(f"[EMD GESTURE] Connected to camera hardware on {self.device_path} (320x240 @ 30 FPS)")
+
+                gray = cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY)
+                h, w = gray.shape
+                self.emd.process_grayscale_frame(gray.tobytes(), w, h)
 
                 while self.running:
                     ret, frame = cap.read()
-                    if not ret:
+                    if not ret or frame is None:
                         break
                     # Convert to grayscale
                     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -251,14 +334,23 @@ class InCabinGestureController:
                     self.emd.process_grayscale_frame(gray.tobytes(), w, h)
                     time.sleep(0.015)  # Cap loop rate (~60Hz)
 
-                cap.release()
             except ImportError:
                 # OpenCV not installed or missing
                 with self.lock:
                     self.connected = False
+                    self.active_backend = "offline"
                 time.sleep(5.0)
+                continue
             except Exception as ex:
                 print(f"[EMD GESTURE] Hardware capture error: {ex}")
+            finally:
+                if cap is not None:
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
                 with self.lock:
                     self.connected = False
-                time.sleep(3.0)
+                    self.active_backend = "offline"
+
+            time.sleep(3.0)

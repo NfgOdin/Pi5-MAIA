@@ -9,12 +9,14 @@ sleep 1
 
 # 2. Flash Wear Protection & RAM Buffer Setup (tmpfs /dev/shm)
 mkdir -p /dev/shm/carpi5_audio /dev/shm/chromium_cache
+chmod 777 /dev/shm/carpi5_audio /dev/shm/chromium_cache 2>/dev/null || true
 touch /dev/shm/daemon.log /dev/shm/kiosk.log
 chmod 666 /dev/shm/daemon.log /dev/shm/kiosk.log 2>/dev/null || true
 ln -sf /dev/shm/daemon.log /home/nfgodin/CarPi5/daemon.log 2>/dev/null || true
 ln -sf /dev/shm/kiosk.log /home/nfgodin/CarPi5/kiosk.log 2>/dev/null || true
 
 # 3. ZRAM Compressed Swap Initialization (2GB lz4)
+modprobe zram 2>/dev/null || true
 if [ -e /sys/block/zram0 ] && ! swapon --show | grep -q "/dev/zram0"; then
     echo 1 > /sys/block/zram0/reset 2>/dev/null || true
     echo lz4 > /sys/block/zram0/comp_algorithm 2>/dev/null || true
@@ -45,6 +47,7 @@ nohup taskset -c 0,1 /usr/lib/chromium/chromium \
   --ozone-platform=wayland \
   --kiosk \
   --remote-debugging-port=9222 \
+  --remote-allow-origins=* \
   --password-store=basic \
   --noerrdialogs \
   --disable-infobars \

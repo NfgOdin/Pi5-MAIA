@@ -86,9 +86,16 @@ class RealVehicleTelemetryReader:
         self.launch_start_time: Optional[float] = None
         self.last_0_60_time: Optional[float] = None
         self.is_launching = False
+        self._last_speed_mph: float = 0.0
+        self._last_frame_time: float = time.time()
         self.dyno = MultiAirVirtualDyno()
 
         self._try_connect()
+
+    @property
+    def ser(self):
+        """Alias for serial_conn to ensure backwards compatibility."""
+        return self.serial_conn
 
     def find_serial_port(self) -> Optional[str]:
         """Auto-detect USB OBD-II adapter across Linux and Windows."""
@@ -330,9 +337,85 @@ class RealVehicleTelemetryReader:
             # Over 2.0 seconds -> Coasting symbol
             return "〜"
 
+    def _build_disconnected_frame(self, now: float) -> TelemetryFrame:
+        """Reset active dynamic sensors and return pure resting state (AGENTS.md Rule 2)."""
+        self.speed_mph = 0.0
+        self.rpm = 0.0
+        self.gear = "N"
+        self.throttle_pct = 0.0
+        self.boost_psi = None
+        self.vacuum_inhg = None
+        self.is_in_boost = False
+        self.coolant_temp_f = None
+        self.intake_temp_f = None
+        self.fuel_mpg_instant = None
+        self.fuel_gph = None
+        self.multiair_ready = False
+        self.engine_load_pct = None
+        self.timing_advance_deg = None
+        self.afr = None
+        self.pedal_pos_pct = None
+        self.engine_runtime_sec = None
+        self.is_launching = False
+        self._last_speed_mph = 0.0
+        self._last_frame_time = now
+
+        hl_on = bool(getattr(self, "headlights_on", (time.localtime().tm_hour >= 19 or time.localtime().tm_hour < 6)))
+        return TelemetryFrame(
+            timestamp=now,
+            speed_mph=0.0,
+            speed_kph=0.0,
+            rpm=0.0,
+            gear="N",
+            throttle_pct=0.0,
+            boost_psi=None,
+            vacuum_inhg=None,
+            is_in_boost=False,
+            coolant_temp_f=None,
+            intake_temp_f=None,
+            battery_volts=self.battery_volts,
+            fuel_mpg_instant=None,
+            multiair_ready=False,
+            shift_indicator=False,
+            f1_light_level=0,
+            launch_timer_active=False,
+            zero_to_sixty_time=self.last_0_60_time,
+            active_dtcs=[],
+            connected=False,
+            status_message=self.status_message,
+            engine_load_pct=None,
+            timing_advance_deg=None,
+            afr=None,
+            fuel_level_pct=self.fuel_level_pct,
+            ambient_temp_f=self.ambient_temp_f,
+            pedal_pos_pct=None,
+            engine_runtime_sec=None,
+            fuel_gph=None,
+            baro_kpa=self.baro_kpa,
+            virtual_whp=0.0,
+            virtual_wtq=0.0,
+            multiair_oil_temp_f=None,
+            oil_temp_f=None,
+            multiair_status="COLD_PROTECT",
+            wastegate_spool_health=100.0,
+            wastegate_spool_gradient=9.8,
+            last_shift_score=None,
+            last_shift_type=None,
+            last_shift_delta=None,
+            avg_shift_score=100.0,
+            headlights_on=hl_on,
+            ambient_light_lux=5.0 if hl_on else 450.0,
+            lateral_g=0.0,
+            longitudinal_g=0.0,
+            lateral_accel=0.0,
+            steering_angle=0.0
+        )
+
     def read_frame(self) -> TelemetryFrame:
         """Query live vehicle sensors using non-blocking staggered polling."""
         now = time.time()
+        dt = max(0.01, min(1.0, now - self._last_frame_time)) if self._last_frame_time > 0 else 0.04
+        self._last_frame_time = now
         self.tick_count += 1
 
         if not self.serial_conn or (not self.connected and (now - self.last_attempt_time > 2.5)):
@@ -340,50 +423,7 @@ class RealVehicleTelemetryReader:
 
         # If still disconnected, return pure resting states (no fake numbers)
         if not self.connected or not self.serial_conn:
-            return TelemetryFrame(
-                timestamp=now,
-                speed_mph=0.0,
-                speed_kph=0.0,
-                rpm=0.0,
-                gear="N",
-                throttle_pct=0.0,
-                boost_psi=None,
-                vacuum_inhg=None,
-                is_in_boost=False,
-                coolant_temp_f=None,
-                intake_temp_f=None,
-                battery_volts=self.battery_volts,
-                fuel_mpg_instant=None,
-                multiair_ready=False,
-                shift_indicator=False,
-                f1_light_level=0,
-                launch_timer_active=False,
-                zero_to_sixty_time=self.last_0_60_time,
-                active_dtcs=[],
-                connected=False,
-                status_message=self.status_message,
-                engine_load_pct=None,
-                timing_advance_deg=None,
-                afr=None,
-                fuel_level_pct=self.fuel_level_pct,
-                ambient_temp_f=self.ambient_temp_f,
-                pedal_pos_pct=None,
-                engine_runtime_sec=None,
-                fuel_gph=None,
-                baro_kpa=self.baro_kpa,
-                virtual_whp=0.0,
-                virtual_wtq=0.0,
-                multiair_oil_temp_f=None,
-                multiair_status="COLD_PROTECT",
-                wastegate_spool_health=100.0,
-                wastegate_spool_gradient=9.8,
-                last_shift_score=None,
-                last_shift_type=None,
-                last_shift_delta=None,
-                avg_shift_score=100.0,
-                headlights_on=(time.localtime().tm_hour >= 19 or time.localtime().tm_hour < 6),
-                ambient_light_lux=5.0 if (time.localtime().tm_hour >= 19 or time.localtime().tm_hour < 6) else 450.0
-            )
+            return self._build_disconnected_frame(now)
 
         # Vehicle is connected - execute staggered PID queries for max smoothness
         try:
@@ -401,6 +441,7 @@ class RealVehicleTelemetryReader:
                 elif "UNABLE TO CONNECT" in rpm_raw or "BUS INIT" in rpm_raw:
                     self.connected = False
                     self.status_message = "IGNITION TURNED OFF"
+                    return self._build_disconnected_frame(now)
             else:
                 map_raw = self._send_cmd("010B", timeout=0.35)
                 m = re.search(r'41\s+0B\s+([0-9A-Fa-f]{2})', map_raw)
@@ -521,6 +562,10 @@ class RealVehicleTelemetryReader:
             self._close_conn()
             self.connected = False
             self.status_message = "COMMUNICATION ERROR"
+            return self._build_disconnected_frame(now)
+
+        if not self.connected or not self.serial_conn:
+            return self._build_disconnected_frame(now)
 
         # Speed-Density Instant Fuel Flow (GPH) & Instant MPG Calculation
         if self.rpm > 300 and self.connected:
@@ -542,6 +587,11 @@ class RealVehicleTelemetryReader:
         # Calculate active transmission gear
         self.gear = self._calculate_gear(self.speed_mph, self.rpm)
 
+        # Longitudinal G-force from speed delta (1G ~= 21.937 mph/s)
+        dv_mph = self.speed_mph - self._last_speed_mph
+        self._last_speed_mph = self.speed_mph
+        long_g = round(max(-1.5, min(1.5, (dv_mph / dt) / 21.937)), 2)
+
         # Sequential F1 Shift Lights for 1.4T MultiAir
         # MultiAir Virtual Dyno, Spool Health & Rev-Match Scoring
         dyno_metrics = self.dyno.process_frame(
@@ -553,7 +603,7 @@ class RealVehicleTelemetryReader:
             coolant_temp_f=self.coolant_temp_f,
             intake_temp_f=self.intake_temp_f,
             engine_load_pct=self.engine_load_pct,
-            dt=0.04
+            dt=dt
         )
         self.multiair_ready = dyno_metrics["multiair_ready"]
 
@@ -576,6 +626,7 @@ class RealVehicleTelemetryReader:
             elif self.speed_mph < 2.0 and (now - (self.launch_start_time or now)) > 4.0:
                 self.is_launching = False
 
+        hl_on = bool(getattr(self, "headlights_on", (time.localtime().tm_hour >= 19 or time.localtime().tm_hour < 6)))
         return TelemetryFrame(
             timestamp=now,
             speed_mph=round(self.speed_mph, 1),
@@ -610,6 +661,7 @@ class RealVehicleTelemetryReader:
             virtual_whp=dyno_metrics["virtual_whp"],
             virtual_wtq=dyno_metrics["virtual_wtq"],
             multiair_oil_temp_f=dyno_metrics["multiair_oil_temp_f"],
+            oil_temp_f=dyno_metrics["multiair_oil_temp_f"],
             multiair_status=dyno_metrics["multiair_status"],
             wastegate_spool_health=dyno_metrics["wastegate_health_pct"],
             wastegate_spool_gradient=dyno_metrics["spool_gradient"],
@@ -617,14 +669,18 @@ class RealVehicleTelemetryReader:
             last_shift_type=dyno_metrics["latest_shift_type"],
             last_shift_delta=dyno_metrics["latest_shift_delta"],
             avg_shift_score=dyno_metrics["avg_shift_score"],
-            headlights_on=getattr(self, "headlights_on", (time.localtime().tm_hour >= 19 or time.localtime().tm_hour < 6)),
-            ambient_light_lux=5.0 if getattr(self, "headlights_on", (time.localtime().tm_hour >= 19 or time.localtime().tm_hour < 6)) else 450.0
+            headlights_on=hl_on,
+            ambient_light_lux=5.0 if hl_on else 450.0,
+            lateral_g=0.0,
+            longitudinal_g=long_g,
+            lateral_accel=0.0,
+            steering_angle=0.0
         )
 
     def clear_dtcs(self) -> bool:
         """Sends OBD-II Mode 04 command to clear powertrain trouble codes and reset CEL."""
         self.active_dtcs.clear()
-        if self.connected and self.ser:
+        if self.connected and self.serial_conn:
             try:
                 res = self._send_cmd('04', timeout=1.0)
                 print(f'[OBD] Mode 04 Clear DTC response: {res}')

@@ -296,6 +296,12 @@ function vkInsertText(text) {
   if (!vkActiveInput) return;
 
   const el = vkActiveInput;
+  const isNumberInput = (el.type || '').toLowerCase() === 'number';
+  if (isNumberInput) {
+    text = String(text).replace(/[^0-9.\-]/g, '');
+    if (!text) return;
+  }
+
   const val = el.value || '';
 
   // Reliable cursor tracking: prevent selectionStart=0 collapse on touch
@@ -305,7 +311,7 @@ function vkInsertText(text) {
   if (typeof el._vkCursor === 'number') {
     start = el._vkCursor;
     end = el._vkCursor;
-  } else {
+  } else if (!isNumberInput) {
     try {
       if (typeof el.selectionStart === 'number' && el.selectionStart > 0) {
         start = el.selectionStart;
@@ -321,9 +327,11 @@ function vkInsertText(text) {
   el.value = val.substring(0, start) + text + val.substring(end);
   const nextPos = start + text.length;
   el._vkCursor = nextPos;
-  try {
-    el.selectionStart = el.selectionEnd = nextPos;
-  } catch (e) {}
+  if (!isNumberInput) {
+    try {
+      el.selectionStart = el.selectionEnd = nextPos;
+    } catch (e) {}
+  }
 
   vkDispatchInputEvents(el);
   vkUpdatePreview();
@@ -333,6 +341,7 @@ function vkBackspace() {
   if (!vkActiveInput) return;
 
   const el = vkActiveInput;
+  const isNumberInput = (el.type || '').toLowerCase() === 'number';
   const val = el.value || '';
 
   let start = val.length;
@@ -341,7 +350,7 @@ function vkBackspace() {
   if (typeof el._vkCursor === 'number') {
     start = el._vkCursor;
     end = el._vkCursor;
-  } else {
+  } else if (!isNumberInput) {
     try {
       if (typeof el.selectionStart === 'number' && el.selectionStart > 0) {
         start = el.selectionStart;
@@ -356,15 +365,19 @@ function vkBackspace() {
   if (start !== end) {
     el.value = val.substring(0, start) + val.substring(end);
     el._vkCursor = start;
-    try {
-      el.selectionStart = el.selectionEnd = start;
-    } catch (e) {}
+    if (!isNumberInput) {
+      try {
+        el.selectionStart = el.selectionEnd = start;
+      } catch (e) {}
+    }
   } else if (start > 0) {
     el.value = val.substring(0, start - 1) + val.substring(start);
     el._vkCursor = start - 1;
-    try {
-      el.selectionStart = el.selectionEnd = start - 1;
-    } catch (e) {}
+    if (!isNumberInput) {
+      try {
+        el.selectionStart = el.selectionEnd = start - 1;
+      } catch (e) {}
+    }
   }
 
   vkDispatchInputEvents(el);
@@ -375,9 +388,11 @@ function vkClearInput() {
   if (!vkActiveInput) return;
   vkActiveInput.value = '';
   vkActiveInput._vkCursor = 0;
-  try {
-    vkActiveInput.selectionStart = vkActiveInput.selectionEnd = 0;
-  } catch (e) {}
+  if ((vkActiveInput.type || '').toLowerCase() !== 'number') {
+    try {
+      vkActiveInput.selectionStart = vkActiveInput.selectionEnd = 0;
+    } catch (e) {}
+  }
   vkDispatchInputEvents(vkActiveInput);
   vkUpdatePreview();
 }
@@ -394,14 +409,23 @@ function vkSubmitEnter() {
   el.dispatchEvent(enterUp);
 
   // App-specific trigger hooks
-  if (el.id === 'browserUrlInput' && typeof loadBrowserUrl === 'function') {
-    loadBrowserUrl();
+  if (el.id === 'browserUrlInput') {
+    if (typeof browserLoadUrl === 'function') browserLoadUrl();
+    else if (typeof loadBrowserUrl === 'function') loadBrowserUrl();
   } else if (el.id === 'chatInput' && typeof sendAiChatMessage === 'function') {
     sendAiChatMessage();
   } else if (el.id === 'modalWifiPassword' && typeof submitWifiConnect === 'function') {
     submitWifiConnect();
   } else if (el.id === 'modalGoogleClientId' && typeof submitModalClientIdAndStart === 'function') {
     submitModalClientIdAndStart();
+  } else if (el.id === 'maintSearchInput' && typeof submitMaintSearch === 'function') {
+    submitMaintSearch();
+  } else if (el.id === 'maintModalOdoInput' && typeof submitOdometerUpdate === 'function') {
+    submitOdometerUpdate();
+  } else if ((el.id === 'maintServiceModalMileage' || el.id === 'maintServiceModalNotes') && typeof submitServiceLog === 'function') {
+    submitServiceLog();
+  } else if (el.id === 'maintRememberTitle' && typeof submitRememberNote === 'function') {
+    submitRememberNote();
   } else if (el.form) {
     // If inside a form, submit
     try {
@@ -589,7 +613,13 @@ function initVirtualKeyboard() {
   document.addEventListener('input', (e) => {
     if (isEligibleInput(e.target)) {
       if (vkActiveInput === e.target) {
-        vkActiveInput._vkCursor = e.target.selectionEnd || e.target.value.length;
+        let cur = (e.target.value || '').length;
+        try {
+          if ((e.target.type || '').toLowerCase() !== 'number' && typeof e.target.selectionEnd === 'number') {
+            cur = e.target.selectionEnd;
+          }
+        } catch (err) {}
+        vkActiveInput._vkCursor = cur;
         vkUpdatePreview();
       }
     }
@@ -626,9 +656,21 @@ function toggleManualKeyboard() {
     vkCloseKeyboard();
   } else {
     if (!vkActiveInput) {
-      const candidate = activeScreen ? activeScreen.querySelector('input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea') : null;
+      let candidate = null;
+      const openModals = document.querySelectorAll('.config-modal-overlay, .editor-modal-overlay');
+      for (let i = 0; i < openModals.length; i++) {
+        const m = openModals[i];
+        if (m.style.display === 'flex' || m.classList.contains('open')) {
+          candidate = m.querySelector('input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]), textarea');
+          if (candidate) break;
+        }
+      }
+      if (!candidate && activeScreen) {
+        candidate = activeScreen.querySelector('input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]), textarea');
+      }
       if (candidate) {
         candidate.focus();
+        openVirtualKeyboard(candidate);
         return;
       }
     }

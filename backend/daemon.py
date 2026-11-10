@@ -2550,6 +2550,7 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                         "is_speaking": getattr(state.audio, "is_speaking", False),
                         "audio_duck": getattr(state.audio, "_is_currently_ducking", False),
                         "is_music_playing": getattr(state, "is_music_playing", False),
+                "music_playing": getattr(state, "is_music_playing", False),
 
                 "circadian": state.llm.get_circadian_state(),
 
@@ -3041,7 +3042,8 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                 "status": "ok",
                 "is_ducking": getattr(state.audio, "_is_currently_ducking", False),
                 "is_speaking": getattr(state.audio, "is_speaking", False),
-                "is_music_playing": getattr(state, "is_music_playing", False)
+                "is_music_playing": getattr(state, "is_music_playing", False),
+                "music_playing": getattr(state, "is_music_playing", False)
             }).encode("utf-8"))
             return
         elif parsed.path == "/api/maintenance/record":
@@ -4795,7 +4797,7 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
 
 
-        elif parsed.path == "/api/system/detailed_specs":
+        elif parsed.path in ("/api/system/detailed_specs", "/api/hardware/specs"):
 
             specs = state.sys_monitor.get_detailed_hardware_specs()
 

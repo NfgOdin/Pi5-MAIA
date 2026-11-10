@@ -37,7 +37,7 @@
     "turbocharger": "Garrett GT1446 small-frame wastegated turbocharger. Stock peak boost is 14-16 PSI; tuned setups (Eurocompulsion Phase 1/2) reach 19-22 PSI. Common failure point for underboost (P0299) is loose wastegate actuator arm pin slop or a torn Pierburg diverter valve rubber diaphragm.",
     "transmission": "Fiat Powertrain C635 6-Speed Manual (dual-mass flywheel, hydraulic clutch) or 6-Speed DDCT dual dry clutch automated manual.",
     "powertrain_control": "Magneti Marelli 8GM Powertrain Control Module (PCM/ECU), running high-speed CAN bus at 500 kbps (CAN-C) and interior CAN-IHS at 125 kbps.",
-    "maintenance_specs": "Spark plugs: NGK IKR9J8 (Laser Iridium), gap strictly 0.024-0.026 inch, torque 11-14 lb-ft. Oil capacity: 4.0 quarts 5W-40 with filter. Coolant: Mopar Antifreeze OAT 50/50 purple."
+    "maintenance_specs": "Spark plugs: NGK SIKR9A7 / IKR9J8 (Laser Iridium), gap strictly 0.026 inch (0.024-0.026 inch), torque 13.3 ft-lbs (18 Nm). Oil capacity: 4.0 quarts 5W-40 with filter. Coolant: Mopar Antifreeze OAT 50/50 purple."
   },
-  "guidelines": "When Master asks technical questions about the car, engine, boost, oil, or fault codes, cite these exact specifications faithfully in character."
+  "guidelines": "When Dad asks technical questions about the car, engine, boost, oil, or fault codes, cite these exact specifications faithfully in character."
 }

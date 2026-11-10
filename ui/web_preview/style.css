@@ -736,11 +736,13 @@ html, body {
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 800;
+  min-height: 44px;
   padding: 6px 14px;
   border-radius: 8px;
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   transition: all 0.15s;
 }
@@ -993,9 +995,13 @@ html, body {
   color: #fff;
   font-size: 13px;
   font-weight: 800;
+  min-height: 44px;
   padding: 10px 20px;
   border-radius: 8px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   transition: all 0.15s;
 }
 
@@ -1218,6 +1224,7 @@ html, body {
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 800;
+  min-height: 44px;
   padding: 8px 12px;
   border-radius: 8px;
   cursor: pointer;
@@ -2115,16 +2122,18 @@ html, body {
 .waifu-emotion-pill {
   font-size: 9px;
   font-weight: 900;
-  letter-spacing: 1px;
+  letter-spacing: 0.6px;
   color: var(--accent-pink);
-  background: rgba(255, 45, 120, 0.12);
-  border: 1px solid rgba(255, 45, 120, 0.35);
-  padding: 3px 12px;
-  border-radius: 12px;
+  background: rgba(10, 14, 22, 0.90) !important;
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 45, 120, 0.45);
+  padding: 5px 10px;
+  border-radius: 10px;
   margin-top: -2px;
   text-transform: uppercase;
-  box-shadow: 0 0 8px rgba(255, 45, 120, 0.25);
-  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.65);
+  pointer-events: auto;
   z-index: 2;
 }
 
@@ -3069,17 +3078,9 @@ html, body {
 }
 
 #animGridContainer::-webkit-scrollbar {
-  width: 8px;
-}
-
-#animGridContainer::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 4px;
-}
-
-#animGridContainer::-webkit-scrollbar-thumb {
-  background: var(--accent-purple, #a855f7);
-  border-radius: 4px;
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 .anim-card-btn {
@@ -3150,8 +3151,10 @@ html, body {
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 800;
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: 8px;
   cursor: pointer;
   display: flex;
@@ -3174,7 +3177,7 @@ html, body {
   border: 1px solid #1c2736;
   border-radius: 8px;
   padding: 0 10px;
-  height: 36px;
+  min-height: 44px;
 }
 
 .browser-url-bar {
@@ -3194,7 +3197,8 @@ html, body {
   color: #fff;
   font-size: 11px;
   font-weight: 800;
-  padding: 5px 12px;
+  min-height: 36px;
+  padding: 5px 14px;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.18s ease;
@@ -3211,6 +3215,7 @@ html, body {
   color: #ff7a00;
   font-size: 11px;
   font-weight: 800;
+  min-height: 44px;
   padding: 8px 14px;
   border-radius: 8px;
   cursor: pointer;
@@ -3796,8 +3801,8 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 36px;
-  min-width: 82px;
+  min-height: 44px;
+  min-width: 86px;
   padding: 0 12px;
   background: linear-gradient(135deg, rgba(255, 64, 129, 0.22), rgba(124, 77, 255, 0.22));
   border: 1.5px solid rgba(255, 64, 129, 0.5);
@@ -3973,15 +3978,9 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
 }
 
 #diagCodesList::-webkit-scrollbar {
-  width: 6px;
-}
-#diagCodesList::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 4px;
-}
-#diagCodesList::-webkit-scrollbar-thumb {
-  background: rgba(255, 170, 0, 0.4);
-  border-radius: 4px;
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 .diag-code-item {
@@ -4083,7 +4082,7 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
 .trip-header-btn {
   flex-shrink: 0;
   white-space: nowrap;
-  height: 34px;
+  min-height: 44px;
   padding: 0 12px;
   font-size: 11px;
 }
@@ -4121,18 +4120,9 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
 }
 
 #tripsListContainer::-webkit-scrollbar {
-  width: 6px;
-}
-#tripsListContainer::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 4px;
-}
-#tripsListContainer::-webkit-scrollbar-thumb {
-  background: rgba(0, 176, 255, 0.4);
-  border-radius: 4px;
-}
-#tripsListContainer::-webkit-scrollbar-thumb:hover {
-  background: var(--accent-blue);
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 .trip-item-card {
@@ -4167,15 +4157,9 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
 }
 
 .trip-detail-panel::-webkit-scrollbar {
-  width: 6px;
-}
-.trip-detail-panel::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 4px;
-}
-.trip-detail-panel::-webkit-scrollbar-thumb {
-  background: rgba(0, 176, 255, 0.3);
-  border-radius: 4px;
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 /* ==========================================================================

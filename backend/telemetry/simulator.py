@@ -48,6 +48,7 @@ class TelemetryFrame:
     virtual_whp: float = 0.0
     virtual_wtq: float = 0.0
     multiair_oil_temp_f: Optional[float] = None
+    oil_temp_f: Optional[float] = None
     multiair_status: str = "WARM_OPTIMAL"
     wastegate_spool_health: float = 100.0
     wastegate_spool_gradient: float = 9.8
@@ -57,13 +58,17 @@ class TelemetryFrame:
     avg_shift_score: float = 100.0
     headlights_on: bool = False
     ambient_light_lux: float = 100.0
+    lateral_g: float = 0.0
+    longitudinal_g: float = 0.0
+    lateral_accel: float = 0.0
+    steering_angle: float = 0.0
 
 class Dart14TSimulator:
     def __init__(self, config_path: Optional[str] = None):
         if not config_path:
             config_path = str(Path(__file__).parent.parent.parent / "config" / "vehicle_config.json")
         
-        with open(config_path, "r") as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             self.cfg = json.load(f)["vehicle"]["specs"]
         
         # State variables
@@ -77,6 +82,9 @@ class Dart14TSimulator:
         self.intake_temp_f = 78.0
         self.battery_volts = 14.2
         self.active_dtcs: List[str] = []
+        self.lateral_g = 0.0
+        self.longitudinal_g = 0.0
+        self.steering_angle = 0.0
         
         # 0-60 Launch Tracker
         self.launch_start_time: Optional[float] = None
@@ -89,8 +97,25 @@ class Dart14TSimulator:
         self.shift_pause = 0.0
         self.dyno = MultiAirVirtualDyno()
 
+    def _sync_rpm_for_gear(self, speed_mph: float, gear: str) -> float:
+        """Compute exact C635 synchronized engine RPM for a given road speed and gear."""
+        ratio = float(self.cfg["gear_ratios"].get(gear, 1.0))
+        final_drive = float(self.cfg.get("final_drive_ratio", 3.824))
+        tire_circ = float(self.cfg.get("tire_circumference_meters", 2.015))
+        speed_kph = max(0.0, speed_mph) * 1.60934
+        return (speed_kph * 1000.0 * ratio * final_drive) / (max(0.5, tire_circ) * 60.0)
+
     def step(self, dt: float = 0.05) -> TelemetryFrame:
         """Advance the physics simulation by dt seconds (default 20Hz / 50ms)."""
+        try:
+            dt = float(dt) if dt is not None else 0.05
+            if not math.isfinite(dt) or dt <= 0.0:
+                dt = 0.05
+            dt = min(dt, 1.0)
+        except (ValueError, TypeError):
+            dt = 0.05
+
+        prev_speed_mph = self.speed_mph
         self.sim_time += dt
 
         # 1. Warm up MultiAir coolant slowly
@@ -98,8 +123,12 @@ class Dart14TSimulator:
             self.coolant_temp_f += dt * 0.85  # Warms up to 195°F over a couple minutes
             if self.coolant_temp_f > 195.0:
                 self.coolant_temp_f = 195.0
+
+        # MultiAir UniAir COLD_PROTECT limits boost to < 7.5 PSI until 5W-40 oil > 150°F
+        cold_protect_active = (self.dyno.estimated_oil_temp_f < 150.0)
+        max_allowed_boost = 7.2 if cold_protect_active else float(self.cfg.get("stock_peak_boost_psi", 18.0))
         
-        # 2. Automated driving cycle (simulate spirited acceleration pull)
+        # 2. Automated driving cycle (simulate spirited acceleration pull + rev-matched downshift)
         cycle_time = self.sim_time % 35.0  # 35-second looping driving cycle
         
         if cycle_time < 3.0:
@@ -110,6 +139,8 @@ class Dart14TSimulator:
             self.rpm = float(self.cfg["idle_rpm"]) + random.uniform(-15, 15)
             self.boost_psi = 0.0
             self.vacuum_inhg = 21.0 + random.uniform(-0.5, 0.5)
+            self.lateral_g = 0.0
+            self.steering_angle = 0.0
             self.is_launching = False
             self.launch_start_time = None
 
@@ -121,72 +152,130 @@ class Dart14TSimulator:
                 self.is_launching = True
                 self.launch_start_time = time.time()
             
-            # Accelerate in 1st up to ~32 MPH
-            accel = 7.5 * dt
+            # Accelerate in 1st up to ~28.5 MPH (~5,670 RPM on C635 3.909 ratio)
+            accel = 5.7 * dt
             self.speed_mph += accel
-            gear_ratio = self.cfg["gear_ratios"]["1"]
-            self.rpm = (self.speed_mph * 4.12 * gear_ratio * 336.13) / (25.0)  # Approx tire diameter
+            self.rpm = self._sync_rpm_for_gear(self.speed_mph, "1")
             self.rpm = max(float(self.cfg["idle_rpm"]), min(self.rpm, 6200.0))
             
-            # Turbo spooling up to 16.5 PSI
-            self.boost_psi = min(16.5, self.boost_psi + (dt * 15.0))
+            # Turbo spooling up to 16.5 PSI (or 7.2 PSI during COLD_PROTECT)
+            self.boost_psi = min(min(16.5, max_allowed_boost), self.boost_psi + (dt * 15.0))
             self.vacuum_inhg = 0.0
+            self.lateral_g = round(0.04 * math.sin(cycle_time * 2.0), 2)
+            self.steering_angle = round(self.lateral_g * 15.0, 1)
 
-        elif cycle_time < 9.0:
-            # Shift 1st -> 2nd (Clutch in, throttle lift, blow-off valve dump!)
+        elif cycle_time < 8.6:
+            # Shift 1st -> 2nd (Clutch in, throttle lift, blow-off valve dump, rev drop to 2nd sync)
             self.gear = "⇄"
             self.throttle_pct = 10.0
-            self.rpm = max(1800.0, self.rpm - (dt * 4500.0))
+            target_2nd_rpm = self._sync_rpm_for_gear(self.speed_mph, "2")
+            self.rpm = max(target_2nd_rpm, self.rpm - (dt * 4500.0))
             self.boost_psi = 0.0
             self.vacuum_inhg = 22.0
+            self.lateral_g = 0.0
+            self.steering_angle = 0.0
 
-        elif cycle_time < 16.0:
-            # 2nd Gear Pull to ~58 MPH
+        elif cycle_time < 15.5:
+            # 2nd Gear Pull to ~54 MPH (~5,820 RPM on C635 2.118 ratio)
             self.gear = "2"
             self.throttle_pct = 100.0
-            accel = 6.0 * dt
+            accel = 3.7 * dt
             self.speed_mph += accel
-            gear_ratio = self.cfg["gear_ratios"]["2"]
-            self.rpm = (self.speed_mph * 4.12 * gear_ratio * 336.13) / (25.0)
-            self.rpm = min(self.rpm, 6300.0)
+            self.rpm = min(self._sync_rpm_for_gear(self.speed_mph, "2"), 6300.0)
             
             # Turbo peak boost!
-            self.boost_psi = min(17.8, self.boost_psi + (dt * 18.0))
+            self.boost_psi = min(min(17.8, max_allowed_boost), self.boost_psi + (dt * 18.0))
             self.vacuum_inhg = 0.0
+            self.lateral_g = round(0.18 * math.sin((cycle_time - 8.6) * 0.9), 2)
+            self.steering_angle = round(self.lateral_g * 28.0, 1)
 
-        elif cycle_time < 17.0:
-            # Shift 2nd -> 3rd
-            self.gear = "N"
+        elif cycle_time < 16.1:
+            # Shift 2nd -> 3rd (Clutch in, rev drop to 3rd sync)
+            self.gear = "⇄"
             self.throttle_pct = 10.0
-            self.rpm = max(2400.0, self.rpm - (dt * 4000.0))
+            target_3rd_rpm = self._sync_rpm_for_gear(self.speed_mph, "3")
+            self.rpm = max(target_3rd_rpm, self.rpm - (dt * 3800.0))
             self.boost_psi = 0.0
             self.vacuum_inhg = 22.0
+            self.lateral_g = 0.05
+            self.steering_angle = 1.5
 
-        elif cycle_time < 26.0:
-            # 3rd Gear Pull crosses 60 MPH!
+        elif cycle_time < 24.5:
+            # 3rd Gear Pull crosses 60 MPH up to ~74 MPH (~5,120 RPM on C635 1.360 ratio)
             self.gear = "3"
             self.throttle_pct = 85.0
-            accel = 4.2 * dt
+            accel = 2.4 * dt
             self.speed_mph += accel
-            gear_ratio = self.cfg["gear_ratios"]["3"]
-            self.rpm = (self.speed_mph * 4.12 * gear_ratio * 336.13) / (25.0)
+            self.rpm = min(self._sync_rpm_for_gear(self.speed_mph, "3"), 6300.0)
             
             # Record 0-60 timestamp!
             if self.is_launching and self.speed_mph >= 60.0 and self.launch_start_time:
                 self.last_0_60_time = round(time.time() - self.launch_start_time, 2)
                 self.is_launching = False
             
-            self.boost_psi = min(16.0, self.boost_psi + (dt * 10.0))
+            self.boost_psi = min(min(16.0, max_allowed_boost), self.boost_psi + (dt * 10.0))
             self.vacuum_inhg = 0.0
+            self.lateral_g = round(0.32 * math.sin((cycle_time - 16.1) * 0.75), 2)
+            self.steering_angle = round(self.lateral_g * 35.0, 1)
 
-        else:
-            # Deceleration and braking back to 0
+        elif cycle_time < 25.0:
+            # Smooth upshift 3rd -> 4th
+            self.gear = "⇄"
+            self.throttle_pct = 5.0
+            target_4th_rpm = self._sync_rpm_for_gear(self.speed_mph, "4")
+            self.rpm = max(target_4th_rpm, self.rpm - (dt * 3200.0))
+            self.boost_psi = 0.0
+            self.vacuum_inhg = 21.0
+            self.lateral_g = 0.0
+            self.steering_angle = 0.0
+
+        elif cycle_time < 29.0:
+            # 4th Gear engine braking / deceleration from ~74 MPH down to ~44 MPH
             self.gear = "4"
             self.throttle_pct = 0.0
-            self.speed_mph = max(0.0, self.speed_mph - (dt * 12.0))
-            self.rpm = max(float(self.cfg["idle_rpm"]), self.speed_mph * 35.0)
+            self.speed_mph = max(0.0, self.speed_mph - (dt * 7.5))
+            self.rpm = max(float(self.cfg["idle_rpm"]), self._sync_rpm_for_gear(self.speed_mph, "4"))
             self.boost_psi = 0.0
-            self.vacuum_inhg = 23.5 + random.uniform(-0.5, 0.5)
+            self.vacuum_inhg = 23.5 + random.uniform(-0.4, 0.4)
+            self.lateral_g = round(-0.22 * math.sin((cycle_time - 25.0) * 0.8), 2)
+            self.steering_angle = round(self.lateral_g * 30.0, 1)
+
+        elif cycle_time < 29.4:
+            # Heel-toe throttle blip in neutral before engaging 3rd gear downshift
+            self.gear = "⇄"
+            self.throttle_pct = 45.0
+            self.speed_mph = max(0.0, self.speed_mph - (dt * 6.0))
+            self.rpm = self._sync_rpm_for_gear(self.speed_mph, "3")
+            self.boost_psi = 0.0
+            self.vacuum_inhg = 14.0
+            self.lateral_g = -0.10
+            self.steering_angle = -3.0
+
+        elif cycle_time < 32.5:
+            # Rev-matched 3rd gear engine braking down to ~15 MPH
+            self.gear = "3"
+            self.throttle_pct = 0.0
+            self.speed_mph = max(0.0, self.speed_mph - (dt * 9.0))
+            self.rpm = max(float(self.cfg["idle_rpm"]), self._sync_rpm_for_gear(self.speed_mph, "3"))
+            self.boost_psi = 0.0
+            self.vacuum_inhg = 24.0 + random.uniform(-0.3, 0.3)
+            self.lateral_g = 0.0
+            self.steering_angle = 0.0
+
+        else:
+            # Final braking in Neutral back to 0 MPH
+            self.gear = "N"
+            self.throttle_pct = 0.0
+            self.speed_mph = max(0.0, self.speed_mph - (dt * 10.0))
+            self.rpm = float(self.cfg["idle_rpm"]) + random.uniform(-10, 10)
+            self.boost_psi = 0.0
+            self.vacuum_inhg = 21.5 + random.uniform(-0.4, 0.4)
+            self.lateral_g = 0.0
+            self.steering_angle = 0.0
+
+        # Calculate instantaneous longitudinal G-force (1G ~= 21.937 mph/s)
+        dv_mph = self.speed_mph - prev_speed_mph
+        self.longitudinal_g = round(max(-1.2, min(1.2, (dv_mph / dt) / 21.937)), 2)
 
         # 3. Calculate F1-style sequential shift lights (0 to 5)
         f1_level = 0
@@ -216,6 +305,9 @@ class Dart14TSimulator:
             dt=dt
         )
 
+        hl_on = bool(getattr(self, "_injected_headlights", (time.localtime().tm_hour >= 19 or time.localtime().tm_hour < 6)))
+        lux_val = 5.0 if hl_on else 450.0
+
         frame = TelemetryFrame(
             timestamp=time.time(),
             speed_mph=round(self.speed_mph, 1),
@@ -230,7 +322,7 @@ class Dart14TSimulator:
             intake_temp_f=round(self.intake_temp_f + (self.boost_psi * 1.2), 1),
             battery_volts=round(14.2 + random.uniform(-0.1, 0.1), 2),
             fuel_mpg_instant=sim_mpg,
-            multiair_ready=self.coolant_temp_f >= float(self.cfg["multiair_warmup_temp_f"]),
+            multiair_ready=dyno_metrics["multiair_ready"],
             shift_indicator=self.rpm >= float(self.cfg["shift_indicator_rpm"]),
             f1_light_level=f1_level,
             launch_timer_active=self.is_launching,
@@ -248,6 +340,7 @@ class Dart14TSimulator:
             virtual_whp=dyno_metrics["virtual_whp"],
             virtual_wtq=dyno_metrics["virtual_wtq"],
             multiair_oil_temp_f=dyno_metrics["multiair_oil_temp_f"],
+            oil_temp_f=dyno_metrics["multiair_oil_temp_f"],
             multiair_status=dyno_metrics["multiair_status"],
             wastegate_spool_health=dyno_metrics["wastegate_health_pct"],
             wastegate_spool_gradient=dyno_metrics["spool_gradient"],
@@ -255,8 +348,12 @@ class Dart14TSimulator:
             last_shift_type=dyno_metrics["latest_shift_type"],
             last_shift_delta=dyno_metrics["latest_shift_delta"],
             avg_shift_score=dyno_metrics["avg_shift_score"],
-            headlights_on=getattr(self, "_injected_headlights", (time.localtime().tm_hour >= 19 or time.localtime().tm_hour < 6)),
-            ambient_light_lux=5.0 if getattr(self, "_injected_headlights", (time.localtime().tm_hour >= 19 or time.localtime().tm_hour < 6)) else 450.0
+            headlights_on=hl_on,
+            ambient_light_lux=lux_val,
+            lateral_g=self.lateral_g,
+            longitudinal_g=self.longitudinal_g,
+            lateral_accel=self.lateral_g,
+            steering_angle=self.steering_angle
         )
         return frame
 

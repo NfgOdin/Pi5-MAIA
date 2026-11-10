@@ -175,40 +175,91 @@ class GpsManager:
             if speed_mph < 0.5 and elapsed > 2.0:
                 self.dragy["state"] = "STAGED"
 
+    @staticmethod
+    def _safe_float(val: str, default: float = 0.0) -> float:
+        if not val:
+            return default
+        try:
+            f = float(val)
+            return f if math.isfinite(f) else default
+        except (ValueError, TypeError):
+            return default
+
+    @staticmethod
+    def _safe_int(val: str, default: int = 0) -> int:
+        if not val:
+            return default
+        try:
+            return int(float(val))
+        except (ValueError, TypeError):
+            return default
+
+    def _reset_disconnected_state(self):
+        """Reset GPS telemetry to pure resting hardware state when disconnected (AGENTS.md Rule 2)."""
+        self.data["connected"] = False
+        self.data["fix"] = False
+        self.data["fix_quality"] = 0
+        self.data["sats"] = 0
+        self.data["sats_in_view"] = 0
+        self.data["speed_mph"] = 0.0
+        self.data["speed_knots"] = 0.0
+        self.data["road_grade_pct"] = 0.0
+
     def _read_loop(self):
         while self.running:
             if not serial:
+                with self.lock:
+                    self._reset_disconnected_state()
                 time.sleep(2.0)
                 continue
+            ser = None
             try:
                 ser = serial.Serial(self.port, self.baud, timeout=1.0)
-                with self.lock:
-                    self.data["connected"] = True
-                print(f"[GPS] Connected to hardware UART: {self.port}")
-                
+                print(f"[GPS] Opened UART port: {self.port} (awaiting valid NMEA stream)")
+                last_nmea_rx = time.time()
+
                 while self.running:
                     line_bytes = ser.readline()
+                    now = time.time()
                     if not line_bytes:
+                        if now - last_nmea_rx > 5.0:
+                            with self.lock:
+                                self._reset_disconnected_state()
                         continue
                     line = line_bytes.decode('latin1', errors='replace').strip()
                     if not line.startswith('$'):
+                        if now - last_nmea_rx > 5.0:
+                            with self.lock:
+                                self._reset_disconnected_state()
                         continue
-                    
+
                     parts = line.split('*')[0].split(',')
                     tag = parts[0][1:]
-                    now = time.time()
-                    
+                    last_nmea_rx = now
+
                     with self.lock:
+                        self.data["connected"] = True
                         self.data["last_update"] = now
-                        
+
                         # GGA
                         if tag.endswith('GGA') and len(parts) > 9:
                             lat = self._parse_coord(parts[2], parts[3], False)
                             lon = self._parse_coord(parts[4], parts[5], True)
-                            fix_q = int(parts[6]) if parts[6] else 0
-                            sats = int(parts[7]) if parts[7] else 0
-                            alt_m = float(parts[9]) if parts[9] else 0.0
-                            
+                            fix_q = self._safe_int(parts[6], 0)
+                            sats = self._safe_int(parts[7], 0)
+                            alt_m = self._safe_float(parts[9], 0.0)
+
+                            if fix_q > 0 and self._last_alt != 0.0:
+                                horiz_m = (self._run_dist_feet - self._last_dist) * 0.3048
+                                if horiz_m >= 5.0:
+                                    grade = ((alt_m - self._last_alt) / horiz_m) * 100.0
+                                    self.data["road_grade_pct"] = round(max(-35.0, min(35.0, grade)), 1)
+                                    self._last_alt = alt_m
+                                    self._last_dist = self._run_dist_feet
+                            elif fix_q > 0 and self._last_alt == 0.0:
+                                self._last_alt = alt_m
+                                self._last_dist = self._run_dist_feet
+
                             self.data["fix"] = fix_q > 0
                             self.data["fix_quality"] = fix_q
                             self.data["sats"] = sats
@@ -219,8 +270,6 @@ class GpsManager:
                             if lon is not None:
                                 self.data["lon"] = lon
 
-                        # RMC
-                        
                         # ZDA - Time & Date: $GNZDA,hhmmss.ss,dd,mm,yyyy,xx,xx*hh
                         elif tag.endswith('ZDA') and len(parts) > 4:
                             utc_time = parts[1]
@@ -238,19 +287,19 @@ class GpsManager:
                                         subprocess.run(["sudo", "date", "-u", "-s", dt_str], timeout=2)
                                         print(f"[GPS] Synchronized system clock to satellite UTC: {dt_str}")
                                         self._last_time_sync = now
-                                except Exception as e:
+                                except Exception:
                                     pass
 
                         elif tag.endswith('RMC') and len(parts) > 8:
                             status = parts[2]
                             lat = self._parse_coord(parts[3], parts[4], False)
                             lon = self._parse_coord(parts[5], parts[6], True)
-                            knots = float(parts[7]) if parts[7] else 0.0
-                            heading = float(parts[8]) if parts[8] else 0.0
-                            speed_mph = round(knots * 1.15078, 1)
+                            knots = self._safe_float(parts[7], 0.0)
+                            heading = self._safe_float(parts[8], 0.0)
+                            speed_mph = round(knots * 1.15078, 1) if status == 'A' else 0.0
 
                             self.data["fix"] = status == 'A'
-                            self.data["speed_knots"] = knots
+                            self.data["speed_knots"] = knots if status == 'A' else 0.0
                             self.data["speed_mph"] = speed_mph
                             self.data["heading"] = round(heading, 1)
                             self.data["heading_cardinal"] = self._get_cardinal(heading)
@@ -258,25 +307,30 @@ class GpsManager:
                                 self.data["lat"] = lat
                             if lon is not None:
                                 self.data["lon"] = lon
-                            
+
                             self._update_dragy(speed_mph, now)
 
                         # VTG
                         elif tag.endswith('VTG') and len(parts) > 7:
-                            kph = float(parts[7]) if parts[7] else 0.0
-                            self.data["speed_mph"] = round(kph * 0.621371, 1)
+                            kph = self._safe_float(parts[7], 0.0)
+                            self.data["speed_mph"] = round(kph * 0.621371, 1) if self.data["fix"] else 0.0
                             self._update_dragy(self.data["speed_mph"], now)
 
                         # GSV
                         elif tag.endswith('GSV') and len(parts) > 3:
-                            sats_view = int(parts[3]) if parts[3] else 0
+                            sats_view = self._safe_int(parts[3], 0)
                             self.data["sats_in_view"] = max(self.data["sats_in_view"], sats_view)
 
-                ser.close()
-            except Exception as e:
+            except Exception:
                 with self.lock:
-                    self.data["connected"] = False
+                    self._reset_disconnected_state()
                 time.sleep(2.0)
+            finally:
+                if ser is not None:
+                    try:
+                        ser.close()
+                    except Exception:
+                        pass
 
     def get_telemetry(self) -> Dict[str, Any]:
         with self.lock:

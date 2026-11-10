@@ -238,7 +238,7 @@
           <div>
             <div class="card-icon">📁</div>
             <div class="card-title">FILE EXPLORER</div>
-            <div class="card-subtitle">Windows 11 high-speed filesystem and drive manager.</div>
+            <div class="card-subtitle">High-speed NVMe &amp; USB drive manager with media preview.</div>
           </div>
           <div style="font-size:10px; font-weight:800; color:var(--accent-green); letter-spacing:0.5px;">EXPLORE FILES →</div>
         </div>
@@ -553,9 +553,9 @@
         <div class="waifu-floating-stage" id="waifuStage">
           <!-- 3D VRM Full Body Container (Full Height 100%) -->
           <div class="vrm-stage-container" id="vrmStageContainer">
-            <div class="vrm-controls-bar" id="vrmControlsBar">
+            <div class="vrm-controls-bar collapsed" id="vrmControlsBar">
               <button type="button" class="vrm-ctrl-toggle-btn" id="btnToggleVrmControls" onclick="toggleVrmControlsBar()" title="Collapse / Expand 3D Stage Controls">
-                <span id="vrmControlsChevron">▲</span> <span id="vrmControlsLabel">CONTROLS</span>
+                <span id="vrmControlsChevron">▼</span> <span id="vrmControlsLabel">CONTROLS</span>
               </button>
               <div class="vrm-controls-items" id="vrmControlsItems">
                 <div class="ai-layout-splitter-pill" id="aiLayoutSplitter">
@@ -2805,6 +2805,260 @@
       </div>
     </div>
 
+    <!-- 10. DUAL-SBC HARDWARE & PERIPHERALS DIAGNOSTICS STUDIO -->
+    <div class="screen-view" id="screenHardware">
+      <div class="hw-studio-container">
+        <!-- Top Sticky Header -->
+        <div class="hw-studio-header">
+          <div class="hw-header-left">
+            <button class="cluster-action-btn hw-home-btn" onclick="navigateTo('home')" title="Return to Home Dashboard">
+              🏠 HOME
+            </button>
+            <div>
+              <div class="hw-studio-title">⚡ SBC HARDWARE & TELEMETRY STUDIO</div>
+              <div class="hw-studio-subtitle">Raspberry Pi 5 Primary Cockpit • Dual-Link Pi 3 Co-Processor • Connected Bus Diagnostics</div>
+            </div>
+          </div>
+          <div class="hw-header-right">
+            <span class="hw-header-pill" id="hwUptimePill">UPTIME: 0h 0m</span>
+            <button class="cluster-action-btn hw-refresh-all-btn" onclick="refreshDetailedHardwareSpecs(true)" title="Force Refresh Pi 5 Telemetry">
+              🔄 REFRESH
+            </button>
+          </div>
+        </div>
+
+        <!-- Main Studio Grid -->
+        <div class="hw-studio-grid">
+          <!-- CARD 1: PI 5 CPU ARCHITECTURE & PER-CORE LOAD -->
+          <div class="hw-card hw-card-cpu">
+            <div class="hw-card-header">
+              <div class="hw-card-title">
+                <span class="hw-icon">⚡</span> CPU ARCHITECTURE & CORES
+              </div>
+              <span class="hw-badge hw-badge-cyan" id="hwCpuTotalBadge">OVERALL: 0%</span>
+            </div>
+            <div class="hw-subtext">Broadcom BCM2712 • Quad-Core ARM Cortex-A76 @ 2.40 GHz (TSMC 16nm)</div>
+            <div class="hw-cores-grid" id="hwCoresGrid">
+              <!-- Dynamically populated per core 0, 1, 2, 3 -->
+              <div class="hw-core-item" id="hwCore0">
+                <div class="hw-core-label"><span>CORE 0</span><span class="hw-core-freq" id="hwCore0Freq">2.40 GHz</span></div>
+                <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwCore0Fill" style="width:0%;"></div></div>
+                <div class="hw-core-val" id="hwCore0Val">0.0%</div>
+              </div>
+              <div class="hw-core-item" id="hwCore1">
+                <div class="hw-core-label"><span>CORE 1</span><span class="hw-core-freq" id="hwCore1Freq">2.40 GHz</span></div>
+                <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwCore1Fill" style="width:0%;"></div></div>
+                <div class="hw-core-val" id="hwCore1Val">0.0%</div>
+              </div>
+              <div class="hw-core-item" id="hwCore2">
+                <div class="hw-core-label"><span>CORE 2</span><span class="hw-core-freq" id="hwCore2Freq">2.40 GHz</span></div>
+                <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwCore2Fill" style="width:0%;"></div></div>
+                <div class="hw-core-val" id="hwCore2Val">0.0%</div>
+              </div>
+              <div class="hw-core-item" id="hwCore3">
+                <div class="hw-core-label"><span>CORE 3</span><span class="hw-core-freq" id="hwCore3Freq">2.40 GHz</span></div>
+                <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwCore3Fill" style="width:0%;"></div></div>
+                <div class="hw-core-val" id="hwCore3Val">0.0%</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- CARD 2: SOC THERMAL & POWER SUBSYSTEM -->
+          <div class="hw-card hw-card-thermal">
+            <div class="hw-card-header">
+              <div class="hw-card-title">
+                <span class="hw-icon">🌡️</span> SOC THERMAL & POWER
+              </div>
+              <span class="hw-badge hw-badge-green" id="hwThrottleBadge">0x0 NOMINAL</span>
+            </div>
+            <div class="hw-metrics-row">
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">SoC TEMPERATURE</div>
+                <div class="hw-metric-big" id="hwSocTemp">-- °C</div>
+                <div class="hw-metric-sub" id="hwSocTempF">-- °F</div>
+              </div>
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">CORE VOLTAGE</div>
+                <div class="hw-metric-big" id="hwCoreVolt">0.86 V</div>
+                <div class="hw-metric-sub">Active PMIC Regulated</div>
+              </div>
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">UNDER-VOLTAGE</div>
+                <div class="hw-metric-big" id="hwUnderVolt" style="color:var(--accent-green);">NONE</div>
+                <div class="hw-metric-sub">5V / 5A USB-PD Rail</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- CARD 3: VIDEOCORE VII GPU & GRAPHICS PIPELINE -->
+          <div class="hw-card hw-card-gpu">
+            <div class="hw-card-header">
+              <div class="hw-card-title">
+                <span class="hw-icon">🎮</span> VIDEOCORE VII GPU
+              </div>
+              <span class="hw-badge hw-badge-cyan">V3D @ 960 MHz</span>
+            </div>
+            <div class="hw-metrics-row">
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">3D ENGINE CLOCK</div>
+                <div class="hw-metric-big" id="hwGpuV3dClock">960 MHz</div>
+                <div class="hw-metric-sub">Broadcom VideoCore VII</div>
+              </div>
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">CORE CLOCK</div>
+                <div class="hw-metric-big" id="hwGpuCoreClock">910 MHz</div>
+                <div class="hw-metric-sub">Vulkan 1.3 / GLES 3.1</div>
+              </div>
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">GPU MEMORY</div>
+                <div class="hw-metric-big" id="hwGpuMem">8 MB</div>
+                <div class="hw-metric-sub">Mesa V3D (DRM-KMS)</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- CARD 4: HAILO-10H / HAILO-8 NPU ACCELERATOR SLOT -->
+          <div class="hw-card hw-card-npu" style="border-color:rgba(157,78,221,0.5);">
+            <div class="hw-card-header">
+              <div class="hw-card-title" style="color:#d8b4fe;">
+                <span class="hw-icon">🧠</span> HAILO-10H / HAILO-8 NPU ACCELERATOR
+              </div>
+              <span class="hw-badge hw-badge-purple" id="hwNpuStatusBadge">SLOT READY • M.2 HAT+</span>
+            </div>
+            <div class="hw-subtext">PCIe Gen 3.0 x1 / x4 Expansion Slot (Official Raspberry Pi AI Kit / Hailo HAT+)</div>
+            <div class="hw-metrics-row" style="margin-top:10px;">
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">COMPUTE CAPACITY</div>
+                <div class="hw-metric-big" style="color:#d8b4fe;" id="hwNpuTops">40 TOPS</div>
+                <div class="hw-metric-sub">Hailo-10H GenAI Engine</div>
+              </div>
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">ONBOARD NPU MEMORY</div>
+                <div class="hw-metric-big" style="color:#00f0ff;" id="hwNpuRam">8 GB</div>
+                <div class="hw-metric-sub">Dedicated LPDDR4X on HAT</div>
+              </div>
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">HARDWARE STATUS</div>
+                <div class="hw-metric-big" id="hwNpuLive" style="font-size:14px; font-weight:800; color:#fbbf24;">READY / UNPOPULATED</div>
+                <div class="hw-metric-sub" id="hwNpuNode">/dev/hailo0 (Pending HAT+)</div>
+              </div>
+            </div>
+            <div class="hw-npu-footer" style="margin-top:8px; font-size:11px; color:var(--text-secondary); background:rgba(0,0,0,0.3); padding:6px 10px; border-radius:6px;">
+              💡 <b>Hailo-10H HAT+ ($200):</b> Delivers 40 TOPS of low-power AI acceleration and 8GB dedicated RAM for R.U.M. local LLM voice generation and real-time computer vision without consuming Pi 5 system RAM.
+            </div>
+          </div>
+
+          <!-- CARD 5: SYSTEM RAM & HIGH-SPEED STORAGE -->
+          <div class="hw-card hw-card-mem">
+            <div class="hw-card-header">
+              <div class="hw-card-title">
+                <span class="hw-icon">💾</span> SYSTEM RAM & STORAGE
+              </div>
+              <span class="hw-badge hw-badge-blue" id="hwRamBadge">8 GB LPDDR4X</span>
+            </div>
+            <div style="margin-bottom:8px;">
+              <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
+                <span>SYSTEM MEMORY</span>
+                <span id="hwRamText">0 MB / 8058 MB (0%)</span>
+              </div>
+              <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwRamFill" style="width:0%; background:var(--accent-blue);"></div></div>
+            </div>
+            <div style="margin-bottom:8px;">
+              <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
+                <span>VIRTUAL SWAP</span>
+                <span id="hwSwapText">0 MB / 2047 MB (0%)</span>
+              </div>
+              <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwSwapFill" style="width:0%; background:var(--accent-purple);"></div></div>
+            </div>
+            <div>
+              <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
+                <span>ROOT STORAGE (/)</span>
+                <span id="hwStorageText">0 GB / 0 GB (0%)</span>
+              </div>
+              <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwStorageFill" style="width:0%; background:var(--accent-green);"></div></div>
+            </div>
+          </div>
+
+          <!-- CARD 6: CONNECTED PERIPHERALS & HARDWARE BUS -->
+          <div class="hw-card hw-card-periph">
+            <div class="hw-card-header">
+              <div class="hw-card-title">
+                <span class="hw-icon">🔌</span> CONNECTED BUS & PERIPHERALS
+              </div>
+              <span class="hw-badge hw-badge-cyan">USB • PCIe • RP1</span>
+            </div>
+            <div class="hw-periph-list" id="hwPeriphList">
+              <div class="hw-periph-item">
+                <span class="hw-periph-tag">USB</span>
+                <span class="hw-periph-name">Shenzhen Goodix Capacitive Touchscreen (1024x600)</span>
+              </div>
+              <div class="hw-periph-item">
+                <span class="hw-periph-tag">USB</span>
+                <span class="hw-periph-name">Shenzhen Riitek Mini Wireless Keyboard</span>
+              </div>
+              <div class="hw-periph-item">
+                <span class="hw-periph-tag">PCIe</span>
+                <span class="hw-periph-name">Raspberry Pi RP1 PCIe 2.0 Southbridge Controller</span>
+              </div>
+              <div class="hw-periph-item">
+                <span class="hw-periph-tag">NET</span>
+                <span class="hw-periph-name">eth0: 10.0.0.1 (Direct Dual-SBC Link) • wlan0: Wi-Fi</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- CARD 7: RASPBERRY PI 3 CO-PROCESSOR TELEMETRY (BANDWIDTH OPTIMIZED) -->
+          <div class="hw-card hw-card-pi3" style="grid-column: 1 / -1; border-color:rgba(234,179,8,0.45);">
+            <div class="hw-card-header" style="flex-wrap:wrap; gap:10px;">
+              <div class="hw-card-title" style="color:var(--accent-yellow);">
+                <span class="hw-icon">🥧</span> RASPBERRY PI 3 CO-PROCESSOR (VISION & CAN BUS)
+              </div>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <label class="hw-stream-toggle" style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:11px; color:#e2e8f0; font-weight:700;">
+                  <input type="checkbox" id="chkPi3AutoStream" onchange="togglePi3AutoStream(this)" style="width:18px; height:18px; accent-color:var(--accent-yellow);">
+                  Auto-Stream Pi 3 (Every 2.5s)
+                </label>
+                <button class="cluster-action-btn hw-pi3-refresh-btn" id="btnRefreshPi3" onclick="refreshPi3HardwareStats(true)" style="min-height:44px; padding:6px 14px; font-weight:800; border-color:var(--accent-yellow); color:var(--accent-yellow);">
+                  🔄 REFRESH PI 3 STATS
+                </button>
+                <span class="hw-badge hw-badge-yellow" id="hwPi3StatusBadge">STANDBY / UNCHECKED</span>
+              </div>
+            </div>
+            <div class="hw-subtext" style="margin-bottom:10px;">
+              ⚡ <b>Bandwidth Management:</b> Direct Ethernet link polling (10.0.0.2 / 192.168.0.141) is paused by default to eliminate bus overhead. Tap Refresh for a single query or enable Auto-Stream.
+            </div>
+
+            <!-- Pi 3 Live Telemetry Grid -->
+            <div class="hw-metrics-row" id="hwPi3MetricsRow">
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">PI 3 CPU USAGE</div>
+                <div class="hw-metric-big" id="hwPi3Cpu">-- %</div>
+                <div class="hw-metric-sub" id="hwPi3Load">1m Load: --</div>
+              </div>
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">PI 3 CORE TEMP</div>
+                <div class="hw-metric-big" id="hwPi3Temp">-- °C</div>
+                <div class="hw-metric-sub" id="hwPi3TempF">-- °F</div>
+              </div>
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">PI 3 MEMORY</div>
+                <div class="hw-metric-big" id="hwPi3Ram">-- MB</div>
+                <div class="hw-metric-sub" id="hwPi3RamPct">1 GB LPDDR2</div>
+              </div>
+              <div class="hw-metric-block">
+                <div class="hw-metric-label">DASHCAM VISION</div>
+                <div class="hw-metric-big" id="hwPi3Camera" style="font-size:15px;">STANDBY</div>
+                <div class="hw-metric-sub" id="hwPi3Rec">Clips Recorded: --</div>
+              </div>
+            </div>
+            <div id="hwPi3Notice" style="margin-top:8px; font-size:11px; color:var(--text-secondary); text-align:center;">
+              Tap [🔄 REFRESH PI 3 STATS] to inspect live co-processor telemetry over the Ethernet bus.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
 </div> <!-- END view-container -->
 
   <!-- BOTTOM PERSISTENT DOCK / NAVIGATION BAR (6 BUTTONS) -->
@@ -2823,7 +3077,7 @@
 
     <!-- Quick Status Badges -->
     <div style="display:flex; align-items:center; gap:8px;">
-      <button class="cluster-action-btn" id="btnManualKeyboard" onclick="toggleManualKeyboard()" title="Toggle Virtual Keyboard" style="padding:4px 10px; font-size:12px; border-color:#2a374a; background:#141b24; color:#a0b8d0; cursor:pointer;">⌨️</button>
+      <button class="cluster-action-btn" id="btnFooterManualKeyboard" onclick="toggleManualKeyboard()" title="Toggle Virtual Keyboard" style="padding:4px 10px; font-size:12px; border-color:#2a374a; background:#141b24; color:#a0b8d0; cursor:pointer;">⌨️</button>
       <span style="font-size:11px; color:var(--text-secondary);" id="footerClock">00:00 AM</span>
     </div>
   </footer>
@@ -4037,7 +4291,7 @@
 
           <div style="background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:10px 14px;">
             <div style="font-size:10px; font-weight:800; color:var(--text-secondary); margin-bottom:4px;">CURRENTLY BROADCASTING TO CAR RADIO:</div>
-            <div id="uconnectDashText" style="font-size:14px; font-weight:900; color:#fff; font-family:var(--font-mono);">$uicideboy$ - CarPi5 In-Dash Audio</div>
+            <div id="uconnectDashText" style="font-size:14px; font-weight:900; color:#fff; font-family:var(--font-mono);">Standby - CarPi5 In-Dash Audio</div>
           </div>
 
           <div style="display:flex; justify-content:flex-end;">
@@ -4048,260 +4302,6 @@
 
     </div>
   </div>
-
-    <!-- 10. DUAL-SBC HARDWARE & PERIPHERALS DIAGNOSTICS STUDIO -->
-    <div class="screen-view" id="screenHardware">
-      <div class="hw-studio-container">
-        <!-- Top Sticky Header -->
-        <div class="hw-studio-header">
-          <div class="hw-header-left">
-            <button class="cluster-action-btn hw-home-btn" onclick="navigateTo('home')" title="Return to Home Dashboard">
-              🏠 HOME
-            </button>
-            <div>
-              <div class="hw-studio-title">⚡ SBC HARDWARE & TELEMETRY STUDIO</div>
-              <div class="hw-studio-subtitle">Raspberry Pi 5 Primary Cockpit • Dual-Link Pi 3 Co-Processor • Connected Bus Diagnostics</div>
-            </div>
-          </div>
-          <div class="hw-header-right">
-            <span class="hw-header-pill" id="hwUptimePill">UPTIME: 0h 0m</span>
-            <button class="cluster-action-btn hw-refresh-all-btn" onclick="refreshDetailedHardwareSpecs(true)" title="Force Refresh Pi 5 Telemetry">
-              🔄 REFRESH
-            </button>
-          </div>
-        </div>
-
-        <!-- Main Studio Grid -->
-        <div class="hw-studio-grid">
-          <!-- CARD 1: PI 5 CPU ARCHITECTURE & PER-CORE LOAD -->
-          <div class="hw-card hw-card-cpu">
-            <div class="hw-card-header">
-              <div class="hw-card-title">
-                <span class="hw-icon">⚡</span> CPU ARCHITECTURE & CORES
-              </div>
-              <span class="hw-badge hw-badge-cyan" id="hwCpuTotalBadge">OVERALL: 0%</span>
-            </div>
-            <div class="hw-subtext">Broadcom BCM2712 • Quad-Core ARM Cortex-A76 @ 2.40 GHz (TSMC 16nm)</div>
-            <div class="hw-cores-grid" id="hwCoresGrid">
-              <!-- Dynamically populated per core 0, 1, 2, 3 -->
-              <div class="hw-core-item" id="hwCore0">
-                <div class="hw-core-label"><span>CORE 0</span><span class="hw-core-freq" id="hwCore0Freq">2.40 GHz</span></div>
-                <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwCore0Fill" style="width:0%;"></div></div>
-                <div class="hw-core-val" id="hwCore0Val">0.0%</div>
-              </div>
-              <div class="hw-core-item" id="hwCore1">
-                <div class="hw-core-label"><span>CORE 1</span><span class="hw-core-freq" id="hwCore1Freq">2.40 GHz</span></div>
-                <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwCore1Fill" style="width:0%;"></div></div>
-                <div class="hw-core-val" id="hwCore1Val">0.0%</div>
-              </div>
-              <div class="hw-core-item" id="hwCore2">
-                <div class="hw-core-label"><span>CORE 2</span><span class="hw-core-freq" id="hwCore2Freq">2.40 GHz</span></div>
-                <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwCore2Fill" style="width:0%;"></div></div>
-                <div class="hw-core-val" id="hwCore2Val">0.0%</div>
-              </div>
-              <div class="hw-core-item" id="hwCore3">
-                <div class="hw-core-label"><span>CORE 3</span><span class="hw-core-freq" id="hwCore3Freq">2.40 GHz</span></div>
-                <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwCore3Fill" style="width:0%;"></div></div>
-                <div class="hw-core-val" id="hwCore3Val">0.0%</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- CARD 2: SOC THERMAL & POWER SUBSYSTEM -->
-          <div class="hw-card hw-card-thermal">
-            <div class="hw-card-header">
-              <div class="hw-card-title">
-                <span class="hw-icon">🌡️</span> SOC THERMAL & POWER
-              </div>
-              <span class="hw-badge hw-badge-green" id="hwThrottleBadge">0x0 NOMINAL</span>
-            </div>
-            <div class="hw-metrics-row">
-              <div class="hw-metric-block">
-                <div class="hw-metric-label">SoC TEMPERATURE</div>
-                <div class="hw-metric-big" id="hwSocTemp">-- °C</div>
-                <div class="hw-metric-sub" id="hwSocTempF">-- °F</div>
-              </div>
-              <div class="hw-metric-block">
-                <div class="hw-metric-label">CORE VOLTAGE</div>
-                <div class="hw-metric-big" id="hwCoreVolt">0.86 V</div>
-                <div class="hw-metric-sub">Active PMIC Regulated</div>
-              </div>
-              <div class="hw-metric-block">
-                <div class="hw-metric-label">UNDER-VOLTAGE</div>
-                <div class="hw-metric-big" id="hwUnderVolt" style="color:var(--accent-green);">NONE</div>
-                <div class="hw-metric-sub">5V / 5A USB-PD Rail</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- CARD 3: VIDEOCORE VII GPU & GRAPHICS PIPELINE -->
-          <div class="hw-card hw-card-gpu">
-            <div class="hw-card-header">
-              <div class="hw-card-title">
-                <span class="hw-icon">🎮</span> VIDEOCORE VII GPU
-              </div>
-              <span class="hw-badge hw-badge-cyan">V3D @ 960 MHz</span>
-            </div>
-            <div class="hw-metrics-row">
-              <div class="hw-metric-block">
-                <div class="hw-metric-label">3D ENGINE CLOCK</div>
-                <div class="hw-metric-big" id="hwGpuV3dClock">960 MHz</div>
-                <div class="hw-metric-sub">Broadcom VideoCore VII</div>
-              </div>
-              <div class="hw-metric-block">
-                <div class="hw-metric-label">CORE CLOCK</div>
-                <div class="hw-metric-big" id="hwGpuCoreClock">910 MHz</div>
-                <div class="hw-metric-sub">Vulkan 1.3 / GLES 3.1</div>
-              </div>
-              <div class="hw-metric-block">
-                <div class="hw-metric-label">GPU MEMORY</div>
-                <div class="hw-metric-big" id="hwGpuMem">8 MB</div>
-                <div class="hw-metric-sub">Mesa V3D (DRM-KMS)</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- CARD 4: HAILO-10H / HAILO-8 NPU ACCELERATOR SLOT -->
-          <div class="hw-card hw-card-npu" style="border-color:rgba(157,78,221,0.5);">
-            <div class="hw-card-header">
-              <div class="hw-card-title" style="color:#d8b4fe;">
-                <span class="hw-icon">🧠</span> HAILO-10H / HAILO-8 NPU ACCELERATOR
-              </div>
-              <span class="hw-badge hw-badge-purple" id="hwNpuStatusBadge">SLOT READY • M.2 HAT+</span>
-            </div>
-            <div class="hw-subtext">PCIe Gen 3.0 x1 / x4 Expansion Slot (Official Raspberry Pi AI Kit / Hailo HAT+)</div>
-            <div class="hw-metrics-row" style="margin-top:10px;">
-              <div class="hw-metric-block">
-                <div class="hw-metric-label">COMPUTE CAPACITY</div>
-                <div class="hw-metric-big" style="color:#d8b4fe;" id="hwNpuTops">40 TOPS</div>
-                <div class="hw-metric-sub">Hailo-10H GenAI Engine</div>
-              </div>
-              <div class="hw-metric-block">
-                <div class="hw-metric-label">ONBOARD NPU MEMORY</div>
-                <div class="hw-metric-big" style="color:#00f0ff;" id="hwNpuRam">8 GB</div>
-                <div class="hw-metric-sub">Dedicated LPDDR4X on HAT</div>
-              </div>
-              <div class="hw-metric-block">
-                <div class="hw-metric-label">HARDWARE STATUS</div>
-                <div class="hw-metric-big" id="hwNpuLive" style="font-size:14px; font-weight:800; color:#fbbf24;">READY / UNPOPULATED</div>
-                <div class="hw-metric-sub" id="hwNpuNode">/dev/hailo0 (Pending HAT+)</div>
-              </div>
-            </div>
-            <div class="hw-npu-footer" style="margin-top:8px; font-size:11px; color:var(--text-secondary); background:rgba(0,0,0,0.3); padding:6px 10px; border-radius:6px;">
-              💡 <b>Hailo-10H HAT+ ($200):</b> Delivers 40 TOPS of low-power AI acceleration and 8GB dedicated RAM for R.U.M. local LLM voice generation and real-time computer vision without consuming Pi 5 system RAM.
-            </div>
-          </div>
-
-          <!-- CARD 5: SYSTEM RAM & HIGH-SPEED STORAGE -->
-          <div class="hw-card hw-card-mem">
-            <div class="hw-card-header">
-              <div class="hw-card-title">
-                <span class="hw-icon">💾</span> SYSTEM RAM & STORAGE
-              </div>
-              <span class="hw-badge hw-badge-blue" id="hwRamBadge">8 GB LPDDR4X</span>
-            </div>
-            <div style="margin-bottom:8px;">
-              <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
-                <span>SYSTEM MEMORY</span>
-                <span id="hwRamText">0 MB / 8058 MB (0%)</span>
-              </div>
-              <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwRamFill" style="width:0%; background:var(--accent-blue);"></div></div>
-            </div>
-            <div style="margin-bottom:8px;">
-              <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
-                <span>VIRTUAL SWAP</span>
-                <span id="hwSwapText">0 MB / 2047 MB (0%)</span>
-              </div>
-              <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwSwapFill" style="width:0%; background:var(--accent-purple);"></div></div>
-            </div>
-            <div>
-              <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
-                <span>ROOT STORAGE (/)</span>
-                <span id="hwStorageText">0 GB / 0 GB (0%)</span>
-              </div>
-              <div class="hw-meter-bar"><div class="hw-meter-fill" id="hwStorageFill" style="width:0%; background:var(--accent-green);"></div></div>
-            </div>
-          </div>
-
-          <!-- CARD 6: CONNECTED PERIPHERALS & HARDWARE BUS -->
-          <div class="hw-card hw-card-periph">
-            <div class="hw-card-header">
-              <div class="hw-card-title">
-                <span class="hw-icon">🔌</span> CONNECTED BUS & PERIPHERALS
-              </div>
-              <span class="hw-badge hw-badge-cyan">USB • PCIe • RP1</span>
-            </div>
-            <div class="hw-periph-list" id="hwPeriphList">
-              <div class="hw-periph-item">
-                <span class="hw-periph-tag">USB</span>
-                <span class="hw-periph-name">Shenzhen Goodix Capacitive Touchscreen (1024x600)</span>
-              </div>
-              <div class="hw-periph-item">
-                <span class="hw-periph-tag">USB</span>
-                <span class="hw-periph-name">Shenzhen Riitek Mini Wireless Keyboard</span>
-              </div>
-              <div class="hw-periph-item">
-                <span class="hw-periph-tag">PCIe</span>
-                <span class="hw-periph-name">Raspberry Pi RP1 PCIe 2.0 Southbridge Controller</span>
-              </div>
-              <div class="hw-periph-item">
-                <span class="hw-periph-tag">NET</span>
-                <span class="hw-periph-name">eth0: 10.0.0.1 (Direct Dual-SBC Link) • wlan0: Wi-Fi</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- CARD 7: RASPBERRY PI 3 CO-PROCESSOR TELEMETRY (BANDWIDTH OPTIMIZED) -->
-          <div class="hw-card hw-card-pi3" style="grid-column: 1 / -1; border-color:rgba(234,179,8,0.45);">
-            <div class="hw-card-header" style="flex-wrap:wrap; gap:10px;">
-              <div class="hw-card-title" style="color:var(--accent-yellow);">
-                <span class="hw-icon">🥧</span> RASPBERRY PI 3 CO-PROCESSOR (VISION & CAN BUS)
-              </div>
-              <div style="display:flex; align-items:center; gap:10px;">
-                <label class="hw-stream-toggle" style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:11px; color:#e2e8f0; font-weight:700;">
-                  <input type="checkbox" id="chkPi3AutoStream" onchange="togglePi3AutoStream(this)" style="width:18px; height:18px; accent-color:var(--accent-yellow);">
-                  Auto-Stream Pi 3 (Every 2.5s)
-                </label>
-                <button class="cluster-action-btn hw-pi3-refresh-btn" id="btnRefreshPi3" onclick="refreshPi3HardwareStats(true)" style="min-height:44px; padding:6px 14px; font-weight:800; border-color:var(--accent-yellow); color:var(--accent-yellow);">
-                  🔄 REFRESH PI 3 STATS
-                </button>
-                <span class="hw-badge hw-badge-yellow" id="hwPi3StatusBadge">STANDBY / UNCHECKED</span>
-              </div>
-            </div>
-            <div class="hw-subtext" style="margin-bottom:10px;">
-              ⚡ <b>Bandwidth Management:</b> Direct Ethernet link polling (10.0.0.2 / 192.168.0.141) is paused by default to eliminate bus overhead. Tap Refresh for a single query or enable Auto-Stream.
-            </div>
-
-            <!-- Pi 3 Live Telemetry Grid -->
-            <div class="hw-metrics-row" id="hwPi3MetricsRow">
-              <div class="hw-metric-block">
-                <div class="hw-metric-label">PI 3 CPU USAGE</div>
-                <div class="hw-metric-big" id="hwPi3Cpu">-- %</div>
-                <div class="hw-metric-sub" id="hwPi3Load">1m Load: --</div>
-              </div>
-              <div class="hw-metric-block">
-                <div class="hw-metric-label">PI 3 CORE TEMP</div>
-                <div class="hw-metric-big" id="hwPi3Temp">-- °C</div>
-                <div class="hw-metric-sub" id="hwPi3TempF">-- °F</div>
-              </div>
-              <div class="hw-metric-block">
-                <div class="hw-metric-label">PI 3 MEMORY</div>
-                <div class="hw-metric-big" id="hwPi3Ram">-- MB</div>
-                <div class="hw-metric-sub" id="hwPi3RamPct">1 GB LPDDR2</div>
-              </div>
-              <div class="hw-metric-block">
-                <div class="hw-metric-label">DASHCAM VISION</div>
-                <div class="hw-metric-big" id="hwPi3Camera" style="font-size:15px;">STANDBY</div>
-                <div class="hw-metric-sub" id="hwPi3Rec">Clips Recorded: --</div>
-              </div>
-            </div>
-            <div id="hwPi3Notice" style="margin-top:8px; font-size:11px; color:var(--text-secondary); text-align:center;">
-              Tap [🔄 REFRESH PI 3 STATS] to inspect live co-processor telemetry over the Ethernet bus.
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
 
     <!-- ODOMETER ADJUSTMENT MODAL -->
     <div class="config-modal-overlay" id="maintOdometerModal" style="display:none;">
