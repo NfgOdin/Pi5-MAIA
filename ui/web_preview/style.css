@@ -5484,3 +5484,84 @@ body.cockpit-night-mode .vehicle-hub-card {
 .maint-modal-input:focus {
   border-color: #00f0ff;
 }
+
+/* --- NHRA CHRISTMAS TREE & DRAG STUDIO STYLING --- */
+.tree-bulb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #1e293b;
+  background: #151a24;
+  box-sizing: border-box;
+  transition: background 0.08s ease, box-shadow 0.08s ease;
+}
+.tree-bulb.tree-white {
+  background: #1b2230;
+}
+.tree-bulb.tree-white.active {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 0 16px #ffffff, 0 0 28px #38bdf8;
+}
+.tree-bulb.tree-amber {
+  background: #272111;
+}
+.tree-bulb.tree-amber.active {
+  background: #ffb700;
+  border-color: #ffd54f;
+  box-shadow: 0 0 20px #ffb700, 0 0 35px #ff8800;
+}
+.tree-bulb.tree-green {
+  background: #0d2818;
+}
+.tree-bulb.tree-green.active {
+  background: #00e676;
+  border-color: #69f0ae;
+  box-shadow: 0 0 24px #00e676, 0 0 40px #00ff88;
+}
+.tree-bulb.tree-red {
+  background: #2b1114;
+}
+.tree-bulb.tree-red.active {
+  background: #ff1744;
+  border-color: #ff5252;
+  box-shadow: 0 0 24px #ff1744, 0 0 40px #ff1744;
+}
+
+.drag-slip-card {
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-sizing: border-box;
+}
+
+.f1-led {
+  flex: 1;
+  border-radius: 3px;
+  background: #1e293b;
+  transition: background 0.05s ease, box-shadow 0.05s ease;
+}
+.f1-led.green-active {
+  background: #00e676;
+  box-shadow: 0 0 8px #00e676;
+}
+.f1-led.amber-active {
+  background: #ffb700;
+  box-shadow: 0 0 8px #ffb700;
+}
+.f1-led.red-active {
+  background: #ff1744;
+  box-shadow: 0 0 10px #ff1744;
+}
+.f1-led.flash-active {
+  background: #00e5ff;
+  box-shadow: 0 0 14px #00e5ff, 0 0 20px #ff00ea;
+  animation: f1Flash 0.15s infinite alternate;
+}
+@keyframes f1Flash {
+  from { opacity: 0.6; }
+  to { opacity: 1.0; }
+}

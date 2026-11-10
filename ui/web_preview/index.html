@@ -363,6 +363,19 @@
           <div style="font-size:10px; font-weight:800; color:var(--accent-orange); letter-spacing:0.5px;">SCAN OBD-II →</div>
         </div>
 
+        <!-- 4B. DRAG LAUNCH CONTROL & G-HUD -->
+        <div class="launcher-card card-dragy" onclick="navigateTo('dragy')" style="border-color:rgba(255,170,0,0.45); cursor:pointer;">
+          <div class="card-badge" id="vehHubDragyBadge" style="background:rgba(255,170,0,0.18); color:var(--accent-yellow); border:1px solid var(--accent-yellow);">
+            <span>🚦 NHRA STAGING</span>
+          </div>
+          <div>
+            <div class="card-icon" style="color:var(--accent-yellow);">🏁</div>
+            <div class="card-title">DRAG LAUNCH & G-HUD</div>
+            <div class="card-subtitle">NHRA Christmas tree staging, 0-60 / 60-ft / 1/4-mile timers, F1 shift lights & G-G friction circle.</div>
+          </div>
+          <div style="font-size:10px; font-weight:800; color:var(--accent-yellow); letter-spacing:0.5px;">LAUNCH CONTROL →</div>
+        </div>
+
         <!-- 5. SBC HARDWARE STUDIO -->
         <div class="launcher-card card-hardware" onclick="navigateTo('hardware')" style="border-color:rgba(0,240,255,0.4);">
           <div class="card-badge" style="background:rgba(0,240,255,0.15); color:#00f0ff; border:1px solid #00f0ff;">
@@ -3057,6 +3070,234 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- 1B-2. DRAG LAUNCH CONTROL & HIGH-G PERFORMANCE STUDIO -->
+    <div class="screen-view" id="screenDragy" style="flex-direction:column; gap:8px; height:100%; overflow:hidden; padding:8px 12px; box-sizing:border-box;">
+      <!-- Top Sticky Header -->
+      <div style="display:flex; justify-content:space-between; align-items:center; background:#10151f; border:1px solid #1c2636; border-radius:10px; padding:6px 14px; flex-shrink:0;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <button class="cluster-action-btn" onclick="navigateTo('vehicle')" style="padding:6px 14px; font-size:12px; min-height:44px; background:#1b2838; border-color:#ffaa00; color:#ffaa00; cursor:pointer;" title="Back to Vehicle Hub">
+            🏎️ VEHICLE
+          </button>
+          <button class="cluster-action-btn" onclick="navigateTo('home')" style="padding:6px 14px; font-size:12px; min-height:44px; background:#141b24; border-color:#2a374a; color:#fff; cursor:pointer;" title="Cockpit Home">
+            🏠 HOME
+          </button>
+          <div>
+            <div style="font-size:14px; font-weight:900; color:#fff; letter-spacing:0.5px;">🚦 DRAG LAUNCH CONTROL & HIGH-G STUDIO</div>
+            <div style="font-size:10px; color:var(--text-secondary); font-weight:600;">NHRA Staging Tree • 0-60 & 1/4-Mile Timers • Real-Time G-G Friction Circle HUD</div>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button id="dragTreeModeBtn" class="cluster-action-btn" onclick="toggleDragTreeMode()" style="padding:6px 12px; min-height:44px; background:rgba(0,176,255,0.12); border-color:#00b0ff; color:#00b0ff; font-weight:800; font-size:11px; cursor:pointer;">
+            🟡 SPORTSMAN (0.5s)
+          </button>
+          <button id="btnArmDragStage" class="cluster-action-btn" onclick="armDragStaging()" style="padding:6px 16px; min-height:44px; font-size:12px; font-weight:900; background:linear-gradient(135deg, #ff9900, #ff3300); border:none; color:#fff; border-radius:8px; cursor:pointer; box-shadow:0 0 14px rgba(255,102,0,0.5);">
+            🚦 ARM STAGE
+          </button>
+          <button class="cluster-action-btn" onclick="resetDragRun()" style="padding:6px 12px; min-height:44px; background:#1b2838; border-color:#ff4444; color:#ff8888; font-weight:800; font-size:11px; cursor:pointer;">
+            ⏱️ RESET
+          </button>
+        </div>
+      </div>
+
+      <!-- Main Body: 3-Column Layout -->
+      <div style="flex:1; display:flex; gap:10px; min-height:0; overflow:hidden;">
+        
+        <!-- COLUMN 1: NHRA Christmas Tree Staging Tower (Width: 185px) -->
+        <div style="width:185px; background:linear-gradient(180deg, #131924, #0b0f16); border:1px solid #1e293b; border-radius:10px; padding:8px 10px; display:flex; flex-direction:column; align-items:center; justify-content:space-between; flex-shrink:0; box-sizing:border-box;">
+          <div style="font-size:10px; font-weight:900; letter-spacing:1px; color:var(--text-secondary); text-align:center;">NHRA STAGING TREE</div>
+          
+          <!-- Tree Tower Assembly -->
+          <div style="background:#090d14; border:2px solid #223244; border-radius:8px; padding:6px 10px; display:flex; flex-direction:column; gap:4px; align-items:center; width:125px; box-shadow:inset 0 0 15px rgba(0,0,0,0.8); box-sizing:border-box;">
+            
+            <!-- Pre-Stage Bulbs -->
+            <div style="display:flex; flex-direction:column; align-items:center; gap:1px;">
+              <span style="font-size:8px; font-weight:800; color:#64748b; letter-spacing:0.5px;">PRE-STAGE</span>
+              <div style="display:flex; gap:16px;">
+                <div class="tree-bulb tree-white" id="treePreStageL"></div>
+                <div class="tree-bulb tree-white" id="treePreStageR"></div>
+              </div>
+            </div>
+
+            <!-- Stage Bulbs -->
+            <div style="display:flex; flex-direction:column; align-items:center; gap:1px;">
+              <span style="font-size:8px; font-weight:800; color:#64748b; letter-spacing:0.5px;">STAGE</span>
+              <div style="display:flex; gap:16px;">
+                <div class="tree-bulb tree-white" id="treeStageL"></div>
+                <div class="tree-bulb tree-white" id="treeStageR"></div>
+              </div>
+            </div>
+
+            <div style="width:100%; height:1px; background:#1e293b; margin:1px 0;"></div>
+
+            <!-- Amber 1 -->
+            <div style="display:flex; gap:16px;">
+              <div class="tree-bulb tree-amber" id="treeAmber1L"></div>
+              <div class="tree-bulb tree-amber" id="treeAmber1R"></div>
+            </div>
+
+            <!-- Amber 2 -->
+            <div style="display:flex; gap:16px;">
+              <div class="tree-bulb tree-amber" id="treeAmber2L"></div>
+              <div class="tree-bulb tree-amber" id="treeAmber2R"></div>
+            </div>
+
+            <!-- Amber 3 -->
+            <div style="display:flex; gap:16px;">
+              <div class="tree-bulb tree-amber" id="treeAmber3L"></div>
+              <div class="tree-bulb tree-amber" id="treeAmber3R"></div>
+            </div>
+
+            <div style="width:100%; height:1px; background:#1e293b; margin:1px 0;"></div>
+
+            <!-- Green Light -->
+            <div style="display:flex; gap:16px;">
+              <div class="tree-bulb tree-green" id="treeGreenL"></div>
+              <div class="tree-bulb tree-green" id="treeGreenR"></div>
+            </div>
+
+            <!-- Red Light (Foul) -->
+            <div style="display:flex; gap:16px;">
+              <div class="tree-bulb tree-red" id="treeRedL"></div>
+              <div class="tree-bulb tree-red" id="treeRedR"></div>
+            </div>
+          </div>
+
+          <!-- Staging Status & Reaction Time -->
+          <div style="width:100%; text-align:center;">
+            <div id="treeStatusPill" style="padding:4px 8px; border-radius:6px; font-size:10px; font-weight:900; background:rgba(100,116,139,0.2); border:1px solid #475569; color:#94a3b8; text-transform:uppercase;">
+              READY TO STAGE
+            </div>
+            <div style="font-size:10px; font-weight:800; color:#38bdf8; margin-top:3px;">
+              RT: <span id="treeReactionTime">--.---</span>s
+            </div>
+          </div>
+        </div>
+
+        <!-- COLUMN 2: Dragy Performance Slip & Live Metrics (Flex: 1) -->
+        <div style="flex:1; display:flex; flex-direction:column; gap:8px; min-width:0;">
+          <!-- Top Digital Telemetry Bar -->
+          <div style="background:#10151f; border:1px solid #1c2636; border-radius:10px; padding:6px 14px; display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="font-size:9px; font-weight:800; color:var(--text-secondary); letter-spacing:0.5px;">RUN ELAPSED TIMER</div>
+              <div style="font-family:var(--font-mono); font-size:34px; font-weight:900; color:#00e5ff; line-height:1; text-shadow:0 0 14px rgba(0,229,255,0.4);">
+                <span id="dragStudioTimer">0.00</span> <span style="font-size:13px; color:var(--text-secondary);">s</span>
+              </div>
+            </div>
+            <div style="text-align:center;">
+              <div style="font-size:9px; font-weight:800; color:var(--text-secondary); letter-spacing:0.5px;">VEHICLE SPEED</div>
+              <div style="font-size:24px; font-weight:900; color:#fff; line-height:1;">
+                <span id="dragStudioSpeed">0.0</span> <span style="font-size:12px; color:var(--text-secondary);">MPH</span>
+              </div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:9px; font-weight:800; color:var(--text-secondary); letter-spacing:0.5px;">ACCELERATION G</div>
+              <div style="font-size:24px; font-weight:900; color:#ffab00; line-height:1;">
+                <span id="dragStudioLongG">+0.00</span> <span style="font-size:12px; color:var(--text-secondary);">G</span>
+              </div>
+              <div style="font-size:9px; color:var(--text-secondary); font-weight:700;">PEAK: <span id="dragStudioPeakG" style="color:#00e676;">+0.00</span> G</div>
+            </div>
+          </div>
+
+          <!-- 2x2 Dragy Performance Slip Grid -->
+          <div style="flex:1; display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:8px;">
+            <!-- 0 - 60 MPH -->
+            <div class="drag-slip-card" style="border-color:rgba(0,230,118,0.35); background:linear-gradient(135deg, #0e171f, #0a1118);">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:10px; font-weight:900; color:var(--accent-green); letter-spacing:0.5px;">⚡ 0 - 60 MPH</span>
+                <span id="dragBadge060" style="font-size:9px; font-weight:800; padding:2px 6px; border-radius:4px; background:rgba(0,230,118,0.15); color:var(--accent-green);">STAGED</span>
+              </div>
+              <div id="dragVal060" style="font-size:28px; font-weight:900; color:#00e676; margin:3px 0 1px 0; font-family:var(--font-mono);">-- s</div>
+              <div style="font-size:10px; color:var(--text-secondary); font-weight:600;">Grade: <span id="dragGrade060">0.0%</span> • 60-ft Split</div>
+            </div>
+
+            <!-- 60 FT LAUNCH -->
+            <div class="drag-slip-card" style="border-color:rgba(0,176,255,0.35); background:linear-gradient(135deg, #0e171f, #0a1118);">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:10px; font-weight:900; color:#00b0ff; letter-spacing:0.5px;">🚀 60 FT LAUNCH</span>
+                <span id="dragBadge60ft" style="font-size:9px; font-weight:800; padding:2px 6px; border-radius:4px; background:rgba(0,176,255,0.15); color:#00b0ff;">TRACTION</span>
+              </div>
+              <div id="dragVal60ft" style="font-size:28px; font-weight:900; color:#00b0ff; margin:3px 0 1px 0; font-family:var(--font-mono);">-- s</div>
+              <div style="font-size:10px; color:var(--text-secondary); font-weight:600;">Clutch Bite &amp; 1st Gear Grip</div>
+            </div>
+
+            <!-- 1/8 MILE (660 FT) -->
+            <div class="drag-slip-card" style="border-color:rgba(255,170,0,0.35); background:linear-gradient(135deg, #0e171f, #0a1118);">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:10px; font-weight:900; color:#ffab00; letter-spacing:0.5px;">🏁 1/8 MILE (660 FT)</span>
+                <span id="dragBadge18mi" style="font-size:9px; font-weight:800; padding:2px 6px; border-radius:4px; background:rgba(255,170,0,0.15); color:#ffab00;">MID-TRACK</span>
+              </div>
+              <div id="dragVal18mi" style="font-size:24px; font-weight:900; color:#ffab00; margin:3px 0 1px 0; font-family:var(--font-mono);">-- s</div>
+              <div style="font-size:10px; color:var(--text-secondary); font-weight:600;">Trap: <span id="dragTrap18mi" style="color:#fff; font-weight:800;">--</span> MPH</div>
+            </div>
+
+            <!-- 1/4 MILE (1320 FT) -->
+            <div class="drag-slip-card" style="border-color:rgba(255,51,68,0.35); background:linear-gradient(135deg, #0e171f, #0a1118);">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:10px; font-weight:900; color:#ff3344; letter-spacing:0.5px;">🏆 1/4 MILE (1320 FT)</span>
+                <span id="dragBadge14mi" style="font-size:9px; font-weight:800; padding:2px 6px; border-radius:4px; background:rgba(255,51,68,0.15); color:#ff3344;">FULL STRIP</span>
+              </div>
+              <div id="dragVal14mi" style="font-size:24px; font-weight:900; color:#ff3344; margin:3px 0 1px 0; font-family:var(--font-mono);">-- s</div>
+              <div style="font-size:10px; color:var(--text-secondary); font-weight:600;">Trap: <span id="dragTrap14mi" style="color:#fff; font-weight:800;">--</span> MPH</div>
+            </div>
+          </div>
+
+          <!-- R.U.M. Staging Callout Bar -->
+          <div style="background:rgba(179,136,255,0.08); border:1px solid rgba(179,136,255,0.25); border-radius:8px; padding:6px 12px; display:flex; align-items:center; gap:8px;">
+            <span style="font-size:14px;">💜</span>
+            <span id="dragRumCallout" style="font-size:11px; font-weight:700; color:#d8b4fe;">R.U.M.: Ready on the starting line, Dad! Floor it on Green!</span>
+          </div>
+        </div>
+
+        <!-- COLUMN 3: F1 Shift Lights & G-G Friction Circle HUD (Width: 260px) -->
+        <div style="width:260px; background:#10151f; border:1px solid #1c2636; border-radius:10px; padding:8px 10px; display:flex; flex-direction:column; gap:6px; flex-shrink:0; box-sizing:border-box;">
+          
+          <!-- F1 Sequential Shift Lightbar -->
+          <div style="background:#090d14; border:1px solid #1e293b; border-radius:8px; padding:6px 8px; display:flex; flex-direction:column; gap:3px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:9px; font-weight:900; color:var(--text-secondary); letter-spacing:0.5px;">F1 SHIFT LIGHTBAR</span>
+              <span id="dragRpmVal" style="font-size:11px; font-weight:900; color:#00e5ff; font-family:var(--font-mono);">0 RPM</span>
+            </div>
+            <!-- 12 LED Shift Elements -->
+            <div style="display:flex; gap:3px; justify-content:space-between; height:12px;" id="f1ShiftBar">
+              <div class="f1-led" id="f1Led1"></div>
+              <div class="f1-led" id="f1Led2"></div>
+              <div class="f1-led" id="f1Led3"></div>
+              <div class="f1-led" id="f1Led4"></div>
+              <div class="f1-led" id="f1Led5"></div>
+              <div class="f1-led" id="f1Led6"></div>
+              <div class="f1-led" id="f1Led7"></div>
+              <div class="f1-led" id="f1Led8"></div>
+              <div class="f1-led" id="f1Led9"></div>
+              <div class="f1-led" id="f1Led10"></div>
+              <div class="f1-led" id="f1Led11"></div>
+              <div class="f1-led" id="f1Led12"></div>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:8px; font-weight:700; color:#475569;">
+              <span>3000</span>
+              <span>4500</span>
+              <span>5500</span>
+              <span style="color:#ef4444;">6200 REDLINE</span>
+            </div>
+          </div>
+
+          <!-- G-G Friction Circle HUD -->
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; position:relative;">
+            <div style="position:absolute; top:0; left:0; font-size:9px; font-weight:900; color:var(--text-secondary); letter-spacing:0.5px;">
+              G-G FRICTION CIRCLE
+            </div>
+            <canvas id="ggFrictionCanvas" width="220" height="220" style="width:220px; height:220px; border-radius:50%; background:#070a0f; border:1px solid #1e293b; box-shadow:inset 0 0 20px rgba(0,0,0,0.9); margin-top:14px;"></canvas>
+            <!-- Realtime G Readouts Below Canvas -->
+            <div style="display:flex; justify-content:space-between; width:100%; margin-top:4px; font-size:10px; font-weight:800;">
+              <span style="color:#38bdf8;">LAT: <span id="frictionLatG">0.00</span>G</span>
+              <span style="color:#ffab00;">LONG: <span id="frictionLongG">+0.00</span>G</span>
+              <span style="color:#00e676;">TOT: <span id="frictionTotalG">0.00</span>G</span>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 

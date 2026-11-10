@@ -2962,6 +2962,25 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             return
 
+        elif parsed.path == "/api/drag/stage":
+            tree_type = req_data.get("tree_type", "SPORTSMAN") if isinstance(req_data, dict) else "SPORTSMAN"
+            res = state.gps.arm_staging(tree_type) if hasattr(state, "gps") and state.gps else {"status": "ok", "state": "STAGED"}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/drag/reset":
+            res = state.gps.reset_dragy() if hasattr(state, "gps") and state.gps else {"status": "ok", "state": "IDLE"}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
 
 
 
@@ -4633,6 +4652,20 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             self.wfile.write(json.dumps(state.gps.get_telemetry()).encode("utf-8"))
 
+            return
+
+        elif parsed.path == "/api/drag/status":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            telem = state.gps.get_telemetry() if hasattr(state, "gps") and state.gps else {}
+            self.wfile.write(json.dumps({
+                "dragy": telem.get("dragy", {}),
+                "g_forces": telem.get("g_forces", {}),
+                "speed_mph": telem.get("speed_mph", 0.0),
+                "road_grade_pct": telem.get("road_grade_pct", 0.0)
+            }).encode("utf-8"))
             return
 
         elif parsed.path.startswith("/api/maps/tiles/"):

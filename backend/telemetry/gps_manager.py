@@ -50,6 +50,8 @@ class GpsManager:
         self._last_time_sync = 0.0
         self.dragy: Dict[str, Any] = {
             "state": "IDLE",  # IDLE, STAGED, ACCELERATING, FINISHED
+            "tree_type": "SPORTSMAN",
+            "reaction_time": None,
             "time_0_60": None,
             "time_60ft": None,
             "time_1_8mi": None,
@@ -61,6 +63,16 @@ class GpsManager:
             "history": []
         }
         
+        self.g_forces: Dict[str, float] = {
+            "longitudinal": 0.0,
+            "lateral": 0.0,
+            "peak_accel": 0.0,
+            "peak_braking": 0.0,
+            "peak_lateral": 0.0
+        }
+        self._last_heading = None
+        self._last_heading_time = 0.0
+
         self._last_alt = 0.0
         self._last_dist = 0.0
         self._run_start_time = 0.0
@@ -110,7 +122,27 @@ class GpsManager:
         
         # Calculate instantaneous G-force: a = dv / dt (in mph/s). 1G ~= 21.937 mph/s
         dv_dt = (speed_mph - self._last_speed_mph) / dt if dt > 0 else 0.0
-        inst_g = max(0.0, round(dv_dt / 21.937, 2))
+        inst_g_long = round(dv_dt / 21.937, 2)
+        inst_g = max(0.0, inst_g_long)
+        
+        self.g_forces["longitudinal"] = inst_g_long
+        if inst_g_long > 0:
+            self.g_forces["peak_accel"] = max(self.g_forces["peak_accel"], inst_g_long)
+        elif inst_g_long < 0:
+            self.g_forces["peak_braking"] = min(self.g_forces["peak_braking"], inst_g_long)
+
+        # Calculate instantaneous lateral G from heading delta if turning
+        cur_heading = self.data.get("heading", 0.0)
+        if self._last_heading is not None and dt > 0 and speed_mph > 2.0:
+            d_heading = (cur_heading - self._last_heading + 180) % 360 - 180
+            rad_s = math.radians(d_heading) / dt
+            v_ms = speed_mph * 0.44704
+            inst_g_lat = round((v_ms * rad_s) / 9.80665, 2)
+            self.g_forces["lateral"] = inst_g_lat
+            self.g_forces["peak_lateral"] = max(self.g_forces["peak_lateral"], abs(inst_g_lat))
+        elif speed_mph <= 1.0:
+            self.g_forces["lateral"] = 0.0
+        self._last_heading = cur_heading
         
         self._last_speed_mph = speed_mph
         self._last_speed_time = now
@@ -332,11 +364,38 @@ class GpsManager:
                     except Exception:
                         pass
 
+    def arm_staging(self, tree_type: str = "SPORTSMAN") -> Dict[str, Any]:
+        with self.lock:
+            self.dragy["state"] = "STAGED"
+            self.dragy["tree_type"] = tree_type
+            self.dragy["current_run_time"] = 0.0
+            self.dragy["reaction_time"] = None
+            self._run_dist_feet = 0.0
+            return {"status": "ok", "state": "STAGED", "tree_type": tree_type}
+
+    def reset_dragy(self) -> Dict[str, Any]:
+        with self.lock:
+            self.dragy["state"] = "IDLE"
+            self.dragy["current_run_time"] = 0.0
+            self.dragy["reaction_time"] = None
+            self.dragy["time_0_60"] = None
+            self.dragy["time_60ft"] = None
+            self.dragy["time_1_8mi"] = None
+            self.dragy["speed_1_8mi"] = None
+            self.dragy["time_1_4mi"] = None
+            self.dragy["speed_1_4mi"] = None
+            self.dragy["peak_g"] = 0.0
+            self._run_dist_feet = 0.0
+            self.g_forces["longitudinal"] = 0.0
+            self.g_forces["lateral"] = 0.0
+            return {"status": "ok", "state": "IDLE"}
+
     def get_telemetry(self) -> Dict[str, Any]:
         with self.lock:
             return {
                 **self.data,
-                "dragy": dict(self.dragy)
+                "dragy": dict(self.dragy),
+                "g_forces": dict(self.g_forces)
             }
 
 

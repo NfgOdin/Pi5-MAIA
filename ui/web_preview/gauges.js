@@ -1542,7 +1542,11 @@ function navigateTo(screenId) {
 
     library: document.getElementById('screenLibrary'),
 
-    maintenance: document.getElementById('screenMaintenance')
+    maintenance: document.getElementById('screenMaintenance'),
+
+    dragy: document.getElementById('screenDragy'),
+
+    drag_launch: document.getElementById('screenDragy')
 
 
 
@@ -1598,6 +1602,11 @@ function navigateTo(screenId) {
   // Phase 8: MultiAir Maintenance & Vector Memory Refresh Lifecycle
   if (screenId === 'maintenance') {
     refreshMaintenanceData();
+  }
+
+  // Phase 9: Drag Launch Control & G-G Friction Circle Init Lifecycle
+  if (screenId === 'dragy' || screenId === 'drag_launch') {
+    if (typeof initDragyStudio === 'function') initDragyStudio();
   }
 
 
@@ -3352,6 +3361,15 @@ function connectTelemetryStream() {
 
 
 
+    }
+
+    if (data.gps) {
+      updateGpsAndDragyUI(data.gps);
+      if (typeof updateDragyStudioUI === 'function') {
+        updateDragyStudioUI(data.gps, data.telemetry);
+      }
+    } else if (data.telemetry && typeof updateDragyStudioUI === 'function') {
+      updateDragyStudioUI(null, data.telemetry);
     }
 
 
@@ -44404,3 +44422,455 @@ function queryRumVectorMemory(query) {
 setTimeout(() => {
   refreshMaintenanceData();
 }, 2500);
+
+// ============================================================================
+// 🏁 PHASE 9: DRAG LAUNCH CONTROL, NHRA CHRISTMAS TREE & G-G FRICTION HUD
+// ============================================================================
+
+let dragTreeMode = 'SPORTSMAN'; // 'SPORTSMAN' (0.5s stagger) | 'PRO' (0.4s flash)
+let dragStagingState = 'IDLE'; // 'IDLE' | 'PRE_STAGE' | 'STAGED' | 'COUNTDOWN' | 'GREEN' | 'ACCELERATING' | 'FINISHED' | 'FOUL'
+let dragTreeTimeouts = [];
+let dragGreenTime = 0;
+let dragReactionTime = null;
+let ggHistory = [];
+
+function toggleDragTreeMode() {
+  if (dragTreeMode === 'SPORTSMAN') {
+    dragTreeMode = 'PRO';
+  } else {
+    dragTreeMode = 'SPORTSMAN';
+  }
+  const btn = document.getElementById('dragTreeModeBtn');
+  if (btn) {
+    btn.innerText = dragTreeMode === 'SPORTSMAN' ? '🟡 SPORTSMAN (0.5s)' : '⚡ PRO TREE (0.4s)';
+    btn.style.color = dragTreeMode === 'SPORTSMAN' ? '#00b0ff' : '#ff9900';
+    btn.style.borderColor = dragTreeMode === 'SPORTSMAN' ? '#00b0ff' : '#ff9900';
+  }
+  resetDragRun();
+}
+
+function clearAllTreeBulbs() {
+  const bulbs = [
+    'treePreStageL', 'treePreStageR',
+    'treeStageL', 'treeStageR',
+    'treeAmber1L', 'treeAmber1R',
+    'treeAmber2L', 'treeAmber2R',
+    'treeAmber3L', 'treeAmber3R',
+    'treeGreenL', 'treeGreenR',
+    'treeRedL', 'treeRedR'
+  ];
+  bulbs.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('active');
+  });
+}
+
+function setBulbsActive(ids, active) {
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      if (active) el.classList.add('active');
+      else el.classList.remove('active');
+    }
+  });
+}
+
+function updateDragTreeStatus(label, color, bg) {
+  const pill = document.getElementById('treeStatusPill');
+  if (pill) {
+    pill.innerText = label;
+    pill.style.color = color || '#94a3b8';
+    pill.style.background = bg || 'rgba(100,116,139,0.2)';
+    pill.style.borderColor = color || '#475569';
+  }
+}
+
+function setRumDragCallout(msg) {
+  const callout = document.getElementById('dragRumCallout');
+  if (callout) callout.innerText = 'R.U.M.: ' + msg;
+  const bubble = document.getElementById('vrmHudBubble');
+  if (bubble) {
+    bubble.innerText = msg;
+    bubble.style.display = 'block';
+  }
+}
+
+function armDragStaging() {
+  dragTreeTimeouts.forEach(t => clearTimeout(t));
+  dragTreeTimeouts = [];
+  clearAllTreeBulbs();
+
+  dragStagingState = 'PRE_STAGE';
+  dragReactionTime = null;
+  dragGreenTime = 0;
+  
+  const rtEl = document.getElementById('treeReactionTime');
+  if (rtEl) rtEl.innerText = '--.---';
+
+  // 1. Light Pre-Stage
+  setBulbsActive(['treePreStageL', 'treePreStageR'], true);
+  updateDragTreeStatus('PRE-STAGED', '#38bdf8', 'rgba(56,189,248,0.2)');
+  setRumDragCallout("Rolling into pre-stage... Hold the clutch and rev, Dad!");
+
+  // Notify backend
+  const apiBase = (typeof DAEMON_ORIGIN !== 'undefined' ? DAEMON_ORIGIN : (window.location.origin.startsWith('http') ? '' : 'http://127.0.0.1:8080'));
+  fetch(`${apiBase}/api/drag/stage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tree_type: dragTreeMode })
+  }).catch(() => {});
+
+  // 2. Light Stage after 800ms
+  dragTreeTimeouts.push(setTimeout(() => {
+    if (dragStagingState !== 'PRE_STAGE') return;
+    dragStagingState = 'STAGED';
+    setBulbsActive(['treeStageL', 'treeStageR'], true);
+    updateDragTreeStatus('STAGED - READY', '#00e676', 'rgba(0,230,118,0.2)');
+    setRumDragCallout("STAGED! Eyes on the tree!");
+
+    // 3. Initiate Countdown sequence after 1.2s
+    dragTreeTimeouts.push(setTimeout(() => {
+      startTreeCountdown();
+    }, 1200));
+  }, 800));
+}
+
+function startTreeCountdown() {
+  dragStagingState = 'COUNTDOWN';
+  updateDragTreeStatus('COUNTDOWN', '#ffab00', 'rgba(255,170,0,0.2)');
+
+  if (dragTreeMode === 'SPORTSMAN') {
+    // 0.5s intervals: Amber 1 -> Amber 2 -> Amber 3 -> GREEN
+    dragTreeTimeouts.push(setTimeout(() => {
+      if (dragStagingState !== 'COUNTDOWN') return;
+      setBulbsActive(['treeAmber1L', 'treeAmber1R'], true);
+    }, 100));
+
+    dragTreeTimeouts.push(setTimeout(() => {
+      if (dragStagingState !== 'COUNTDOWN') return;
+      setBulbsActive(['treeAmber1L', 'treeAmber1R'], false);
+      setBulbsActive(['treeAmber2L', 'treeAmber2R'], true);
+    }, 600));
+
+    dragTreeTimeouts.push(setTimeout(() => {
+      if (dragStagingState !== 'COUNTDOWN') return;
+      setBulbsActive(['treeAmber2L', 'treeAmber2R'], false);
+      setBulbsActive(['treeAmber3L', 'treeAmber3R'], true);
+    }, 1100));
+
+    dragTreeTimeouts.push(setTimeout(() => {
+      if (dragStagingState !== 'COUNTDOWN') return;
+      setBulbsActive(['treeAmber3L', 'treeAmber3R'], false);
+      triggerGreenLight();
+    }, 1600));
+
+  } else {
+    // PRO TREE: All 3 Ambers together for 400ms -> GREEN
+    dragTreeTimeouts.push(setTimeout(() => {
+      if (dragStagingState !== 'COUNTDOWN') return;
+      setBulbsActive([
+        'treeAmber1L', 'treeAmber1R',
+        'treeAmber2L', 'treeAmber2R',
+        'treeAmber3L', 'treeAmber3R'
+      ], true);
+    }, 100));
+
+    dragTreeTimeouts.push(setTimeout(() => {
+      if (dragStagingState !== 'COUNTDOWN') return;
+      setBulbsActive([
+        'treeAmber1L', 'treeAmber1R',
+        'treeAmber2L', 'treeAmber2R',
+        'treeAmber3L', 'treeAmber3R'
+      ], false);
+      triggerGreenLight();
+    }, 500));
+  }
+}
+
+function triggerGreenLight() {
+  dragStagingState = 'GREEN';
+  dragGreenTime = performance.now();
+  setBulbsActive(['treeGreenL', 'treeGreenR'], true);
+  updateDragTreeStatus('GREEN - GO!', '#00e676', 'rgba(0,230,118,0.3)');
+  setRumDragCallout("GREEN LIGHT! FLOOR IT DAD!");
+}
+
+function triggerRedLightFoul() {
+  dragTreeTimeouts.forEach(t => clearTimeout(t));
+  dragTreeTimeouts = [];
+  dragStagingState = 'FOUL';
+  clearAllTreeBulbs();
+  setBulbsActive(['treeRedL', 'treeRedR'], true);
+  updateDragTreeStatus('RED LIGHT - FOUL', '#ff1744', 'rgba(255,23,68,0.3)');
+  setRumDragCallout("RED LIGHT! False start Dad! You jumped the tree!");
+
+  const rtEl = document.getElementById('treeReactionTime');
+  if (rtEl) rtEl.innerText = 'FOUL (-.---)';
+}
+
+function resetDragRun() {
+  dragTreeTimeouts.forEach(t => clearTimeout(t));
+  dragTreeTimeouts = [];
+  dragStagingState = 'IDLE';
+  dragGreenTime = 0;
+  dragReactionTime = null;
+  clearAllTreeBulbs();
+
+  updateDragTreeStatus('READY TO STAGE', '#94a3b8', 'rgba(100,116,139,0.2)');
+  setRumDragCallout("Drag timer reset. Tap ARM STAGE when staged at the line!");
+
+  const rtEl = document.getElementById('treeReactionTime');
+  if (rtEl) rtEl.innerText = '--.---';
+
+  const timerEl = document.getElementById('dragStudioTimer');
+  if (timerEl) timerEl.innerText = '0.00';
+
+  const v060 = document.getElementById('dragVal060');
+  if (v060) v060.innerText = '-- s';
+
+  const v60ft = document.getElementById('dragVal60ft');
+  if (v60ft) v60ft.innerText = '-- s';
+
+  const v18mi = document.getElementById('dragVal18mi');
+  if (v18mi) v18mi.innerText = '-- s';
+
+  const v14mi = document.getElementById('dragVal14mi');
+  if (v14mi) v14mi.innerText = '-- s';
+
+  const t18 = document.getElementById('dragTrap18mi');
+  if (t18) t18.innerText = '--';
+
+  const t14 = document.getElementById('dragTrap14mi');
+  if (t14) t14.innerText = '--';
+
+  const peakEl = document.getElementById('dragStudioPeakG');
+  if (peakEl) peakEl.innerText = '+0.00';
+
+  const apiBase = (typeof DAEMON_ORIGIN !== 'undefined' ? DAEMON_ORIGIN : (window.location.origin.startsWith('http') ? '' : 'http://127.0.0.1:8080'));
+  fetch(`${apiBase}/api/drag/reset`, { method: 'POST' }).catch(() => {});
+}
+
+function updateDragyStudioUI(gps, telem) {
+  const currentSpeed = (gps && typeof gps.speed_mph === 'number') ? gps.speed_mph : ((telem && typeof telem.speed === 'number') ? telem.speed : 0);
+  const currentRpm = (telem && typeof telem.rpm === 'number') ? telem.rpm : 0;
+  const currentGear = (telem && telem.gear) ? telem.gear : 'N';
+
+  // 1. Vehicle Movement & Tree False-Start Detection
+  if (dragStagingState === 'COUNTDOWN' || dragStagingState === 'STAGED' || dragStagingState === 'PRE_STAGE') {
+    if (currentSpeed >= 1.0) {
+      triggerRedLightFoul();
+      return;
+    }
+  }
+
+  // 2. Green Light Launch & Reaction Time Recording
+  if (dragStagingState === 'GREEN' && currentSpeed >= 1.0) {
+    dragStagingState = 'ACCELERATING';
+    if (dragGreenTime > 0) {
+      const rtMs = performance.now() - dragGreenTime;
+      dragReactionTime = (rtMs / 1000).toFixed(3);
+      const rtEl = document.getElementById('treeReactionTime');
+      if (rtEl) rtEl.innerText = dragReactionTime;
+      setRumDragCallout(`Clean launch! Reaction time: ${dragReactionTime}s! Hammer down!`);
+    }
+  }
+
+  // 3. Update Drag Studio Speed & Timer
+  const speedEl = document.getElementById('dragStudioSpeed');
+  if (speedEl) speedEl.innerText = currentSpeed.toFixed(1);
+
+  const rpmEl = document.getElementById('dragRpmVal');
+  if (rpmEl) rpmEl.innerText = `${Math.round(currentRpm)} RPM (${currentGear})`;
+
+  // F1 Sequential Shift Lights
+  updateF1ShiftLights(currentRpm);
+
+  // 4. Update G-Forces & Friction Circle
+  let longG = 0.0;
+  let latG = 0.0;
+  if (gps && gps.g_forces) {
+    longG = gps.g_forces.longitudinal || 0.0;
+    latG = gps.g_forces.lateral || 0.0;
+  }
+  const longEl = document.getElementById('dragStudioLongG');
+  if (longEl) longEl.innerText = (longG >= 0 ? '+' : '') + longG.toFixed(2);
+
+  const peakEl = document.getElementById('dragStudioPeakG');
+  if (peakEl && gps && gps.dragy && typeof gps.dragy.peak_g === 'number') {
+    peakEl.innerText = '+' + gps.dragy.peak_g.toFixed(2);
+  }
+
+  // Draw G-G Friction Circle
+  renderGgFrictionCircle(longG, latG);
+
+  // 5. Update Dragy Metrics from GPS Telemetry
+  if (gps && gps.dragy) {
+    const d = gps.dragy;
+
+    const timerEl = document.getElementById('dragStudioTimer');
+    if (timerEl && typeof d.current_run_time === 'number') {
+      timerEl.innerText = d.current_run_time.toFixed(2);
+    }
+
+    if (d.time_0_60) {
+      const v060 = document.getElementById('dragVal060');
+      if (v060) v060.innerText = `${d.time_0_60.toFixed(2)} s`;
+      const b060 = document.getElementById('dragBadge060');
+      if (b060) { b060.innerText = 'LOCKED'; b060.style.color = '#00e676'; }
+    }
+
+    if (d.time_60ft) {
+      const v60 = document.getElementById('dragVal60ft');
+      if (v60) v60.innerText = `${d.time_60ft.toFixed(2)} s`;
+      const b60 = document.getElementById('dragBadge60ft');
+      if (b60) { b60.innerText = 'LOCKED'; b60.style.color = '#00b0ff'; }
+    }
+
+    if (d.time_1_8mi) {
+      const v18 = document.getElementById('dragVal18mi');
+      if (v18) v18.innerText = `${d.time_1_8mi.toFixed(2)} s`;
+      const t18 = document.getElementById('dragTrap18mi');
+      if (t18 && d.speed_1_8mi) t18.innerText = d.speed_1_8mi.toFixed(1);
+    }
+
+    if (d.time_1_4mi) {
+      const v14 = document.getElementById('dragVal14mi');
+      if (v14) v14.innerText = `${d.time_1_4mi.toFixed(2)} s`;
+      const t14 = document.getElementById('dragTrap14mi');
+      if (t14 && d.speed_1_4mi) t14.innerText = d.speed_1_4mi.toFixed(1);
+
+      if (dragStagingState === 'ACCELERATING') {
+        dragStagingState = 'FINISHED';
+        updateDragTreeStatus('RUN COMPLETE', '#00e5ff', 'rgba(0,229,255,0.2)');
+        setRumDragCallout(`1/4-mile complete! ${d.time_1_4mi.toFixed(2)}s @ ${d.speed_1_4mi || '--'} MPH! Amazing run Dad!`);
+      }
+    }
+
+    if (gps.road_grade_pct !== undefined) {
+      const gEl = document.getElementById('dragGrade060');
+      if (gEl) gEl.innerText = `${gps.road_grade_pct.toFixed(1)}%`;
+    }
+  }
+}
+
+function updateF1ShiftLights(rpm) {
+  for (let i = 1; i <= 12; i++) {
+    const led = document.getElementById(`f1Led${i}`);
+    if (!led) continue;
+    led.className = 'f1-led';
+
+    if (i <= 4) {
+      const thresh = 3000 + (i - 1) * 375;
+      if (rpm >= thresh) led.classList.add('green-active');
+    } else if (i <= 8) {
+      const thresh = 4500 + (i - 5) * 250;
+      if (rpm >= thresh) led.classList.add('amber-active');
+    } else if (i <= 11) {
+      const thresh = 5500 + (i - 9) * 166;
+      if (rpm >= thresh) led.classList.add('red-active');
+    } else {
+      if (rpm >= 6000) led.classList.add('flash-active');
+    }
+  }
+}
+
+function renderGgFrictionCircle(longG, latG) {
+  const canvas = document.getElementById('ggFrictionCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const w = canvas.width;
+  const h = canvas.height;
+  const cx = w / 2;
+  const cy = h / 2;
+  const maxRadius = cx - 14;
+
+  const clampLong = Math.max(-1.25, Math.min(1.25, longG));
+  const clampLat = Math.max(-1.25, Math.min(1.25, latG));
+
+  const px = cx + (clampLat / 1.0) * maxRadius;
+  const py = cy - (clampLong / 1.0) * maxRadius;
+
+  ggHistory.push({ x: px, y: py });
+  if (ggHistory.length > 7) ggHistory.shift();
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.save();
+
+  // Crosshairs
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  ctx.moveTo(cx, 8);
+  ctx.lineTo(cx, h - 8);
+  ctx.moveTo(8, cy);
+  ctx.lineTo(w - 8, cy);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Concentric G-Rings
+  const rings = [0.25, 0.50, 0.75, 1.00];
+  rings.forEach((r) => {
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * maxRadius, 0, Math.PI * 2);
+    if (r === 1.00) {
+      ctx.strokeStyle = 'rgba(239, 68, 68, 0.45)';
+      ctx.lineWidth = 1.5;
+    } else {
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.18)';
+      ctx.lineWidth = 1;
+    }
+    ctx.stroke();
+
+    ctx.fillStyle = r === 1.00 ? '#ef4444' : '#475569';
+    ctx.font = '8px monospace';
+    ctx.fillText(`${r.toFixed(2)}G`, cx + 3, cy - r * maxRadius + 9);
+  });
+
+  // Historical Trajectory Comet Tail
+  for (let i = 0; i < ggHistory.length - 1; i++) {
+    const pt = ggHistory[i];
+    const opacity = (i + 1) / ggHistory.length * 0.45;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(0, 229, 255, ${opacity})`;
+    ctx.fill();
+  }
+
+  // Active Instantaneous G Tracer Dot with Glow
+  ctx.shadowColor = '#00e5ff';
+  ctx.shadowBlur = 12;
+  ctx.beginPath();
+  ctx.arc(px, py, 6, 0, Math.PI * 2);
+  ctx.fillStyle = '#00e5ff';
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+
+  ctx.restore();
+
+  // Update numeric badges
+  const latEl = document.getElementById('frictionLatG');
+  if (latEl) latEl.innerText = (latG >= 0 ? '+' : '') + latG.toFixed(2);
+
+  const longBadge = document.getElementById('frictionLongG');
+  if (longBadge) longBadge.innerText = (longG >= 0 ? '+' : '') + longG.toFixed(2);
+
+  const totEl = document.getElementById('frictionTotalG');
+  if (totEl) {
+    const totalG = Math.sqrt(latG * latG + longG * longG);
+    totEl.innerText = totalG.toFixed(2);
+  }
+}
+
+function initDragyStudio() {
+  const canvas = document.getElementById('ggFrictionCanvas');
+  if (canvas) {
+    renderGgFrictionCircle(0.0, 0.0);
+  }
+}
