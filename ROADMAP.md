@@ -14,14 +14,16 @@ This living document tracks all planned, brainstormed, and confirmed engineering
 
 ---
 
-### 🏁 Phase 9: High-G Drag Launch Control & Telemetry HUD Staging
-- [ ] **Automated 0-60 & 1/4-Mile Drag Staging**: In-dash Christmas tree drag staging countdown with zero-false-trigger clutch drop detection and lateral/longitudinal accelerometer filtering.
-- [ ] **F1 Sequential Shift Light LED Strip Integration**: Direct GPIO NeoPixel / WS2812B lightbar driving green-to-red shift cues synchronized with MultiAir 6,200 RPM redline.
-- [ ] **Realtime G-G Friction Circle HUD**: Visual friction circle plot (Braking G vs. Cornering Lateral G) assessing tire adhesion limit in real time.
-
----
-
 ## 🏆 Completed & Verified in Production (Changelog)
+
+### [2026-11-10] — Phase 9: High-G Drag Launch Control, NHRA Christmas Tree & G-G Friction Circle (Commits: `b6c6500`, `aa254ef`)
+- [x] **Dedicated Drag Launch Control Studio (`#screenDragy`)**: Built full-screen in-dash performance telemetry environment inside the Vehicle Hub (`screenVehicle`), designed specifically for the 1024x600 capacitive touchscreen with ≥44px touch targets.
+- [x] **NHRA Christmas Tree Staging Tower**: Integrated realistic twin-lens staging tree featuring Pre-Stage (⚪⚪), Stage (⚪⚪), 3-step Amber drop (🟡🟡), Green Launch (🟢🟢), and Red Foul Light (🔴🔴). Supports Sportsman (0.500s interval) and Pro Tree (0.400s flash) countdown modes, with millisecond-precision reaction time ($RT$) tracking and foul start detection.
+- [x] **Dragy High-G Performance Slip**: High-precision 0–60 MPH, 60-ft launch time, 1/8-mile (660 ft), and 1/4-mile (1320 ft) timers with trap speed tracking, road grade elevation filtering, and peak longitudinal acceleration recording.
+- [x] **Real-Time G-G Friction Circle HUD Canvas**: High-DPI polar reticle scope displaying real-time lateral ($G_x$) and longitudinal ($G_y$) acceleration vectors, 0.25G/0.50G/0.75G/1.00G tire adhesion limit rings, and a 7-point trailing comet trajectory tail.
+- [x] **F1 Sequential Shift Lightbar**: 12-segment multi-stage LED rev indicator (Green 3000–4500 RPM, Amber 4500–5500 RPM, Red 5500–6000 RPM, flashing Cyan/Magenta at 6,200 RPM MultiAir redline).
+- [x] **R.U.M. In-Character Drag Voice Callouts**: Contextual daughter voice prompts and speech bubbles during staging ("Eyes on the tree!"), green launch ("Clean launch! Hammer down!"), foul starts ("Red light! You jumped the tree!"), and locked sprint records.
+- [x] **Verified on Pi 5 Hardware**: Deployed to Raspberry Pi 5 (`192.168.0.131`), validated `/api/drag/stage`, `/api/drag/reset`, and `/api/drag/status` endpoints, tested live tree arming and reset cycles, and audited full `1024x600` Wayland screenshots (`shot_vehicle_hub.png`, `shot_drag_studio_fixed.png`, `shot_tree_armed.png`).
 
 ### [2026-11-10] — Cockpit Maps Overhaul: Upstream Tile Proxy, Local Disk Cache & Multi-Theme Selector (Commit: `d7cd3d7`)
 - [x] **Upstream Policy-Compliant Tile Proxy (`backend/daemon.py`)**: Added `/api/maps/tiles/{style}/{z}/{x}/{y}.png` endpoint injecting custom automotive `User-Agent: CarPi5-Automotive-Cockpit/1.0`, eliminating OpenStreetMap 403 / "Access Blocked" policy violations.
