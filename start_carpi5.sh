@@ -1,5 +1,6 @@
 #!/bin/bash
 # CarPi5 Cockpit Autostart Script
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
 # 1. Kill stale processes cleanly
 pkill -f "python3 backend/daemon.py" || true
@@ -49,6 +50,7 @@ nohup taskset -c 0,1 /usr/lib/chromium/chromium \
   --disable-infobars \
   --disable-extensions \
   --allow-file-access-from-files \
+  --user-data-dir=/home/nfgodin/.config/chromium \
   --disable-web-security \
   --check-for-update-interval=31536000 \
   --disable-session-crashed-bubble \
