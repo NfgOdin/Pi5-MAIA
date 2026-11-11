@@ -15,6 +15,10 @@ chmod 666 /dev/shm/daemon.log /dev/shm/kiosk.log 2>/dev/null || true
 ln -sf /dev/shm/daemon.log /home/nfgodin/CarPi5/daemon.log 2>/dev/null || true
 ln -sf /dev/shm/kiosk.log /home/nfgodin/CarPi5/kiosk.log 2>/dev/null || true
 
+# 2b. Provision PipeWire DSP Acoustic Echo Cancellation (AEC)
+mkdir -p /home/nfgodin/.config/pipewire/pipewire.conf.d/
+cp -u /home/nfgodin/CarPi5/config/pipewire/carpi-dsp.conf /home/nfgodin/.config/pipewire/pipewire.conf.d/carpi-dsp.conf 2>/dev/null || true
+
 # 3. ZRAM Compressed Swap Initialization (2GB lz4)
 modprobe zram 2>/dev/null || true
 if [ -e /sys/block/zram0 ] && ! swapon --show | grep -q "/dev/zram0"; then

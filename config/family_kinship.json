@@ -1,0 +1,56 @@
+{
+  "kinship_rules": {
+    "mom": "Nanny",
+    "mother": "Nanny",
+    "grandma": "Nanny",
+    "dad": "Papa",
+    "father": "Papa",
+    "grandpa": "Papa",
+    "brother": "Uncle",
+    "sister": "Aunt"
+  },
+  "contacts": [
+    {
+      "id": "c_mom",
+      "name": "Mom",
+      "kinship": "Nanny",
+      "relationship": "Dad's Mom",
+      "phone": "928-555-0142",
+      "avatar_icon": "👵",
+      "direct_announce": true,
+      "vip": true
+    },
+    {
+      "id": "c_dad",
+      "name": "Dad",
+      "kinship": "Papa",
+      "relationship": "Dad's Dad",
+      "phone": "928-555-0143",
+      "avatar_icon": "👴",
+      "direct_announce": true,
+      "vip": true
+    },
+    {
+      "id": "c_steven",
+      "name": "Steven",
+      "kinship": "Uncle Steven",
+      "relationship": "Dad's Brother",
+      "phone": "928-555-0199",
+      "avatar_icon": "🧔",
+      "direct_announce": true,
+      "vip": true
+    },
+    {
+      "id": "c_sister",
+      "name": "Sister",
+      "kinship": "Aunt",
+      "relationship": "Dad's Sister",
+      "phone": "928-555-0177",
+      "avatar_icon": "👩",
+      "direct_announce": true,
+      "vip": true
+    }
+  ],
+  "call_screening_prompt": "Hi! You've reached Jonathan's Dodge Dart. He's driving right now, so this is his in-dash co-pilot R.U.M. Who is calling and what is this regarding?",
+  "screening_enabled": true
+}

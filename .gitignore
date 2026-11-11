@@ -24,4 +24,5 @@ backend/ai/ai_settings.json
 backend/ai/google_oauth_tokens.json
 storage/trip_archives/
 storage/tts_cache/
+storage/map_tiles/
 storage/*.db

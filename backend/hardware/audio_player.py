@@ -40,17 +40,9 @@ Supported Voice Engines (selectable in Settings):
 
 import os
 import re
-
-
-
 import sys
-
-
-
 import json
-
-
-
+import sqlite3
 import time
 
 
@@ -100,371 +92,348 @@ PRIORITY_BANTER = 2     # Shower thoughts, morning digital dreams, idle chatter 
 
 
 class TTSCacheManager:
-
     """
-
-    High-Performance Voice Response Memoization & LRU Cache Manager for CarPi5.
-
-    Caches synthesized speech WAV clips to eliminate synthesis lag (<15ms replay).
-
-    Supports user-configurable size limit (128MB - 8GB) with automatic LRU pruning.
-
+    Phase 14 Crash-Safe SQLite WAL Voice Response Registry & Multi-Tier Hot-Pool.
+    - Atomic SQLite database (tts_cache.db) with WAL mode (zero corruption on power loss).
+    - Multi-tier RAM hot-pool (/dev/shm) pinning top 50 phrases for 0ms I/O latency.
+    - Multi-take prosody variations (up to 3 takes for high-frequency phrases).
+    - Punctuation-sensitive keying preserving expressive intonation.
+    - Permanent frequency-protected retention policy (hit_count >= 2 or is_locked never pruned).
     """
-
-    def __init__(self, cache_dir: Optional[str] = None, limit_mb: int = 1024):
-
+    def __init__(self, cache_dir: Optional[str] = None, limit_mb: int = 4096):
         if cache_dir is None:
-
             base = Path(__file__).parent.parent.parent
-
             self.cache_dir = base / "storage" / "tts_cache"
-
         else:
-
             self.cache_dir = Path(cache_dir)
-
             
-
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-
+        self.db_path = self.cache_dir / "tts_cache.db"
         self.index_file = self.cache_dir / "cache_index.json"
-
-        self.limit_mb = max(128, int(limit_mb))
-
+        self.limit_mb = max(256, int(limit_mb))
         self.lock = threading.Lock()
-
-        self.index: Dict[str, Dict[str, Any]] = self._load_index()
-
-
-
-    def _load_index(self) -> Dict[str, Dict[str, Any]]:
-
-        if self.index_file.exists():
-
-            try:
-
-                with open(self.index_file, "r", encoding="utf-8") as f:
-
-                    return json.load(f)
-
-            except Exception:
-
-                pass
-
-        return {}
-
-
-
-    def _save_index(self):
-
+        
+        # RAM hotpool directory for 0ms access
+        self.hotpool_dir = RAM_AUDIO_DIR / "hotpool"
         try:
+            self.hotpool_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            self.hotpool_dir = Path(tempfile.gettempdir()) / "hotpool"
+            self.hotpool_dir.mkdir(parents=True, exist_ok=True)
 
-            with open(self.index_file, "w", encoding="utf-8") as f:
+        self._init_db()
+        self._migrate_json_if_needed()
+        self.sync_hotpool()
 
-                json.dump(self.index, f, indent=2)
+    def _get_conn(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(str(self.db_path), timeout=10.0)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        return conn
 
+    def _init_db(self):
+        with self._get_conn() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS tts_cache (
+                    hash_key TEXT PRIMARY KEY,
+                    norm_text TEXT NOT NULL,
+                    raw_text TEXT NOT NULL,
+                    voice TEXT NOT NULL,
+                    pitch REAL NOT NULL,
+                    take_index INTEGER DEFAULT 0,
+                    file_name TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL,
+                    hit_count INTEGER DEFAULT 1,
+                    created_at REAL NOT NULL,
+                    last_accessed REAL NOT NULL,
+                    is_locked INTEGER DEFAULT 0
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tts_lookup ON tts_cache (norm_text, voice, pitch)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tts_access ON tts_cache (is_locked, hit_count, last_accessed)")
+
+    def _migrate_json_if_needed(self):
+        """Migrate legacy cache_index.json into SQLite WAL database."""
+        if not self.index_file.exists():
+            return
+        try:
+            with open(self.index_file, "r", encoding="utf-8") as f:
+                legacy = json.load(f)
+            if legacy and isinstance(legacy, dict):
+                with self._get_conn() as conn:
+                    for key, meta in legacy.items():
+                        fname = meta.get("file", f"{key}.wav")
+                        fpath = self.cache_dir / fname
+                        if fpath.exists():
+                            norm = self._make_norm(meta.get("text", ""))
+                            conn.execute("""
+                                INSERT OR IGNORE INTO tts_cache 
+                                (hash_key, norm_text, raw_text, voice, pitch, take_index, file_name, size_bytes, hit_count, created_at, last_accessed, is_locked)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """, (
+                                key,
+                                norm,
+                                meta.get("text", ""),
+                                meta.get("voice", "kokoro"),
+                                float(meta.get("pitch", 1.0)),
+                                0,
+                                fname,
+                                int(meta.get("size_bytes", fpath.stat().st_size if fpath.exists() else 0)),
+                                int(meta.get("hit_count", 1)),
+                                float(meta.get("created_at", time.time())),
+                                float(meta.get("last_accessed", time.time())),
+                                1 if int(meta.get("hit_count", 1)) >= 2 else 0
+                            ))
+                bak_file = self.cache_dir / "cache_index.json.bak"
+                self.index_file.replace(bak_file)
+                print(f"[TTS-CACHE] Migrated {len(legacy)} entries from JSON to SQLite WAL.")
         except Exception as e:
+            print(f"[TTS-CACHE] Migration notice: {e}")
 
-            print(f"[TTS-CACHE] Failed saving index: {e}")
+    def _make_norm(self, text: str) -> str:
+        # Preserve emotional punctuation tokens (!, ?, ..., commas)
+        clean = "".join(c for c in text.lower().strip() if c.isalnum() or c.isspace() or c in ".!?,:;")
+        return " ".join(clean.split())
 
-
-
-    def _make_key(self, text: str, voice: str, pitch: float) -> str:
-
-        clean = "".join(c for c in text.lower().strip() if c.isalnum() or c.isspace())
-
-        norm = " ".join(clean.split())
-
-        raw = f"{norm}|{voice.lower()}|{pitch:.2f}"
-
+    def _make_key(self, norm_text: str, voice: str, pitch: float, take_index: int = 0) -> str:
+        raw = f"{norm_text}|{voice.lower()}|{pitch:.2f}|take{take_index}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
 
-
-
     def get(self, text: str, voice: str, pitch: float) -> Optional[str]:
-
-        """Returns path to cached audio file if present, updating LRU metrics."""
-
-        key = self._make_key(text, voice, pitch)
-
+        """Returns path to cached audio file (RAM hotpool or disk) with multi-take alternating selection."""
+        norm = self._make_norm(text)
         with self.lock:
+            with self._get_conn() as conn:
+                rows = conn.execute("""
+                    SELECT hash_key, file_name, hit_count, is_locked 
+                    FROM tts_cache 
+                    WHERE norm_text = ? AND voice = ? AND ABS(pitch - ?) < 0.03
+                    ORDER BY take_index ASC
+                """, (norm, voice.lower(), float(pitch))).fetchall()
 
-            if key in self.index:
+                if not rows:
+                    return None
 
-                meta = self.index[key]
+                # Multi-take natural variation: randomly select across available takes
+                selected_row = random.choice(rows)
+                h_key = selected_row["hash_key"]
+                fname = selected_row["file_name"]
 
-                fpath = self.cache_dir / meta.get("file", f"{key}.wav")
+                # 1. Check RAM Hotpool for 0ms instantaneous memory hit
+                hot_path = self.hotpool_dir / fname
+                disk_path = self.cache_dir / fname
 
-                if fpath.exists():
-
-                    meta["last_accessed"] = time.time()
-
-                    meta["hit_count"] = meta.get("hit_count", 0) + 1
-
-                    self._save_index()
-
-                    return str(fpath)
-
+                target_path = None
+                if hot_path.exists():
+                    target_path = str(hot_path)
+                elif disk_path.exists():
+                    target_path = str(disk_path)
                 else:
+                    conn.execute("DELETE FROM tts_cache WHERE hash_key = ?", (h_key,))
+                    return None
 
-                    del self.index[key]
+                # Update hit metrics atomically
+                conn.execute("""
+                    UPDATE tts_cache 
+                    SET hit_count = hit_count + 1, last_accessed = ?, is_locked = CASE WHEN hit_count >= 1 THEN 1 ELSE is_locked END
+                    WHERE hash_key = ?
+                """, (time.time(), h_key))
 
-        return None
+                return target_path
 
-
-
-    def put(self, text: str, voice: str, pitch: float, src_wav_path: str) -> Optional[str]:
-
-        """Stores a newly synthesized WAV file in the cache and manages LRU limits."""
-
+    def put(self, text: str, voice: str, pitch: float, src_wav_path: str, is_locked: bool = False, take_index: int = 0) -> Optional[str]:
+        """Stores a newly synthesized WAV file in the cache with crash-safe SQLite registration."""
         if not os.path.exists(src_wav_path) or os.path.getsize(src_wav_path) < 500:
-
             return None
 
-        key = self._make_key(text, voice, pitch)
-
+        norm = self._make_norm(text)
+        key = self._make_key(norm, voice, pitch, take_index=take_index)
         dest_filename = f"{key}.wav"
-
         dest_path = self.cache_dir / dest_filename
 
-
-
         try:
-
             shutil.copy2(src_wav_path, str(dest_path))
-
             size_bytes = dest_path.stat().st_size
+            now = time.time()
 
             with self.lock:
-
-                self.index[key] = {
-
-                    "text": text[:120],
-
-                    "voice": voice,
-
-                    "pitch": round(pitch, 2),
-
-                    "file": dest_filename,
-
-                    "size_bytes": size_bytes,
-
-                    "created_at": time.time(),
-
-                    "last_accessed": time.time(),
-
-                    "hit_count": 1
-
-                }
-
-                self._save_index()
+                with self._get_conn() as conn:
+                    conn.execute("""
+                        INSERT INTO tts_cache 
+                        (hash_key, norm_text, raw_text, voice, pitch, take_index, file_name, size_bytes, hit_count, created_at, last_accessed, is_locked)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+                        ON CONFLICT(hash_key) DO UPDATE SET
+                            last_accessed = excluded.last_accessed,
+                            hit_count = hit_count + 1,
+                            size_bytes = excluded.size_bytes,
+                            is_locked = MAX(is_locked, excluded.is_locked)
+                    """, (
+                        key, norm, text[:150], voice.lower(), round(float(pitch), 2),
+                        take_index, dest_filename, size_bytes, now, now, 1 if is_locked else 0
+                    ))
 
             self.auto_prune_if_needed()
-
             return str(dest_path)
-
         except Exception as e:
-
             print(f"[TTS-CACHE] Error storing cache for '{text[:30]}': {e}")
-
             return None
 
+    def sync_hotpool(self):
+        """Pins the top 50 most frequently used audio clips directly in RAM (/dev/shm)."""
+        try:
+            with self._get_conn() as conn:
+                top_rows = conn.execute("""
+                    SELECT file_name FROM tts_cache 
+                    ORDER BY hit_count DESC, last_accessed DESC 
+                    LIMIT 50
+                """).fetchall()
 
+            for row in top_rows:
+                fname = row["file_name"]
+                src = self.cache_dir / fname
+                dst = self.hotpool_dir / fname
+                if src.exists() and not dst.exists():
+                    shutil.copy2(str(src), str(dst))
+        except Exception as e:
+            print(f"[TTS-CACHE] Hotpool sync notice: {e}")
 
     def get_stats(self) -> Dict[str, Any]:
+        """Returns live storage statistics, phrase counts, and hit metrics from SQLite."""
+        try:
+            with self._get_conn() as conn:
+                row = conn.execute("""
+                    SELECT 
+                        COUNT(*) as total_files,
+                        COALESCE(SUM(size_bytes), 0) as total_bytes,
+                        COALESCE(SUM(hit_count), 0) as total_hits,
+                        COALESCE(SUM(CASE WHEN is_locked = 1 THEN 1 ELSE 0 END), 0) as locked_count
+                    FROM tts_cache
+                """).fetchone()
 
-        """Returns live storage statistics, phrase counts, and hit metrics."""
+                total_files = row["total_files"] if row else 0
+                total_bytes = row["total_bytes"] if row else 0
+                total_hits = row["total_hits"] if row else 0
+                locked_count = row["locked_count"] if row else 0
+                total_mb = total_bytes / (1024 * 1024)
+                pct = (total_mb / self.limit_mb * 100.0) if self.limit_mb > 0 else 0.0
 
-        with self.lock:
-
-            total_bytes = sum(item.get("size_bytes", 0) for item in self.index.values())
-
-            total_hits = sum(item.get("hit_count", 0) for item in self.index.values())
-
-            total_files = len(self.index)
-
-            total_mb = total_bytes / (1024 * 1024)
-
-            pct = (total_mb / self.limit_mb * 100.0) if self.limit_mb > 0 else 0.0
-
-
-
+                return {
+                    "total_phrases": total_files,
+                    "total_bytes": total_bytes,
+                    "total_mb": round(total_mb, 2),
+                    "limit_mb": self.limit_mb,
+                    "usage_pct": round(pct, 1),
+                    "total_hits": total_hits,
+                    "locked_count": locked_count,
+                    "cache_dir": str(self.cache_dir),
+                    "db_path": str(self.db_path)
+                }
+        except Exception:
             return {
-
-                "total_phrases": total_files,
-
-                "total_bytes": total_bytes,
-
-                "total_mb": round(total_mb, 2),
-
-                "limit_mb": self.limit_mb,
-
-                "usage_pct": round(pct, 1),
-
-                "total_hits": total_hits,
-
-                "cache_dir": str(self.cache_dir)
-
+                "total_phrases": 0, "total_bytes": 0, "total_mb": 0.0,
+                "limit_mb": self.limit_mb, "usage_pct": 0.0, "total_hits": 0,
+                "locked_count": 0, "cache_dir": str(self.cache_dir)
             }
-
-
-
-    def calculate_downsize_impact(self, new_limit_mb: int) -> Dict[str, Any]:
-
-        """Calculates how many phrases and megabytes would be deleted if downsized."""
-
-        with self.lock:
-
-            total_bytes = sum(item.get("size_bytes", 0) for item in self.index.values())
-
-            current_mb = total_bytes / (1024 * 1024)
-
-            if current_mb <= new_limit_mb:
-
-                return {"needs_prune": False, "bytes_to_delete": 0, "mb_to_delete": 0.0, "phrases_to_delete": 0}
-
-
-
-            target_bytes = int(new_limit_mb * 1024 * 1024 * 0.90)
-
-            bytes_needed = max(0, total_bytes - target_bytes)
-
-
-
-            sorted_items = sorted(
-
-                self.index.items(),
-
-                key=lambda x: (x[1].get("hit_count", 1) > 2, x[1].get("last_accessed", 0))
-
-            )
-
-
-
-            freed = 0
-
-            count = 0
-
-            for k, meta in sorted_items:
-
-                freed += meta.get("size_bytes", 0)
-
-                count += 1
-
-                if freed >= bytes_needed:
-
-                    break
-
-
-
-            return {
-
-                "needs_prune": True,
-
-                "bytes_to_delete": freed,
-
-                "mb_to_delete": round(freed / (1024 * 1024), 2),
-
-                "phrases_to_delete": count
-
-            }
-
-
-
-    def set_limit_mb(self, new_limit_mb: int) -> Dict[str, Any]:
-
-        """Sets new capacity limit and executes pruning if current usage exceeds it."""
-
-        new_limit = max(128, int(new_limit_mb))
-
-        self.limit_mb = new_limit
-
-        self.auto_prune_if_needed()
-
-        return self.get_stats()
-
-
 
     def auto_prune_if_needed(self):
+        """
+        Permanent Frequency-Protected Retention Policy:
+        - Phrases with hit_count >= 2 or is_locked == 1 are NEVER deleted!
+        - Only single-hit phrases older than 60 days are eligible for eviction.
+        """
+        try:
+            with self.lock:
+                stats = self.get_stats()
+                if stats["total_mb"] <= self.limit_mb:
+                    return
 
-        """Prunes oldest / lowest-hit phrases if total size exceeds limit_mb."""
+                target_bytes = int(self.limit_mb * 1024 * 1024 * 0.85)
+                bytes_to_free = stats["total_bytes"] - target_bytes
+                if bytes_to_free <= 0:
+                    return
 
-        with self.lock:
+                sixty_days_ago = time.time() - (60 * 86400)
+                with self._get_conn() as conn:
+                    candidates = conn.execute("""
+                        SELECT hash_key, file_name, size_bytes 
+                        FROM tts_cache 
+                        WHERE is_locked = 0 AND hit_count < 2 AND last_accessed < ?
+                        ORDER BY last_accessed ASC
+                    """, (sixty_days_ago,)).fetchall()
 
-            total_bytes = sum(item.get("size_bytes", 0) for item in self.index.values())
+                    freed = 0
+                    deleted_keys = []
+                    for c in candidates:
+                        fpath = self.cache_dir / c["file_name"]
+                        if fpath.exists():
+                            try:
+                                fpath.unlink()
+                            except Exception:
+                                pass
+                        freed += c["size_bytes"]
+                        deleted_keys.append(c["hash_key"])
+                        if freed >= bytes_to_free:
+                            break
 
-            max_bytes = self.limit_mb * 1024 * 1024
+                    if deleted_keys:
+                        conn.executemany("DELETE FROM tts_cache WHERE hash_key = ?", [(k,) for k in deleted_keys])
+                        print(f"[TTS-CACHE] Auto-pruned {len(deleted_keys)} legacy single-hit phrases ({round(freed / (1024*1024), 2)} MB freed).")
+        except Exception as e:
+            print(f"[TTS-CACHE] Auto-prune error: {e}")
 
-            if total_bytes <= max_bytes:
+    def calculate_downsize_impact(self, new_limit_mb: int) -> Dict[str, Any]:
+        """Calculates eligible single-hit phrases that would be deleted if downsized."""
+        stats = self.get_stats()
+        if stats["total_mb"] <= new_limit_mb:
+            return {"needs_prune": False, "bytes_to_delete": 0, "mb_to_delete": 0.0, "phrases_to_delete": 0}
 
-                return
+        target_bytes = int(new_limit_mb * 1024 * 1024 * 0.90)
+        bytes_needed = max(0, stats["total_bytes"] - target_bytes)
 
+        with self._get_conn() as conn:
+            candidates = conn.execute("""
+                SELECT hash_key, size_bytes 
+                FROM tts_cache 
+                WHERE is_locked = 0 AND hit_count < 2
+                ORDER BY last_accessed ASC
+            """).fetchall()
 
-
-            target_bytes = int(max_bytes * 0.85)
-
-            sorted_items = sorted(
-
-                self.index.items(),
-
-                key=lambda x: (x[1].get("hit_count", 1) > 2, x[1].get("last_accessed", 0))
-
-            )
-
-
-
-            for key, meta in sorted_items:
-
-                fpath = self.cache_dir / meta.get("file", f"{key}.wav")
-
-                if fpath.exists():
-
-                    try:
-
-                        fpath.unlink()
-
-                    except Exception:
-
-                        pass
-
-                total_bytes -= meta.get("size_bytes", 0)
-
-                del self.index[key]
-
-                if total_bytes <= target_bytes:
-
+            freed = 0
+            count = 0
+            for c in candidates:
+                freed += c["size_bytes"]
+                count += 1
+                if freed >= bytes_needed:
                     break
 
+            return {
+                "needs_prune": True,
+                "bytes_to_delete": freed,
+                "mb_to_delete": round(freed / (1024 * 1024), 2),
+                "phrases_to_delete": count
+            }
 
-
-            self._save_index()
-
-            print(f"[TTS-CACHE] Auto-pruned cache down to {round(total_bytes / (1024*1024), 2)} MB")
-
-
+    def set_limit_mb(self, new_limit_mb: int) -> Dict[str, Any]:
+        self.limit_mb = max(256, int(new_limit_mb))
+        self.auto_prune_if_needed()
+        return self.get_stats()
 
     def clear(self) -> Dict[str, Any]:
-
-        """Clears all cached audio files and resets the registry."""
-
         with self.lock:
-
             for f in self.cache_dir.glob("*.wav"):
-
                 try:
-
                     f.unlink()
-
                 except Exception:
-
                     pass
-
-            self.index = {}
-
-            self._save_index()
-
+            for f in self.hotpool_dir.glob("*.wav"):
+                try:
+                    f.unlink()
+                except Exception:
+                    pass
+            with self._get_conn() as conn:
+                conn.execute("DELETE FROM tts_cache")
             print("[TTS-CACHE] Cache cleared completely.")
-
             return self.get_stats()
 
 
@@ -1022,37 +991,34 @@ class AudioPlayer:
 
 
     def _split_clauses(self, text: str) -> list:
-
-        """Splits multi-sentence / multi-clause responses into punctuation-bounded phrases."""
-
+        """Splits multi-sentence / multi-clause responses into fine-grained memoizable phrases."""
         import re
-
         text = text.strip()
-
         if not text:
-
             return []
-
-        raw_chunks = re.split(r'(?<=[.!?])\s+|\n+', text)
-
+        # Split on sentence terminals first (. ! ? \n)
+        sentences = re.split(r'(?<=[.!?])\s+|\n+', text)
         clauses = []
-
-        for c in raw_chunks:
-
-            c = c.strip()
-
-            if not c:
-
+        for s in sentences:
+            s = s.strip()
+            if not s:
                 continue
-
-            if len(c) < 4 and clauses:
-
-                clauses[-1] = f"{clauses[-1]} {c}".strip()
-
+            # If sentence is long (> 50 chars) and contains commas or semicolons, sub-split
+            if len(s) > 50 and ("," in s or ";" in s):
+                sub_parts = re.split(r'(?<=[,;])\s+', s)
+                for part in sub_parts:
+                    p = part.strip()
+                    if not p:
+                        continue
+                    if len(p.split()) < 3 and clauses:
+                        clauses[-1] = f"{clauses[-1]} {p}".strip()
+                    else:
+                        clauses.append(p)
             else:
-
-                clauses.append(c)
-
+                if len(s.split()) < 3 and clauses:
+                    clauses[-1] = f"{clauses[-1]} {s}".strip()
+                else:
+                    clauses.append(s)
         return clauses if clauses else [text]
 
 
@@ -2024,18 +1990,18 @@ class AudioPlayer:
 
                 env["XDG_RUNTIME_DIR"] = "/run/user/1000"
 
-                # 1. Primary: Use PipeWire pw-play so speech honors the selected audio sink (Uconnect Car Speakers or HDMI)
-
+                # 1. Primary: Use PipeWire pw-play targeting CarPi-Master-Sink for AEC loopback reference
                 try:
-
-                    res = subprocess.run(["pw-play", file_path], capture_output=True, timeout=25, env=env)
-
+                    # Target CarPi-Master-Sink first so WebRTC AEC receives reference audio
+                    res = subprocess.run(["pw-play", "--target", "CarPi-Master-Sink", file_path], capture_output=True, timeout=25, env=env)
                     if res.returncode == 0:
-
                         played = True
-
+                    else:
+                        # Fallback to default sink if custom master sink node is not active
+                        res = subprocess.run(["pw-play", file_path], capture_output=True, timeout=25, env=env)
+                        if res.returncode == 0:
+                            played = True
                 except Exception:
-
                     pass
 
                 # 2. Secondary: Default ALSA player

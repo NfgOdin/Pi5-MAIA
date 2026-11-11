@@ -56,6 +56,15 @@ class AICopilot:
         self.prev_speed = 0.0
         self.prev_speed_time = time.time()
 
+        # Phase 12: Cognitive Living Memory & Relationship Bond Engine
+        self.rag_engine: Any = None
+        self.reminisce_mode_cycle = 0  # 0: Care Check-In, 1: Driving Nostalgia, 2: Shower Thought
+
+    def set_rag_engine(self, rag_engine: Any):
+        """Links RagMemoryEngine to enable living episodic recall and caring check-ins."""
+        self.rag_engine = rag_engine
+        print("[AI COPILOT] RagMemoryEngine linked for proactive living reminiscence.")
+
     @staticmethod
     def _get_val(frame: Any, attr: str, default: Any = None) -> Any:
         """Safely extracts an attribute or dict key from frame, falling back to default if None."""
@@ -165,6 +174,63 @@ class AICopilot:
             f"I'm just watching our boost gauge, {self.driver_name}. It's sitting at nice, steady vacuum. You have such a smooth touch on the pedal."
         ]
         return random.choice(thoughts)
+
+    def generate_living_reminiscence(self) -> Dict[str, Any]:
+        """
+        Proactive Episodic Reminiscing & Cabin Care Engine.
+        Cycles across 3 modes:
+        Mode 0: Personal Care Check-In (driver health facts, sore shoulder, tiredness)
+        Mode 1: Driving Adventure Nostalgia (past high-boost pulls, shared roadtrips)
+        Mode 2: Curated Mechanical Shower Thoughts & Whimsical Observations
+        """
+        self.reminisce_mode_cycle = (self.reminisce_mode_cycle + 1) % 3
+
+        # Mode 0: Personal Care Check-In
+        if self.reminisce_mode_cycle == 0 and self.rag_engine:
+            try:
+                facts = self.rag_engine.get_driver_facts()
+                health_facts = [f for f in facts if "health" in f["entity"] or "shoulder" in f["attribute"] or "sore" in f["value"]]
+                if health_facts:
+                    f = health_facts[0]
+                    speech = f"Hey {self.driver_name}... I was thinking about earlier. How is your shoulder feeling right now? Remember you were pretty sore after working on the car!"
+                    return {
+                        "speech": speech,
+                        "emotion": "COZY",
+                        "hud_message": f"💖 Caring Check-In for {self.driver_name}"
+                    }
+            except Exception:
+                pass
+
+        # Mode 1: Driving Adventure Nostalgia
+        if self.reminisce_mode_cycle == 1 and self.rag_engine:
+            try:
+                episodes = self.rag_engine.get_recent_episodic_memories(limit=5)
+                if episodes:
+                    ep = episodes[0]
+                    speech = f"Hey {self.driver_name}... remember when we went for that spirited pull? {ep['rum_summary']} The Garrett turbo was singing!"
+                    return {
+                        "speech": speech,
+                        "emotion": "HAPPY_PROUD",
+                        "hud_message": "📖 Shared Driving Memory"
+                    }
+                diaries = self.rag_engine.get_recent_diary_entries(limit=3)
+                if diaries:
+                    d = diaries[0]
+                    speech = f"Hey {self.driver_name}... I was thinking about our last drive. The way our Dart handled the road made me so proud to be your co-pilot!"
+                    return {
+                        "speech": speech,
+                        "emotion": "HAPPY_PROUD",
+                        "hud_message": "📖 R.U.M. Diary Memory"
+                    }
+            except Exception:
+                pass
+
+        # Mode 2 or fallback: Mechanical Shower Thought
+        return {
+            "speech": self.generate_shower_thought(),
+            "emotion": "THOUGHTFUL",
+            "hud_message": "💭 R.U.M. Shower Thought"
+        }
 
     def evaluate_frame(self, frame: Any, dt: float = 0.04, is_night: bool = False, pip_state: Optional[Dict[str, Any]] = None, gps_data: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """
@@ -486,7 +552,7 @@ class AICopilot:
                     "hud_message": f"⚡ DRAGY 0-60: {t0_60:.2f}s"
                 }
 
-        # 16. Spontaneous Highway Cruising "Shower Thoughts" (Every 15-25 minutes of steady highway driving)
+        # 16. Spontaneous Highway Cruising Living Reminiscence (Every 18-28 minutes)
         is_cruising = (speed >= 45.0 and 8.0 <= throttle_pct <= 38.0 and -14.0 <= boost_val <= -0.5)
         if is_cruising:
             self.cruising_seconds += dt
@@ -497,14 +563,14 @@ class AICopilot:
             if time_since_speech > 45.0:
                 self.last_shower_thought_time = now
                 self.last_spoken_time = now
-                self.next_shower_thought_interval = random.uniform(900.0, 1500.0)
-                thought = self.generate_shower_thought()
+                self.next_shower_thought_interval = random.uniform(1080.0, 1680.0)  # 18-28 minutes
+                reminiscence = self.generate_living_reminiscence()
                 return {
-                    "type": "SHOWER_THOUGHT",
-                    "priority": 3,
-                    "emotion": "THOUGHTFUL",
-                    "speech": thought,
-                    "hud_message": "💭 R.U.M. Shower Thought"
+                    "type": "LIVING_REMINISCENCE",
+                    "priority": 2,
+                    "emotion": reminiscence.get("emotion", "THOUGHTFUL"),
+                    "speech": reminiscence.get("speech", ""),
+                    "hud_message": reminiscence.get("hud_message", "💭 R.U.M. Reminiscing")
                 }
 
         # 17. 0-60 MPH Launch Silent HUD Record Fallback

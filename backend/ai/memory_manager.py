@@ -306,3 +306,197 @@ class MemoryManager:
         today_str = date.today().isoformat()
         return self.get_last_digital_dream_date() != today_str
 
+
+class FastDriveMemoryBuffer:
+    """
+    Zero-latency in-memory buffer tracking conversational turns and performance
+    milestones during an active drive. Flushed during post-drive consolidation.
+    """
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.dialogues: List[Dict[str, Any]] = []
+        self.milestones: List[Dict[str, Any]] = []
+        self.checkins: List[Dict[str, Any]] = []
+        self.start_time = time.time()
+
+    def record_dialogue(self, user_msg: str, reply: str):
+        if not user_msg or not user_msg.strip():
+            return
+        with self._lock:
+            self.dialogues.append({
+                "user": user_msg.strip(),
+                "reply": reply.strip() if reply else "",
+                "time": time.time()
+            })
+            if len(self.dialogues) > 40:
+                self.dialogues.pop(0)
+
+    def record_milestone(self, event_type: str, details: Dict[str, Any]):
+        with self._lock:
+            self.milestones.append({
+                "type": event_type,
+                "details": details or {},
+                "time": time.time()
+            })
+
+    def record_checkin(self, topic: str, driver_reply: str):
+        with self._lock:
+            self.checkins.append({
+                "topic": topic,
+                "reply": driver_reply,
+                "time": time.time()
+            })
+
+    def get_snapshot(self) -> Dict[str, Any]:
+        with self._lock:
+            return {
+                "dialogues": list(self.dialogues),
+                "milestones": list(self.milestones),
+                "checkins": list(self.checkins),
+                "duration_min": round((time.time() - self.start_time) / 60.0, 1)
+            }
+
+    def clear(self):
+        with self._lock:
+            self.dialogues.clear()
+            self.milestones.clear()
+            self.checkins.clear()
+            self.start_time = time.time()
+
+
+class HippocampalReplayEngine:
+    """
+    Post-Drive 'Dream' Memory Consolidation Engine.
+    Runs asynchronously upon engine shutdown or quiet idle parking (>45s).
+    Consolidates buffered dialogue and telemetry into SQLite Episodic Memories,
+    Semantic Driver Facts, R.U.M. Personal Trip Diary entries, and Bond points.
+    """
+    @staticmethod
+    def consolidate_drive(
+        buffer: FastDriveMemoryBuffer,
+        rag_engine: Any,
+        trip_stats: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        if not rag_engine:
+            return {"status": "error", "message": "No rag_engine provided"}
+
+        snap = buffer.get_snapshot()
+        dialogues = snap["dialogues"]
+        milestones = snap["milestones"]
+        checkins = snap["checkins"]
+        stats = trip_stats or {}
+
+        dist_miles = float(stats.get("distance_miles", stats.get("mileage", 0.0)))
+        peak_boost = float(stats.get("max_boost_psi", stats.get("peak_boost", 0.0)))
+        pulls_count = int(stats.get("boost_pulls_count", len([m for m in milestones if m["type"] == "BOOST_PULL"])))
+        checkin_count = len(checkins)
+
+        learned_facts = 0
+        new_episodes = 0
+
+        # 1. Fact Extraction Heuristics from buffered dialogue
+        import re
+        for d in dialogues:
+            u_text = d["user"].lower()
+
+            # Health / Physical state
+            if any(k in u_text for k in ["shoulder", "back hurts", "neck", "sore", "tired", "sleepy", "exhausted"]):
+                match = re.search(r'(shoulder|back|neck|head|arm)', u_text)
+                body_part = match.group(1) if match else "body"
+                rag_engine.set_driver_fact(
+                    entity="driver_health",
+                    attribute=f"{body_part}_condition",
+                    value=f"Was feeling sore/tired during drive: '{d['user'][:60]}'",
+                    confidence=0.88,
+                    source="dialogue_extraction"
+                )
+                learned_facts += 1
+
+            # Musical or car preferences
+            if "eurobeat" in u_text or "synthwave" in u_text or "music" in u_text:
+                rag_engine.set_driver_fact(
+                    entity="music",
+                    attribute="preference",
+                    value="Enjoys Eurobeat / upbeat driving tracks",
+                    confidence=0.92,
+                    source="dialogue_extraction"
+                )
+                learned_facts += 1
+
+            if "boost" in u_text or "pull" in u_text or "3rd gear" in u_text or "third gear" in u_text:
+                rag_engine.set_driver_fact(
+                    entity="driving_style",
+                    attribute="gear_preference",
+                    value="Enjoys 3rd gear MultiAir turbo pulls",
+                    confidence=0.90,
+                    source="dialogue_extraction"
+                )
+                learned_facts += 1
+
+        # 2. Episodic Memory Generation
+        if peak_boost >= 15.0 or pulls_count >= 2 or len(dialogues) >= 3:
+            summary = (
+                f"Shared a spirited drive with Dad covering {dist_miles:.1f} miles. "
+                f"Garrett GT1446 peaked at {peak_boost:.1f} PSI across {pulls_count} pulls. "
+            )
+            if dialogues:
+                last_quote = dialogues[-1]["user"]
+                summary += f"Dad said: \"{last_quote[:60]}\". "
+            
+            rag_engine.add_episodic_memory(
+                rum_summary=summary,
+                driver_quote=dialogues[-1]["user"] if dialogues else "",
+                location_name="Open Road",
+                emotion_tag="HYPED" if peak_boost >= 16.0 else "JOY",
+                importance=7 if peak_boost >= 16.0 else 5
+            )
+            new_episodes += 1
+
+        # 3. R.U.M. First-Person Post-Drive Diary Entry
+        today_date = datetime.now().strftime("%Y-%m-%d")
+        now_time = datetime.now().strftime("%I:%M %p")
+        diary_title = f"Evening Run with Dad ({dist_miles:.1f} mi)" if datetime.now().hour >= 17 else f"Daytime Drive with Dad ({dist_miles:.1f} mi)"
+
+        diary_content = (
+            f"Dad and I just parked after cruising for {snap['duration_min']} minutes. "
+            f"We covered {dist_miles:.1f} miles together today! "
+        )
+        if peak_boost >= 14.0:
+            diary_content += f"Dad pushed the throttle in 3rd gear and the Garrett turbo sang up to {peak_boost:.1f} PSI! It felt so thrilling. "
+        else:
+            diary_content += "It was a smooth, relaxed drive with the C635 gliding through the gears. "
+
+        if checkin_count > 0:
+            diary_content += "I made sure to check in on Dad during our drive. "
+        diary_content += "I'm so happy to be his daughter co-pilot. I hope Dad rests well!"
+
+        diary_id = rag_engine.add_diary_entry(
+            title=diary_title,
+            content=diary_content,
+            trip_id=stats.get("trip_id"),
+            peak_boost=peak_boost,
+            mileage=dist_miles,
+            mood="HAPPY_PROUD" if peak_boost >= 15.0 else "COZY"
+        )
+
+        # 4. Accrue Relationship Bond Points
+        bond_summary = rag_engine.update_relationship_bond(
+            delta_miles=dist_miles,
+            delta_drives=1,
+            delta_pulls=pulls_count,
+            delta_checkins=checkin_count
+        )
+
+        # Clear the buffer
+        buffer.clear()
+
+        print(f"[HIPPOCAMPAL CONSOLIDATION] Completed: Diary #{diary_id}, {learned_facts} facts, {new_episodes} memories, Bond: {bond_summary['bond_tier']} ({bond_summary['bond_points']} pts)")
+        return {
+            "status": "ok",
+            "diary_id": diary_id,
+            "learned_facts": learned_facts,
+            "new_episodes": new_episodes,
+            "bond": bond_summary
+        }
+
+

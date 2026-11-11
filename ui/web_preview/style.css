@@ -5565,3 +5565,436 @@ body.cockpit-night-mode .vehicle-hub-card {
   from { opacity: 0.6; }
   to { opacity: 1.0; }
 }
+
+/* ============================================================================
+ * 💖 PHASE 12: LIVING MEMORY, EPISODIC RAG & RELATIONSHIP BOND STYLES
+ * ============================================================================ */
+.maint-tab-switcher {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.maint-tab-btn {
+  flex: 1;
+  min-height: 44px;
+  padding: 8px 18px;
+  border-radius: 8px;
+  background: #111622;
+  border: 1px solid #1e293b;
+  color: #94a3b8;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.maint-tab-btn:hover {
+  background: #161e2e;
+  color: #f1f5f9;
+}
+.maint-tab-btn.active {
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.25), rgba(0, 240, 255, 0.15));
+  border-color: #a855f7;
+  color: #ffffff;
+  box-shadow: 0 0 12px rgba(168, 85, 247, 0.25);
+}
+
+.maint-diary-card {
+  background: #101622;
+  border: 1px solid #1e293b;
+  border-radius: 10px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.15s ease;
+}
+.maint-diary-card:hover {
+  border-color: #a855f7;
+}
+.maint-diary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.maint-diary-title {
+  font-size: 12.5px;
+  font-weight: 900;
+  color: #f1f5f9;
+}
+.maint-diary-meta {
+  font-size: 10px;
+  color: #94a3b8;
+  font-weight: 700;
+}
+.maint-diary-body {
+  font-size: 11.5px;
+  color: #cbd5e1;
+  line-height: 1.45;
+  font-style: italic;
+}
+
+.maint-fact-card {
+  background: #101622;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  transition: border-color 0.15s ease;
+}
+.maint-fact-card:hover {
+  border-color: #00f0ff;
+}
+.maint-fact-key {
+  font-size: 9.5px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #a855f7;
+  letter-spacing: 0.5px;
+}
+.maint-fact-val {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #f8fafc;
+  margin-top: 2px;
+}
+
+.maint-milestone-pill {
+  font-size: 10px;
+  font-weight: 900;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  background: rgba(168, 85, 247, 0.12);
+  color: #d8b4fe;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.maint-milestone-pill.unlocked {
+  border-color: #00e676;
+  background: rgba(0, 230, 118, 0.12);
+  color: #69f0ae;
+}
+
+/* Phase 15 Cockpit Telephony & Kinship Studio */
+.dial-key {
+  min-height: 52px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  color: #f8fafc;
+  font-size: 19px;
+  font-weight: 800;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.1s ease;
+  user-select: none;
+}
+.dial-key:active {
+  background: #38bdf8;
+  color: #000;
+  transform: scale(0.96);
+}
+.dial-key .sub-letters {
+  font-size: 8px;
+  color: #94a3b8;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+.kinship-pill {
+  min-height: 50px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: #fff;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.kinship-pill:hover, .kinship-pill:active {
+  border-color: #38bdf8;
+  background: #0c4a6e;
+}
+.call-log-card {
+  background: #0b1120;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.sms-bubble-inbound {
+  background: #1e293b;
+  color: #f1f5f9;
+  border-radius: 10px 10px 10px 2px;
+  padding: 8px 12px;
+  max-width: 80%;
+  font-size: 12px;
+  align-self: flex-start;
+  line-height: 1.4;
+}
+.sms-bubble-outbound {
+  background: #0284c7;
+  color: #fff;
+  border-radius: 10px 10px 2px 10px;
+  padding: 8px 12px;
+  max-width: 80%;
+  font-size: 12px;
+  align-self: flex-end;
+  line-height: 1.4;
+}
+
+/* Phase 11 Official US MUTCD R2-1 Speed Limit Sign Badge */
+.speed-limit-badge {
+  width: 38px;
+  height: 48px;
+  background: #ffffff;
+  border: 2px solid #000000;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+  user-select: none;
+}
+.speed-limit-label {
+  font-size: 6.5px;
+  font-weight: 900;
+  color: #000000;
+  text-align: center;
+  line-height: 1.0;
+  font-family: Arial, Helvetica, sans-serif;
+  letter-spacing: -0.2px;
+}
+.speed-limit-number {
+  font-size: 20px;
+  font-weight: 900;
+  color: #000000;
+  font-family: Arial, Helvetica, sans-serif;
+  line-height: 1.0;
+  margin-top: 1px;
+}
+
+/* ==========================================================================
+   PHASE 15: IN-CABIN TELEPHONY & KINSHIP STYLES
+   ========================================================================== */
+.floating-incall-banner {
+  position: absolute;
+  top: 10px;
+  left: 20px;
+  right: 20px;
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(12px);
+  border: 1px solid #38bdf8;
+  border-radius: 12px;
+  padding: 10px 16px;
+  z-index: 10000;
+  box-shadow: 0 10px 30px rgba(2, 132, 199, 0.3);
+}
+
+.incall-action-btn {
+  min-height: 48px;
+  min-width: 90px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: transform 0.1s ease, filter 0.1s ease;
+}
+.incall-action-btn:active {
+  transform: scale(0.96);
+}
+
+.incall-btn-answer {
+  background: #10b981;
+  color: #ffffff;
+}
+
+.incall-btn-decline {
+  background: #ef4444;
+  color: #ffffff;
+}
+
+.incall-btn-screen {
+  background: #0284c7;
+  color: #ffffff;
+}
+
+.incall-btn-mute {
+  background: #334155;
+  color: #e2e8f0;
+  border: 1px solid #475569;
+}
+
+.phone-dialer-card {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.dialer-display {
+  background: #020617;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  min-height: 44px;
+  padding: 8px 12px;
+  font-size: 22px;
+  font-weight: 900;
+  color: #38bdf8;
+  font-family: var(--font-mono, monospace);
+  text-align: right;
+  letter-spacing: 2px;
+}
+
+.dialpad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.dial-key {
+  min-height: 52px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s ease;
+}
+.dial-key:active {
+  background: #0284c7;
+}
+.dial-key span {
+  font-size: 8px;
+  color: #94a3b8;
+  font-weight: 700;
+  margin-top: -2px;
+}
+
+.kinship-pill {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  min-height: 48px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.kinship-pill:hover, .kinship-pill:active {
+  border-color: #38bdf8;
+  background: #0c4a6e;
+}
+
+.phone-tab-btn {
+  flex: 1;
+  min-height: 44px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.phone-tab-btn.active {
+  color: #38bdf8;
+  border-bottom: 2px solid #38bdf8;
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.call-log-card {
+  background: #131c2e;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sms-thread-pane {
+  background: #020617;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  flex: 1;
+  padding: 10px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sms-bubble-inbound {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 12px 12px 12px 2px;
+  padding: 8px 12px;
+  align-self: flex-start;
+  max-width: 80%;
+  font-size: 12px;
+  color: #f1f5f9;
+}
+
+.sms-bubble-outbound {
+  background: #0284c7;
+  border: 1px solid #38bdf8;
+  border-radius: 12px 12px 2px 12px;
+  padding: 8px 12px;
+  align-self: flex-end;
+  max-width: 80%;
+  font-size: 12px;
+  color: #ffffff;
+}
+
+/* ==========================================================================
+   PHASE 18: CANYON RUN & THERMAL DEGRADATION STYLES
+   ========================================================================== */
+.canyon-tire-box {
+  transition: border-color 0.3s ease, background 0.3s ease;
+}
+
+.canyon-sector-card {
+  transition: transform 0.15s ease, border-color 0.2s ease;
+}
+.canyon-sector-card:hover {
+  transform: translateY(-2px);
+  border-color: #00f0ff !important;
+}
+
+
+

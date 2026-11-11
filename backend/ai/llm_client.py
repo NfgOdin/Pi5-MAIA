@@ -1205,11 +1205,22 @@ class LLMClient:
         if lore_injection:
             system_prompt += f"\n[GROUNDED KNOWLEDGE INJECTION:\n{lore_injection}]"
 
-        # Phase 8 Semantic Vector RAG Retrieval (Trips, Maintenance, Vehicle Memory)
+        # Phase 12 Unified Living Memory & Relationship Bond Context
         if hasattr(self, "rag_memory") and self.rag_memory:
-            rag_injection = self.rag_memory.retrieve_context_for_prompt(user_message, top_k=2, threshold=0.35)
-            if rag_injection:
-                system_prompt += f"\n[RECALLED CARPI MEMORY & VEHICLE RECORDS:\n{rag_injection}]" 
+            try:
+                curr_spd = float(live_telemetry.get("speed_mph", 0.0)) if live_telemetry else 0.0
+                living_memory_block = self.rag_memory.retrieve_unified_living_memory(user_message, current_speed=curr_spd, max_tokens=300)
+                if living_memory_block:
+                    system_prompt += f"\n[RECALLED LIVING COGNITIVE MEMORIES & BOND:\n{living_memory_block}]"
+                else:
+                    rag_injection = self.rag_memory.retrieve_context_for_prompt(user_message, top_k=2, threshold=0.35)
+                    if rag_injection:
+                        system_prompt += f"\n[RECALLED CARPI MEMORY & VEHICLE RECORDS:\n{rag_injection}]"
+            except Exception as e:
+                print(f"[LLM] Living memory injection note: {e}")
+                rag_injection = self.rag_memory.retrieve_context_for_prompt(user_message, top_k=2, threshold=0.35)
+                if rag_injection:
+                    system_prompt += f"\n[RECALLED CARPI MEMORY & VEHICLE RECORDS:\n{rag_injection}]" 
 
         if live_telemetry:
 

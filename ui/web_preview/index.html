@@ -401,6 +401,19 @@
           </div>
           <div style="font-size:10px; font-weight:800; color:#b452ff; letter-spacing:0.5px;">VIEW SERVICE & MEMORY →</div>
         </div>
+
+        <!-- 7. CANYON RUN & THERMAL STUDIO -->
+        <div class="launcher-card card-canyon" onclick="navigateTo('canyon')" style="border-color:rgba(0,240,255,0.45); cursor:pointer;">
+          <div class="card-badge" id="vehHubCanyonBadge" style="background:rgba(0,240,255,0.18); color:#00f0ff; border:1px solid #00f0ff;">
+            <span>⏱️ SECTOR LAP TIMER</span>
+          </div>
+          <div>
+            <div class="card-icon" style="color:#00f0ff;">🏔️</div>
+            <div class="card-title">CANYON RUN & THERMAL STUDIO</div>
+            <div class="card-subtitle">Brake rotor fade %, 4-corner tire grip & temps, and GPS sector split lap timer for Pinal Pass & Salt River.</div>
+          </div>
+          <div style="font-size:10px; font-weight:800; color:#00f0ff; letter-spacing:0.5px;">ENTER CANYON RUN →</div>
+        </div>
       </div>
     </div>
 
@@ -2420,6 +2433,52 @@
 
       <!-- Main Body: Split between Map and Dragy Performance Dashboard -->
       <div style="flex:1; display:flex; position:relative; overflow:hidden;">
+        <!-- Floating Turn-by-Turn Navigation & Speed Limit Banner -->
+        <div id="floatingTurnByTurnBanner" style="display:none; position:absolute; top:12px; left:12px; right:320px; z-index:1050; background:rgba(10,16,26,0.92); backdrop-filter:blur(10px); border:1px solid #00f0ff; border-radius:12px; padding:10px 16px; box-shadow:0 8px 32px rgba(0,240,255,0.25);">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div style="display:flex; align-items:center; gap:14px;">
+              <div id="navManeuverIcon" style="font-size:32px; width:48px; height:48px; display:flex; align-items:center; justify-content:center; background:#141f2d; border:1px solid #00f0ff; border-radius:10px;">⬆️</div>
+              <div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span id="navManeuverDist" style="font-size:18px; font-weight:900; color:#00f0ff; font-family:var(--font-mono);">0.5 MI</span>
+                  <span style="font-size:11px; color:#94a3b8;">THEN</span>
+                </div>
+                <div id="navManeuverStreet" style="font-size:14px; font-weight:800; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:280px;">Broad St / US-60</div>
+              </div>
+            </div>
+
+            <!-- Center/Right Speed Limit & ETA Badges -->
+            <div style="display:flex; align-items:center; gap:12px;">
+              <!-- MUTCD R2-1 Speed Limit Sign -->
+              <div class="speed-limit-badge" id="navSpeedLimitBadge">
+                <div class="speed-limit-label">SPEED<br>LIMIT</div>
+                <div class="speed-limit-number" id="navSpeedLimitVal">25</div>
+              </div>
+
+              <!-- ETA & Remaining Card -->
+              <div style="background:#141f2d; border:1px solid #223244; border-radius:8px; padding:4px 10px; text-align:right;">
+                <div style="font-size:10px; color:#94a3b8;">ETA: <span id="navEtaVal" style="color:#00e676; font-weight:800;">--</span></div>
+                <div style="font-size:10px; color:#94a3b8;">REMAINING: <span id="navRemainingDist" style="color:#00b0ff; font-weight:800;">-- mi</span></div>
+              </div>
+
+              <button class="cluster-action-btn" onclick="stopNavigationRoute()" style="min-height:44px; padding:4px 12px; font-size:11px; border-color:#ff4444; color:#ff8888;" title="Cancel Navigation">✕ END</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Destination Search & Bookmarks Bar -->
+        <div style="position:absolute; top:12px; left:12px; z-index:1000; display:flex; align-items:center; gap:8px; background:rgba(10,14,20,0.85); backdrop-filter:blur(8px); border:1px solid #1e2c3c; border-radius:10px; padding:6px 10px;" id="navSearchContainer">
+          <input type="text" id="navDestinationInput" placeholder="Navigate to destination..." style="background:#141c26; border:1px solid #223244; color:#fff; border-radius:6px; padding:6px 12px; font-size:12px; width:220px; outline:none; min-height:44px;" onfocus="showVirtualKeyboard(this)" />
+          <button class="cluster-action-btn" onclick="submitStartRoute()" style="min-height:44px; padding:6px 14px; font-size:11px; background:#0284c7; border:none; color:#fff; font-weight:800; border-radius:6px; cursor:pointer;">GO</button>
+          <div style="display:flex; gap:4px; margin-left:6px;">
+            <button class="cluster-action-btn" onclick="routeToBookmark('dest_home')" style="min-height:44px; padding:4px 8px; font-size:10px;" title="Route Home">🏠 Home</button>
+            <button class="cluster-action-btn" onclick="routeToBookmark('dest_gas')" style="min-height:44px; padding:4px 8px; font-size:10px;" title="Route to Gas">⛽ Gas</button>
+            <button class="cluster-action-btn" onclick="routeToBookmark('dest_food')" style="min-height:44px; padding:4px 8px; font-size:10px;" title="Route to Food">🛒 Food</button>
+            <button class="cluster-action-btn" onclick="routeToBookmark('dest_pass')" style="min-height:44px; padding:4px 8px; font-size:10px;" title="Route to Pinal Pass">🌲 Pass</button>
+            <button class="cluster-action-btn" onclick="routeToBookmark('dest_lake')" style="min-height:44px; padding:4px 8px; font-size:10px;" title="Route to Roosevelt Lake">🌊 Lake</button>
+          </div>
+        </div>
+
         <!-- Left: Leaflet Live Map Canvas -->
         <div id="liveMapCanvas" style="flex:1; height:100%; width:100%; background:#0d1117; z-index:1;"></div>
 
@@ -3301,6 +3360,314 @@
       </div>
     </div>
 
+    <!-- FLOATING IN-CALL HUD BANNER -->
+    <div id="floatingInCallHud" class="floating-incall-banner" style="display:none;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <div style="font-size:28px; width:44px; height:44px; display:flex; align-items:center; justify-content:center; background:rgba(56,189,248,0.15); border:1px solid #38bdf8; border-radius:50%;">📞</div>
+          <div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span id="incallCallerName" style="font-size:15px; font-weight:900; color:#fff;">Caller Name</span>
+              <span id="incallKinshipBadge" style="font-size:10px; font-weight:800; padding:2px 8px; border-radius:10px; background:#0284c7; color:#fff;">FAMILY</span>
+            </div>
+            <div style="font-size:11px; color:#94a3b8;"><span id="incallCallerNumber">--</span> • <span id="incallStatusText" style="color:#38bdf8;">Ringing...</span> (<span id="incallCallTimer">00:00</span>)</div>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:8px;">
+          <button id="btnIncallMute" class="incall-action-btn incall-btn-mute" onclick="phoneToggleMute()" title="Mute Microphone">🎤 MUTE</button>
+          <button id="btnIncallScreen" class="incall-action-btn incall-btn-screen" onclick="phoneScreenCall()" title="Let R.U.M. Screen Call">🛡️ SCREEN</button>
+          <button id="btnIncallAnswer" class="incall-action-btn incall-btn-answer" onclick="phoneAnswerCall()" title="Answer Call">📞 ANSWER</button>
+          <button id="btnIncallDecline" class="incall-action-btn incall-btn-decline" onclick="phoneHangupCall()" title="Decline / Hang Up">✕ HANG UP</button>
+        </div>
+      </div>
+
+      <!-- Live Screening Transcript Box -->
+      <div id="incallScreeningBox" style="display:none; margin-top:8px; padding:8px 12px; background:rgba(15,23,42,0.8); border:1px solid #334155; border-radius:8px; font-size:11px; color:#e2e8f0;">
+        <span style="font-weight:800; color:#38bdf8;">🤖 R.U.M. LIVE CALL SCREENING:</span>
+        <div id="incallLiveTranscript" style="margin-top:4px; font-style:italic;">Listening to caller...</div>
+      </div>
+    </div>
+
+    <!-- 12. SCREEN: COCKPIT HANDS-FREE PHONE, KINSHIP & AI RECEPTIONIST -->
+    <div class="screen-view" id="screenPhone" style="overflow-y:auto; padding:12px; box-sizing:border-box;">
+      <div style="max-width:1000px; margin:0 auto; display:flex; flex-direction:column; gap:12px;">
+        
+        <!-- Header Bar -->
+        <div style="display:flex; justify-content:space-between; align-items:center; background:#0b1120; border:1px solid #1e293b; border-radius:10px; padding:10px 16px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <span style="font-size:24px;">📞</span>
+            <div>
+              <div style="font-size:15px; font-weight:900; color:#38bdf8; letter-spacing:0.5px;">IN-CABIN HANDS-FREE TELEPHONY &amp; KINSHIP STUDIO</div>
+              <div style="font-size:10px; color:#94a3b8;">Bluetooth HFP • Loving Daughter Voice Screening • Daughter-Centric Family Directory</div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div id="phoneConnectionBadge" style="font-size:10px; font-weight:800; background:#1e293b; color:#94a3b8; padding:5px 12px; border-radius:6px; border:1px solid #334155;">
+              📱 BLUETOOTH HFP: STANDBY
+            </div>
+            <button class="cockpit-home-btn" onclick="navigateTo('home')" style="margin:0; padding:6px 14px; font-size:12px;" title="Back to Cockpit Home">🏠 HOME</button>
+          </div>
+        </div>
+
+        <!-- Main Body: 2 Columns -->
+        <div style="display:grid; grid-template-columns:330px 1fr; gap:12px;">
+          
+          <!-- Column 1: Dialpad & Kinship Quick Call Pills -->
+          <div style="display:flex; flex-direction:column; gap:10px;">
+            <!-- Kinship Quick-Call Grid -->
+            <div style="background:#0f172a; border:1px solid #1e293b; border-radius:10px; padding:10px;">
+              <div style="font-size:11px; font-weight:900; color:#38bdf8; margin-bottom:8px; letter-spacing:0.5px;">💖 FAMILY KINSHIP QUICK-CALL</div>
+              <div id="phoneKinshipQuickPills" style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+                <!-- Filled dynamically via JS -->
+              </div>
+            </div>
+
+            <!-- Touch Numeric Dialpad -->
+            <div class="phone-dialer-card">
+              <div id="dialerInputDisplay" class="dialer-display"></div>
+              <div class="dialpad-grid">
+                <button class="dial-key" onclick="dialpadPress('1')">1</button>
+                <button class="dial-key" onclick="dialpadPress('2')">2<span>ABC</span></button>
+                <button class="dial-key" onclick="dialpadPress('3')">3<span>DEF</span></button>
+                <button class="dial-key" onclick="dialpadPress('4')">4<span>GHI</span></button>
+                <button class="dial-key" onclick="dialpadPress('5')">5<span>JKL</span></button>
+                <button class="dial-key" onclick="dialpadPress('6')">6<span>MNO</span></button>
+                <button class="dial-key" onclick="dialpadPress('7')">7<span>PQRS</span></button>
+                <button class="dial-key" onclick="dialpadPress('8')">8<span>TUV</span></button>
+                <button class="dial-key" onclick="dialpadPress('9')">9<span>WXYZ</span></button>
+                <button class="dial-key" onclick="dialpadPress('*')">*</button>
+                <button class="dial-key" onclick="dialpadPress('0')">0<span>+</span></button>
+                <button class="dial-key" onclick="dialpadPress('#')">#</button>
+              </div>
+              <div style="display:flex; gap:8px; margin-top:8px;">
+                <button class="cluster-action-btn" onclick="dialpadBackspace()" style="flex:1; min-height:48px; border-color:#64748b; color:#94a3b8;">⌫ DEL</button>
+                <button class="cluster-action-btn" onclick="dialpadCall()" style="flex:2; min-height:48px; background:#10b981; border:none; color:#fff; font-weight:900; font-size:13px; border-radius:8px;">📞 CALL</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Column 2: Tabbed Manager (History, SMS, Contacts) -->
+          <div style="background:#0f172a; border:1px solid #1e293b; border-radius:10px; display:flex; flex-direction:column; overflow:hidden;">
+            <!-- Sub-Tabs -->
+            <div style="display:flex; border-bottom:1px solid #1e293b; background:#0b1120;">
+              <button id="btnPhoneTabHistory" class="phone-tab-btn active" onclick="switchPhoneTab('history')">📜 RECENT CALLS</button>
+              <button id="btnPhoneTabSms" class="phone-tab-btn" onclick="switchPhoneTab('sms')">💬 SMS CONVERSATIONS</button>
+              <button id="btnPhoneTabContacts" class="phone-tab-btn" onclick="switchPhoneTab('contacts')">👥 KINSHIP DIRECTORY</button>
+            </div>
+
+            <!-- Tab 1: Call History -->
+            <div id="phoneViewHistory" style="padding:10px; display:flex; flex-direction:column; gap:8px; overflow-y:auto; flex:1;">
+              <div id="phoneHistoryList" style="display:flex; flex-direction:column; gap:6px;">
+                <!-- Populated via loadCallHistory() -->
+              </div>
+            </div>
+
+            <!-- Tab 2: SMS Threads -->
+            <div id="phoneViewSms" style="display:none; padding:10px; flex-direction:column; gap:8px; overflow:hidden; flex:1;">
+              <div style="display:grid; grid-template-columns:160px 1fr; gap:10px; height:280px;">
+                <!-- Thread List -->
+                <div id="smsThreadsList" style="border-right:1px solid #1e293b; padding-right:8px; overflow-y:auto; display:flex; flex-direction:column; gap:4px;">
+                  <!-- Populated via loadSmsThreads() -->
+                </div>
+                <!-- Message Thread Pane -->
+                <div style="display:flex; flex-direction:column; justify-content:space-between; height:100%;">
+                  <div id="smsMessagesList" class="sms-thread-pane">
+                    <!-- Populated via selectSmsThread() -->
+                  </div>
+                  <div style="display:flex; gap:6px; margin-top:8px;">
+                    <input type="text" id="smsTextInput" placeholder="Type or dictate text message..." style="flex:1; min-height:44px; background:#1e293b; border:1px solid #334155; border-radius:8px; color:#fff; padding:6px 12px; font-size:12px;" onfocus="showVirtualKeyboard(this)" />
+                    <button class="cluster-action-btn" onclick="submitSendSms()" style="min-height:44px; padding:6px 14px; background:#0284c7; border:none; color:#fff; font-weight:800; border-radius:8px;">SEND</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab 3: Contacts Directory -->
+            <div id="phoneViewContacts" style="display:none; padding:10px; flex-direction:column; gap:8px; overflow-y:auto; flex:1;">
+              <div id="phoneContactsList" style="display:flex; flex-direction:column; gap:6px;">
+                <!-- Populated via renderContactsDirectory() -->
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 13. SCREEN: CANYON RUN & THERMAL DEGRADATION STUDIO -->
+    <div class="screen-view" id="screenCanyon" style="flex-direction:column; gap:8px; height:100%; overflow:hidden; padding:8px 12px; box-sizing:border-box;">
+      <!-- Top Sticky Header -->
+      <div style="display:flex; justify-content:space-between; align-items:center; background:#10151f; border:1px solid #1c2636; border-radius:10px; padding:6px 14px; flex-shrink:0;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <button class="cluster-action-btn" onclick="navigateTo('vehicle')" style="padding:6px 14px; font-size:12px; min-height:44px; background:#1b2838; border-color:#00f0ff; color:#00f0ff; cursor:pointer;" title="Back to Vehicle Hub">
+            🏎️ VEHICLE
+          </button>
+          <button class="cluster-action-btn" onclick="navigateTo('home')" style="padding:6px 14px; font-size:12px; min-height:44px; background:#141b24; border-color:#2a374a; color:#fff; cursor:pointer;" title="Cockpit Home">
+            🏠 HOME
+          </button>
+          <div>
+            <div style="font-size:14px; font-weight:900; color:#fff; letter-spacing:0.5px;">🏔️ CANYON RUN &amp; THERMAL STUDIO</div>
+            <div style="font-size:10px; color:var(--text-secondary); font-weight:600;">Thermodynamic Rotor Fade • 4-Corner Tire Grip • GPS Sector Split Lap Timer</div>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <select id="canyonTrackSelect" onchange="changeCanyonTrack(this.value)" style="background:#141b24; border:1px solid #00f0ff; color:#00f0ff; border-radius:8px; padding:6px 10px; font-size:11px; font-weight:800; min-height:44px; cursor:pointer;">
+            <option value="pinal_pass">🌲 Pinal Mountain Scenic Byway</option>
+            <option value="salt_river">🌊 Salt River Canyon Pass (US-60)</option>
+            <option value="roosevelt">🏞️ Apache Trail / AZ-188</option>
+            <option value="firebird">🏁 Wild Horse Pass / Firebird</option>
+          </select>
+          <button id="btnCanyonArm" class="cluster-action-btn" onclick="armCanyonTimer()" style="padding:6px 16px; min-height:44px; font-size:12px; font-weight:900; background:linear-gradient(135deg, #00b0ff, #00e676); border:none; color:#000; border-radius:8px; cursor:pointer; box-shadow:0 0 14px rgba(0,230,118,0.4);">
+            🏁 ARM / START
+          </button>
+          <button id="btnCanyonStop" class="cluster-action-btn" onclick="stopCanyonTimer()" style="padding:6px 12px; min-height:44px; background:#1b2838; border-color:#ffaa00; color:#ffaa00; font-weight:800; font-size:11px; cursor:pointer;">
+            ⏸️ STOP
+          </button>
+          <button class="cluster-action-btn" onclick="resetCanyonTimer()" style="padding:6px 12px; min-height:44px; background:#1b2838; border-color:#ff4444; color:#ff8888; font-weight:800; font-size:11px; cursor:pointer;">
+            🔄 RESET
+          </button>
+        </div>
+      </div>
+
+      <!-- Main Body: 2 Columns -->
+      <div style="flex:1; display:flex; gap:10px; min-height:0; overflow:hidden;">
+        
+        <!-- COLUMN 1: Thermal Degradation & Brake Fade Telemetry (Width: 380px) -->
+        <div style="width:380px; background:linear-gradient(180deg, #131924, #0b0f16); border:1px solid #1e293b; border-radius:10px; padding:10px 12px; display:flex; flex-direction:column; justify-content:space-between; flex-shrink:0; box-sizing:border-box;">
+          
+          <!-- Section 1: 4-Corner Tire Carcass Model -->
+          <div style="background:#090d14; border:1px solid #1e293b; border-radius:8px; padding:8px 10px; display:flex; flex-direction:column; gap:6px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:10px; font-weight:900; color:#38bdf8; letter-spacing:0.5px;">🏎️ 4-CORNER TIRE THERMAL GRIP</span>
+              <span id="canyonOverallGrip" style="font-size:11px; font-weight:900; color:#00e676; font-family:var(--font-mono);">95% GRIP</span>
+            </div>
+            
+            <!-- 2x2 Tire Grid Layout -->
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+              <!-- Front Left Tire -->
+              <div class="canyon-tire-box" id="tireBoxFL" style="background:#101722; border:1px solid #223244; border-radius:6px; padding:6px; text-align:center;">
+                <div style="font-size:9px; font-weight:800; color:#64748b;">FRONT LEFT (FL)</div>
+                <div id="tireTempFL" style="font-size:16px; font-weight:900; color:#00e676; font-family:var(--font-mono);">165°F</div>
+                <div id="tireGripFL" style="font-size:9px; font-weight:700; color:#38bdf8;">100% Grip</div>
+              </div>
+              <!-- Front Right Tire -->
+              <div class="canyon-tire-box" id="tireBoxFR" style="background:#101722; border:1px solid #223244; border-radius:6px; padding:6px; text-align:center;">
+                <div style="font-size:9px; font-weight:800; color:#64748b;">FRONT RIGHT (FR)</div>
+                <div id="tireTempFR" style="font-size:16px; font-weight:900; color:#00e676; font-family:var(--font-mono);">162°F</div>
+                <div id="tireGripFR" style="font-size:9px; font-weight:700; color:#38bdf8;">100% Grip</div>
+              </div>
+              <!-- Rear Left Tire -->
+              <div class="canyon-tire-box" id="tireBoxRL" style="background:#101722; border:1px solid #223244; border-radius:6px; padding:6px; text-align:center;">
+                <div style="font-size:9px; font-weight:800; color:#64748b;">REAR LEFT (RL)</div>
+                <div id="tireTempRL" style="font-size:16px; font-weight:900; color:#38bdf8; font-family:var(--font-mono);">140°F</div>
+                <div id="tireGripRL" style="font-size:9px; font-weight:700; color:#38bdf8;">94% Grip</div>
+              </div>
+              <!-- Rear Right Tire -->
+              <div class="canyon-tire-box" id="tireBoxRR" style="background:#101722; border:1px solid #223244; border-radius:6px; padding:6px; text-align:center;">
+                <div style="font-size:9px; font-weight:800; color:#64748b;">REAR RIGHT (RR)</div>
+                <div id="tireTempRR" style="font-size:16px; font-weight:900; color:#38bdf8; font-family:var(--font-mono);">138°F</div>
+                <div id="tireGripRR" style="font-size:9px; font-weight:700; color:#38bdf8;">93% Grip</div>
+              </div>
+            </div>
+            <div style="font-size:9px; color:#64748b; text-align:center;">Optimal Window: 155°F - 195°F • 225/45R17 Performance Compound</div>
+          </div>
+
+          <!-- Section 2: Brake Rotor & Pad Fade Telemetry -->
+          <div style="background:#090d14; border:1px solid #1e293b; border-radius:8px; padding:8px 10px; display:flex; flex-direction:column; gap:6px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:10px; font-weight:900; color:#ffab00; letter-spacing:0.5px;">🛑 ROTOR HEAT &amp; PAD FADE</span>
+              <span id="canyonThermalStatusBadge" style="font-size:9px; font-weight:800; padding:2px 8px; border-radius:4px; background:rgba(0,230,118,0.15); color:#00e676; border:1px solid rgba(0,230,118,0.3);">NORMAL</span>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; gap:8px;">
+              <div style="flex:1; background:#101722; border:1px solid #223244; border-radius:6px; padding:6px; text-align:center;">
+                <div style="font-size:9px; font-weight:800; color:#64748b;">FRONT ROTORS (VENTED)</div>
+                <div id="canyonFrontRotorTemp" style="font-size:18px; font-weight:900; color:#ffab00; font-family:var(--font-mono);">185°F</div>
+                <div style="font-size:8px; color:#64748b;">11.8" 300mm Cast Iron</div>
+              </div>
+              <div style="flex:1; background:#101722; border:1px solid #223244; border-radius:6px; padding:6px; text-align:center;">
+                <div style="font-size:9px; font-weight:800; color:#64748b;">REAR ROTORS (SOLID)</div>
+                <div id="canyonRearRotorTemp" style="font-size:18px; font-weight:900; color:#ffab00; font-family:var(--font-mono);">135°F</div>
+                <div style="font-size:8px; color:#64748b;">10.4" 264mm Solid</div>
+              </div>
+            </div>
+
+            <!-- Fade meter -->
+            <div style="margin-top:2px;">
+              <div style="display:flex; justify-content:space-between; font-size:9px; font-weight:800; margin-bottom:2px;">
+                <span style="color:#94a3b8;">Brake Pad Fade Level:</span>
+                <span id="canyonPadFadeVal" style="color:#00e676;">0.0% Fade</span>
+              </div>
+              <div style="height:8px; background:#1e293b; border-radius:4px; overflow:hidden;">
+                <div id="canyonPadFadeBar" style="height:100%; width:0%; background:linear-gradient(90deg, #00e676, #ffab00, #ff3344); transition:width 0.2s ease;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- COLUMN 2: GPS Sector Split Lap Timer (Flex: 1) -->
+        <div style="flex:1; background:#10151f; border:1px solid #1c2636; border-radius:10px; padding:10px 14px; display:flex; flex-direction:column; justify-content:space-between; min-width:0; box-sizing:border-box;">
+          
+          <!-- Top Timer Display Banner -->
+          <div style="background:linear-gradient(135deg, #0e171f, #0a1118); border:1px solid #1e293b; border-radius:8px; padding:8px 14px; display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="font-size:10px; font-weight:900; color:#64748b; letter-spacing:1px;">CURRENT LAP TIME</div>
+              <div id="canyonCurrentLapTime" style="font-size:36px; font-weight:900; color:#00f0ff; font-family:var(--font-mono); text-shadow:0 0 16px rgba(0,240,255,0.4);">00:00.00</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:10px; font-weight:900; color:#64748b; letter-spacing:1px;">PERSONAL BEST</div>
+              <div id="canyonBestLapTime" style="font-size:24px; font-weight:900; color:#d8b4fe; font-family:var(--font-mono);">--:--.--</div>
+              <div id="canyonTrackDistanceBadge" style="font-size:9px; color:#64748b; font-weight:700;">8.4 MILES • 3 SECTORS</div>
+            </div>
+          </div>
+
+          <!-- Sector Splits Grid -->
+          <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px;" id="canyonSectorGrid">
+            <!-- Sector 1 -->
+            <div class="canyon-sector-card" style="background:#090d14; border:1px solid #1e293b; border-radius:8px; padding:8px 10px;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:10px; font-weight:900; color:#38bdf8;">SECTOR 1</span>
+                <span id="canyonDeltaS1" style="font-size:9px; font-weight:800; color:#64748b;">--</span>
+              </div>
+              <div id="canyonSplitS1" style="font-size:18px; font-weight:900; color:#fff; font-family:var(--font-mono); margin:2px 0;">--:--.--</div>
+              <div style="font-size:9px; color:#64748b;">Top: <span id="canyonTopSpeedS1">--</span> MPH • <span id="canyonMaxGS1">--</span> G</div>
+            </div>
+
+            <!-- Sector 2 -->
+            <div class="canyon-sector-card" style="background:#090d14; border:1px solid #1e293b; border-radius:8px; padding:8px 10px;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:10px; font-weight:900; color:#38bdf8;">SECTOR 2</span>
+                <span id="canyonDeltaS2" style="font-size:9px; font-weight:800; color:#64748b;">--</span>
+              </div>
+              <div id="canyonSplitS2" style="font-size:18px; font-weight:900; color:#fff; font-family:var(--font-mono); margin:2px 0;">--:--.--</div>
+              <div style="font-size:9px; color:#64748b;">Top: <span id="canyonTopSpeedS2">--</span> MPH • <span id="canyonMaxGS2">--</span> G</div>
+            </div>
+
+            <!-- Sector 3 -->
+            <div class="canyon-sector-card" style="background:#090d14; border:1px solid #1e293b; border-radius:8px; padding:8px 10px;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:10px; font-weight:900; color:#38bdf8;">FINISH (S3)</span>
+                <span id="canyonDeltaS3" style="font-size:9px; font-weight:800; color:#64748b;">--</span>
+              </div>
+              <div id="canyonSplitS3" style="font-size:18px; font-weight:900; color:#fff; font-family:var(--font-mono); margin:2px 0;">--:--.--</div>
+              <div style="font-size:9px; color:#64748b;">Top: <span id="canyonTopSpeedS3">--</span> MPH • <span id="canyonMaxGS3">--</span> G</div>
+            </div>
+          </div>
+
+          <!-- R.U.M. Canyon Copilot Callout Bar -->
+          <div style="background:rgba(179,136,255,0.08); border:1px solid rgba(179,136,255,0.25); border-radius:8px; padding:6px 12px; display:flex; align-items:center; gap:8px;">
+            <span style="font-size:14px;">💜</span>
+            <span id="canyonRumCallout" style="font-size:11px; font-weight:700; color:#d8b4fe;">R.U.M.: Pinal Mountain Pass is armed Dad! Green flag is waiting at Canyon Base.</span>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+
 </div> <!-- END view-container -->
 
   <!-- BOTTOM PERSISTENT DOCK / NAVIGATION BAR (6 BUTTONS) -->
@@ -3310,6 +3677,7 @@
       <button class="dock-btn" id="dockBtnGauges" onclick="navigateTo('gauges')">🏎️ GAUGES</button>
       <button class="dock-btn" id="dockBtnAI" onclick="navigateTo('ai')">💜 RUM</button>
       <button class="dock-btn" id="dockBtnMedia" onclick="navigateTo('media')">🎵 MEDIA</button>
+      <button class="dock-btn" id="dockBtnPhone" onclick="navigateTo('phone')" title="Cockpit Telephony & Kinship">📞 PHONE</button>
       <button class="dock-btn" id="dockBtnGames" onclick="navigateTo('games')">🎮 GAMES</button>
       <button class="dock-btn" id="dockBtnBrowser" onclick="navigateTo('browser')" title="In-Dash Web Browser">🦊 BROWSER</button>
       <button class="dock-btn" id="dockBtnMaps" onclick="navigateTo('maps')" title="Cockpit Maps & Dragy">🧭 MAPS</button>

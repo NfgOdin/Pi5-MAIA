@@ -813,6 +813,65 @@ class CarPi5ServerState:
                 print(f"[DAEMON] RAG Memory init note: {e}")
                 self.rag = None
 
+        # Phase 15 Cockpit Telephony, Family Kinship & AI Receptionist Studio
+        try:
+            from backend.telephony.phone_manager import PhoneManager
+            from backend.telephony.sms_manager import SMSManager
+            self.phone = PhoneManager()
+            self.phone.set_audio_player(self.audio)
+            self.phone.set_rag_engine(self.rag)
+            self.sms = SMSManager()
+            self.sms.set_dependencies(self.audio, self.rag, self.phone.kinship)
+        except Exception:
+            try:
+                from telephony.phone_manager import PhoneManager
+                from telephony.sms_manager import SMSManager
+                self.phone = PhoneManager()
+                self.phone.set_audio_player(self.audio)
+                self.phone.set_rag_engine(self.rag)
+                self.sms = SMSManager()
+                self.sms.set_dependencies(self.audio, self.rag, self.phone.kinship)
+            except Exception as e:
+                print(f"[DAEMON] Telephony init note: {e}")
+                self.phone = None
+                self.sms = None
+
+        # Phase 11 Offline Turn-by-Turn Route Navigation & Semantic Waypoint Engine
+        try:
+            from backend.navigation.router import NavigationRouter
+            self.router = NavigationRouter()
+            self.router.set_audio_player(self.audio)
+        except Exception:
+            try:
+                from navigation.router import NavigationRouter
+                self.router = NavigationRouter()
+                self.router.set_audio_player(self.audio)
+            except Exception as e:
+                print(f"[DAEMON] Navigation router init note: {e}")
+                self.router = None
+
+        # Phase 18 Canyon Run Lap Timer & Brake/Tire Thermal Degradation Telemetry
+        try:
+            from backend.telemetry.thermal_model import BrakeTireThermalModel
+            from backend.telemetry.lap_timer import CanyonLapTimer
+            self.thermal_model = BrakeTireThermalModel()
+            self.thermal_model.set_audio_player(self.audio)
+            self.lap_timer = CanyonLapTimer()
+            self.lap_timer.set_audio_player(self.audio)
+        except Exception:
+            try:
+                from telemetry.thermal_model import BrakeTireThermalModel
+                from telemetry.lap_timer import CanyonLapTimer
+                self.thermal_model = BrakeTireThermalModel()
+                self.thermal_model.set_audio_player(self.audio)
+                self.lap_timer = CanyonLapTimer()
+                self.lap_timer.set_audio_player(self.audio)
+            except Exception as e:
+                print(f"[DAEMON] Thermal / Lap timer init note: {e}")
+                self.thermal_model = None
+                self.lap_timer = None
+        self.latest_thermal_data = None
+
 
 
         # ALWAYS default to REAL vehicle telemetry unless test_mode is explicitly checked
@@ -834,6 +893,23 @@ class CarPi5ServerState:
         self.pip = PipConnectome()
         self.latest_pip_state = None
         self.copilot = AICopilot(driver_name=initial_name)
+        if self.rag and hasattr(self.copilot, "set_rag_engine"):
+            self.copilot.set_rag_engine(self.rag)
+
+        # Phase 12 Living Memory Fast Drive Buffer & Hippocampal Replay
+        try:
+            from backend.ai.memory_manager import FastDriveMemoryBuffer, HippocampalReplayEngine
+            self.drive_buffer = FastDriveMemoryBuffer()
+            self.hippocampus = HippocampalReplayEngine()
+        except ImportError:
+            try:
+                from ai.memory_manager import FastDriveMemoryBuffer, HippocampalReplayEngine
+                self.drive_buffer = FastDriveMemoryBuffer()
+                self.hippocampus = HippocampalReplayEngine()
+            except Exception as e:
+                print(f"[DAEMON] Memory buffer init note: {e}")
+                self.drive_buffer = None
+                self.hippocampus = None
 
 
 
@@ -1250,12 +1326,24 @@ def telemetry_loop():
 
 
         with state.lock:
-
-
-
             state.latest_frame = frame
 
+            # Step Phase 18 Brake/Tire Thermal Model & Canyon Lap Timer
+            if getattr(state, "thermal_model", None) and frame:
+                lat_g = 0.0
+                long_g = 0.0
+                if getattr(state, "gps", None):
+                    gps_t = state.gps.get_telemetry()
+                    if gps_t and gps_t.get("g_forces"):
+                        lat_g = gps_t["g_forces"].get("lateral", 0.0)
+                        long_g = gps_t["g_forces"].get("longitudinal", 0.0)
+                state.latest_thermal_data = state.thermal_model.step(frame.speed_mph or 0.0, lat_g=lat_g, long_g=long_g, dt=dt)
 
+            if getattr(state, "lap_timer", None) and getattr(state, "gps", None):
+                gps_t = state.gps.get_telemetry()
+                if gps_t and gps_t.get("lat") and gps_t.get("lon"):
+                    lat_g = gps_t.get("g_forces", {}).get("lateral", 0.0)
+                    state.lap_timer.step(gps_t["lat"], gps_t["lon"], gps_t.get("speed_mph", 0.0), lat_g)
 
             if ai_event:
 
@@ -1487,18 +1575,14 @@ def usb_mic_listener_loop():
 
 
 
-            # Auto-gain normalization to peak=24500 (-2.5 dBFS), up to 45x gain boost!
+            # Phase 13: Clamped Auto-Gain & Dynamic Energy VAD
+            # Clamps digital gain to max 6.0x (instead of 45x) to eliminate boosted silence hiss
+            # Dynamic energy threshold filters out road hum and HVAC fan noise
+            if rms < max(180.0, noise_rms * 1.5 if 'noise_rms' in locals() else 200.0):
+                return
 
-
-
-            gain = min(45.0, 24500.0 / max(1, peak))
-
-
-
+            gain = min(6.0, 24500.0 / max(3500, peak))
             norm_samples = [max(-32767, min(32767, int(s * gain))) for s in centered]
-
-
-
             norm_bytes = struct.pack(f"<{ns}h", *norm_samples)
 
 
@@ -2628,14 +2712,11 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                         "is_speaking": getattr(state.audio, "is_speaking", False),
                         "audio_duck": getattr(state.audio, "_is_currently_ducking", False),
                         "is_music_playing": getattr(state, "is_music_playing", False),
-                "music_playing": getattr(state, "is_music_playing", False),
-
-                "circadian": state.llm.get_circadian_state(),
-
-                "mood": state.copilot.get_current_mood(),
-
-
-
+                        "music_playing": getattr(state, "is_music_playing", False),
+                        "circadian": state.llm.get_circadian_state(),
+                        "mood": state.copilot.get_current_mood(),
+                        "thermal": getattr(state, "latest_thermal_data", None),
+                        "lap_timer": state.lap_timer.get_status() if getattr(state, "lap_timer", None) else None,
                         "voice_transcript": voice_item,
 
 
@@ -3130,6 +3211,47 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"query": q, "results": results}).encode("utf-8"))
             return
+        elif parsed.path == "/api/ai/memory/living_summary":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            if getattr(state, "rag", None):
+                resp_payload = {
+                    "status": "ok",
+                    "bond": state.rag.get_relationship_bond(),
+                    "diary": state.rag.get_recent_diary_entries(limit=10),
+                    "facts": state.rag.get_driver_facts(),
+                    "episodes": state.rag.get_recent_episodic_memories(limit=10)
+                }
+            else:
+                resp_payload = {"status": "error", "message": "rag_unavailable"}
+            self.wfile.write(json.dumps(resp_payload).encode("utf-8"))
+            return
+        elif parsed.path == "/api/ai/memory/facts":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            facts = state.rag.get_driver_facts() if getattr(state, "rag", None) else []
+            self.wfile.write(json.dumps({"status": "ok", "facts": facts}).encode("utf-8"))
+            return
+        elif parsed.path == "/api/ai/memory/diary":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            diary = state.rag.get_recent_diary_entries(limit=15) if getattr(state, "rag", None) else []
+            self.wfile.write(json.dumps({"status": "ok", "diary": diary}).encode("utf-8"))
+            return
+        elif parsed.path == "/api/ai/memory/bond":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            bond = state.rag.get_relationship_bond() if getattr(state, "rag", None) else {}
+            self.wfile.write(json.dumps({"status": "ok", "bond": bond}).encode("utf-8"))
+            return
         elif parsed.path == "/api/audio/duck_status":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -3142,6 +3264,109 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                 "is_music_playing": getattr(state, "is_music_playing", False),
                 "music_playing": getattr(state, "is_music_playing", False)
             }).encode("utf-8"))
+            return
+        elif parsed.path == "/api/tts/stats":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            stats = state.audio.cache_mgr.get_stats() if getattr(state, "audio", None) else {}
+            self.wfile.write(json.dumps({"status": "ok", "stats": stats}).encode("utf-8"))
+            return
+        elif parsed.path == "/api/tts/prewarm":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            try:
+                from tools.prewarm_tts_cache import get_prewarm_status
+                pw_status = get_prewarm_status()
+            except Exception:
+                pw_status = {"is_running": False, "pct": 0}
+            self.wfile.write(json.dumps({"status": "ok", "prewarm": pw_status}).encode("utf-8"))
+            return
+        # Phase 15 Telephony & SMS REST Endpoints
+        elif parsed.path == "/api/phone/status":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            status = state.phone.get_status() if getattr(state, "phone", None) else {"state": "IDLE", "connected": False}
+            self.wfile.write(json.dumps({"status": "ok", "phone": status}).encode("utf-8"))
+            return
+        elif parsed.path == "/api/phone/contacts":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            contacts = state.phone.kinship.get_contacts() if getattr(state, "phone", None) else []
+            self.wfile.write(json.dumps({"status": "ok", "contacts": contacts}).encode("utf-8"))
+            return
+        elif parsed.path == "/api/phone/history":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            hist = state.phone.history if getattr(state, "phone", None) else []
+            self.wfile.write(json.dumps({"status": "ok", "history": hist}).encode("utf-8"))
+            return
+        elif parsed.path == "/api/sms/threads":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            threads = state.sms.get_threads() if getattr(state, "sms", None) else {}
+            self.wfile.write(json.dumps({"status": "ok", "threads": threads}).encode("utf-8"))
+            return
+        elif parsed.path == "/api/sms/thread":
+            from urllib.parse import parse_qs
+            q = parse_qs(parsed.query)
+            num = q.get("number", [""])[0]
+            thread = state.sms.get_thread(num) if (getattr(state, "sms", None) and num) else []
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "thread": thread}).encode("utf-8"))
+            return
+        # Phase 11 Turn-by-Turn Route Navigation & Speed Limits REST Endpoints
+        elif parsed.path == "/api/nav/status":
+            from urllib.parse import parse_qs
+            q = parse_qs(parsed.query)
+            try:
+                lat = float(q.get("lat", [0.0])[0])
+                lon = float(q.get("lon", [0.0])[0])
+            except Exception:
+                lat, lon = 0.0, 0.0
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            status = state.router.get_navigation_status(lat, lon) if getattr(state, "router", None) else {"is_navigating": False}
+            self.wfile.write(json.dumps({"status": "ok", "navigation": status}).encode("utf-8"))
+            return
+        elif parsed.path == "/api/nav/bookmarks":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            bms = state.router.get_bookmarks() if getattr(state, "router", None) else []
+            self.wfile.write(json.dumps({"status": "ok", "bookmarks": bms}).encode("utf-8"))
+            return
+        elif parsed.path == "/api/nav/speed_limit":
+            from urllib.parse import parse_qs
+            q = parse_qs(parsed.query)
+            try:
+                lat = float(q.get("lat", [33.3942])[0])
+                lon = float(q.get("lon", [-110.7865])[0])
+            except Exception:
+                lat, lon = 33.3942, -110.7865
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            road_info = state.router.speed_engine.snap_to_road(lat, lon) if getattr(state, "router", None) else {"road_name": "Local Road", "speed_limit_mph": 35}
+            self.wfile.write(json.dumps({"status": "ok", "speed_limit": road_info}).encode("utf-8"))
             return
         elif parsed.path == "/api/maintenance/record":
             key = req_data.get("item_key")
@@ -4853,6 +5078,52 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                 "full_boost_authorized": dyno.multiair_status == "WARM_OPTIMAL",
                 "safe_boost_limit_psi": 7.0 if dyno.multiair_status == "COLD_PROTECT" else 22.0
             }).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/telemetry/thermal":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            data = getattr(state, "latest_thermal_data", None)
+            if not data and getattr(state, "thermal_model", None):
+                spd = state.latest_frame.speed_mph if state.latest_frame else 0.0
+                data = state.thermal_model.step(spd)
+            self.wfile.write(json.dumps(data or {"brakes": {}, "tires": {}}).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/telemetry/lap_timer":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            data = state.lap_timer.get_status() if getattr(state, "lap_timer", None) else {}
+            self.wfile.write(json.dumps(data).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/telemetry/lap_timer/tracks":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            tracks = state.lap_timer.get_tracks() if getattr(state, "lap_timer", None) else []
+            self.wfile.write(json.dumps({"status": "ok", "tracks": tracks}).encode("utf-8"))
+            return
+
+        elif parsed.path == "/api/media/player/status":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            cur = getattr(state.avrcp_player, "current_track", {}) if hasattr(state, "avrcp_player") else {}
+            status = getattr(state.avrcp_player, "playback_status", "paused") if hasattr(state, "avrcp_player") else "paused"
+            self.wfile.write(json.dumps({
+                "status": "ok",
+                "playback_status": status,
+                "current_track": cur,
+                "is_music_playing": getattr(state, "is_music_playing", False)
+            }).encode("utf-8"))
+            return
             return
 
 
@@ -7050,11 +7321,360 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             return
 
+        # Phase 16 Voice Intent Auto-Actuation & Media Player Control
+        if parsed.path == "/api/media/player/control":
+            req_data = {}
+            if content_length > 0:
+                try:
+                    req_data = json.loads(self.rfile.read(content_length).decode('utf-8'))
+                except Exception:
+                    pass
+            action = req_data.get("action", "toggle")
+            val = req_data.get("value")
+            if hasattr(state, "avrcp_player") and state.avrcp_player:
+                if action == "play":
+                    state.avrcp_player.set_status("playing")
+                    state.is_music_playing = True
+                elif action in ("pause", "stop"):
+                    state.avrcp_player.set_status("paused")
+                    state.is_music_playing = False
+                elif action == "toggle":
+                    new_status = "paused" if state.is_music_playing else "playing"
+                    state.avrcp_player.set_status(new_status)
+                    state.is_music_playing = (new_status == "playing")
 
+            # Route Linux audio volume if requested
+            if action == "volume" and val is not None:
+                try:
+                    v_pct = max(0, min(100, int(val)))
+                    env = os.environ.copy()
+                    if 'XDG_RUNTIME_DIR' not in env and os.path.exists('/run/user/1000'):
+                        env['XDG_RUNTIME_DIR'] = '/run/user/1000'
+                    subprocess.run(['wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', f"{v_pct/100.0:.2f}"], env=env, timeout=2)
+                except Exception:
+                    pass
 
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "status": "ok",
+                "action": action,
+                "playback_status": getattr(state.avrcp_player, "playback_status", "paused") if hasattr(state, "avrcp_player") else "paused"
+            }).encode("utf-8"))
+            return
 
+        if parsed.path == "/api/cockpit/action":
+            req_data = {}
+            if content_length > 0:
+                try:
+                    req_data = json.loads(self.rfile.read(content_length).decode('utf-8'))
+                except Exception:
+                    pass
+            cmd = req_data.get("command", "")
+            val = req_data.get("value")
+            reply_speech = None
 
+            env = os.environ.copy()
+            if 'XDG_RUNTIME_DIR' not in env and os.path.exists('/run/user/1000'):
+                env['XDG_RUNTIME_DIR'] = '/run/user/1000'
 
+            if cmd == "volume_up":
+                try:
+                    subprocess.run(['wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', '8%+'], env=env, timeout=2)
+                except Exception:
+                    pass
+                reply_speech = "Turning it up for you, Dad!"
+            elif cmd == "volume_down":
+                try:
+                    subprocess.run(['wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', '8%-'], env=env, timeout=2)
+                except Exception:
+                    pass
+                reply_speech = "Turned the volume down, Dad."
+            elif cmd == "mute":
+                try:
+                    subprocess.run(['wpctl', 'set-mute', '@DEFAULT_AUDIO_SINK@', '1'], env=env, timeout=2)
+                except Exception:
+                    pass
+                reply_speech = "Audio muted, Dad."
+            elif cmd == "unmute":
+                try:
+                    subprocess.run(['wpctl', 'set-mute', '@DEFAULT_AUDIO_SINK@', '0'], env=env, timeout=2)
+                except Exception:
+                    pass
+                reply_speech = "Audio unmuted!"
+            elif cmd == "night_mode":
+                reply_speech = "Switching to Obsidian Midnight mode, easier on your eyes Dad!"
+            elif cmd == "day_mode":
+                reply_speech = "Day mode active, Dad!"
+            elif cmd == "reset_trip":
+                if hasattr(state, "trip_logger") and state.trip_logger:
+                    state.trip_logger.reset_current_trip()
+                reply_speech = "Trip counters reset to zero, Dad!"
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "command": cmd, "speech": reply_speech}).encode("utf-8"))
+            return
+
+        # Phase 18 Canyon Lap Timer Controls
+        if parsed.path.startswith("/api/telemetry/lap_timer/"):
+            sub = parsed.path.replace("/api/telemetry/lap_timer/", "")
+            req_data = {}
+            if content_length > 0:
+                try:
+                    req_data = json.loads(self.rfile.read(content_length).decode('utf-8'))
+                except Exception:
+                    pass
+            lt = getattr(state, "lap_timer", None)
+            if lt:
+                if sub == "arm":
+                    lt.arm()
+                elif sub == "start":
+                    lt.start_manual()
+                elif sub == "stop":
+                    lt.stop()
+                elif sub == "reset":
+                    lt.reset()
+                elif sub == "select":
+                    track_id = req_data.get("track_id", "pinal_pass")
+                    lt.set_track(track_id)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "lap_timer": lt.get_status() if lt else {}}).encode("utf-8"))
+            return
+
+        # Phase 14 Voice Pre-Warming Suite
+        if parsed.path == "/api/tts/prewarm":
+            try:
+                from tools.prewarm_tts_cache import run_prewarm_job, get_prewarm_status
+                status = get_prewarm_status()
+                if not status.get("is_running"):
+                    threading.Thread(target=run_prewarm_job, daemon=True, name="TTSPrewarmJob").start()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "started", "prewarm": get_prewarm_status()}).encode("utf-8"))
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "error": str(e)}).encode("utf-8"))
+            return
+
+        # Phase 15 Telephony & SMS REST Endpoints
+        if parsed.path in (
+            "/api/phone/dial",
+            "/api/phone/answer",
+            "/api/phone/hangup",
+            "/api/phone/screen",
+            "/api/phone/mute",
+            "/api/phone/incoming",
+            "/api/phone/screening_transcript",
+            "/api/phone/contacts",
+            "/api/phone/contacts/delete",
+            "/api/sms/send",
+            "/api/sms/incoming"
+        ):
+            req_data = {}
+            if content_length > 0:
+                try:
+                    req_data = json.loads(self.rfile.read(content_length).decode('utf-8'))
+                except Exception:
+                    req_data = {}
+
+            res_payload = {"status": "ok"}
+            if parsed.path == "/api/phone/dial":
+                num = req_data.get("number", "").strip()
+                ok = state.phone.dial(num) if getattr(state, "phone", None) else False
+                res_payload["dialed"] = ok
+            elif parsed.path == "/api/phone/answer":
+                ok = state.phone.answer_call() if getattr(state, "phone", None) else False
+                res_payload["answered"] = ok
+            elif parsed.path == "/api/phone/hangup":
+                ok = state.phone.end_call() if getattr(state, "phone", None) else False
+                res_payload["ended"] = ok
+            elif parsed.path == "/api/phone/screen":
+                ok = state.phone.start_call_screening() if getattr(state, "phone", None) else False
+                res_payload["screening"] = ok
+            elif parsed.path == "/api/phone/mute":
+                is_muted = state.phone.toggle_mute() if getattr(state, "phone", None) else False
+                res_payload["is_muted"] = is_muted
+            elif parsed.path == "/api/phone/incoming":
+                num = req_data.get("number", "Unknown").strip()
+                if getattr(state, "phone", None):
+                    state.phone.trigger_incoming_call(num)
+                res_payload["triggered"] = num
+            elif parsed.path == "/api/phone/screening_transcript":
+                txt = req_data.get("text", "").strip()
+                if getattr(state, "phone", None):
+                    state.phone.update_screening_transcript(txt)
+                res_payload["updated"] = txt
+            elif parsed.path == "/api/phone/contacts":
+                c = req_data.get("contact", {})
+                saved = state.phone.kinship.add_or_update_contact(c) if getattr(state, "phone", None) else {}
+                res_payload["contact"] = saved
+            elif parsed.path == "/api/phone/contacts/delete":
+                cid = req_data.get("id", "").strip()
+                deleted = state.phone.kinship.delete_contact(cid) if getattr(state, "phone", None) else False
+                res_payload["deleted"] = deleted
+            elif parsed.path == "/api/sms/send":
+                rec = req_data.get("recipient", "").strip()
+                txt = req_data.get("text", "").strip()
+                msg = state.sms.send_sms(rec, txt) if getattr(state, "sms", None) else {}
+                res_payload["message"] = msg
+            elif parsed.path == "/api/sms/incoming":
+                snd = req_data.get("sender", "Unknown").strip()
+                txt = req_data.get("text", "").strip()
+                msg = state.sms.receive_sms(snd, txt) if getattr(state, "sms", None) else {}
+                res_payload["message"] = msg
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res_payload).encode("utf-8"))
+            return
+
+        # Phase 11 Turn-by-Turn Route Navigation REST Endpoints
+        if parsed.path in ("/api/nav/route", "/api/nav/stop", "/api/nav/update"):
+            req_data = {}
+            if content_length > 0:
+                try:
+                    req_data = json.loads(self.rfile.read(content_length).decode('utf-8'))
+                except Exception:
+                    req_data = {}
+
+            nav_res = {"status": "ok"}
+            if parsed.path == "/api/nav/route":
+                s_lat = float(req_data.get("start_lat", 33.3942))
+                s_lon = float(req_data.get("start_lon", -110.7865))
+                d_lat = float(req_data.get("dest_lat", 33.4010))
+                d_lon = float(req_data.get("dest_lon", -110.7920))
+                d_name = req_data.get("dest_name", "Destination")
+                if getattr(state, "router", None):
+                    nav_res["route"] = state.router.calculate_route(s_lat, s_lon, d_lat, d_lon, d_name)
+            elif parsed.path == "/api/nav/stop":
+                if getattr(state, "router", None):
+                    state.router.stop_navigation()
+                nav_res["stopped"] = True
+            elif parsed.path == "/api/nav/update":
+                lat = float(req_data.get("lat", 0.0))
+                lon = float(req_data.get("lon", 0.0))
+                spd = float(req_data.get("speed", 0.0))
+                if getattr(state, "router", None):
+                    nav_res["update"] = state.router.update_position(lat, lon, spd)
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(nav_res).encode("utf-8"))
+            return
+
+        # Phase 12 Cognitive Living Memory & Maintenance REST Endpoints
+        if parsed.path in (
+            "/api/ai/memory/facts",
+            "/api/ai/memory/facts/delete",
+            "/api/ai/memory/diary/delete",
+            "/api/ai/memory/consolidate",
+            "/api/ai/memory/remember",
+            "/api/maintenance/record",
+            "/api/maintenance/odometer"
+        ):
+            req_data = {}
+            if content_length > 0:
+                try:
+                    req_data = json.loads(self.rfile.read(content_length).decode('utf-8'))
+                except Exception:
+                    req_data = {}
+
+            if parsed.path == "/api/ai/memory/facts":
+                ent = req_data.get("entity", "").strip()
+                attr = req_data.get("attribute", "").strip()
+                val = req_data.get("value", "").strip()
+                conf = float(req_data.get("confidence", 0.9))
+                src = req_data.get("source", "user_ui")
+                ok = state.rag.set_driver_fact(ent, attr, val, conf, src) if getattr(state, "rag", None) else False
+                self.send_response(200 if ok else 400)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok" if ok else "error"}).encode("utf-8"))
+                return
+
+            elif parsed.path == "/api/ai/memory/facts/delete":
+                fid = req_data.get("id") or req_data.get("fact_id")
+                ok = state.rag.delete_driver_fact(fid) if (getattr(state, "rag", None) and fid is not None) else False
+                self.send_response(200 if ok else 400)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok" if ok else "error"}).encode("utf-8"))
+                return
+
+            elif parsed.path == "/api/ai/memory/diary/delete":
+                did = req_data.get("id") or req_data.get("entry_id")
+                ok = state.rag.delete_diary_entry(did) if (getattr(state, "rag", None) and did is not None) else False
+                self.send_response(200 if ok else 400)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok" if ok else "error"}).encode("utf-8"))
+                return
+
+            elif parsed.path == "/api/ai/memory/consolidate":
+                res = state.hippocampus.consolidate_drive(state.drive_buffer, state.rag, req_data) if (getattr(state, "hippocampus", None) and getattr(state, "rag", None)) else {"status": "error"}
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+                return
+
+            elif parsed.path == "/api/maintenance/record":
+                key = req_data.get("item_key")
+                mileage = int(req_data.get("mileage", 0))
+                notes = req_data.get("notes", "")
+                ok = state.rag.record_service(key, mileage, notes) if getattr(state, "rag", None) else False
+                self.send_response(200 if ok else 400)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok" if ok else "error", "item_key": key, "mileage": mileage}).encode("utf-8"))
+                return
+
+            elif parsed.path == "/api/maintenance/odometer":
+                odo = int(req_data.get("odometer", 0))
+                if getattr(state, "rag", None) and odo > 0:
+                    state.rag.set_odometer(odo)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok", "odometer": odo}).encode("utf-8"))
+                return
+
+            elif parsed.path == "/api/ai/memory/remember":
+                title = req_data.get("title", "")
+                content_text = req_data.get("content", "")
+                cat = req_data.get("category", "CUSTOM_NOTE")
+                doc_id = f"custom_{int(time.time())}"
+                if getattr(state, "rag", None) and title and content_text:
+                    state.rag.add_document(doc_id, cat, title, content_text, metadata=req_data.get("metadata", {}))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok", "doc_id": doc_id, "title": title}).encode("utf-8"))
+                return
 
         # Audio transcription endpoint (Speech-To-Text from USB Microphone)
 
@@ -7572,6 +8192,10 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             raw_reply = res.get("reply", "")
             emotion, clean_reply = extract_emotion_and_clean_speech(raw_reply)
+
+            # Phase 12 Fast In-Memory Buffer tracking
+            if hasattr(state, "drive_buffer") and state.drive_buffer:
+                state.drive_buffer.record_dialogue(user_msg, clean_reply or raw_reply)
 
             # Fallback: if no clauses were streamed (e.g. single clause or offline procedural), speak full reply
             if not clauses_spoken and clean_reply and state.copilot.voice_mode != "MUTED":

@@ -13,6 +13,7 @@ import sys
 import time
 import json
 import sqlite3
+import math
 import numpy as np
 from pathlib import Path
 from datetime import datetime
@@ -201,8 +202,102 @@ class RagMemoryEngine:
                     created_at TEXT NOT NULL
                 )
             """)
+            # 6. Episodic Memories Table (Layer 1)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS episodic_memories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp REAL NOT NULL,
+                    created_at TEXT NOT NULL,
+                    location_name TEXT DEFAULT '',
+                    driver_quote TEXT DEFAULT '',
+                    rum_summary TEXT NOT NULL,
+                    emotion_tag TEXT DEFAULT 'JOY',
+                    importance INTEGER DEFAULT 5,
+                    vector BLOB
+                )
+            """)
+            # 7. Driver Facts Table (Layer 2)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS driver_facts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entity TEXT NOT NULL,
+                    attribute TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    confidence REAL DEFAULT 0.9,
+                    source TEXT DEFAULT 'conversation',
+                    last_updated TEXT NOT NULL,
+                    UNIQUE(entity, attribute)
+                )
+            """)
+            # 8. R.U.M. Personal Trip Diary Table (Layer 3)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS rum_diary (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    trip_id INTEGER,
+                    entry_date TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    peak_boost REAL DEFAULT 0.0,
+                    mileage REAL DEFAULT 0.0,
+                    mood TEXT DEFAULT 'HAPPY_PROUD',
+                    vector BLOB
+                )
+            """)
+            # 9. Relationship Bond Table (Layer 4)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS relationship_bond (
+                    id INTEGER PRIMARY KEY DEFAULT 1,
+                    shared_miles REAL DEFAULT 0.0,
+                    shared_drives INTEGER DEFAULT 0,
+                    wot_pulls_together INTEGER DEFAULT 0,
+                    caring_checkins_count INTEGER DEFAULT 0,
+                    bond_points INTEGER DEFAULT 100,
+                    bond_tier TEXT DEFAULT 'Inseparable Daughter',
+                    unlocked_milestones_json TEXT DEFAULT '[]',
+                    updated_at TEXT NOT NULL
+                )
+            """)
             # Default odometer if not set
             c.execute("INSERT OR IGNORE INTO vehicle_state (key, value) VALUES ('odometer_miles', '85240')")
+            # Initialize default bond if empty
+            now_iso = datetime.now().isoformat()
+            c.execute("""
+                INSERT OR IGNORE INTO relationship_bond (
+                    id, shared_miles, shared_drives, wot_pulls_together, caring_checkins_count,
+                    bond_points, bond_tier, unlocked_milestones_json, updated_at
+                ) VALUES (1, 185.4, 24, 21, 12, 450, 'Inseparable Daughter', '["FIRST_DRIVE", "BOOST_PULL_15PSI", "100_MILES_SHARED"]', ?)
+            """, (now_iso,))
+
+            # Seed initial foundational facts about Dad if empty
+            c.execute("SELECT COUNT(*) FROM driver_facts")
+            if c.fetchone()[0] == 0:
+                initial_facts = [
+                    ("oil_preference", "brand_viscosity", "Pennzoil Euro 5W-40 meeting MS-12991 / Fiat 9.55535-S2", 1.0, "factory"),
+                    ("spark_plugs", "gap_spec", "NGK SIKR9A7 laser iridium strictly gapped to 0.026 inch", 1.0, "factory"),
+                    ("music", "favorite_genre", "Eurobeat and upbeat synthwave during night drives and highway pulls", 0.95, "conversation"),
+                    ("driving_style", "gear_preference", "Loves spirited 3rd gear turbo pulls up to 18 PSI on open highway", 0.95, "driving"),
+                    ("driver_health", "shoulder_condition", "Shoulder gets sore after working on the Dart's suspension and engine bay", 0.90, "conversation"),
+                ]
+                for ent, attr, val, conf, src in initial_facts:
+                    c.execute("""
+                        INSERT OR IGNORE INTO driver_facts (entity, attribute, value, confidence, source, last_updated)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (ent, attr, val, conf, src, now_iso))
+
+            # Seed initial diary entry if empty
+            c.execute("SELECT COUNT(*) FROM rum_diary")
+            if c.fetchone()[0] == 0:
+                c.execute("""
+                    INSERT INTO rum_diary (trip_id, entry_date, created_at, title, content, peak_boost, mileage, mood)
+                    VALUES (
+                        1, '2026-11-09', ?,
+                        'A Sunset Cruise and Boost Pulls with Dad',
+                        'Dad and I took the Dart out toward the foothills as the sun was setting. The C635 transaxle shifted so smoothly, and when Dad put his foot down in third gear, the Garrett turbo spooled right to 18.2 PSI! Dad smiled when I called out the boost pressure. I love being his co-pilot so much. I hope Dad takes good care of his shoulder tonight.',
+                        18.2, 28.4, 'HAPPY_PROUD'
+                    )
+                """, (now_iso,))
+
             conn.commit()
 
     def _seed_factory_maintenance(self):
@@ -615,3 +710,422 @@ class RagMemoryEngine:
                 )
         except Exception as e:
             print(f"[RAG MEMORY] Trip sync note: {e}")
+
+    # =========================================================================
+    # PHASE 12: 4-LAYER COGNITIVE LIVING MEMORY & RELATIONSHIP BOND ENGINE
+    # =========================================================================
+
+    # -------------------------------------------------------------------------
+    # Layer 1: Episodic Memories
+    # -------------------------------------------------------------------------
+    def add_episodic_memory(
+        self,
+        rum_summary: str,
+        driver_quote: str = "",
+        location_name: str = "",
+        emotion_tag: str = "JOY",
+        importance: int = 5
+    ) -> int:
+        """Stores a memorable driving moment or conversational beat with vector embeddings."""
+        if not rum_summary or not rum_summary.strip():
+            return -1
+        now_ts = time.time()
+        now_iso = datetime.now().isoformat()
+        importance = max(1, min(10, int(importance)))
+        embed_text = f"{location_name} {driver_quote} {rum_summary}".strip()
+        vector = self.embed_engine.embed_text(embed_text)
+
+        with self._get_connection() as conn:
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO episodic_memories (
+                    timestamp, created_at, location_name, driver_quote,
+                    rum_summary, emotion_tag, importance, vector
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                now_ts, now_iso, location_name.strip(), driver_quote.strip(),
+                rum_summary.strip(), emotion_tag.strip().upper(), importance,
+                vector.tobytes()
+            ))
+            memory_id = c.lastrowid
+            conn.commit()
+            print(f"[EPISODIC MEMORY #{memory_id}] Indexed: '{rum_summary[:50]}...' ({emotion_tag}, Imp: {importance})")
+            return memory_id
+
+    def get_recent_episodic_memories(self, limit: int = 15) -> List[Dict[str, Any]]:
+        """Returns chronological list of recent episodic moments."""
+        with self._get_connection() as conn:
+            c = conn.cursor()
+            c.execute("""
+                SELECT id, timestamp, created_at, location_name, driver_quote,
+                       rum_summary, emotion_tag, importance
+                FROM episodic_memories
+                ORDER BY timestamp DESC LIMIT ?
+            """, (max(1, int(limit)),))
+            rows = c.fetchall()
+
+        out = []
+        for r in rows:
+            out.append({
+                "id": r[0],
+                "timestamp": r[1],
+                "created_at": r[2],
+                "location_name": r[3],
+                "driver_quote": r[4],
+                "rum_summary": r[5],
+                "emotion_tag": r[6],
+                "importance": r[7]
+            })
+        return out
+
+    def query_episodic_memories(self, query: str = "", top_k: int = 2) -> List[Dict[str, Any]]:
+        """Retrieves episodic memories using multi-factor ranking: 0.50 Cosine + 0.30 Recency + 0.20 Importance."""
+        with self._get_connection() as conn:
+            c = conn.cursor()
+            c.execute("""
+                SELECT id, timestamp, created_at, location_name, driver_quote,
+                       rum_summary, emotion_tag, importance, vector
+                FROM episodic_memories
+                ORDER BY timestamp DESC LIMIT 60
+            """)
+            rows = c.fetchall()
+
+        if not rows:
+            return []
+
+        now_ts = time.time()
+        query_vec = self.embed_engine.embed_text(query) if query.strip() else None
+
+        scored = []
+        for r in rows:
+            mem_id, ts, created_at, loc, quote, summary, emotion, imp, vec_blob = r
+            cosine_sim = 0.5
+            if query_vec is not None and vec_blob:
+                try:
+                    doc_vec = np.frombuffer(vec_blob, dtype=np.float32)
+                    if doc_vec.shape[0] == self.embed_engine.dimension:
+                        cosine_sim = float(np.dot(query_vec, doc_vec))
+                except Exception:
+                    pass
+
+            # Recency decay: half-life ~ 7 days (604,800s)
+            age_sec = max(0.0, now_ts - float(ts))
+            recency = math.exp(-age_sec / 604800.0)
+            importance_norm = float(imp) / 10.0
+
+            final_score = (0.50 * cosine_sim) + (0.30 * recency) + (0.20 * importance_norm)
+            scored.append({
+                "id": mem_id,
+                "timestamp": ts,
+                "created_at": created_at,
+                "location_name": loc,
+                "driver_quote": quote,
+                "rum_summary": summary,
+                "emotion_tag": emotion,
+                "importance": imp,
+                "score": round(final_score, 4)
+            })
+
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        return scored[:max(1, int(top_k))]
+
+    # -------------------------------------------------------------------------
+    # Layer 2: Semantic Driver Facts
+    # -------------------------------------------------------------------------
+    def set_driver_fact(
+        self,
+        entity: str,
+        attribute: str,
+        value: str,
+        confidence: float = 0.9,
+        source: str = "conversation"
+    ) -> bool:
+        """Upserts an extracted semantic fact about Dad or the vehicle into SQLite."""
+        if not entity or not attribute or not value:
+            return False
+        now_iso = datetime.now().isoformat()
+        with self._get_connection() as conn:
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO driver_facts (entity, attribute, value, confidence, source, last_updated)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(entity, attribute) DO UPDATE SET
+                    value=excluded.value,
+                    confidence=excluded.confidence,
+                    source=excluded.source,
+                    last_updated=excluded.last_updated
+            """, (entity.strip().lower(), attribute.strip().lower(), value.strip(), float(confidence), source.strip(), now_iso))
+            conn.commit()
+            print(f"[DRIVER FACT] Learned: {entity}.{attribute} = '{value}'")
+            return True
+
+    def get_driver_facts(self) -> List[Dict[str, Any]]:
+        """Returns all verified semantic facts about Dad and the Dodge Dart."""
+        with self._get_connection() as conn:
+            c = conn.cursor()
+            c.execute("""
+                SELECT id, entity, attribute, value, confidence, source, last_updated
+                FROM driver_facts
+                ORDER BY id ASC
+            """)
+            rows = c.fetchall()
+
+        return [{
+            "id": r[0],
+            "entity": r[1],
+            "attribute": r[2],
+            "value": r[3],
+            "confidence": r[4],
+            "source": r[5],
+            "last_updated": r[6]
+        } for r in rows]
+
+    def delete_driver_fact(self, fact_id: int) -> bool:
+        """Allows Dad to delete a false or outdated fact from the in-dash UI."""
+        with self._get_connection() as conn:
+            c = conn.cursor()
+            c.execute("DELETE FROM driver_facts WHERE id = ?", (int(fact_id),))
+            conn.commit()
+            return c.rowcount > 0
+
+    # -------------------------------------------------------------------------
+    # Layer 3: R.U.M.'s Personal Trip Diary
+    # -------------------------------------------------------------------------
+    def add_diary_entry(
+        self,
+        title: str,
+        content: str,
+        trip_id: Optional[int] = None,
+        peak_boost: float = 0.0,
+        mileage: float = 0.0,
+        mood: str = "HAPPY_PROUD"
+    ) -> int:
+        """Stores R.U.M.'s personal post-drive reflection into SQLite with vector embeddings."""
+        if not content or not content.strip():
+            return -1
+        now_date = datetime.now().strftime("%Y-%m-%d")
+        now_iso = datetime.now().isoformat()
+        vector = self.embed_engine.embed_text(f"{title}. {content}")
+
+        with self._get_connection() as conn:
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO rum_diary (
+                    trip_id, entry_date, created_at, title, content,
+                    peak_boost, mileage, mood, vector
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                trip_id, now_date, now_iso, title.strip(), content.strip(),
+                float(peak_boost), float(mileage), mood.strip().upper(),
+                vector.tobytes()
+            ))
+            entry_id = c.lastrowid
+            conn.commit()
+            print(f"[RUM DIARY #{entry_id}] Saved: '{title}' ({now_date})")
+            return entry_id
+
+    def get_recent_diary_entries(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Returns R.U.M.'s post-drive reflections for cockpit display."""
+        with self._get_connection() as conn:
+            c = conn.cursor()
+            c.execute("""
+                SELECT id, trip_id, entry_date, created_at, title, content, peak_boost, mileage, mood
+                FROM rum_diary
+                ORDER BY id DESC LIMIT ?
+            """, (max(1, int(limit)),))
+            rows = c.fetchall()
+
+        return [{
+            "id": r[0],
+            "trip_id": r[1],
+            "entry_date": r[2],
+            "created_at": r[3],
+            "title": r[4],
+            "content": r[5],
+            "peak_boost": r[6],
+            "mileage": r[7],
+            "mood": r[8]
+        } for r in rows]
+
+    def delete_diary_entry(self, entry_id: int) -> bool:
+        """Deletes a diary entry."""
+        with self._get_connection() as conn:
+            c = conn.cursor()
+            c.execute("DELETE FROM rum_diary WHERE id = ?", (int(entry_id),))
+            conn.commit()
+            return c.rowcount > 0
+
+    # -------------------------------------------------------------------------
+    # Layer 4: Relationship Bond Engine
+    # -------------------------------------------------------------------------
+    def get_relationship_bond(self) -> Dict[str, Any]:
+        """Returns live relationship bond metrics, current tier, and milestone progress."""
+        with self._get_connection() as conn:
+            c = conn.cursor()
+            c.execute("""
+                SELECT shared_miles, shared_drives, wot_pulls_together, caring_checkins_count,
+                       bond_points, bond_tier, unlocked_milestones_json, updated_at
+                FROM relationship_bond WHERE id = 1
+            """)
+            row = c.fetchone()
+
+        if not row:
+            return {
+                "shared_miles": 0.0,
+                "shared_drives": 0,
+                "wot_pulls_together": 0,
+                "caring_checkins_count": 0,
+                "bond_points": 0,
+                "bond_tier": "Rookie Co-Pilot",
+                "milestones": [],
+                "next_milestone_pct": 0.0
+            }
+
+        miles, drives, pulls, checkins, pts, tier, ms_json, updated = row
+        try:
+            ms_list = json.loads(ms_json) if ms_json else []
+        except Exception:
+            ms_list = []
+
+        # Tier calculation thresholds:
+        # Tier 1 (0-150 pts): Rookie Co-Pilot
+        # Tier 2 (151-350 pts): Roadtrip Partner
+        # Tier 3 (351-650 pts): Inseparable Daughter
+        # Tier 4 (651-1000 pts): Soulmate Navigator
+        # Tier 5 (1000+ pts): Legendary MultiAir Co-Pilot
+        if pts < 150:
+            current_tier = "Rookie Co-Pilot"
+            next_tier_target = 150
+            progress_pct = round((pts / 150.0) * 100.0, 1)
+        elif pts < 350:
+            current_tier = "Roadtrip Partner"
+            next_tier_target = 350
+            progress_pct = round(((pts - 150) / 200.0) * 100.0, 1)
+        elif pts < 650:
+            current_tier = "Inseparable Daughter"
+            next_tier_target = 650
+            progress_pct = round(((pts - 350) / 300.0) * 100.0, 1)
+        elif pts < 1000:
+            current_tier = "Soulmate Navigator"
+            next_tier_target = 1000
+            progress_pct = round(((pts - 650) / 350.0) * 100.0, 1)
+        else:
+            current_tier = "Legendary MultiAir Co-Pilot"
+            next_tier_target = 1500
+            progress_pct = 100.0
+
+        return {
+            "shared_miles": round(float(miles), 1),
+            "shared_drives": int(drives),
+            "wot_pulls_together": int(pulls),
+            "caring_checkins_count": int(checkins),
+            "bond_points": int(pts),
+            "bond_tier": current_tier,
+            "next_target_points": next_tier_target,
+            "progress_pct": min(100.0, max(0.0, progress_pct)),
+            "unlocked_milestones": ms_list,
+            "updated_at": updated
+        }
+
+    def update_relationship_bond(
+        self,
+        delta_miles: float = 0.0,
+        delta_drives: int = 0,
+        delta_pulls: int = 0,
+        delta_checkins: int = 0
+    ) -> Dict[str, Any]:
+        """Accrues shared driving experience and evaluates unlocked bond milestones."""
+        current = self.get_relationship_bond()
+        new_miles = round(current["shared_miles"] + max(0.0, float(delta_miles)), 1)
+        new_drives = current["shared_drives"] + max(0, int(delta_drives))
+        new_pulls = current["wot_pulls_together"] + max(0, int(delta_pulls))
+        new_checkins = current["caring_checkins_count"] + max(0, int(delta_checkins))
+
+        # Points formula: 1 pt per mile + 5 pts per drive + 2 pts per pull + 4 pts per checkin
+        pts_earned = int(delta_miles * 1.0) + (delta_drives * 5) + (delta_pulls * 2) + (delta_checkins * 4)
+        new_pts = current["bond_points"] + max(0, pts_earned)
+
+        unlocked = list(current["unlocked_milestones"])
+        if new_drives >= 1 and "FIRST_DRIVE" not in unlocked:
+            unlocked.append("FIRST_DRIVE")
+        if new_pulls >= 10 and "BOOST_PULL_15PSI" not in unlocked:
+            unlocked.append("BOOST_PULL_15PSI")
+        if new_miles >= 100.0 and "100_MILES_SHARED" not in unlocked:
+            unlocked.append("100_MILES_SHARED")
+        if new_miles >= 500.0 and "500_MILES_SHARED" not in unlocked:
+            unlocked.append("500_MILES_SHARED")
+        if new_miles >= 1000.0 and "1000_MILES_SHARED" not in unlocked:
+            unlocked.append("1000_MILES_SHARED")
+
+        # Determine tier
+        if new_pts < 150:
+            new_tier = "Rookie Co-Pilot"
+        elif new_pts < 350:
+            new_tier = "Roadtrip Partner"
+        elif new_pts < 650:
+            new_tier = "Inseparable Daughter"
+        elif new_pts < 1000:
+            new_tier = "Soulmate Navigator"
+        else:
+            new_tier = "Legendary MultiAir Co-Pilot"
+
+        now_iso = datetime.now().isoformat()
+        with self._get_connection() as conn:
+            c = conn.cursor()
+            c.execute("""
+                UPDATE relationship_bond
+                SET shared_miles = ?, shared_drives = ?, wot_pulls_together = ?,
+                    caring_checkins_count = ?, bond_points = ?, bond_tier = ?,
+                    unlocked_milestones_json = ?, updated_at = ?
+                WHERE id = 1
+            """, (new_miles, new_drives, new_pulls, new_checkins, new_pts, new_tier, json.dumps(unlocked), now_iso))
+            conn.commit()
+
+        print(f"[RELATIONSHIP BOND] Updated: {new_tier} ({new_pts} pts | {new_miles} miles)")
+        return self.get_relationship_bond()
+
+    # -------------------------------------------------------------------------
+    # Unified Token-Budgeted Context Compression
+    # -------------------------------------------------------------------------
+    def retrieve_unified_living_memory(
+        self,
+        query: str,
+        current_speed: float = 0.0,
+        max_tokens: int = 300
+    ) -> str:
+        """
+        Assembles a prioritized, token-budgeted memory block (~300 tokens)
+        fusing Episodic Memories, Semantic Driver Facts, Recent Diary, and Bond Tier.
+        """
+        lines = []
+
+        # 1. Bond Tier & Address
+        bond = self.get_relationship_bond()
+        lines.append(f"• Bond Tier: {bond['bond_tier']} ({bond['shared_miles']} shared miles with Dad, {bond['shared_drives']} drives).")
+
+        # 2. Driver Facts (prioritize relevant facts or core 2-3 facts)
+        facts = self.get_driver_facts()
+        if facts:
+            q_lower = query.lower()
+            relevant_facts = [f for f in facts if f["entity"] in q_lower or f["attribute"] in q_lower or f["value"].lower() in q_lower]
+            if not relevant_facts:
+                relevant_facts = facts[:3]
+            for f in relevant_facts[:3]:
+                lines.append(f"• Fact: Dad's {f['entity'].replace('_', ' ')}: {f['value']}.")
+
+        # 3. Episodic Moments (Top ranked)
+        episodes = self.query_episodic_memories(query, top_k=2)
+        for ep in episodes:
+            if ep["score"] >= 0.40:
+                lines.append(f"• Shared Memory: {ep['rum_summary']}")
+
+        # 4. Latest Diary Reflection
+        recent_diaries = self.get_recent_diary_entries(limit=1)
+        if recent_diaries:
+            d = recent_diaries[0]
+            # Truncate content to 140 chars for token budget
+            snippet = d["content"][:140].rstrip() + "..." if len(d["content"]) > 140 else d["content"]
+            lines.append(f"• Recent Diary Thought ({d['entry_date']}): \"{snippet}\"")
+
+        return "\n".join(lines)
+

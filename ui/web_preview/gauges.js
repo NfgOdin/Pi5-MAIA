@@ -1545,8 +1545,9 @@ function navigateTo(screenId) {
     library: document.getElementById('screenLibrary'),
 
     maintenance: document.getElementById('screenMaintenance'),
-
-    dragy: document.getElementById('screenDragy')
+    dragy: document.getElementById('screenDragy'),
+    phone: document.getElementById('screenPhone'),
+    canyon: document.getElementById('screenCanyon')
 
 
 
@@ -1609,33 +1610,24 @@ function navigateTo(screenId) {
     if (typeof initDragyStudio === 'function') initDragyStudio();
   }
 
-
-
-
-
-
+  // Phase 15: Cockpit Telephony, Kinship & SMS Studio Lifecycle
+  if (screenId === 'phone') {
+    if (typeof initPhoneStudio === 'function') initPhoneStudio();
+  }
 
   // Toggle Bottom Dock Buttons
 
-
-
   const buttons = {
-
-
 
     home: document.getElementById('dockBtnHome'),
 
-
-
     gauges: document.getElementById('dockBtnGauges'),
-
-
 
     ai: document.getElementById('dockBtnAI'),
 
-
-
     media: document.getElementById('dockBtnMedia'),
+
+    phone: document.getElementById('dockBtnPhone'),
 
 
 
@@ -3370,6 +3362,10 @@ function connectTelemetryStream() {
       }
     } else if (data.telemetry && typeof updateDragyStudioUI === 'function') {
       updateDragyStudioUI(null, data.telemetry);
+    }
+
+    if (typeof updateCanyonAndThermalUI === 'function') {
+      updateCanyonAndThermalUI(data.thermal, data.lap_timer);
     }
 
 
@@ -8994,18 +8990,191 @@ function handleSpokenTranscript(text, isFromMic = true) {
 
   const cleanCmd = (query || '').toLowerCase().trim();
 
+  // =========================================================================
+  // PHASE 16: VOICE INTENT AUTO-ACTUATION & COCKPIT BUS
+  // =========================================================================
 
+  // 1. In-Dash Audio Volume Controls
+  if (cleanCmd.includes('volume up') || cleanCmd.includes('louder') || cleanCmd.includes('turn up') || cleanCmd.includes('turn it up')) {
+    fetch('/api/cockpit/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: 'volume_up' })
+    }).catch(() => {});
+    const reply = "Turning it up for you, Dad!";
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
 
+  if (cleanCmd.includes('volume down') || cleanCmd.includes('quieter') || cleanCmd.includes('turn down') || cleanCmd.includes('turn it down')) {
+    fetch('/api/cockpit/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: 'volume_down' })
+    }).catch(() => {});
+    const reply = "Turned the volume down, Dad.";
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
 
+  if (cleanCmd.includes('mute') && !cleanCmd.includes('unmute')) {
+    fetch('/api/cockpit/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: 'mute' })
+    }).catch(() => {});
+    const reply = "Audio muted, Dad.";
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
 
+  if (cleanCmd.includes('unmute')) {
+    fetch('/api/cockpit/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: 'unmute' })
+    }).catch(() => {});
+    const reply = "Audio unmuted, Dad!";
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
 
+  // 2. Cockpit Lighting & Obsidian Midnight Auto-Dimming
+  if (cleanCmd.includes('night mode') || cleanCmd.includes('dark mode') || cleanCmd.includes('obsidian') || cleanCmd.includes('dim screen')) {
+    fetch('/api/cockpit/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: 'night_mode' })
+    }).catch(() => {});
+    if (document.body) document.body.classList.add('obsidian-midnight');
+    const reply = "Switching to Obsidian Midnight mode, easier on your eyes Dad!";
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
 
-  // 1. Direct Vehicle Telemetry Queries
+  if (cleanCmd.includes('day mode') || cleanCmd.includes('light mode') || cleanCmd.includes('brighten screen')) {
+    fetch('/api/cockpit/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: 'day_mode' })
+    }).catch(() => {});
+    if (document.body) document.body.classList.remove('obsidian-midnight');
+    const reply = "Day mode active, Dad!";
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
 
+  // 3. Media Playback Auto-Actuation
+  if (cleanCmd.includes('play music') || cleanCmd.includes('resume music') || cleanCmd.includes('play song') || cleanCmd.includes('start music')) {
+    fetch('/api/media/player/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'play' })
+    }).catch(() => {});
+    const reply = "Playing your music, Dad!";
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
+
+  if (cleanCmd.includes('pause music') || cleanCmd.includes('pause audio') || cleanCmd.includes('stop music')) {
+    fetch('/api/media/player/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'pause' })
+    }).catch(() => {});
+    const reply = "Paused the music, Dad.";
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
+
+  if (cleanCmd.includes('next song') || cleanCmd.includes('next track') || cleanCmd.includes('skip song') || cleanCmd.includes('skip track')) {
+    fetch('/api/media/player/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'next' })
+    }).catch(() => {});
+    const reply = "Skipping to the next track, Dad!";
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
+
+  if (cleanCmd.includes('previous song') || cleanCmd.includes('prev song') || cleanCmd.includes('previous track') || cleanCmd.includes('prev track')) {
+    fetch('/api/media/player/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'prev' })
+    }).catch(() => {});
+    const reply = "Going back to the previous track!";
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
+
+  // 4. In-Dash Screen Navigation
+  if (cleanCmd.includes('canyon') || cleanCmd.includes('lap timer') || cleanCmd.includes('sector split') || cleanCmd.includes('pinal pass')) {
+    navigateTo('canyon');
+    const reply = "Opening Canyon Run and Thermal Studio, Dad!";
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
+
+  if (cleanCmd.includes('open media') || cleanCmd.includes('show media') || cleanCmd.includes('music hub') || cleanCmd.includes('audio studio')) {
+    navigateTo('media');
+    const reply = "Opening Entertainment and Media Hub, Dad!";
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
+
+  if (cleanCmd.includes('phone') || cleanCmd.includes('dialer') || cleanCmd.includes('contacts') || cleanCmd.includes('call log')) {
+    navigateTo('phone');
+    const reply = "Opening In-Cabin Phone Studio, Dad!";
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
+
+  if (cleanCmd.includes('reset trip') || cleanCmd.includes('clear trip')) {
+    fetch('/api/cockpit/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: 'reset_trip' })
+    }).catch(() => {});
+    const reply = "Trip meters cleared to zero, Dad!";
+    appendChatMessage('user', rawText);
+    appendChatMessage('assistant', reply);
+    speakUtterance(reply);
+    return;
+  }
+
+  // 5. Direct Vehicle Telemetry Queries
   if (cleanCmd.includes('where are we') || cleanCmd.includes('where am i') || cleanCmd.includes('location') || cleanCmd.includes('coordinates') || cleanCmd.includes('what road') || cleanCmd.includes('heading')) {
     navigateTo('maps');
     if (typeof recenterMap === 'function') recenterMap();
-    let reply = "Waiting for satellite lock, Master! Searching for GPS satellites above.";
+    let reply = "Waiting for satellite lock, Dad! Searching for GPS satellites above.";
     if (currentGpsData && currentGpsData.fix && currentGpsData.lat && currentGpsData.lon) {
       const lat = currentGpsData.lat.toFixed(4);
       const lon = Math.abs(currentGpsData.lon).toFixed(4);
@@ -9032,7 +9201,7 @@ function handleSpokenTranscript(text, isFromMic = true) {
 
   if (cleanCmd.includes('drag') || cleanCmd.includes('christmas tree') || cleanCmd.includes('launch control') || cleanCmd.includes('staging') || cleanCmd.includes('quarter mile')) {
     navigateTo('dragy');
-    const reply = "Opening Drag Launch Control and Christmas Tree staging, Master!";
+    const reply = "Opening Drag Launch Control and Christmas Tree staging, Dad!";
     appendChatMessage('user', rawText);
     appendChatMessage('assistant', reply);
     speakUtterance(reply);
@@ -9046,7 +9215,7 @@ function handleSpokenTranscript(text, isFromMic = true) {
       latG = (currentGpsData.g_forces.lateral || 0).toFixed(2);
       longG = (currentGpsData.g_forces.longitudinal || 0).toFixed(2);
     }
-    const reply = `Live lateral cornering force is ${latG} Gs, longitudinal acceleration is ${longG} Gs, Master!`;
+    const reply = `Live lateral cornering force is ${latG} Gs, longitudinal acceleration is ${longG} Gs, Dad!`;
     appendChatMessage('user', rawText);
     appendChatMessage('assistant', reply);
     speakUtterance(reply);
@@ -28004,13 +28173,14 @@ function initVrmEngine() {
 
     });
 
-    const initDpr = Math.min(window.devicePixelRatio || 1, 2);
-
+    const initDpr = Math.min(window.devicePixelRatio || 1, 1.0);
     vrmRenderer.setPixelRatio(initDpr);
-
     vrmRenderer.setSize(width, height, false);
-
     vrmRenderer.outputEncoding = THREE.sRGBEncoding;
+    if (vrmRenderer.shadowMap) {
+      vrmRenderer.shadowMap.enabled = true;
+      vrmRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    }
 
 
 
@@ -28154,11 +28324,22 @@ function initVrmEngine() {
 
 
 
+  let lastVrmThrottleRenderTime = 0;
+
   function animateVrm() {
-
-
-
     requestAnimationFrame(animateVrm);
+
+    // Phase 13: Occlusion-Aware WebGL Thermal Throttling
+    // When tab is hidden or companion is minimized while on intensive fullscreen views, throttle to 5 FPS (200ms)
+    const isOccluded = document.hidden || (
+      Boolean(window.isCompanionMinimizedByUser) &&
+      ['maps', 'dragy', 'maintenance', 'settings', 'music'].includes(currentScreen)
+    );
+    const nowPerf = performance.now();
+    if (isOccluded && (nowPerf - lastVrmThrottleRenderTime < 200)) {
+      return;
+    }
+    lastVrmThrottleRenderTime = nowPerf;
 
     try {
 
@@ -29911,7 +30092,7 @@ function resizeVrmToStage() {
 
 
 
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.0);
 
   vrmRenderer.setPixelRatio(dpr);
 
@@ -32828,6 +33009,10 @@ function setupExteriorCelestialAndOcean(oceanZ = -16.5, oceanY = -0.28) {
   vrmCelestialLight.position.set(0, vrmBaseY + 6.0, -24.8);
 
   vrmCelestialLight.castShadow = true;
+  if (vrmCelestialLight.shadow && vrmCelestialLight.shadow.mapSize) {
+    vrmCelestialLight.shadow.mapSize.width = 1024;
+    vrmCelestialLight.shadow.mapSize.height = 1024;
+  }
 
   vrmEnvironmentGroup.add(vrmCelestialLight);
 
@@ -40976,6 +41161,9 @@ function initOrUpdateMap() {
 
       carMarker = L.marker([initialLat, initialLon], { icon: carIcon }).addTo(leafletMap);
 
+      leafletMap.on('click', (e) => {
+        calculateAndRenderRoute(e.latlng.lat, e.latlng.lng, 'Pinned Destination');
+      });
     }
 
     
@@ -41118,6 +41306,9 @@ function updateGpsAndDragyUI(gps) {
 
     }
 
+    if (isNavigatingActive && gps.lat && gps.lon) {
+      updateNavigationProgress(gps.lat, gps.lon, gps.speed_mph || 0.0);
+    }
   }
 
 
@@ -41776,8 +41967,78 @@ function clearTtsCache() {
 
 
 
-// Auto-load cache stats on boot
+// Phase 14: Voice Pre-Warming Suite Controls
+let isTtsPrewarmPolling = false;
 
+function triggerTtsPrewarm() {
+  const btn = document.getElementById('btnTtsPrewarm');
+  if (btn) {
+    btn.disabled = true;
+    btn.style.opacity = '0.6';
+    btn.innerText = 'PRE-WARMING...';
+  }
+  const wrapper = document.getElementById('ttsPrewarmProgressWrapper');
+  if (wrapper) wrapper.style.display = 'block';
+
+  fetch('/api/tts/prewarm', { method: 'POST' })
+    .then(res => res.json())
+    .then(data => {
+      startTtsPrewarmPolling();
+    })
+    .catch(err => {
+      console.error('[TTS_PREWARM] Trigger failed:', err);
+      if (btn) {
+        btn.disabled = false;
+        btn.style.opacity = '1.0';
+        btn.innerText = '⚡ PRE-WARM VOICE';
+      }
+    });
+}
+
+function startTtsPrewarmPolling() {
+  if (isTtsPrewarmPolling) return;
+  isTtsPrewarmPolling = true;
+
+  const pollInterval = setInterval(() => {
+    fetch('/api/tts/prewarm')
+      .then(res => res.json())
+      .then(data => {
+        const info = data.prewarm || {};
+        const pct = info.pct || 0;
+        const phrase = info.current_phrase || '';
+        const isRunning = info.is_running;
+
+        const pBar = document.getElementById('ttsPrewarmProgressBar');
+        const pText = document.getElementById('ttsPrewarmPctText');
+        const sText = document.getElementById('ttsPrewarmStatusText');
+        const btn = document.getElementById('btnTtsPrewarm');
+
+        if (pBar) pBar.style.width = pct + '%';
+        if (pText) pText.innerText = pct + '%';
+        if (sText) sText.innerText = phrase ? `Synthesizing: "${phrase}..."` : 'Pre-warming voice...';
+
+        if (!isRunning && info.completed) {
+          clearInterval(pollInterval);
+          isTtsPrewarmPolling = false;
+          if (sText) sText.innerText = '✅ Pre-warming complete! All phrases locked in RAM.';
+          if (btn) {
+            btn.disabled = false;
+            btn.style.opacity = '1.0';
+            btn.innerText = '⚡ PRE-WARM AGAIN';
+          }
+          if (typeof loadTtsCacheStats === 'function') {
+            loadTtsCacheStats();
+          }
+        }
+      })
+      .catch(err => {
+        clearInterval(pollInterval);
+        isTtsPrewarmPolling = false;
+      });
+  }, 1000);
+}
+
+// Auto-load cache stats on boot
 setTimeout(loadTtsCacheStats, 1500);
 
 
@@ -44466,6 +44727,230 @@ setTimeout(() => {
 }, 2500);
 
 // ============================================================================
+// 💖 PHASE 12: LIVING MEMORY, EPISODIC RAG & RELATIONSHIP BOND CONTROLS
+// ============================================================================
+
+let currentMaintTab = 'specs';
+
+function switchMaintTab(tab) {
+  currentMaintTab = tab;
+  const btnSpecs = document.getElementById('btnTabMaintSpecs');
+  const btnMind = document.getElementById('btnTabMaintMind');
+  const viewSpecs = document.getElementById('maintSpecsView');
+  const viewMind = document.getElementById('maintLivingMindView');
+
+  if (tab === 'specs') {
+    if (btnSpecs) btnSpecs.classList.add('active');
+    if (btnMind) btnMind.classList.remove('active');
+    if (viewSpecs) viewSpecs.style.display = 'grid';
+    if (viewMind) viewMind.style.display = 'none';
+  } else {
+    if (btnSpecs) btnSpecs.classList.remove('active');
+    if (btnMind) btnMind.classList.add('active');
+    if (viewSpecs) viewSpecs.style.display = 'none';
+    if (viewMind) {
+      viewMind.style.display = 'flex';
+      loadLivingMindData();
+    }
+  }
+}
+
+function loadLivingMindData() {
+  fetch('/api/ai/memory/living_summary')
+    .then(r => r.json())
+    .then(data => {
+      if (data.status !== 'ok') return;
+
+      // 1. Render Relationship Bond
+      const bond = data.bond || {};
+      const tierEl = document.getElementById('bondTierTitle');
+      const ptsBadge = document.getElementById('bondPtsBadge');
+      const sharedMiles = document.getElementById('bondSharedMiles');
+      const sharedDrives = document.getElementById('bondSharedDrives');
+      const sharedPulls = document.getElementById('bondSharedPulls');
+      const sharedCheckins = document.getElementById('bondSharedCheckins');
+      const progLabel = document.getElementById('bondProgressLabel');
+      const progPct = document.getElementById('bondProgressPct');
+      const progBar = document.getElementById('bondProgressBar');
+      const msRow = document.getElementById('bondMilestonesRow');
+
+      if (tierEl) tierEl.textContent = (bond.bond_tier || 'INSEPARABLE DAUGHTER').toUpperCase();
+      if (ptsBadge) ptsBadge.textContent = `${bond.bond_points || 0} BOND PTS`;
+      if (sharedMiles) sharedMiles.textContent = (bond.shared_miles || 0).toLocaleString();
+      if (sharedDrives) sharedDrives.textContent = bond.shared_drives || 0;
+      if (sharedPulls) sharedPulls.textContent = bond.wot_pulls_together || 0;
+      if (sharedCheckins) sharedCheckins.textContent = bond.caring_checkins_count || 0;
+
+      const pct = bond.progress_pct || 0;
+      if (progPct) progPct.textContent = `${pct}%`;
+      if (progBar) progBar.style.width = `${pct}%`;
+      if (progLabel) progLabel.textContent = `PROGRESS TO NEXT BOND TIER (${bond.next_target_points || 0} PTS TARGET)`;
+
+      if (msRow) {
+        const msList = [
+          { id: 'FIRST_DRIVE', name: '🏅 First Drive Together' },
+          { id: 'BOOST_PULL_15PSI', name: '🚀 15+ PSI Boost Pull' },
+          { id: '100_MILES_SHARED', name: '🛣️ 100 Shared Miles' },
+          { id: '500_MILES_SHARED', name: '⭐ 500 Shared Miles' },
+          { id: '1000_MILES_SHARED', name: '👑 1,000 Shared Miles' }
+        ];
+        const unlocked = bond.unlocked_milestones || [];
+        msRow.innerHTML = msList.map(m => {
+          const isU = unlocked.includes(m.id);
+          return `<span class="maint-milestone-pill ${isU ? 'unlocked' : ''}">${isU ? '✅' : '🔒'} ${m.name}</span>`;
+        }).join('');
+      }
+
+      // 2. Render R.U.M. Personal Trip Diary
+      const diaryList = document.getElementById('rumDiaryList');
+      if (diaryList) {
+        const entries = data.diary || [];
+        if (entries.length === 0) {
+          diaryList.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">No post-drive diary entries recorded yet.</div>';
+        } else {
+          diaryList.innerHTML = entries.map(d => `
+            <div class="maint-diary-card">
+              <div class="maint-diary-header">
+                <div>
+                  <span class="maint-diary-title">${d.title}</span>
+                  <span class="maint-diary-meta" style="margin-left:8px;">${d.entry_date} • ${d.mileage} mi • Peak ${d.peak_boost} PSI</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <span style="font-size:9px; font-weight:800; padding:2px 6px; border-radius:4px; background:rgba(168,85,247,0.15); color:#d8b4fe; border:1px solid rgba(168,85,247,0.3);">
+                    ${d.mood || 'HAPPY'}
+                  </span>
+                  <button onclick="deleteDiaryEntry(${d.id})" style="background:transparent; border:none; color:#ef4444; cursor:pointer; font-size:13px; padding:2px;" title="Delete entry">🗑️</button>
+                </div>
+              </div>
+              <div class="maint-diary-body">"${d.content}"</div>
+            </div>
+          `).join('');
+        }
+      }
+
+      // 3. Render Driver Facts
+      const factsList = document.getElementById('driverFactsList');
+      if (factsList) {
+        const facts = data.facts || [];
+        if (facts.length === 0) {
+          factsList.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">No driver facts learned yet. Tap "+ TEACH RUM" above!</div>';
+        } else {
+          factsList.innerHTML = facts.map(f => `
+            <div class="maint-fact-card">
+              <div style="flex:1;">
+                <div class="maint-fact-key">${f.entity.replace('_', ' ')} • ${f.attribute.replace('_', ' ')}</div>
+                <div class="maint-fact-val">${f.value}</div>
+              </div>
+              <button onclick="deleteDriverFact(${f.id})" style="background:transparent; border:none; color:#ef4444; cursor:pointer; font-size:14px; padding:4px;" title="Forget this fact">🗑️</button>
+            </div>
+          `).join('');
+        }
+      }
+    })
+    .catch(err => {
+      console.error('[MAINT] Living mind summary error:', err);
+    });
+}
+
+function deleteDiaryEntry(id) {
+  if (!confirm('Are you sure you want to delete this diary entry?')) return;
+  fetch('/api/ai/memory/diary/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: id })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.status === 'ok') {
+      loadLivingMindData();
+      if (window.showToast) window.showToast('Diary entry removed');
+    }
+  });
+}
+
+function deleteDriverFact(id) {
+  if (!confirm('Forget this fact about Dad?')) return;
+  fetch('/api/ai/memory/facts/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: id })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.status === 'ok') {
+      loadLivingMindData();
+      if (window.showToast) window.showToast('Memory fact forgotten');
+    }
+  });
+}
+
+function triggerDreamConsolidation() {
+  if (window.showToast) window.showToast('Consolidating drive into R.U.M. memory & diary...');
+  fetch('/api/ai/memory/consolidate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ manual: true })
+  })
+  .then(r => r.json())
+  .then(data => {
+    loadLivingMindData();
+    if (window.showToast) window.showToast(`✨ Drive consolidated! Diary #${data.diary_id || 1} created.`);
+  })
+  .catch(err => {
+    console.error('[MAINT] Consolidation error:', err);
+  });
+}
+
+function openTeachRumModal() {
+  const modal = document.getElementById('maintTeachRumModal');
+  const ent = document.getElementById('teachEntityInput');
+  const attr = document.getElementById('teachAttrInput');
+  const val = document.getElementById('teachValInput');
+  if (ent) ent.value = '';
+  if (attr) attr.value = '';
+  if (val) val.value = '';
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeTeachRumModal() {
+  const modal = document.getElementById('maintTeachRumModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function submitTeachRumFact() {
+  const ent = document.getElementById('teachEntityInput')?.value.trim();
+  const attr = document.getElementById('teachAttrInput')?.value.trim();
+  const val = document.getElementById('teachValInput')?.value.trim();
+
+  if (!ent || !attr || !val) {
+    alert('Please fill in Topic, Detail, and What should R.U.M. remember.');
+    return;
+  }
+
+  fetch('/api/ai/memory/facts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      entity: ent,
+      attribute: attr,
+      value: val,
+      confidence: 1.0,
+      source: 'user_ui'
+    })
+  })
+  .then(r => r.json())
+  .then(data => {
+    closeTeachRumModal();
+    loadLivingMindData();
+    if (window.showToast) window.showToast('💖 R.U.M. learned new fact about Dad!');
+  })
+  .catch(err => {
+    console.error('[MAINT] Error saving fact:', err);
+    closeTeachRumModal();
+  });
+}
+
+// ============================================================================
 // 🏁 PHASE 9: DRAG LAUNCH CONTROL, NHRA CHRISTMAS TREE & G-G FRICTION HUD
 // ============================================================================
 
@@ -44916,3 +45401,767 @@ function initDragyStudio() {
     renderGgFrictionCircle(0.0, 0.0);
   }
 }
+
+// ============================================================================
+// PHASE 15: COCKPIT TELEPHONY, KINSHIP & SMS STUDIO ENGINE
+// ============================================================================
+let currentPhoneTab = 'history';
+let activeSmsThreadNumber = '';
+let activeCallPollingInterval = null;
+
+function initPhoneStudio() {
+  loadPhoneStatus();
+  loadPhoneContacts();
+  switchPhoneTab(currentPhoneTab);
+}
+
+function loadPhoneStatus() {
+  fetch('/api/phone/status')
+    .then(r => r.json())
+    .then(d => {
+      if (!d || !d.phone) return;
+      updatePhoneUI(d.phone);
+    })
+    .catch(e => console.error('[PHONE] Status error:', e));
+}
+
+function updatePhoneUI(phone) {
+  const badge = document.getElementById('phoneConnectionBadge');
+  if (badge) {
+    if (phone.connected) {
+      badge.innerText = `📱 ${phone.device_name || 'PHONE CONNECTED'}`;
+      badge.style.color = '#38bdf8';
+      badge.style.borderColor = '#0284c7';
+    } else {
+      badge.innerText = '📱 BLUETOOTH HFP: STANDBY';
+      badge.style.color = '#94a3b8';
+      badge.style.borderColor = '#334155';
+    }
+  }
+
+  // Floating HUD management
+  const hud = document.getElementById('floatingInCallHud');
+  if (!hud) return;
+
+  const state = phone.state || 'IDLE';
+  if (state === 'IDLE') {
+    hud.style.display = 'none';
+    if (activeCallPollingInterval) {
+      clearInterval(activeCallPollingInterval);
+      activeCallPollingInterval = null;
+    }
+    return;
+  }
+
+  // Call is RINGING, ACTIVE, or SCREENING -> Show Floating HUD
+  hud.style.display = 'block';
+  if (!activeCallPollingInterval) {
+    activeCallPollingInterval = setInterval(loadPhoneStatus, 1000);
+  }
+
+  const nameEl = document.getElementById('incallCallerName');
+  const badgeEl = document.getElementById('incallKinshipBadge');
+  const numEl = document.getElementById('incallCallerNumber');
+  const timerEl = document.getElementById('incallCallTimer');
+  const statusEl = document.getElementById('incallStatusText');
+  const screenBox = document.getElementById('incallScreeningBox');
+  const transcriptEl = document.getElementById('incallLiveTranscript');
+  const muteBtn = document.getElementById('btnIncallMute');
+  const answerBtn = document.getElementById('btnIncallAnswer');
+  const screenBtn = document.getElementById('btnIncallScreen');
+  const declineBtn = document.getElementById('btnIncallDecline');
+
+  if (nameEl) nameEl.innerText = phone.caller_name || phone.caller_number || 'Incoming Call';
+  if (badgeEl) badgeEl.innerText = phone.caller_kinship || 'CALL';
+  if (numEl) numEl.innerText = phone.caller_number || '';
+  
+  // Format duration MM:SS
+  if (timerEl) {
+    const sec = phone.duration_sec || 0;
+    const mins = Math.floor(sec / 60);
+    const remSec = sec % 60;
+    timerEl.innerText = `${mins.toString().padStart(2, '0')}:${remSec.toString().padStart(2, '0')}`;
+  }
+
+  if (statusEl) statusEl.innerText = state;
+
+  if (state === 'RINGING_INBOUND') {
+    if (answerBtn) answerBtn.style.display = 'flex';
+    if (screenBtn) screenBtn.style.display = 'flex';
+    if (muteBtn) muteBtn.style.display = 'none';
+    if (screenBox) screenBox.style.display = 'none';
+  } else if (state === 'SCREENING') {
+    if (answerBtn) {
+      answerBtn.style.display = 'flex';
+      answerBtn.innerHTML = '<span>📞</span> <span>TAKE OVER CALL</span>';
+    }
+    if (screenBtn) screenBtn.style.display = 'none';
+    if (muteBtn) muteBtn.style.display = 'none';
+    if (screenBox) {
+      screenBox.style.display = 'block';
+      if (transcriptEl) transcriptEl.innerText = phone.live_screening_transcript || 'Listening to caller...';
+    }
+  } else if (state === 'ACTIVE' || state === 'DIALING_OUTBOUND') {
+    if (answerBtn) answerBtn.style.display = 'none';
+    if (screenBtn) screenBtn.style.display = 'none';
+    if (muteBtn) {
+      muteBtn.style.display = 'flex';
+      const mText = document.getElementById('incallMuteText');
+      if (mText) mText.innerText = phone.is_muted ? 'UNMUTE' : 'MUTE';
+    }
+    if (screenBox) screenBox.style.display = 'none';
+  }
+}
+
+// Dialpad & Outbound Calling
+function dialpadPress(digit) {
+  const disp = document.getElementById('dialerInputDisplay');
+  if (disp) disp.innerText += digit;
+}
+
+function dialpadBackspace() {
+  const disp = document.getElementById('dialerInputDisplay');
+  if (disp && disp.innerText.length > 0) {
+    disp.innerText = disp.innerText.slice(0, -1);
+  }
+}
+
+function dialpadCall() {
+  const disp = document.getElementById('dialerInputDisplay');
+  const number = disp ? disp.innerText.trim() : '';
+  if (!number) return;
+  phoneDial(number);
+}
+
+function phoneDial(number) {
+  fetch('/api/phone/dial', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ number })
+  })
+    .then(r => r.json())
+    .then(d => {
+      loadPhoneStatus();
+    })
+    .catch(e => console.error('[PHONE] Dial error:', e));
+}
+
+function phoneAnswerCall() {
+  fetch('/api/phone/answer', { method: 'POST' })
+    .then(r => r.json())
+    .then(() => loadPhoneStatus());
+}
+
+function phoneHangupCall() {
+  fetch('/api/phone/hangup', { method: 'POST' })
+    .then(r => r.json())
+    .then(() => loadPhoneStatus());
+}
+
+function phoneScreenCall() {
+  fetch('/api/phone/screen', { method: 'POST' })
+    .then(r => r.json())
+    .then(() => loadPhoneStatus());
+}
+
+function phoneToggleMute() {
+  fetch('/api/phone/mute', { method: 'POST' })
+    .then(r => r.json())
+    .then(() => loadPhoneStatus());
+}
+
+// Kinship Quick Pills
+function loadPhoneContacts() {
+  fetch('/api/phone/contacts')
+    .then(r => r.json())
+    .then(d => {
+      if (!d || !d.contacts) return;
+      renderKinshipQuickPills(d.contacts);
+      renderContactsDirectory(d.contacts);
+    });
+}
+
+function renderKinshipQuickPills(contacts) {
+  const container = document.getElementById('phoneKinshipQuickPills');
+  if (!container) return;
+  if (!contacts || contacts.length === 0) {
+    container.innerHTML = '<div style="grid-column:span 2; font-size:11px; color:#94a3b8;">No kinship contacts configured.</div>';
+    return;
+  }
+  container.innerHTML = contacts.map(c => `
+    <div class="kinship-pill" onclick="phoneDial('${c.phone}')" title="Call ${c.kinship} (${c.phone})">
+      <span style="font-size:22px;">${c.avatar_icon || '👤'}</span>
+      <div style="overflow:hidden;">
+        <div style="font-size:12px; font-weight:900; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;">${c.kinship || c.name}</div>
+        <div style="font-size:9px; color:#94a3b8;">${c.name}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderContactsDirectory(contacts) {
+  const container = document.getElementById('phoneContactsList');
+  if (!container) return;
+  container.innerHTML = contacts.map(c => `
+    <div class="call-log-card">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span style="font-size:24px;">${c.avatar_icon || '👤'}</span>
+        <div>
+          <div style="font-size:13px; font-weight:800; color:#fff;">${c.kinship} (${c.name})</div>
+          <div style="font-size:11px; color:#94a3b8;">${c.phone} • ${c.relationship || 'Family'}</div>
+        </div>
+      </div>
+      <div style="display:flex; gap:6px;">
+        <button class="cluster-action-btn" onclick="phoneDial('${c.phone}')" style="min-height:36px; padding:4px 12px; font-size:11px; border-color:#10b981; color:#10b981;">CALL</button>
+        <button class="cluster-action-btn" onclick="deleteContact('${c.id}')" style="min-height:36px; padding:4px 10px; font-size:11px; border-color:#ef4444; color:#ef4444;">DELETE</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function switchPhoneTab(tab) {
+  currentPhoneTab = tab;
+  const btnHist = document.getElementById('btnPhoneTabHistory');
+  const btnSms = document.getElementById('btnPhoneTabSms');
+  const btnContacts = document.getElementById('btnPhoneTabContacts');
+
+  const viewHist = document.getElementById('phoneViewHistory');
+  const viewSms = document.getElementById('phoneViewSms');
+  const viewContacts = document.getElementById('phoneViewContacts');
+
+  if (btnHist) btnHist.classList.toggle('active', tab === 'history');
+  if (btnSms) btnSms.classList.toggle('active', tab === 'sms');
+  if (btnContacts) btnContacts.classList.toggle('active', tab === 'contacts');
+
+  if (viewHist) viewHist.style.display = tab === 'history' ? 'flex' : 'none';
+  if (viewSms) viewSms.style.display = tab === 'sms' ? 'flex' : 'none';
+  if (viewContacts) viewContacts.style.display = tab === 'contacts' ? 'flex' : 'none';
+
+  if (tab === 'history') loadCallHistory();
+  if (tab === 'sms') loadSmsThreads();
+  if (tab === 'contacts') loadPhoneContacts();
+}
+
+function loadCallHistory() {
+  fetch('/api/phone/history')
+    .then(r => r.json())
+    .then(d => {
+      const container = document.getElementById('phoneHistoryList');
+      if (!container) return;
+      const hist = (d.history || []).slice().reverse();
+      if (hist.length === 0) {
+        container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">No call history yet.</div>';
+        return;
+      }
+      container.innerHTML = hist.map(call => {
+        const dStr = new Date(call.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return `
+          <div class="call-log-card">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span style="font-size:20px;">${call.was_screened ? '🛡️' : '📞'}</span>
+              <div>
+                <div style="font-size:12px; font-weight:800; color:#fff;">${call.kinship || call.name || call.number}</div>
+                <div style="font-size:10px; color:#94a3b8;">${dStr} • Duration: ${call.duration_sec}s ${call.notes ? '• Note: ' + call.notes : ''}</div>
+              </div>
+            </div>
+            <button class="cluster-action-btn" onclick="phoneDial('${call.number}')" style="min-height:36px; padding:4px 10px; font-size:10px; border-color:#38bdf8; color:#38bdf8;">REDIAL</button>
+          </div>
+        `;
+      }).join('');
+    });
+}
+
+// SMS Threads
+function loadSmsThreads() {
+  fetch('/api/sms/threads')
+    .then(r => r.json())
+    .then(d => {
+      const listEl = document.getElementById('smsThreadsList');
+      if (!listEl) return;
+      const threads = d.threads || {};
+      const keys = Object.keys(threads);
+      if (keys.length === 0) {
+        listEl.innerHTML = '<div style="font-size:11px; color:#94a3b8; padding:8px;">No SMS conversations.</div>';
+        return;
+      }
+      listEl.innerHTML = keys.map(k => `
+        <div class="kinship-pill" style="min-height:44px; padding:6px 8px; ${activeSmsThreadNumber === k ? 'border-color:#38bdf8; background:#0c4a6e;' : ''}" onclick="selectSmsThread('${k}')">
+          <div style="font-size:11px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${k}</div>
+        </div>
+      `).join('');
+
+      if (!activeSmsThreadNumber && keys.length > 0) {
+        selectSmsThread(keys[0]);
+      }
+    });
+}
+
+function selectSmsThread(number) {
+  activeSmsThreadNumber = number;
+  loadSmsThreads();
+  fetch(`/api/sms/thread?number=${encodeURIComponent(number)}`)
+    .then(r => r.json())
+    .then(d => {
+      const msgList = document.getElementById('smsMessagesList');
+      if (!msgList) return;
+      const msgs = d.thread || [];
+      if (msgs.length === 0) {
+        msgList.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">Empty thread. Send a text below!</div>';
+        return;
+      }
+      msgList.innerHTML = msgs.map(m => `
+        <div class="${m.direction === 'OUTBOUND' ? 'sms-bubble-outbound' : 'sms-bubble-inbound'}">
+          <div style="font-size:9px; opacity:0.7; margin-bottom:2px;">${m.sender_kinship || m.sender_name || m.sender}</div>
+          <div>${m.text}</div>
+        </div>
+      `).join('');
+      msgList.scrollTop = msgList.scrollHeight;
+    });
+}
+
+function submitSendSms() {
+  const input = document.getElementById('smsTextInput');
+  const text = input ? input.value.trim() : '';
+  if (!text || !activeSmsThreadNumber) return;
+
+  fetch('/api/sms/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ recipient: activeSmsThreadNumber, text })
+  })
+    .then(r => r.json())
+    .then(() => {
+      if (input) input.value = '';
+      selectSmsThread(activeSmsThreadNumber);
+    });
+}
+
+// Modals
+function openAddContactModal() {
+  const m = document.getElementById('phoneAddContactModal');
+  if (m) m.style.display = 'flex';
+}
+function closeAddContactModal() {
+  const m = document.getElementById('phoneAddContactModal');
+  if (m) m.style.display = 'none';
+}
+function submitAddContact() {
+  const name = document.getElementById('contactNameInput')?.value.trim();
+  const kinship = document.getElementById('contactKinshipInput')?.value.trim();
+  const phone = document.getElementById('contactPhoneInput')?.value.trim();
+  const icon = document.getElementById('contactIconInput')?.value.trim() || '👤';
+  if (!name || !phone) return;
+
+  fetch('/api/phone/contacts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contact: { name, kinship: kinship || name, phone, avatar_icon: icon, direct_announce: true, vip: true }
+    })
+  })
+    .then(r => r.json())
+    .then(() => {
+      closeAddContactModal();
+      loadPhoneContacts();
+    });
+}
+
+function deleteContact(id) {
+  fetch('/api/phone/contacts/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id })
+  })
+    .then(r => r.json())
+    .then(() => loadPhoneContacts());
+}
+
+function phoneSimulateInboundModal() {
+  const m = document.getElementById('phoneSimulateModal');
+  if (m) m.style.display = 'flex';
+}
+function closeSimulateModal() {
+  const m = document.getElementById('phoneSimulateModal');
+  if (m) m.style.display = 'none';
+}
+function phoneSimulateInbound(number) {
+  closeSimulateModal();
+  fetch('/api/phone/incoming', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ number })
+  })
+    .then(r => r.json())
+    .then(() => loadPhoneStatus());
+}
+
+// Initial status load
+setTimeout(loadPhoneStatus, 2000);
+
+// ============================================================================
+// PHASE 11: OFFLINE TURN-BY-TURN ROUTE NAVIGATION & SPEED LIMIT HUD ENGINE
+// ============================================================================
+let isNavigatingActive = false;
+let activeRoutePolyline = null;
+let activeDestMarker = null;
+
+const NAV_BOOKMARKS = {
+  dest_home: { name: 'Home', lat: 33.3942, lon: -110.7865 },
+  dest_gas: { name: 'Chevron Gas Station', lat: 33.4025, lon: -110.8150 },
+  dest_food: { name: 'Safeway & Deli', lat: 33.4010, lon: -110.7920 },
+  dest_pass: { name: 'Pinal Mountain Pass', lat: 33.2850, lon: -110.8800 },
+  dest_lake: { name: 'Roosevelt Lake Marina', lat: 33.6600, lon: -111.1200 }
+};
+
+function routeToBookmark(bookmarkId) {
+  const b = NAV_BOOKMARKS[bookmarkId];
+  if (!b) return;
+  calculateAndRenderRoute(b.lat, b.lon, b.name);
+}
+
+function submitStartRoute() {
+  const input = document.getElementById('navDestinationInput');
+  const query = input ? input.value.trim().toLowerCase() : '';
+  if (!query) return;
+
+  let matched = null;
+  for (const k in NAV_BOOKMARKS) {
+    if (NAV_BOOKMARKS[k].name.toLowerCase().includes(query) || query.includes(k.replace('dest_', ''))) {
+      matched = NAV_BOOKMARKS[k];
+      break;
+    }
+  }
+
+  if (matched) {
+    calculateAndRenderRoute(matched.lat, matched.lon, matched.name);
+  } else {
+    const baseLat = (currentGpsData && currentGpsData.lat) || 33.3942;
+    const baseLon = (currentGpsData && currentGpsData.lon) || -110.7865;
+    calculateAndRenderRoute(baseLat + 0.032, baseLon - 0.028, input.value.trim());
+  }
+}
+
+function calculateAndRenderRoute(destLat, destLon, destName) {
+  const startLat = (currentGpsData && currentGpsData.lat) || 33.3942;
+  const startLon = (currentGpsData && currentGpsData.lon) || -110.7865;
+
+  fetch('/api/nav/route', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      start_lat: startLat,
+      start_lon: startLon,
+      dest_lat: destLat,
+      dest_lon: destLon,
+      dest_name: destName
+    })
+  })
+    .then(r => r.json())
+    .then(d => {
+      const nav = d.route || {};
+      renderActiveRoute(nav, destLat, destLon, destName);
+    })
+    .catch(e => console.error('[NAV] Route calculation error:', e));
+}
+
+function renderActiveRoute(nav, destLat, destLon, destName) {
+  isNavigatingActive = true;
+
+  if (activeRoutePolyline && leafletMap) {
+    leafletMap.removeLayer(activeRoutePolyline);
+    activeRoutePolyline = null;
+  }
+  if (activeDestMarker && leafletMap) {
+    leafletMap.removeLayer(activeDestMarker);
+    activeDestMarker = null;
+  }
+
+  const polylineCoords = nav.polyline || [];
+  if (polylineCoords.length > 0 && leafletMap && typeof L !== 'undefined') {
+    activeRoutePolyline = L.polyline(polylineCoords, {
+      color: '#00f0ff',
+      weight: 6,
+      opacity: 0.85,
+      lineJoin: 'round'
+    }).addTo(leafletMap);
+
+    const destIcon = L.divIcon({
+      className: 'dest-flag-marker',
+      html: '<div style="font-size:26px; text-shadow:0 0 10px #000;">🏁</div>',
+      iconSize: [30, 30],
+      iconAnchor: [15, 25]
+    });
+    activeDestMarker = L.marker([destLat, destLon], { icon: destIcon }).addTo(leafletMap);
+
+    leafletMap.fitBounds(activeRoutePolyline.getBounds(), { padding: [60, 60] });
+  }
+
+  const hud = document.getElementById('navTurnByTurnHud');
+  if (hud) hud.style.display = 'block';
+
+  updateTurnByTurnHud(nav, destName);
+}
+
+function updateTurnByTurnHud(nav, destName) {
+  const m = nav.current_maneuver;
+  const iconEl = document.getElementById('navManeuverIcon');
+  const distEl = document.getElementById('navManeuverDistance');
+  const streetEl = document.getElementById('navNextStreet');
+  const instrEl = document.getElementById('navManeuverInstruction');
+  const destNameEl = document.getElementById('navDestNameText');
+  const remDistEl = document.getElementById('navRemainingDistMiles');
+  const etaEl = document.getElementById('navEtaMinutes');
+  const speedLimitEl = document.getElementById('navSpeedLimitNum');
+
+  if (m) {
+    if (distEl) {
+      const ft = nav.distance_to_next_turn_ft || m.distance_ft || 500;
+      distEl.innerText = ft >= 5280 ? `${(ft / 5280).toFixed(1)} MI` : `${ft} FT`;
+    }
+    if (streetEl) streetEl.innerText = m.street || nav.current_road || 'Main Road';
+    if (instrEl) instrEl.innerText = m.instruction || 'Continue straight';
+
+    if (iconEl) {
+      const type = (m.type || '').toLowerCase();
+      if (type.includes('left')) iconEl.innerText = '↰';
+      else if (type.includes('right')) iconEl.innerText = '↱';
+      else if (type.includes('arrive')) iconEl.innerText = '🏁';
+      else iconEl.innerText = '⬆';
+    }
+  }
+
+  if (destNameEl) destNameEl.innerText = destName || nav.destination_name || 'Destination';
+  if (remDistEl) remDistEl.innerText = nav.remaining_distance_miles || '1.0';
+  if (etaEl) etaEl.innerText = nav.estimated_minutes || '2';
+  if (speedLimitEl) speedLimitEl.innerText = nav.speed_limit_mph || 45;
+}
+
+function updateNavigationProgress(lat, lon, speed) {
+  fetch('/api/nav/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lat, lon, speed })
+  })
+    .then(r => r.json())
+    .then(d => {
+      const update = d.update;
+      if (!update) return;
+      if (!update.is_navigating) {
+        if (update.arrived) {
+          showAiSpeechToast(`Arrived at ${update.destination || 'destination'}!`);
+        }
+        stopActiveRoute();
+        return;
+      }
+      updateTurnByTurnHud(update, update.destination_name);
+    })
+    .catch(e => console.error('[NAV] Progress update error:', e));
+}
+
+function stopActiveRoute() {
+  isNavigatingActive = false;
+  fetch('/api/nav/stop', { method: 'POST' }).catch(() => {});
+
+  if (activeRoutePolyline && leafletMap) {
+    leafletMap.removeLayer(activeRoutePolyline);
+    activeRoutePolyline = null;
+  }
+  if (activeDestMarker && leafletMap) {
+    leafletMap.removeLayer(activeDestMarker);
+    activeDestMarker = null;
+  }
+
+  const hud = document.getElementById('navTurnByTurnHud');
+  if (hud) hud.style.display = 'none';
+
+  const input = document.getElementById('navDestinationInput');
+  if (input) input.value = '';
+}
+
+// ============================================================================
+// PHASE 18: CANYON RUN LAP TIMER & BRAKE/TIRE THERMAL DEGRADATION STUDIO
+// ============================================================================
+let activeCanyonTrackId = 'pinal_pass';
+
+function updateCanyonAndThermalUI(thermal, lap_timer) {
+  // 1. Update 4-Corner Tire Carcass Model
+  if (thermal && thermal.tires) {
+    const tTemps = thermal.tires.temperatures_f || {};
+    const tGrip = thermal.tires.grip_pct || {};
+
+    const corners = ['FL', 'FR', 'RL', 'RR'];
+    corners.forEach(c => {
+      const tempEl = document.getElementById(`tireTemp${c}`);
+      const gripEl = document.getElementById(`tireGrip${c}`);
+      const boxEl = document.getElementById(`tireBox${c}`);
+      if (tempEl && tTemps[c] !== undefined) {
+        tempEl.innerText = `${Math.round(tTemps[c])}°F`;
+        if (tTemps[c] > 200) {
+          tempEl.style.color = '#ff3344';
+          if (boxEl) boxEl.style.borderColor = '#ff3344';
+        } else if (tTemps[c] >= 155) {
+          tempEl.style.color = '#00e676';
+          if (boxEl) boxEl.style.borderColor = '#00e676';
+        } else {
+          tempEl.style.color = '#38bdf8';
+          if (boxEl) boxEl.style.borderColor = '#223244';
+        }
+      }
+      if (gripEl && tGrip[c] !== undefined) {
+        gripEl.innerText = `${Math.round(tGrip[c])}% Grip`;
+      }
+    });
+
+    const overallEl = document.getElementById('canyonOverallGrip');
+    if (overallEl && thermal.tires.overall_grip_pct !== undefined) {
+      overallEl.innerText = `${Math.round(thermal.tires.overall_grip_pct)}% GRIP`;
+    }
+  }
+
+  // 2. Update Brake Rotor Heat & Pad Fade
+  if (thermal && thermal.brakes) {
+    const fRotorEl = document.getElementById('canyonFrontRotorTemp');
+    const rRotorEl = document.getElementById('canyonRearRotorTemp');
+    const fadeValEl = document.getElementById('canyonPadFadeVal');
+    const fadeBarEl = document.getElementById('canyonPadFadeBar');
+    const statusBadge = document.getElementById('canyonThermalStatusBadge');
+
+    if (fRotorEl && thermal.brakes.front_rotor_temp_f !== undefined) {
+      fRotorEl.innerText = `${Math.round(thermal.brakes.front_rotor_temp_f)}°F`;
+      fRotorEl.style.color = thermal.brakes.front_rotor_temp_f > 600 ? '#ff3344' : (thermal.brakes.front_rotor_temp_f > 400 ? '#ffab00' : '#00e676');
+    }
+    if (rRotorEl && thermal.brakes.rear_rotor_temp_f !== undefined) {
+      rRotorEl.innerText = `${Math.round(thermal.brakes.rear_rotor_temp_f)}°F`;
+    }
+    if (fadeValEl && thermal.brakes.pad_fade_pct !== undefined) {
+      const pct = Math.round(thermal.brakes.pad_fade_pct);
+      fadeValEl.innerText = `${pct}% Fade`;
+      if (fadeBarEl) {
+        fadeBarEl.style.width = `${pct}%`;
+      }
+    }
+    if (statusBadge && thermal.brakes.status) {
+      statusBadge.innerText = thermal.brakes.status;
+      if (thermal.brakes.status === 'DANGER') {
+        statusBadge.style.color = '#ff3344';
+        statusBadge.style.borderColor = '#ff3344';
+        statusBadge.style.background = 'rgba(255,51,68,0.2)';
+      } else if (thermal.brakes.status === 'CAUTION') {
+        statusBadge.style.color = '#ffab00';
+        statusBadge.style.borderColor = '#ffab00';
+        statusBadge.style.background = 'rgba(255,171,0,0.2)';
+      } else {
+        statusBadge.style.color = '#00e676';
+        statusBadge.style.borderColor = '#00e676';
+        statusBadge.style.background = 'rgba(0,230,118,0.15)';
+      }
+    }
+  }
+
+  // 3. Update Lap Timer HUD
+  if (lap_timer) {
+    const curTimeEl = document.getElementById('canyonCurrentLapTime');
+    const bestTimeEl = document.getElementById('canyonBestLapTime');
+    const distBadge = document.getElementById('canyonTrackDistanceBadge');
+    const calloutEl = document.getElementById('canyonRumCallout');
+
+    if (curTimeEl && lap_timer.formatted_current) {
+      curTimeEl.innerText = lap_timer.formatted_current;
+    }
+    if (bestTimeEl && lap_timer.formatted_best) {
+      bestTimeEl.innerText = lap_timer.formatted_best;
+    }
+    if (distBadge && lap_timer.distance_miles) {
+      distBadge.innerText = `${lap_timer.distance_miles} MILES • ${lap_timer.total_sectors} SECTORS`;
+    }
+
+    // Update sector splits
+    const splits = lap_timer.sector_splits || [];
+    const deltas = lap_timer.sector_deltas || [];
+    const topSpds = lap_timer.sector_top_speeds || [];
+    const maxGs = lap_timer.sector_max_lat_g || [];
+
+    for (let i = 1; i <= 3; i++) {
+      const splitEl = document.getElementById(`canyonSplitS${i}`);
+      const deltaEl = document.getElementById(`canyonDeltaS${i}`);
+      const spdEl = document.getElementById(`canyonTopSpeedS${i}`);
+      const gEl = document.getElementById(`canyonMaxGS${i}`);
+
+      if (splitEl) {
+        if (splits[i - 1] !== undefined) {
+          const s = splits[i - 1];
+          const m = Math.floor(s / 60);
+          const remS = s % 60;
+          splitEl.innerText = `${m.toString().padStart(2, '0')}:${remS.toFixed(2).padStart(5, '0')}`;
+        }
+      }
+      if (deltaEl && deltas[i - 1] !== undefined) {
+        const d = deltas[i - 1];
+        if (d === 0) {
+          deltaEl.innerText = 'PAR';
+          deltaEl.style.color = '#64748b';
+        } else if (d < 0) {
+          deltaEl.innerText = `${d.toFixed(2)}s`;
+          deltaEl.style.color = '#00e676';
+        } else {
+          deltaEl.innerText = `+${d.toFixed(2)}s`;
+          deltaEl.style.color = '#ff3344';
+        }
+      }
+      if (spdEl && topSpds[i - 1] !== undefined) {
+        spdEl.innerText = Math.round(topSpds[i - 1]);
+      }
+      if (gEl && maxGs[i - 1] !== undefined) {
+        gEl.innerText = maxGs[i - 1].toFixed(2);
+      }
+    }
+
+    if (calloutEl) {
+      if (lap_timer.state === 'RUNNING') {
+        calloutEl.innerText = `R.U.M.: Active in Sector ${lap_timer.current_sector} of ${lap_timer.total_sectors}! Keep your apex smooth, Dad!`;
+      } else if (lap_timer.state === 'FINISHED') {
+        calloutEl.innerText = `R.U.M.: Checkered flag on ${lap_timer.track_name}! Great run, Dad!`;
+      }
+    }
+  }
+}
+
+function armCanyonTimer() {
+  fetch('/api/telemetry/lap_timer/arm', { method: 'POST' })
+    .then(r => r.json())
+    .then(() => {
+      showAiSpeechToast('Canyon Lap Timer Armed! Staged for start gate.');
+    });
+}
+
+function stopCanyonTimer() {
+  fetch('/api/telemetry/lap_timer/stop', { method: 'POST' })
+    .then(r => r.json())
+    .then(() => {
+      showAiSpeechToast('Canyon Lap Timer Stopped.');
+    });
+}
+
+function resetCanyonTimer() {
+  fetch('/api/telemetry/lap_timer/reset', { method: 'POST' })
+    .then(r => r.json())
+    .then(() => {
+      showAiSpeechToast('Lap timer reset.');
+      const curTimeEl = document.getElementById('canyonCurrentLapTime');
+      if (curTimeEl) curTimeEl.innerText = '00:00.00';
+    });
+}
+
+function changeCanyonTrack(trackId) {
+  activeCanyonTrackId = trackId;
+  fetch('/api/telemetry/lap_timer/select', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ track_id: trackId })
+  })
+    .then(r => r.json())
+    .then(() => {
+      showAiSpeechToast(`Selected Route: ${trackId}`);
+    });
+}
+

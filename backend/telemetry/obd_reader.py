@@ -15,6 +15,7 @@ import os
 import glob
 import re
 import math
+import threading
 from dataclasses import dataclass, asdict
 from typing import Optional, Dict, Any, List
 
@@ -90,7 +91,21 @@ class RealVehicleTelemetryReader:
         self._last_frame_time: float = time.time()
         self.dyno = MultiAirVirtualDyno()
 
+        # Phase 13 Fast-CAN & Non-Blocking Worker Architecture
+        self.supports_batch_pid: bool = True
+        self._frame_lock = threading.Lock()
+        self._running: bool = True
+        self._latest_frame: TelemetryFrame = self._build_disconnected_frame(time.time())
+
         self._try_connect()
+
+        # Start dedicated background telemetry thread for 25Hz non-blocking updates
+        self._worker_thread = threading.Thread(
+            target=self._telemetry_worker_loop,
+            daemon=True,
+            name="OBDTelemetryWorker"
+        )
+        self._worker_thread.start()
 
     @property
     def ser(self):
@@ -107,17 +122,19 @@ class RealVehicleTelemetryReader:
         if linux_candidates:
             return linux_candidates[0]
 
-        # Windows COM ports
+        # Windows COM ports (Prioritize physical USB-serial adapters; skip dormant Bluetooth RFCOMM ports)
         if os.name == 'nt':
-            for com_num in range(1, 16):
-                port_name = f"COM{com_num}"
-                try:
-                    import serial
-                    s = serial.Serial(port_name)
-                    s.close()
-                    return port_name
-                except Exception:
-                    pass
+            try:
+                import serial.tools.list_ports
+                usb_ports = [
+                    p.device for p in serial.tools.list_ports.comports()
+                    if "BTHENUM" not in p.hwid and "Bluetooth" not in p.description
+                ]
+                if usb_ports:
+                    return usb_ports[0]
+            except Exception:
+                pass
+            return None
 
         return None
 
@@ -197,10 +214,12 @@ class RealVehicleTelemetryReader:
                 time.sleep(0.30)
                 self.serial_conn.reset_input_buffer()
                 
-                self._send_cmd("ATE0", timeout=0.25)     # Echo off
-                self._send_cmd("ATL0", timeout=0.20)     # Linefeeds off
-                self._send_cmd("ATH0", timeout=0.20)     # Headers off
-                self._send_cmd("ATAT1", timeout=0.20)    # Adaptive timing enabled
+                self._send_cmd("ATE0", timeout=0.20)     # Echo off
+                self._send_cmd("ATL0", timeout=0.15)     # Linefeeds off
+                self._send_cmd("ATH0", timeout=0.15)     # Headers off
+                self._send_cmd("ATS0", timeout=0.15)     # Spaces off (Phase 13 Fast-CAN)
+                self._send_cmd("ATAT2", timeout=0.15)    # Aggressive adaptive timing (Phase 13 Fast-CAN)
+                self.supports_batch_pid = True
                 
                 # ISO 15765-4 (CAN 29/500) is Protocol 7 on ELM327 (Standard for Dodge Dart 1.4T)
                 sp_res = self._send_cmd("ATSP7", timeout=0.30)
@@ -412,7 +431,24 @@ class RealVehicleTelemetryReader:
         )
 
     def read_frame(self) -> TelemetryFrame:
-        """Query live vehicle sensors using non-blocking staggered polling."""
+        """Returns the latest acquired vehicle telemetry frame with zero serial I/O blocking."""
+        with self._frame_lock:
+            return self._latest_frame
+
+    def _telemetry_worker_loop(self):
+        """Dedicated high-speed background worker thread polling vehicle CAN bus at up to 25Hz."""
+        while self._running:
+            try:
+                frame = self._poll_hardware_cycle()
+                with self._frame_lock:
+                    self._latest_frame = frame
+            except Exception as e:
+                time.sleep(0.05)
+            # Sleep 15ms between frames for ~25-30Hz sampling rate
+            time.sleep(0.015)
+
+    def _poll_hardware_cycle(self) -> TelemetryFrame:
+        """Internal telemetry acquisition cycle executing Fast-CAN batch or staggered queries."""
         now = time.time()
         dt = max(0.01, min(1.0, now - self._last_frame_time)) if self._last_frame_time > 0 else 0.04
         self._last_frame_time = now
@@ -425,28 +461,28 @@ class RealVehicleTelemetryReader:
         if not self.connected or not self.serial_conn:
             return self._build_disconnected_frame(now)
 
-        # Vehicle is connected - execute staggered PID queries for max smoothness
+        # Vehicle is connected - execute telemetry queries
         try:
-            # High-priority alternating queries:
-            # Even ticks -> RPM (010C)
-            # Odd ticks  -> MAP / Boost (010B)
-            if self.tick_count % 2 == 0:
-                rpm_raw = self._send_cmd("010C", timeout=0.35)
-                m = re.search(r'41\s+0C\s+([0-9A-Fa-f]{2})\s+([0-9A-Fa-f]{2})', rpm_raw)
-                if m:
-                    a = int(m.group(1), 16)
-                    b = int(m.group(2), 16)
-                    self.rpm = float(((a * 256) + b) / 4)
-                    self.connected = True
-                elif "UNABLE TO CONNECT" in rpm_raw or "BUS INIT" in rpm_raw:
+            # 1. Primary High-Frequency Queries: Batch Multi-PID (Fast-CAN) or Alternating Single PIDs
+            if self.supports_batch_pid:
+                batch_raw = self._send_cmd("010C0B0D11", timeout=0.20)
+                cleaned = batch_raw.replace(" ", "").upper()
+                if "UNABLETOCONNECT" in cleaned or "BUSINIT" in cleaned:
                     self.connected = False
                     self.status_message = "IGNITION TURNED OFF"
                     return self._build_disconnected_frame(now)
-            else:
-                map_raw = self._send_cmd("010B", timeout=0.35)
-                m = re.search(r'41\s+0B\s+([0-9A-Fa-f]{2})', map_raw)
-                if m:
-                    self.last_map_kpa = float(int(m.group(1), 16))
+
+                m_rpm = re.search(r'(?:410C|0C)([0-9A-F]{4})', cleaned)
+                m_map = re.search(r'(?:410B|0B)([0-9A-F]{2})', cleaned)
+                m_spd = re.search(r'(?:410D|0D)([0-9A-F]{2})', cleaned)
+                m_thr = re.search(r'(?:4111|11)([0-9A-F]{2})', cleaned)
+
+                if m_rpm and m_map:
+                    rpm_a = int(m_rpm.group(1)[:2], 16)
+                    rpm_b = int(m_rpm.group(1)[2:4], 16)
+                    self.rpm = float(((rpm_a * 256) + rpm_b) / 4.0)
+
+                    self.last_map_kpa = float(int(m_map.group(1), 16))
                     delta_p = self.last_map_kpa - self.baro_kpa
                     if delta_p > 0.4:
                         self.boost_psi = round(delta_p * 0.145038, 1)
@@ -457,54 +493,93 @@ class RealVehicleTelemetryReader:
                         self.vacuum_inhg = round(abs(delta_p) * 0.2953, 0)
                         self.is_in_boost = False
 
-            # Query Group 2: Speed (PID 010D) every 6 ticks
-            if self.tick_count % 6 == 0:
-                spd_raw = self._send_cmd("010D", timeout=0.35)
-                m = re.search(r'41\s+0D\s+([0-9A-Fa-f]{2})', spd_raw)
-                if m:
-                    kph = float(int(m.group(1), 16))
-                    self.speed_mph = kph * 0.621371
+                    if m_spd:
+                        kph = float(int(m_spd.group(1), 16))
+                        self.speed_mph = kph * 0.621371
+                    if m_thr:
+                        self.throttle_pct = round((int(m_thr.group(1), 16) * 100.0) / 255.0, 1)
+                    self.connected = True
+                elif "41" not in cleaned:
+                    # ECU or adapter does not support multi-PID batch queries; fallback to single PID
+                    self.supports_batch_pid = False
 
-            # Query Group 3: Throttle (PID 0111) every 8 ticks
-            if self.tick_count % 8 == 0:
-                throt_raw = self._send_cmd("0111", timeout=0.35)
-                m = re.search(r'41\s+11\s+([0-9A-Fa-f]{2})', throt_raw)
-                if m:
-                    self.throttle_pct = round((int(m.group(1), 16) * 100.0) / 255.0, 1)
+            if not self.supports_batch_pid:
+                # Fallback: High-priority alternating queries
+                if self.tick_count % 2 == 0:
+                    rpm_raw = self._send_cmd("010C", timeout=0.25)
+                    m = re.search(r'41\s*0C\s*([0-9A-Fa-f]{2})\s*([0-9A-Fa-f]{2})', rpm_raw)
+                    if m:
+                        a = int(m.group(1), 16)
+                        b = int(m.group(2), 16)
+                        self.rpm = float(((a * 256) + b) / 4)
+                        self.connected = True
+                    elif "UNABLE TO CONNECT" in rpm_raw or "BUS INIT" in rpm_raw:
+                        self.connected = False
+                        self.status_message = "IGNITION TURNED OFF"
+                        return self._build_disconnected_frame(now)
+                else:
+                    map_raw = self._send_cmd("010B", timeout=0.25)
+                    m = re.search(r'41\s*0B\s*([0-9A-Fa-f]{2})', map_raw)
+                    if m:
+                        self.last_map_kpa = float(int(m.group(1), 16))
+                        delta_p = self.last_map_kpa - self.baro_kpa
+                        if delta_p > 0.4:
+                            self.boost_psi = round(delta_p * 0.145038, 1)
+                            self.vacuum_inhg = 0.0
+                            self.is_in_boost = True
+                        else:
+                            self.boost_psi = 0.0
+                            self.vacuum_inhg = round(abs(delta_p) * 0.2953, 0)
+                            self.is_in_boost = False
+
+                # Speed (PID 010D) every 6 ticks
+                if self.tick_count % 6 == 0:
+                    spd_raw = self._send_cmd("010D", timeout=0.25)
+                    m = re.search(r'41\s*0D\s*([0-9A-Fa-f]{2})', spd_raw)
+                    if m:
+                        kph = float(int(m.group(1), 16))
+                        self.speed_mph = kph * 0.621371
+
+                # Throttle (PID 0111) every 8 ticks
+                if self.tick_count % 8 == 0:
+                    throt_raw = self._send_cmd("0111", timeout=0.25)
+                    m = re.search(r'41\s*11\s*([0-9A-Fa-f]{2})', throt_raw)
+                    if m:
+                        self.throttle_pct = round((int(m.group(1), 16) * 100.0) / 255.0, 1)
 
             # Query Group 4: Engine Load (PID 0104) every 10 ticks
             if self.tick_count % 10 == 0:
-                load_raw = self._send_cmd("0104", timeout=0.35)
-                m = re.search(r'41\s+04\s+([0-9A-Fa-f]{2})', load_raw)
+                load_raw = self._send_cmd("0104", timeout=0.25)
+                m = re.search(r'41\s*04\s*([0-9A-Fa-f]{2})', load_raw)
                 if m:
                     self.engine_load_pct = round(int(m.group(1), 16) * 100.0 / 255.0, 1)
 
             # Query Group 5: Timing Advance (PID 010E) every 12 ticks
             if self.tick_count % 12 == 0:
-                timing_raw = self._send_cmd("010E", timeout=0.35)
-                m = re.search(r'41\s+0E\s+([0-9A-Fa-f]{2})', timing_raw)
+                timing_raw = self._send_cmd("010E", timeout=0.25)
+                m = re.search(r'41\s*0E\s*([0-9A-Fa-f]{2})', timing_raw)
                 if m:
                     self.timing_advance_deg = round((int(m.group(1), 16) / 2.0) - 64.0, 1)
 
             # Query Group 6: Air/Fuel Ratio AFR (PID 0144) every 14 ticks
             if self.tick_count % 14 == 0:
-                afr_raw = self._send_cmd("0144", timeout=0.35)
-                m = re.search(r'41\s+44\s+([0-9A-Fa-f]{2})\s+([0-9A-Fa-f]{2})', afr_raw)
+                afr_raw = self._send_cmd("0144", timeout=0.25)
+                m = re.search(r'41\s*44\s*([0-9A-Fa-f]{2})\s*([0-9A-Fa-f]{2})', afr_raw)
                 if m:
                     ratio = ((int(m.group(1), 16) * 256) + int(m.group(2), 16)) / 32768.0
                     self.afr = round(ratio * 14.7, 2)
 
             # Query Group 7: Pedal Position (PID 0149) every 16 ticks
             if self.tick_count % 16 == 0:
-                pedal_raw = self._send_cmd("0149", timeout=0.35)
-                m = re.search(r'41\s+49\s+([0-9A-Fa-f]{2})', pedal_raw)
+                pedal_raw = self._send_cmd("0149", timeout=0.25)
+                m = re.search(r'41\s*49\s*([0-9A-Fa-f]{2})', pedal_raw)
                 if m:
                     self.pedal_pos_pct = round(int(m.group(1), 16) * 100.0 / 255.0, 1)
 
             # Query Group 8: Coolant Temp (PID 0105) every 20 ticks (~1s)
             if self.tick_count % 20 == 0:
-                clt_raw = self._send_cmd("0105", timeout=0.35)
-                m = re.search(r'41\s+05\s+([0-9A-Fa-f]{2})', clt_raw)
+                clt_raw = self._send_cmd("0105", timeout=0.25)
+                m = re.search(r'41\s*05\s*([0-9A-Fa-f]{2})', clt_raw)
                 if m:
                     celsius = int(m.group(1), 16) - 40
                     self.coolant_temp_f = round(celsius * 9/5 + 32, 1)
@@ -512,45 +587,45 @@ class RealVehicleTelemetryReader:
 
             # Query Group 9: Intake Temp (PID 010F) every 25 ticks
             if self.tick_count % 25 == 0:
-                iat_raw = self._send_cmd("010F", timeout=0.35)
-                m = re.search(r'41\s+0F\s+([0-9A-Fa-f]{2})', iat_raw)
+                iat_raw = self._send_cmd("010F", timeout=0.25)
+                m = re.search(r'41\s*0F\s*([0-9A-Fa-f]{2})', iat_raw)
                 if m:
                     celsius = int(m.group(1), 16) - 40
                     self.intake_temp_f = round(celsius * 9/5 + 32, 1)
 
             # Query Group 10: Ambient Temp (PID 0146) every 30 ticks
             if self.tick_count % 30 == 0:
-                amb_raw = self._send_cmd("0146", timeout=0.35)
-                m = re.search(r'41\s+46\s+([0-9A-Fa-f]{2})', amb_raw)
+                amb_raw = self._send_cmd("0146", timeout=0.25)
+                m = re.search(r'41\s*46\s*([0-9A-Fa-f]{2})', amb_raw)
                 if m:
                     c_amb = int(m.group(1), 16) - 40
                     self.ambient_temp_f = round(c_amb * 9/5 + 32, 1)
 
             # Query Group 11: Fuel Tank Level (PID 012F) every 40 ticks
             if self.tick_count % 40 == 0:
-                fuel_raw = self._send_cmd("012F", timeout=0.35)
-                m = re.search(r'41\s+2F\s+([0-9A-Fa-f]{2})', fuel_raw)
+                fuel_raw = self._send_cmd("012F", timeout=0.25)
+                m = re.search(r'41\s*2F\s*([0-9A-Fa-f]{2})', fuel_raw)
                 if m:
                     self.fuel_level_pct = round(int(m.group(1), 16) * 100.0 / 255.0, 1)
 
             # Query Group 12: Battery Voltage (AT RV) every 50 ticks (~2s)
             if self.tick_count % 50 == 0:
-                volt_raw = self._send_cmd("ATRV", timeout=0.25)
+                volt_raw = self._send_cmd("ATRV", timeout=0.20)
                 v_match = re.search(r'([0-9]+\.[0-9]+)', volt_raw)
                 if v_match:
                     self.battery_volts = round(float(v_match.group(1)), 1)
 
             # Query Group 13: Engine Runtime (PID 011F) every 60 ticks (~3s)
             if self.tick_count % 60 == 0:
-                rt_raw = self._send_cmd("011F", timeout=0.35)
-                m = re.search(r'41\s+1F\s+([0-9A-Fa-f]{2})\s+([0-9A-Fa-f]{2})', rt_raw)
+                rt_raw = self._send_cmd("011F", timeout=0.25)
+                m = re.search(r'41\s*1F\s*([0-9A-Fa-f]{2})\s*([0-9A-Fa-f]{2})', rt_raw)
                 if m:
                     self.engine_runtime_sec = int(m.group(1), 16) * 256 + int(m.group(2), 16)
 
             # Query Group 14: Barometric Pressure (PID 0133) every 100 ticks
             if self.tick_count % 100 == 0:
-                baro_raw = self._send_cmd("0133", timeout=0.35)
-                m = re.search(r'41\s+33\s+([0-9A-Fa-f]{2})', baro_raw)
+                baro_raw = self._send_cmd("0133", timeout=0.25)
+                m = re.search(r'41\s*33\s*([0-9A-Fa-f]{2})', baro_raw)
                 if m:
                     meas = float(int(m.group(1), 16))
                     if 60.0 <= meas <= 110.0:
