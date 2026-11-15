@@ -7,6 +7,15 @@ This living document tracks all planned, brainstormed, and confirmed engineering
 
 ## 📋 Active Implementation Checklist
 
+### 🧩 Phase 19: Codebase Modularization & Production Hardening (In Progress)
+- [ ] **Git Line-Ending & PC/Pi Sync Hygiene (`.gitattributes`)**: Enforce consistent LF line endings across Python/JS/HTML/CSS/Markdown files and sync clean baseline commits between Windows dev PC and Pi 5.
+- [ ] **Backend Route & Service Modularization (`backend/routes/*.py`, `backend/daemon.py`)**: Extract monolithic `CarPi5Handler` `do_GET`/`do_POST` branches and background loops into domain route modules (`system`, `telephony`, `navigation`, `media`, `telemetry`, `ai`) with shared JSON/error helpers and automated route smoke tests.
+- [ ] **Frontend Domain JS Modularization (`ui/web_preview/js/*.js`, `gauges.js`)**: Eliminate duplicate blank lines and shadowed functions (`dismissFloatingHud`, `openEqualizerModal`, `closeEqualizerModal`), and split domain controllers into classic `<script>` modules compatible with both `http://localhost:8080` and `file://` Wayland Chromium kiosk mode.
+- [ ] **Zero-Placeholder Real Subsystem Upgrades**:
+  - Real offline turn-by-turn routing (`backend/navigation/router.py`) using OSM graph/OSRM without synthetic fallback coordinates.
+  - Real BlueZ HFP/DBus hands-free calling & MAP SMS (`backend/telephony/phone_manager.py`, `sms_manager.py`) reporting true offline/disconnected errors when no phone is paired.
+  - Real Pedal Commander BLE GATT handshake & mode switching (`backend/hardware/pedal_commander.py`) replacing mock mode.
+
 ### 👁️ Phase 7: Advanced In-Cabin Perception & Dashcam Vision (On Hold - Camera Setup)
 - [ ] **Driver State & Drowsiness Monitoring**: Process cabin IR camera stream with lightweight eye-aspect-ratio (EAR) and yawning detection; triggers loving daughter alertness reminders if eyes droop for >1.8s on highway.
 - [ ] **Dashcam Road Sign & Speed Limit OCR**: Process forward dashcam frames through quantized Tesseract / MobileNet OCR, caching speed limits and notifying Dad if cruising >15 mph over posted limit.

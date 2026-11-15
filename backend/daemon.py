@@ -7321,8 +7321,8 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             return
 
-        # Phase 16 Voice Intent Auto-Actuation & Media Player Control
-        if parsed.path == "/api/media/player/control":
+        # Phase 16 Voice Intent Auto-Actuation & Media Player Control / AVRCP Action
+        if parsed.path in ("/api/media/player/control", "/api/avrcp/action"):
             req_data = {}
             if content_length > 0:
                 try:
@@ -7332,7 +7332,7 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
             action = req_data.get("action", "toggle")
             val = req_data.get("value")
             if hasattr(state, "avrcp_player") and state.avrcp_player:
-                if action == "play":
+                if action in ("play", "resume"):
                     state.avrcp_player.set_status("playing")
                     state.is_music_playing = True
                 elif action in ("pause", "stop"):
@@ -7344,7 +7344,23 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                     state.is_music_playing = (new_status == "playing")
 
             # Route Linux audio volume if requested
-            if action == "volume" and val is not None:
+            if action == "volume_up":
+                try:
+                    env = os.environ.copy()
+                    if 'XDG_RUNTIME_DIR' not in env and os.path.exists('/run/user/1000'):
+                        env['XDG_RUNTIME_DIR'] = '/run/user/1000'
+                    subprocess.run(['wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', '5%+'], env=env, timeout=2)
+                except Exception:
+                    pass
+            elif action == "volume_down":
+                try:
+                    env = os.environ.copy()
+                    if 'XDG_RUNTIME_DIR' not in env and os.path.exists('/run/user/1000'):
+                        env['XDG_RUNTIME_DIR'] = '/run/user/1000'
+                    subprocess.run(['wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', '5%-'], env=env, timeout=2)
+                except Exception:
+                    pass
+            elif action == "volume" and val is not None:
                 try:
                     v_pct = max(0, min(100, int(val)))
                     env = os.environ.copy()

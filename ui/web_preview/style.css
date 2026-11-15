@@ -5996,5 +5996,142 @@ body.cockpit-night-mode .vehicle-hub-card {
   border-color: #00f0ff !important;
 }
 
+/* ==========================================================================
+   PHASE 11: OFFLINE TURN-BY-TURN HUD & MUTCD SPEED LIMIT SIGN
+   ========================================================================== */
+.nav-turn-by-turn-hud {
+  box-shadow: 0 8px 32px rgba(0, 240, 255, 0.25);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.nav-maneuver-icon {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #141f2d;
+  border: 1px solid #00f0ff;
+  border-radius: 10px;
+  font-size: 28px;
+}
+.speed-limit-badge {
+  background: #ffffff;
+  border: 3px solid #000000;
+  border-radius: 6px;
+  padding: 2px 6px;
+  text-align: center;
+  color: #000000;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  min-width: 44px;
+}
+.speed-limit-label {
+  font-size: 7px;
+  font-weight: 900;
+  line-height: 1.0;
+  letter-spacing: -0.2px;
+}
+.speed-limit-number {
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1.0;
+  margin-top: 1px;
+}
+
+/* ==========================================================================
+   PHASE 12: LIVING MIND, RELATIONSHIP BOND & TRIP DIARY STYLES
+   ========================================================================== */
+.maint-tab-btn {
+  transition: all 0.2s ease;
+}
+.maint-tab-btn.active {
+  border-color: #00f0ff !important;
+  background: rgba(0, 240, 255, 0.15) !important;
+  color: #00f0ff !important;
+}
+.bond-card {
+  box-shadow: 0 4px 20px rgba(168, 85, 247, 0.15);
+}
+.maint-milestone-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.maint-milestone-pill.unlocked {
+  background: rgba(168, 85, 247, 0.2);
+  border-color: #a855f7;
+  color: #d8b4fe;
+}
+.maint-diary-card {
+  background: #131c2e;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.maint-diary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.maint-diary-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: #f1f5f9;
+}
+.maint-diary-meta {
+  font-size: 10px;
+  color: #94a3b8;
+}
+.maint-diary-body {
+  font-size: 11px;
+  color: #cbd5e1;
+  line-height: 1.4;
+  font-style: italic;
+}
+.maint-fact-card {
+  background: #131c2e;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.maint-fact-key {
+  font-size: 10px;
+  font-weight: 800;
+  color: #38bdf8;
+  text-transform: capitalize;
+}
+.maint-fact-val {
+  font-size: 12px;
+  color: #f1f5f9;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+/* Modal Touch Ergonomics */
+.cockpit-modal-input {
+  box-sizing: border-box;
+  font-size: 12px;
+  outline: none;
+}
+.cockpit-modal-input:focus {
+  border-color: #38bdf8 !important;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+}
+
 
 

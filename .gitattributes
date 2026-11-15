@@ -1,0 +1,16 @@
+# Enforce consistent line endings across Windows (PC) and Linux (Pi 5)
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.vrm binary
+*.glb binary
+*.onnx binary
+*.wav binary
+*.mp3 binary
+*.db binary
+*.sqlite binary
