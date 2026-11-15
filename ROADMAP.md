@@ -8,9 +8,9 @@ This living document tracks all planned, brainstormed, and confirmed engineering
 ## 📋 Active Implementation Checklist
 
 ### 🧩 Phase 19: Codebase Modularization & Production Hardening (In Progress)
-- [ ] **Git Line-Ending & PC/Pi Sync Hygiene (`.gitattributes`)**: Enforce consistent LF line endings across Python/JS/HTML/CSS/Markdown files and sync clean baseline commits between Windows dev PC and Pi 5.
-- [ ] **Backend Route & Service Modularization (`backend/routes/*.py`, `backend/daemon.py`)**: Extract monolithic `CarPi5Handler` `do_GET`/`do_POST` branches and background loops into domain route modules (`system`, `telephony`, `navigation`, `media`, `telemetry`, `ai`) with shared JSON/error helpers and automated route smoke tests.
-- [ ] **Frontend Domain JS Modularization (`ui/web_preview/js/*.js`, `gauges.js`)**: Eliminate duplicate blank lines and shadowed functions (`dismissFloatingHud`, `openEqualizerModal`, `closeEqualizerModal`), and split domain controllers into classic `<script>` modules compatible with both `http://localhost:8080` and `file://` Wayland Chromium kiosk mode.
+- [x] **Git Line-Ending & PC/Pi Sync Hygiene (`.gitattributes`)**: Enforced LF line endings across Python/JS/HTML/CSS/Markdown files and synced PC & Pi 5 repositories cleanly while preserving Pi runtime telemetry (`ai_memory.json`, settings).
+- [ ] **Backend Route & Service Modularization (`backend/routes/*.py`, `backend/daemon.py`)**: *(In Progress)* Extracted `backend/navigation/tile_cache.py`, `backend/routes/__init__.py`, `telephony_routes.py`, `navigation_routes.py`, `telemetry_routes.py`, and `media_routes.py` with unit tests (`tests/test_modular_routes.py`); remaining domains (`system`, `wifi`/`bluetooth`, `gpio`, `ai`, `trips`, `fs`, `voice_listener`) next.
+- [ ] **Frontend Domain JS Modularization (`ui/web_preview/js/*.js`, `gauges.js`)**: *(In Progress)* Deduplicated shadowed modal functions (`dismissFloatingHud`, `openEqualizerModal`, `closeEqualizerModal`) and extracted `js/telephony.js`, `js/navigation.js`, and `js/canyon_thermal.js`; remaining cockpit modules & blank-line cleanup next.
 - [ ] **Zero-Placeholder Real Subsystem Upgrades**:
   - Real offline turn-by-turn routing (`backend/navigation/router.py`) using OSM graph/OSRM without synthetic fallback coordinates.
   - Real BlueZ HFP/DBus hands-free calling & MAP SMS (`backend/telephony/phone_manager.py`, `sms_manager.py`) reporting true offline/disconnected errors when no phone is paired.
