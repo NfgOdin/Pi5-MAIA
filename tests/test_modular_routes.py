@@ -3,9 +3,12 @@
 import io
 import json
 import sys
+import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 from urllib.parse import urlparse
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent / "backend"
@@ -13,6 +16,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from routes import dispatch_get, dispatch_head, dispatch_post
+from routes import system_routes
 
 
 class DummyHandler:
@@ -65,12 +69,29 @@ def make_dummy_state():
     )
     return SimpleNamespace(
         telemetry_mode="SIM",
+        lock=threading.Lock(),
+        latest_ui_action=None,
         latest_frame=SimpleNamespace(speed_mph=0.0),
+        last_frame={"rpm": 900, "boost_psi": -8.2, "coolant_temp_f": 192, "speed_mph": 0, "engine_load_pct": 18.0, "pedal_pos_pct": 10.0},
         latest_thermal_data=None,
         is_music_playing=False,
-        obd_reader=SimpleNamespace(connected=False, status_message="Offline", dyno=dyno),
-        simulator=SimpleNamespace(dyno=dyno),
-        gps=SimpleNamespace(get_telemetry=lambda: {"dragy": {}, "g_forces": {}, "speed_mph": 0.0, "road_grade_pct": 0.0}),
+        save_settings=lambda cfg: None,
+        obd_reader=SimpleNamespace(connected=False, status_message="Offline", dyno=dyno, active_dtcs=[], clear_dtcs=lambda: None),
+        simulator=SimpleNamespace(
+            dyno=dyno,
+            active_dtcs=["P0299"],
+            inject_dtc=lambda code: None,
+            clear_dtcs=lambda: None,
+        ),
+        copilot=SimpleNamespace(
+            diagnostics=SimpleNamespace(explain_code=lambda c: {"code": c, "title": "Turbo Underboost"}),
+            announced_dtcs={"P0299"},
+        ),
+        gps=SimpleNamespace(
+            get_telemetry=lambda: {"dragy": {}, "g_forces": {}, "speed_mph": 0.0, "road_grade_pct": 0.0},
+            arm_staging=lambda tree: {"status": "ok", "state": "STAGED", "tree": tree},
+            reset_dragy=lambda: {"status": "ok", "state": "IDLE"},
+        ),
         thermal_model=SimpleNamespace(step=lambda spd: {"brakes": {"status": "OPTIMAL"}, "tires": {}}),
         lap_timer=SimpleNamespace(
             get_status=lambda: {"state": "IDLE"},
@@ -111,6 +132,7 @@ def make_dummy_state():
             stop_navigation=lambda: None,
             update_position=lambda lat, lon, spd: {"is_navigating": False},
         ),
+        settings={},
         avrcp_player=SimpleNamespace(
             current_track={"title": "Test"},
             playback_status="paused",
@@ -121,8 +143,76 @@ def make_dummy_state():
             _is_currently_ducking=False,
             is_speaking=False,
             cache_mgr=SimpleNamespace(get_stats=lambda: {"entries": 10}),
+            get_cache_stats=lambda: {"size_mb": 4.2, "max_mb": 200},
+            calculate_downsize_impact=lambda mb: {"target_mb": mb, "prune_count": 0},
+            set_cache_limit=lambda mb: {"max_mb": mb},
+            clear_cache=lambda: {"entries": 0},
         ),
-        trip_logger=SimpleNamespace(reset_current_trip=lambda: None),
+        wifi=SimpleNamespace(
+            get_status=lambda: {"connected": True, "ssid": "HomeNet"},
+            scan_networks=lambda: [{"ssid": "HomeNet", "signal": 80}],
+            get_saved=lambda: ["HomeNet"],
+            connect=lambda ssid, pw=None, auto=True: {"status": "ok", "ssid": ssid},
+            forget=lambda ssid: {"status": "ok", "forgotten": ssid},
+            clear_all=lambda: {"status": "ok"},
+            set_always_on=lambda enabled: {"status": "ok", "always_on": bool(enabled)},
+        ),
+        bluetooth=SimpleNamespace(
+            config={"auto_route_audio": True},
+            get_status=lambda: {"powered": True, "connected_device": None},
+            scan_devices=lambda: [],
+            get_paired=lambda: [],
+            connect_device=lambda mac: {"status": "ok", "mac": mac},
+            disconnect_device=lambda mac: {"status": "ok", "mac": mac},
+            remove_device=lambda mac: {"status": "ok", "mac": mac},
+            set_discoverable=lambda enable: {"status": "ok", "discoverable": bool(enable)},
+            get_audio_devices=lambda: {"sinks": [], "sources": []},
+            set_auto_route=lambda enabled: None,
+            set_audio_sink=lambda sink=None: {"status": "ok", "sink": sink},
+            set_audio_source=lambda source=None: {"status": "ok", "source": source},
+        ),
+        pedal_commander=SimpleNamespace(
+            get_status=lambda: {"mode": "SPORT", "level": 2, "connected": False},
+            set_curve=lambda mode, level, pin=None: {"status": "ok", "mode": mode, "level": level},
+            set_pin=lambda pin: None,
+        ),
+        sys_monitor=SimpleNamespace(
+            current_brightness=85,
+            get_system_health=lambda: {"cpu_temp_c": 42.0},
+            get_detailed_hardware_specs=lambda: {"model": "Raspberry Pi 5", "ram_total_gb": 8.0},
+            set_brightness=lambda val: None,
+        ),
+        gesture_ctrl=SimpleNamespace(get_status=lambda: {"enabled": False}),
+        gpio=SimpleNamespace(
+            get_pins_status=lambda: [{"bcm": 17, "state": 0}],
+            get_relays_status=lambda: [{"bcm": 17, "active": False}],
+            toggle_pin=lambda bcm: None,
+            set_pin=lambda bcm, st: None,
+            set_pwm=lambda bcm, duty: None,
+            pulse_pin=lambda bcm, dur: None,
+            transmit_morse=lambda bcm, msg: None,
+        ),
+        rom_mgr=SimpleNamespace(
+            scan_roms=lambda: [{"name": "Mario", "platform": "snes"}],
+            launch_game=lambda path, plat=None: {"status": "ok", "rom": path},
+        ),
+        trip_logger=SimpleNamespace(
+            current_trip_id=7,
+            retention_days=30,
+            reset_current_trip=lambda: None,
+            get_trip_telemetry=lambda tid: [{"rpm": 2100}] if tid == 7 else [],
+            get_recent_trips=lambda limit=20: [{"id": 7, "miles": 12.4}],
+            get_lifetime_stats=lambda: {"total_trips": 1},
+            get_manifest_html=lambda tid: "<html>Trip 7</html>" if tid == 7 else None,
+            get_trip_csv_bytes=lambda tid: (b"rpm\n2100\n", "trip_7.csv") if tid == 7 else (None, ""),
+            get_trip_zip_path=lambda tid: (None, ""),
+            get_settings=lambda: {"auto_archive": True},
+            update_settings=lambda data: data,
+            set_retention_days=lambda days: days,
+            export_and_zip_trip=lambda tid, is_interim=False: f"/tmp/trip_{tid}.zip",
+            clear_all_trips=lambda: True,
+            delete_trip=lambda tid: tid == 7,
+        ),
     )
 
 
@@ -185,10 +275,143 @@ class ModularRouteDispatchTest(unittest.TestCase):
             self.assertTrue(dispatch_post(h, urlparse(path), self.state), path)
             self.assertEqual(h.status, 200)
 
+    def test_sprint2_telemetry_and_audio_routes(self):
+        for path in (
+            "/api/dtc/lookup?code=P0299",
+            "/api/dtc/inject?code=P0299",
+            "/api/dtc/status",
+            "/api/dtc/clear",
+            "/api/drag/stage?tree_type=PRO",
+            "/api/drag/reset",
+            "/api/audio/devices",
+            "/api/audio/cache",
+        ):
+            h = DummyHandler()
+            self.assertTrue(dispatch_get(h, urlparse(path), self.state), path)
+            self.assertEqual(h.status, 200)
+
+        for path, body in (
+            ("/api/telemetry/mode", {"mode": "TEST", "test_mode": True}),
+            ("/api/drag/stage", {"tree_type": "SPORTSMAN"}),
+            ("/api/drag/reset", {}),
+            ("/api/audio/output", {"sink": "alsa_output.test", "auto_route": False}),
+            ("/api/audio/input", {"source": "alsa_input.test"}),
+            ("/api/audio/cache/limit", {"limit_mb": 512}),
+            ("/api/audio/cache/clear", {}),
+        ):
+            h = DummyHandler(body)
+            self.assertTrue(dispatch_post(h, urlparse(path), self.state), path)
+            self.assertEqual(h.status, 200)
+        self.assertEqual(self.state.telemetry_mode, "TEST")
+        self.assertEqual(self.state.settings["tts_cache_limit_mb"], 512)
+
+    def test_connectivity_routes(self):
+        for path in (
+            "/api/wifi/status",
+            "/api/wifi/scan",
+            "/api/wifi/saved",
+            "/api/bluetooth/status",
+            "/api/bluetooth/devices",
+            "/api/bluetooth/scan",
+            "/api/bluetooth/paired",
+            "/api/pedal_commander/status",
+        ):
+            h = DummyHandler()
+            self.assertTrue(dispatch_get(h, urlparse(path), self.state), path)
+            self.assertEqual(h.status, 200)
+
+        for path, body in (
+            ("/api/wifi/connect", {"ssid": "HomeNet", "password": "secret"}),
+            ("/api/wifi/forget", {"ssid": "HomeNet"}),
+            ("/api/wifi/clear", {}),
+            ("/api/wifi/always_on", {"enabled": True}),
+            ("/api/bluetooth/connect", {"mac": "AA:BB:CC:DD:EE:FF"}),
+            ("/api/bluetooth/disconnect", {"mac": "AA:BB:CC:DD:EE:FF"}),
+            ("/api/bluetooth/remove", {"mac": "AA:BB:CC:DD:EE:FF"}),
+            ("/api/bluetooth/discoverable", {"enable": True}),
+            ("/api/pedal_commander/set", {"mode": "SPORT+", "level": 3}),
+            ("/api/pedal_commander/pin", {"pin": "1234"}),
+        ):
+            h = DummyHandler(body)
+            self.assertTrue(dispatch_post(h, urlparse(path), self.state), path)
+            self.assertEqual(h.status, 200)
+
+    def test_hardware_routes(self):
+        for path in (
+            "/api/system/health",
+            "/api/system/detailed_specs",
+            "/api/hardware/specs",
+            "/api/system/fan",
+            "/api/system/brightness",
+            "/api/gesture/status",
+            "/api/gpio/pins",
+            "/api/gpio/relays",
+        ):
+            h = DummyHandler()
+            self.assertTrue(dispatch_get(h, urlparse(path), self.state), path)
+            self.assertEqual(h.status, 200)
+
+        for path, body in (
+            ("/api/system/brightness", {"brightness": 70}),
+            ("/api/system/fan", {}),
+            ("/api/gesture/trigger", {"gesture": "WAVE"}),
+            ("/api/gpio/toggle", {"bcm": 17}),
+            ("/api/gpio/set", {"bcm": 17, "state": True}),
+            ("/api/gpio/pwm", {"bcm": 18, "duty_cycle": 0.4}),
+            ("/api/gpio/pulse", {"bcm": 18, "duration": 0.2}),
+            ("/api/gpio/morse", {"bcm": 18, "message": "SOS"}),
+        ):
+            h = DummyHandler(body)
+            self.assertTrue(dispatch_post(h, urlparse(path), self.state), path)
+            self.assertEqual(h.status, 200)
+        self.assertEqual(self.state.latest_ui_action["gesture"], "WAVE")
+
+    def test_storage_trips_and_system_routes(self):
+        for path in (
+            "/api/fs/devices",
+            "/api/storage/devices",
+            "/api/trips/telemetry?id=7",
+            "/api/trips/recent",
+            "/api/trips/stats",
+            "/api/trips/manifest?id=7",
+            "/api/trips/csv?id=7",
+            "/api/trips/settings",
+            "/api/trips/retention",
+            "/api/games/roms",
+        ):
+            h = DummyHandler()
+            self.assertTrue(dispatch_get(h, urlparse(path), self.state), path)
+            self.assertEqual(h.status, 200)
+
+        for path, body in (
+            ("/api/trips/archive_now", {}),
+            ("/api/trips/settings", {"auto_archive": True}),
+            ("/api/trips/clear", {}),
+            ("/api/trips/delete", {"id": 7}),
+            ("/api/trips/retention", {"retention_days": 14}),
+            ("/api/games/launch", {"rom_path": "/roms/mario.sfc", "platform": "snes"}),
+        ):
+            h = DummyHandler(body)
+            self.assertTrue(dispatch_post(h, urlparse(path), self.state), path)
+            self.assertEqual(h.status, 200)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with mock.patch.object(system_routes, "LOGS_DIR", Path(tmpdir)):
+                h = DummyHandler({"source": "TestUI", "message": "Sample error"})
+                self.assertTrue(dispatch_post(h, urlparse("/api/logs/client_error"), self.state))
+                self.assertEqual(h.status, 200)
+                self.assertEqual(h.json_body()["status"], "recorded")
+
+                h2 = DummyHandler()
+                self.assertTrue(dispatch_get(h2, urlparse("/api/logs/view?type=ui"), self.state))
+                self.assertEqual(h2.status, 200)
+                self.assertIn("Sample error", h2.wfile.getvalue().decode("utf-8"))
+
     def test_unmatched_routes_fall_through(self):
         h = DummyHandler()
         self.assertFalse(dispatch_get(h, urlparse("/api/status"), self.state))
         self.assertFalse(dispatch_post(h, urlparse("/api/ai/chat"), self.state))
+        self.assertFalse(dispatch_post(h, urlparse("/api/models/room_layout"), self.state))
 
 
 if __name__ == "__main__":

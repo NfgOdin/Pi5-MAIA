@@ -1,6 +1,7 @@
-"""HTTP route handlers for telemetry mode, virtual dyno, MultiAir, thermal, and lap timer."""
+"""HTTP route handlers for telemetry mode, DTC diagnostics, drag staging, dyno, thermal, and lap timer."""
 
 from typing import Any
+from urllib.parse import parse_qs
 
 from routes import read_json_body, send_json
 
@@ -10,8 +11,93 @@ def _active_dyno(state: Any) -> Any:
 
 
 def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
-    """Handle telemetry and canyon performance GET requests."""
+    """Handle telemetry, DTC diagnostics, drag staging, and canyon performance GET requests."""
     path = parsed.path
+
+    if path == "/api/dtc/lookup":
+        code = parse_qs(parsed.query).get("code", [""])[0]
+        send_json(handler, state.copilot.diagnostics.explain_code(code))
+        return True
+
+    if path == "/api/dtc/inject":
+        code = parse_qs(parsed.query).get("code", ["P0299"])[0]
+        state.simulator.inject_dtc(code)
+        print(f"[API] Injected DTC: {code}")
+        send_json(handler, {"status": "ok", "injected": code, "active": state.simulator.active_dtcs})
+        return True
+
+    if path == "/api/dtc/status":
+        obd = getattr(state, "obd", None) or getattr(state, "obd_reader", None)
+        is_connected = bool(getattr(obd, "connected", False)) if obd else False
+        if is_connected:
+            active_dtcs = list(getattr(obd, "active_dtcs", []))
+        else:
+            sim = getattr(state, "simulator", None)
+            active_dtcs = list(getattr(sim, "active_dtcs", [])) if sim else []
+
+        code_details = []
+        copilot = getattr(state, "copilot", None)
+        if copilot and hasattr(copilot, "diagnostics"):
+            for code in active_dtcs:
+                code_details.append(copilot.diagnostics.explain_code(code))
+
+        last_f = getattr(state, "last_frame", {}) or {}
+        freeze_frame = {
+            "rpm": last_f.get("rpm", 850),
+            "boost_psi": last_f.get("boost_psi", 0.0),
+            "coolant_temp_f": last_f.get("coolant_temp_f", 195),
+            "speed_mph": last_f.get("speed_mph", 0),
+            "engine_load_pct": last_f.get("engine_load_pct", 24.5),
+            "throttle_pct": last_f.get("pedal_pos_pct", 12.0),
+        }
+        send_json(
+            handler,
+            {
+                "status": "ok",
+                "connected": is_connected,
+                "mil_active": len(active_dtcs) > 0,
+                "active_dtcs": active_dtcs,
+                "pending_dtcs": [],
+                "code_details": code_details,
+                "freeze_frame": freeze_frame,
+                "readiness": {
+                    "misfire": True,
+                    "fuel_system": True,
+                    "comprehensive": True,
+                    "catalyst": True,
+                    "evap": True,
+                    "o2_sensor": True,
+                    "o2_heater": True,
+                    "egr_vvt": True,
+                },
+            },
+        )
+        return True
+
+    if path == "/api/dtc/clear":
+        for src in (getattr(state, "obd", None), getattr(state, "obd_reader", None), getattr(state, "simulator", None)):
+            if src and hasattr(src, "clear_dtcs"):
+                try:
+                    src.clear_dtcs()
+                except Exception:
+                    pass
+        state.copilot.announced_dtcs.clear()
+        print("[API] Cleared all DTCs")
+        send_json(handler, {"status": "ok", "cleared": True})
+        return True
+
+    if path == "/api/drag/stage":
+        tree_type = parse_qs(parsed.query).get("tree_type", ["SPORTSMAN"])[0]
+        gps = getattr(state, "gps", None)
+        res = gps.arm_staging(tree_type) if gps else {"status": "ok", "state": "STAGED"}
+        send_json(handler, res)
+        return True
+
+    if path == "/api/drag/reset":
+        gps = getattr(state, "gps", None)
+        res = gps.reset_dragy() if gps else {"status": "ok", "state": "IDLE"}
+        send_json(handler, res)
+        return True
 
     if path == "/api/telemetry/mode":
         send_json(
@@ -138,8 +224,45 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
 
 
 def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
-    """Handle canyon lap timer control POST requests."""
+    """Handle telemetry mode, drag staging, and canyon lap timer POST requests."""
     path = parsed.path
+
+    if path == "/api/telemetry/mode":
+        req_data = read_json_body(handler)
+        is_test = req_data.get("test_mode", False) or (req_data.get("mode", "").upper() == "TEST")
+        state.telemetry_mode = "TEST" if is_test else "REAL"
+        state.save_settings({"test_mode": is_test, "telemetry_mode": state.telemetry_mode})
+        print(f"[TELEMETRY] Telemetry mode switched to: {state.telemetry_mode} (Test mode: {is_test})")
+        send_json(
+            handler,
+            {
+                "status": "ok",
+                "mode": state.telemetry_mode,
+                "test_mode": is_test,
+                "connected": state.obd_reader.connected if state.telemetry_mode == "REAL" else True,
+                "status_message": (
+                    state.obd_reader.status_message
+                    if state.telemetry_mode == "REAL"
+                    else "Running Fiat 1.4L MultiAir simulation engine."
+                ),
+            },
+        )
+        return True
+
+    if path == "/api/drag/stage":
+        req_data = read_json_body(handler)
+        tree_type = req_data.get("tree_type", "SPORTSMAN")
+        gps = getattr(state, "gps", None)
+        res = gps.arm_staging(tree_type) if gps else {"status": "ok", "state": "STAGED"}
+        send_json(handler, res)
+        return True
+
+    if path == "/api/drag/reset":
+        gps = getattr(state, "gps", None)
+        res = gps.reset_dragy() if gps else {"status": "ok", "state": "IDLE"}
+        send_json(handler, res)
+        return True
+
     if not path.startswith("/api/telemetry/lap_timer/"):
         return False
 

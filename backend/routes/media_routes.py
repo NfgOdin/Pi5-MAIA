@@ -1,6 +1,7 @@
-"""HTTP route handlers for media playback, AVRCP, TTS cache/prewarm, and voice cockpit actions."""
+"""HTTP route handlers for media playback, AVRCP, PipeWire audio controls, and TTS cache/prewarm."""
 
 import os
+import re
 import subprocess
 import threading
 from typing import Any
@@ -23,7 +24,7 @@ def _run_wpctl(*args: str) -> None:
 
 
 def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
-    """Handle media player, ducking, and TTS cache GET endpoints."""
+    """Handle media player, PipeWire audio, and TTS cache GET endpoints."""
     path = parsed.path
 
     if path == "/api/audio/duck_status":
@@ -69,11 +70,39 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
         )
         return True
 
+    if path == "/api/audio/volume":
+        vol = 80
+        muted = False
+        try:
+            res = subprocess.run(
+                ["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
+                capture_output=True,
+                text=True,
+                env=_wpctl_env(),
+                timeout=2,
+            )
+            m = re.search(r"Volume:\s*([\d\.]+)", res.stdout)
+            if m:
+                vol = int(float(m.group(1)) * 100)
+            muted = "[MUTED]" in res.stdout
+        except Exception:
+            pass
+        send_json(handler, {"status": "ok", "volume": vol, "muted": muted})
+        return True
+
+    if path == "/api/audio/devices":
+        send_json(handler, state.bluetooth.get_audio_devices())
+        return True
+
+    if path == "/api/audio/cache":
+        send_json(handler, {"status": "ok", "cache": state.audio.get_cache_stats()})
+        return True
+
     return False
 
 
 def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
-    """Handle media, AVRCP, TTS prewarm, and cockpit action POST endpoints."""
+    """Handle media, AVRCP, PipeWire audio, TTS prewarm, and cockpit action POST endpoints."""
     path = parsed.path
 
     if path == "/api/media/now_playing":
@@ -160,6 +189,65 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
             reply_speech = "Trip counters reset to zero, Dad!"
 
         send_json(handler, {"status": "ok", "command": cmd, "speech": reply_speech})
+        return True
+
+    if path == "/api/audio/volume":
+        req_data = read_json_body(handler)
+        vol_val = req_data.get("volume")
+        delta = req_data.get("delta")
+        act = req_data.get("action")
+        if act == "mute":
+            _run_wpctl("set-mute", "@DEFAULT_AUDIO_SINK@", "toggle")
+        elif vol_val is not None:
+            frac = max(0.0, min(1.5, float(vol_val) / 100.0))
+            _run_wpctl("set-volume", "@DEFAULT_AUDIO_SINK@", f"{frac:.2f}")
+        elif delta is not None:
+            d_str = f"{abs(int(delta))}%+" if int(delta) > 0 else f"{abs(int(delta))}%-"
+            _run_wpctl("set-volume", "@DEFAULT_AUDIO_SINK@", d_str)
+        send_json(handler, {"status": "ok"})
+        return True
+
+    if path == "/api/audio/output":
+        req_data = read_json_body(handler)
+        sink = req_data.get("sink")
+        auto_r = req_data.get("auto_route")
+        if auto_r is not None:
+            state.bluetooth.set_auto_route(bool(auto_r))
+        if sink is not None:
+            res = state.bluetooth.set_audio_sink(sink)
+        else:
+            res = {"status": "ok", "auto_route": state.bluetooth.config.get("auto_route_audio", True)}
+        send_json(handler, res)
+        return True
+
+    if path == "/api/audio/input":
+        req_data = read_json_body(handler)
+        source = req_data.get("source")
+        if source is not None and getattr(state, "bluetooth", None):
+            res = state.bluetooth.set_audio_source(source)
+        else:
+            res = {"status": "ok"}
+        send_json(handler, res)
+        return True
+
+    if path == "/api/audio/cache/limit":
+        req_data = read_json_body(handler)
+        limit_mb = int(req_data.get("limit_mb", 1024))
+        if bool(req_data.get("dry_run", False)):
+            res = {"status": "ok", "impact": state.audio.calculate_downsize_impact(limit_mb)}
+        else:
+            stats = state.audio.set_cache_limit(limit_mb)
+            state.settings["tts_cache_limit_mb"] = limit_mb
+            state.save_settings(state.settings)
+            if getattr(state, "llm", None) and hasattr(state.llm, "settings"):
+                state.llm.settings["tts_cache_limit_mb"] = limit_mb
+                state.llm.save_settings(state.llm.settings)
+            res = {"status": "ok", "cache": stats}
+        send_json(handler, res)
+        return True
+
+    if path == "/api/audio/cache/clear":
+        send_json(handler, {"status": "ok", "cache": state.audio.clear_cache()})
         return True
 
     if path == "/api/tts/prewarm":

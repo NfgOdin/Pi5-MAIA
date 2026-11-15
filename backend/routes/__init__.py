@@ -55,12 +55,25 @@ def dispatch_head(handler: Any, parsed: Any) -> bool:
 
 def dispatch_get(handler: Any, parsed: Any, state: Any) -> bool:
     """Route modular GET requests; returns True if handled."""
+    from routes.connectivity_routes import handle_get as conn_get
+    from routes.hardware_routes import handle_get as hw_get
     from routes.media_routes import handle_get as media_get
     from routes.navigation_routes import handle_get as nav_get
+    from routes.storage_trips_routes import handle_get as storage_get
+    from routes.system_routes import handle_get as sys_get
     from routes.telemetry_routes import handle_get as telemetry_get
     from routes.telephony_routes import handle_get as telephony_get
 
-    for sub_handler in (telephony_get, nav_get, telemetry_get, media_get):
+    for sub_handler in (
+        telephony_get,
+        nav_get,
+        telemetry_get,
+        media_get,
+        conn_get,
+        hw_get,
+        storage_get,
+        sys_get,
+    ):
         if sub_handler(handler, parsed, state):
             return True
     return False
@@ -68,12 +81,25 @@ def dispatch_get(handler: Any, parsed: Any, state: Any) -> bool:
 
 def dispatch_post(handler: Any, parsed: Any, state: Any) -> bool:
     """Route modular POST requests; returns True if handled."""
+    from routes.connectivity_routes import handle_post as conn_post
+    from routes.hardware_routes import handle_post as hw_post
     from routes.media_routes import handle_post as media_post
     from routes.navigation_routes import handle_post as nav_post
+    from routes.storage_trips_routes import handle_post as storage_post
+    from routes.system_routes import handle_post as sys_post
     from routes.telemetry_routes import handle_post as telemetry_post
     from routes.telephony_routes import handle_post as telephony_post
 
-    for sub_handler in (telephony_post, nav_post, telemetry_post, media_post):
+    for sub_handler in (
+        telephony_post,
+        nav_post,
+        telemetry_post,
+        media_post,
+        conn_post,
+        hw_post,
+        storage_post,
+        sys_post,
+    ):
         if sub_handler(handler, parsed, state):
             return True
     return False
