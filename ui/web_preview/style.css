@@ -482,6 +482,7 @@ html, body {
   border-bottom-right-radius: 2px;
 }
 
+.chat-bubble.vrm-assistant,
 .chat-bubble.maia {
   align-self: flex-start;
   background: rgba(255, 64, 129, 0.15);
@@ -2937,7 +2938,7 @@ html, body {
   display: block !important;
 }
 
-/* Unified Copilot & Rum Event Cards in Left Chat Timeline */
+/* Unified Copilot & Companion Event Cards in Left Chat Timeline */
 .copilot-event-entry {
   display: flex;
   width: 100%;
@@ -2960,7 +2961,7 @@ html, body {
   background: linear-gradient(135deg, rgba(38, 12, 16, 0.9) 0%, rgba(20, 8, 10, 0.95) 100%) !important;
 }
 
-/* Floating Shotgun HUD with Rum Royal Purple Theme */
+/* Floating Shotgun HUD Royal Purple Theme */
 .vrm-floating-hud {
   border-color: var(--accent-purple, #a855f7) !important;
   box-shadow: 0 8px 32px rgba(168, 85, 247, 0.4), 0 0 15px rgba(147, 51, 234, 0.3) !important;

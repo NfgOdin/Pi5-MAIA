@@ -94,7 +94,7 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
             handler,
             {
                 "ai_core": state.llm.get_ai_core_status(),
-                "personality": state.llm.settings.get("personality", "RUM"),
+                "personality": state.llm.settings.get("personality") or (state.llm.get_default_persona_id() if hasattr(state.llm, "get_default_persona_id") else "COMPANION"),
                 "driver_address": state.llm.get_driver_address(),
                 "mode": state.llm.settings.get("mode", "BUILTIN"),
                 "model_loaded": getattr(state.llm, "_llama_model", None) is not None,
@@ -401,14 +401,14 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
             if state.live_convo_mode:
                 state.listen_once_requested = True
                 state.is_mic_listening = True
-                state.audio.play_acknowledgment(state.llm.settings.get("personality", "RUM"))
+                state.audio.play_acknowledgment(state.llm.settings.get("personality") or (state.llm.get_default_persona_id() if hasattr(state.llm, "get_default_persona_id") else "COMPANION"))
             else:
                 state.listen_once_requested = False
                 state.stop_current_listen()
         elif action == "start_once":
             state.listen_once_requested = True
             state.is_mic_listening = True
-            state.audio.play_acknowledgment(state.llm.settings.get("personality", "RUM"))
+            state.audio.play_acknowledgment(state.llm.settings.get("personality") or (state.llm.get_default_persona_id() if hasattr(state.llm, "get_default_persona_id") else "COMPANION"))
         elif action == "stop":
             state.live_convo_mode = False
             state.listen_once_requested = False
@@ -601,7 +601,7 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
                 "emote_clip": choreo["emote_clip"],
                 "beats": choreo["beats"],
                 "action": res.get("action"),
-                "persona": res.get("persona", state.llm.settings.get("personality", "RUM")),
+                "persona": res.get("persona", state.llm.settings.get("personality") or (state.llm.get_default_persona_id() if hasattr(state.llm, "get_default_persona_id") else "COMPANION")),
             },
         )
         return True
@@ -609,7 +609,7 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
     if path == "/api/ai/wake_test":
         state.listen_once_requested = True
         state.is_mic_listening = True
-        p_id = state.llm.settings.get("personality", "RUM")
+        p_id = state.llm.settings.get("personality") or (state.llm.get_default_persona_id() if hasattr(state.llm, "get_default_persona_id") else "COMPANION")
         if hasattr(state.audio, "play_acknowledgment"):
             state.audio.play_acknowledgment(p_id)
         elif hasattr(state.audio, "play_instant_ack"):

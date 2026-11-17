@@ -78,7 +78,7 @@ let currentVoiceMode = "COPILOT";
 let activeGraphSensor = null;
 let currentAiSettings = {
   mode: "BUILTIN",
-  personality: "RUM",
+  personality: null,
   driver_title: "Dad",
   driver_name: "",
   driver_moniker: "",

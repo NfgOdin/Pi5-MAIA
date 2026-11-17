@@ -571,7 +571,7 @@ class VrmExpressionController {
       setExpr('oh', visemeWeights.oh || 0);
     }
 
-    // 2. Biped Procedural Face Bones (Rum.vrm, Rem.vrm, or subtle augmentation)
+    // 2. Biped Procedural Face Bones (models without VRM BlendShape morph targets)
     if (!bones) return;
     const cur = this.current;
     const laughScale = (bones.lMouthCorner && bones.lMouthCorner.userData && bones.lMouthCorner.userData.restPos) ? 1 : 0;

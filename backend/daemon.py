@@ -89,9 +89,9 @@ def get_default_app_settings() -> Dict[str, Any]:
         "screensaver_folder": str(Path.home() / "Pictures") if sys.platform.startswith("linux") else "",
         "clock_format": "12H",
         "brightness": 100,
-        "driver_title": "Master",
-        "driver_name": "Creator",
-        "personality": "RUM",
+        "driver_title": "Dad",
+        "driver_name": "",
+        "personality": None,
         "voice_mode": "COPILOT",
         "speed_units": "MPH",
         "tts_cache_limit_mb": 1024,
@@ -153,6 +153,8 @@ class CarPi5ServerState:
 
         self.settings_file = SETTINGS_FILE
         self.settings = self._load_settings()
+        if not self.settings.get("personality") and hasattr(self.llm, "get_default_persona_id"):
+            self.settings["personality"] = self.llm.get_default_persona_id()
 
         # Phase 6 Audio Ducking Matrix & Music Courtesy Hookup
         self.is_music_playing = False

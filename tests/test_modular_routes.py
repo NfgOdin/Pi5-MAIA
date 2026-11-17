@@ -887,6 +887,28 @@ class ModularRouteDispatchTest(unittest.TestCase):
             else:
                 self.assertTrue(trig)
 
+    def test_generic_vrm_code_decoupling(self):
+        from ai.llm_client import get_default_persona_id, load_personas_from_dir
+
+        personas = load_personas_from_dir()
+        self.assertEqual(get_default_persona_id(personas), "RUM")
+        self.assertIn("RUM", personas)
+        self.assertEqual(personas["RUM"].get("vrm_defaults", {}).get("model_file"), "Rum.vrm")
+
+        # Verify legacy persona-named code symbols & defaults stay removed from active code paths
+        ui_root = BACKEND_DIR.parent / "ui" / "web_preview"
+        checks = {
+            ui_root / "js" / "diagnostics_dragy.js": ["setRumDragCallout"],
+            ui_root / "js" / "ai_voice.js": ["maiaBubble", "rum_walk", "maia_avatar.jpg"],
+            ui_root / "js" / "vrm_3d_room.js": ["/rum|rem/i", "'Rum.vrm'", "'Rem.vrm'"],
+            BACKEND_DIR / "ai" / "copilot.py": ["PERCHED_ON_RUM", "rum_interaction", "rum_summary"],
+            BACKEND_DIR / "ai" / "llm_client.py": ['if "MAIA" not in personas', '"personality": "RUM"'],
+        }
+        for fp, forbidden in checks.items():
+            txt = fp.read_text(encoding="utf-8")
+            for tok in forbidden:
+                self.assertNotIn(tok, txt, f"Found stale persona token {tok} in {fp}")
+
     def test_unmatched_routes_fall_through(self):
         import ast
         daemon_src = (BACKEND_DIR / "daemon.py").read_text(encoding="utf-8")

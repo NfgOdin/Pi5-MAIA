@@ -790,8 +790,34 @@ let roomLampLight = null;
 let roomCeilingLight = null;
 let envLights = [];
 let isHoldingYoshi = false;
-// 3D VRM Avatar Character Selection (Default to Rum)
-let currentVrmModelName = localStorage.getItem('vrmCurrentAvatar') || ((typeof getActivePersonaData === 'function' && getActivePersonaData().vrm_defaults && getActivePersonaData().vrm_defaults.model_file) || 'Rum.vrm');
+// 3D VRM Avatar Character Selection (Persona-driven & dynamic catalog)
+let vrmAvailableModels = [];
+function getPersonaDefaultVrmModel() {
+  const pData = (typeof getActivePersonaData === 'function') ? getActivePersonaData() : {};
+  if (pData && pData.vrm_defaults && pData.vrm_defaults.model_file) return pData.vrm_defaults.model_file;
+  if (vrmAvailableModels.length > 0) return vrmAvailableModels[0];
+  return '';
+}
+let currentVrmModelName = localStorage.getItem('vrmCurrentAvatar') || getPersonaDefaultVrmModel();
+window.currentVrmModelName = currentVrmModelName;
+
+function fetchVrmAvailableModels() {
+  fetch('/api/models/avatars')
+    .then(r => r.ok ? r.json() : null)
+    .then(data => {
+      const list = Array.isArray(data) ? data : ((data && Array.isArray(data.models)) ? data.models : []);
+      if (list.length > 0) {
+        vrmAvailableModels = list.map(m => (typeof m === 'string' ? m : m.name)).filter(Boolean);
+        if (!currentVrmModelName) {
+          currentVrmModelName = getPersonaDefaultVrmModel();
+          window.currentVrmModelName = currentVrmModelName;
+          if (currentVrmModelName && !vrmModel) loadVrmModel(currentVrmModelName);
+        }
+        updateModelButtonLabel();
+      }
+    })
+    .catch(() => {});
+}
 // Autonomous Roaming State Engine
 let vrmRoamEnabled = (localStorage.getItem('vrmRoamEnabled') !== 'false');
 let vrmRoamState = 'IDLE'; // 'IDLE', 'TURNING', 'WALKING', 'ARRIVED'
@@ -2155,7 +2181,10 @@ function initVrmEngine() {
   vrmScene.add(vrmEnvironmentGroup);
   initCustomPropsGroup();
   initConnectomeFly();
-  loadVrmModel(currentVrmModelName);
+  fetchVrmAvailableModels();
+  if (currentVrmModelName) {
+    loadVrmModel(currentVrmModelName);
+  }
   setVrmEnvironment(currentEnvironmentName);
   // Yoshi is an optional custom prop, not a forced hardcoded fixture
   const decorCfg = loadRoomDecorationsConfig();
@@ -2641,9 +2670,12 @@ function initRoomTouchOrbitLookAround(canvas) {
   window.addEventListener('touchend', onPointerUp, { passive: true });
 }
 
-function loadVrmModel(modelName = (currentVrmModelName || 'Rum.vrm')) {
+function loadVrmModel(modelName = (currentVrmModelName || getPersonaDefaultVrmModel())) {
+  if (!modelName) return;
   currentVrmModelName = modelName;
+  window.currentVrmModelName = currentVrmModelName;
   localStorage.setItem('vrmCurrentAvatar', modelName);
+  if (!vrmScene) return;
   const notice = document.getElementById('vrmLoadingNotice');
   if (notice) notice.style.display = 'flex';
 
@@ -2654,6 +2686,7 @@ function loadVrmModel(modelName = (currentVrmModelName || 'Rum.vrm')) {
   loader.load(
     vrmUrl,
     (gltf) => {
+      if (!vrmScene) return;
       console.log(`[VRM] ${modelName} loaded successfully!`, gltf);
       if (notice) notice.style.display = 'none';
 
@@ -2687,13 +2720,14 @@ function loadVrmModel(modelName = (currentVrmModelName || 'Rum.vrm')) {
 
       window.currentVrm = currentVrm;
 
-      // Measure raw unscaled height so child models (Rum.vrm) are scaled slightly smaller (0.85x)
-      // while taller adult models scale proportionally and fit cleanly on the same stage floor
+      // Measure raw unscaled height & apply persona scale or adaptive headroom scaling
       const rawBox = new THREE.Box3().setFromObject(vrmModel);
       const rawSize = rawBox.getSize(new THREE.Vector3());
-      const isPetiteModel = /rum|rem/i.test(modelName) || rawSize.y < 1.56;
-      // Beautiful proportion: scale Rum up to 1.18x so she fills the frame nicely with the room
-      const targetScale = isPetiteModel ? 1.18 : Math.min(1.25, 1.42 / Math.max(1.0, rawSize.y));
+      const pData = (typeof getActivePersonaData === 'function') ? getActivePersonaData() : {};
+      const personaScale = pData && pData.vrm_defaults && Number(pData.vrm_defaults.scale);
+      const targetScale = (personaScale > 0)
+        ? personaScale
+        : ((rawSize.y < 1.56) ? 1.18 : Math.min(1.25, 1.42 / Math.max(1.0, rawSize.y)));
       vrmModel.scale.set(targetScale, targetScale, targetScale);
       vrmModel.updateMatrixWorld(true);
 
@@ -2741,12 +2775,10 @@ function loadVrmModel(modelName = (currentVrmModelName || 'Rum.vrm')) {
       }
     },
     (error) => {
-      console.warn(`[VRM] Fallback checking Rem.vrm:`, error);
-      if (modelName === 'Rem.vrm') {
-        loadVrmModel('Rum.vrm');
-        return;
-      } else if (modelName === 'Rum.vrm') {
-        loadVrmModel('Rem.vrm');
+      console.warn(`[VRM] Failed loading ${modelName}:`, error);
+      const altModel = (vrmAvailableModels || []).find(m => m !== modelName);
+      if (altModel) {
+        loadVrmModel(altModel);
         return;
       }
       if (notice) {
@@ -5631,34 +5663,30 @@ function updateRoamButtonLabel() {
 }
 
 function toggleVrmAvatar() {
-  const isRem = (currentVrmModelName.includes('Rem') || currentVrmModelName.toLowerCase().includes('rem'));
-  const newModel = isRem ? 'Rum.vrm' : 'Rem.vrm';
-  currentVrmModelName = newModel;
-  localStorage.setItem('vrmCurrentAvatar', newModel);
-  loadVrmModel(newModel);
+  const pool = (vrmAvailableModels && vrmAvailableModels.length > 0)
+    ? vrmAvailableModels
+    : [getPersonaDefaultVrmModel()];
+  const curIdx = pool.indexOf(currentVrmModelName);
+  const nextModel = pool[(curIdx + 1) % pool.length];
+  if (!nextModel) return;
+  currentVrmModelName = nextModel;
+  window.currentVrmModelName = currentVrmModelName;
+  localStorage.setItem('vrmCurrentAvatar', nextModel);
+  loadVrmModel(nextModel);
   updateModelButtonLabel();
 }
 
 function updateModelButtonLabel() {
   const btn = document.getElementById('btnVrmModelToggle');
-  const hudTitle = document.getElementById('vrmHudTitle');
-  const emotionPill = document.getElementById('waifuEmotionPill');
   const pData = (typeof getActivePersonaData === 'function') ? getActivePersonaData() : {};
   const shortName = pData.display_short_name || pData.name || 'AVATAR';
   const icon = pData.icon || '✨';
   const vrmDef = pData.vrm_defaults || {};
-  const isRem = currentVrmModelName.toLowerCase().includes('rem');
+  const modelStem = String(currentVrmModelName || '').replace(/\.vrm$/i, '');
   if (btn) {
-    btn.innerText = isRem ? '💙 REM' : `${icon} ${shortName}`;
-    btn.style.borderColor = isRem ? '#38bdf8' : (vrmDef.accent_color || '#c084fc');
-    btn.style.color = isRem ? '#38bdf8' : (vrmDef.accent_color || '#c084fc');
-  }
-  if (hudTitle) {
-    const hudTxt = (typeof formatPersonaText === 'function' && vrmDef.hud_title) ? formatPersonaText(vrmDef.hud_title) : `${icon} ${shortName} • SHOTGUN`;
-    hudTitle.innerHTML = isRem ? '<span>💙</span> REM • SHOTGUN' : hudTxt;
-  }
-  if (emotionPill) {
-    emotionPill.innerText = isRem ? '💙 REM (3D VRM)' : `${icon} ${shortName} (3D VRM) • ACTIVE`;
+    btn.innerText = modelStem ? `${icon} ${modelStem.toUpperCase()}` : `${icon} ${shortName}`;
+    btn.style.borderColor = vrmDef.accent_color || '#c084fc';
+    btn.style.color = vrmDef.accent_color || '#c084fc';
   }
 }
 

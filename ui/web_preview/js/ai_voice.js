@@ -1,13 +1,23 @@
 // CarPi5 UI Module: AI Companion, Voice/Wake Engine, Animations Drawer, TTS Cache & Google OAuth
 
-// --- 7. DYNAMIC AI COMPANION (M.A.I.A. / J.A.R.V.I.S. / PIT WALL) ---
+// --- 7. DYNAMIC PERSONA ENGINE ---
+
+function getDefaultPersonaId() {
+  if (window.allPersonas) {
+    const keys = Object.keys(window.allPersonas);
+    const defKey = keys.find(k => window.allPersonas[k] && window.allPersonas[k].default);
+    if (defKey) return defKey;
+    if (keys.length > 0) return keys[0];
+  }
+  return 'COMPANION';
+}
 
 function getActivePersonaData(pKey) {
-  const key = pKey || currentAiSettings.personality || 'RUM';
+  const key = pKey || currentAiSettings.personality || getDefaultPersonaId();
   if (window.allPersonas && window.allPersonas[key]) return window.allPersonas[key];
   if (window.allPersonas) {
-    const firstKey = Object.keys(window.allPersonas)[0];
-    if (firstKey) return window.allPersonas[firstKey];
+    const firstKey = getDefaultPersonaId();
+    if (window.allPersonas[firstKey]) return window.allPersonas[firstKey];
   }
   return {};
 }
@@ -30,7 +40,7 @@ function formatPersonaText(template, extra = {}) {
 }
 
 function updatePersonaUI(personaKey) {
-  if (!personaKey) personaKey = currentAiSettings.personality || 'RUM';
+  if (!personaKey) personaKey = currentAiSettings.personality || getDefaultPersonaId();
   currentAiSettings.personality = personaKey;
 
   const pData = (window.allPersonas && window.allPersonas[personaKey]) ? window.allPersonas[personaKey] : {};
@@ -246,8 +256,8 @@ function onSettingsPersonaChanged(pKey) {
 }
 
 function savePersonaMediaConfig() {
-  const pKey = currentAiSettings.personality || 'RUM';
-  const avatar = document.getElementById('cfgPersonaAvatar')?.value || 'assets/pics/maia_avatar.jpg';
+  const pKey = currentAiSettings.personality || getDefaultPersonaId();
+  const avatar = document.getElementById('cfgPersonaAvatar')?.value || 'assets/pics/splash.png';
   const splashImg = document.getElementById('cfgBootSplashImage')?.value || 'assets/pics/splash.png';
   const splashVid = document.getElementById('cfgBootSplashVideo')?.value || '';
 
@@ -373,7 +383,7 @@ function handleAiAction(action) {
     } else if (action.action === 'mute') {
       toggleAudioMute();
     }
-  } else if (action.type === 'avatar_walk' || action.type === 'rum_walk') {
+  } else if (action.type === 'avatar_walk' || action.type === 'vrm_walk') {
     if (action.target === 'balcony' && typeof walkVrmOutsideToBalcony === 'function') {
       walkVrmOutsideToBalcony();
     } else if (action.target === 'inside' && typeof walkVrmInsideRoom === 'function') {
@@ -402,6 +412,15 @@ function fetchAiHistory() {
         currentAiSettings = data.settings;
         syncSettingsUI();
         updatePersonaUI(data.settings.personality);
+        const pData = getActivePersonaData(data.settings.personality);
+        const defModel = pData && pData.vrm_defaults && pData.vrm_defaults.model_file;
+        if (defModel && !localStorage.getItem('vrmCurrentAvatar')) {
+          if (typeof vrmScene !== 'undefined' && vrmScene && typeof loadVrmModel === 'function' && defModel !== window.currentVrmModelName) {
+            loadVrmModel(defModel);
+          } else {
+            window.currentVrmModelName = defModel;
+          }
+        }
       }
       if (_renderedSpeechIds) _renderedSpeechIds.clear();
       renderChatMessages(data.chat_history || []);
@@ -423,7 +442,7 @@ function renderChatMessages(history) {
       : `Hey {driver_address}, cockpit systems are loaded and ready. Talk to me or tap any prompt below!`;
     const introMsg = formatPersonaText(introTpl);
     container.innerHTML = `
-      <div class="chat-bubble maia">
+      <div class="chat-bubble vrm-assistant">
         <strong>${escapeHtml(currentName)}:</strong> ${escapeHtml(introMsg)}
         <div class="chat-time">Just now</div>
       </div>
@@ -433,7 +452,7 @@ function renderChatMessages(history) {
 
   history.forEach(msg => {
     const bubble = document.createElement('div');
-    bubble.className = `chat-bubble ${msg.role === 'user' ? 'user' : 'maia'}`;
+    bubble.className = `chat-bubble ${msg.role === 'user' ? 'user' : 'vrm-assistant'}`;
     const namePrefix = msg.role === 'user' ? 'You' : currentName;
     bubble.innerHTML = `
       <div><strong>${escapeHtml(namePrefix)}:</strong> ${escapeHtml(msg.text)}</div>
@@ -580,7 +599,7 @@ function applyAiStreamChunk(pkt) {
     let bubble = container.querySelector(`[data-stream-id="${pkt.stream_id}"]`);
     if (!bubble) {
       bubble = document.createElement('div');
-      bubble.className = 'chat-bubble maia';
+      bubble.className = 'chat-bubble vrm-assistant';
       bubble.setAttribute('data-stream-id', pkt.stream_id);
       bubble.innerHTML = `<div class="ai-stream-line"><strong>${respName}:</strong> <span class="ai-stream-body"></span></div><div class="chat-time">${pkt.done ? 'Just now' : 'Streaming...'}</div>`;
       container.appendChild(bubble);
@@ -676,22 +695,22 @@ function sendChatMessage(userText, isVoice = false) {
 
       // Update single streamed bubble if SSE already rendered Clause #1, else create fresh bubble
       if (container && userBubble.parentNode !== container) container.appendChild(userBubble);
-      let maiaBubble = (container && data.stream_id)
+      let vrmBubble = (container && data.stream_id)
         ? container.querySelector(`[data-stream-id="${data.stream_id}"]`)
         : null;
-      const didStreamAlready = Boolean(maiaBubble);
-      if (maiaBubble) {
-        const bodyEl = maiaBubble.querySelector('.ai-stream-body');
+      const didStreamAlready = Boolean(vrmBubble);
+      if (vrmBubble) {
+        const bodyEl = vrmBubble.querySelector('.ai-stream-body');
         if (bodyEl) bodyEl.innerText = data.reply;
-        const tEl = maiaBubble.querySelector('.chat-time');
+        const tEl = vrmBubble.querySelector('.chat-time');
         if (tEl) tEl.innerText = 'Just now';
       } else {
-        maiaBubble = document.createElement('div');
-        maiaBubble.className = 'chat-bubble maia';
-        if (data.stream_id) maiaBubble.setAttribute('data-stream-id', data.stream_id);
-        maiaBubble.innerHTML = `<div><strong>${respName}:</strong> <span class="ai-stream-body">${data.reply}</span></div><div class="chat-time">Just now</div>`;
+        vrmBubble = document.createElement('div');
+        vrmBubble.className = 'chat-bubble vrm-assistant';
+        if (data.stream_id) vrmBubble.setAttribute('data-stream-id', data.stream_id);
+        vrmBubble.innerHTML = `<div><strong>${respName}:</strong> <span class="ai-stream-body">${data.reply}</span></div><div class="chat-time">Just now</div>`;
         if (container) {
-          container.appendChild(maiaBubble);
+          container.appendChild(vrmBubble);
         }
       }
       if (container) scrollChatToBottom();
@@ -751,7 +770,7 @@ function clearChatHistory() {
     const currentName = getPersonaDisplayName(currentAiSettings.personality);
     container.innerHTML = `
 
-      <div class="chat-bubble maia">
+      <div class="chat-bubble vrm-assistant">
 
         <strong>${currentName}:</strong> Chat cleared, ${addr}. Fresh start! What are we doing next?
 
@@ -765,6 +784,11 @@ function clearChatHistory() {
 
 function changePersona(personaKey) {
   updatePersonaUI(personaKey);
+  const pData = getActivePersonaData(personaKey);
+  const targetModel = pData && pData.vrm_defaults && pData.vrm_defaults.model_file;
+  if (targetModel && typeof loadVrmModel === 'function' && targetModel !== window.currentVrmModelName) {
+    loadVrmModel(targetModel);
+  }
 
   fetch('/api/ai/settings', {
     method: 'POST',
@@ -2247,9 +2271,9 @@ function checkGoogleAuthStatus() {
 
         if (uAvatar) {
 
-          uAvatar.src = data.picture || 'assets/pics/maia_avatar.jpg';
+          uAvatar.src = data.picture || 'assets/pics/splash.png';
 
-          uAvatar.onerror = function() { this.src = 'assets/pics/maia_avatar.jpg'; };
+          uAvatar.onerror = function() { this.src = 'assets/pics/splash.png'; };
 
         }
 

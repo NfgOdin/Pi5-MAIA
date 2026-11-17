@@ -16,7 +16,7 @@
   "kokoro_voice": "af_heart",
   "pitch_factor": 1.05,
   "vrm_defaults": {
-    "model_file": "Maia.vrm",
+    "model_file": "Rem.vrm",
     "accent_color": "#ec4899",
     "status_badge": "M.A.I.A. ACTIVE",
     "card_title": "M.A.I.A.",

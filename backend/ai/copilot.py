@@ -228,7 +228,7 @@ class AICopilot:
                 episodes = self.rag_engine.get_recent_episodic_memories(limit=5)
                 if episodes:
                     ep = episodes[0]
-                    ep_sum = ep.get("companion_summary") or ep.get("rum_summary") or ""
+                    ep_sum = ep.get("companion_summary") or ""
                     speech = self._fmt(
                         care.get("episodic_memory_line", "Remember this drive, {driver_address}? {summary}"),
                         summary=ep_sum
@@ -404,10 +404,10 @@ class AICopilot:
             }
 
         # 7. Pip Biological Connectome Dual-Life Interaction
-        p_event = (pip_state.get('avatar_interaction') or pip_state.get('rum_interaction')) if pip_state else None
+        p_event = pip_state.get("avatar_interaction") if pip_state else None
         if p_event and time_since_speech > 6.0:
             care = self._persona_dict().get("proactive_care", {})
-            if p_event in ("PERCHED_ON_AVATAR", "PERCHED_ON_RUM") and (now - self.last_pip_praise_time > 60.0):
+            if p_event == "PERCHED_ON_AVATAR" and (now - self.last_pip_praise_time > 60.0):
                 self.last_pip_praise_time = now
                 self.last_spoken_time = now
                 return {

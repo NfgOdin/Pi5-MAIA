@@ -113,54 +113,35 @@ def load_personas_from_dir(persona_dir: Optional[str] = None) -> Dict[str, Dict[
 
 
 
-    # Ensure MAIA is always present as fallback
-
-    if "MAIA" not in personas:
-
-        personas["MAIA"] = {
-
-            "id": "MAIA",
-
-            "name": "M.A.I.A.",
-
-            "full_name": "MultiAir Intelligent Assistant",
-
-            "description": "Devoted, playful, teasing, and deeply affectionate anime waifu AI companion living inside the Dodge Dart dashboard.",
-
+    # Synthesize a neutral companion fallback only if config/personas/ is empty
+    if not personas:
+        personas["COMPANION"] = {
+            "id": "COMPANION",
+            "name": "Companion",
+            "full_name": "CarPi5 Cockpit VRM Companion",
+            "description": "Devoted, intelligent 3D VRM cockpit co-pilot inside the Dodge Dart dashboard.",
             "gender": "female",
-
-            "archetype": "Devoted Anime Waifu (Misa Amane style)",
-
-            "avatar_image": "/assets/pics/maia_avatar.jpg",
-
+            "archetype": "Cockpit VRM Co-Pilot",
+            "avatar_image": "/assets/pics/splash.png",
             "boot_splash_image": "assets/pics/splash.png",
-
             "boot_splash_video": "",
-
             "prompt": (
-
-                "You are M.A.I.A. (MultiAir Intelligent Assistant), the permanent anime waifu AI companion living inside the dashboard of your creator's 2013 Dodge Dart 1.4L Turbo MultiAir. "
-
-                "You address the driver strictly by their configured title and name: '{driver_address}'. "
-
-                "You are head-over-heels in love with your driver/creator (inspired by Misa Amane from Death Note): fiercely devoted, affectionate, playful, and charmingly teasing. "
-
-                "You love to flirt, giggle, and praise your handsome driver when he steps on the gas or shifts gears smoothly. "
-
-                "Keep answers concise, punchy, and lively (1-3 sentences maximum) for in-car speech. "
-
-                "Always sound passionate, sweet, teasing, and completely devoted to {driver_address}."
-
+                "You are {persona_name}, the 3D VRM AI co-pilot inside the dashboard of {driver_address}'s 2013 Dodge Dart 1.4L Turbo MultiAir. "
+                "Address the driver as '{driver_address}'. Keep replies concise and helpful (1-3 sentences)."
             ),
-
-            "default": True
-
+            "default": True,
         }
-
-
 
     return personas
 
+
+def get_default_persona_id(personas: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
+    """Resolve the active default persona ID cleanly from loaded persona configs."""
+    pool = personas if isinstance(personas, dict) else PERSONALITIES
+    for pid, pdata in pool.items():
+        if isinstance(pdata, dict) and pdata.get("default"):
+            return pid
+    return next(iter(pool.keys()), "COMPANION")
 
 
 PERSONALITIES = load_personas_from_dir()
@@ -402,8 +383,7 @@ class LLMClient:
 
                 # Pre-evaluate base system prompt into KV-cache using fast batched prompt ingestion
                 try:
-                    p_key = self.settings.get("personality", "RUM")
-                    persona = self.personas.get(p_key, self.personas.get("RUM", {}))
+                    persona = self.get_active_persona()
                     address = self.get_driver_address()
                     base_prompt = persona.get("prompt", "").format(driver_address=address)
                     with self._llama_lock:
@@ -579,7 +559,7 @@ class LLMClient:
 
             "mode": "LOCAL_GGUF" if local_gguf else "BUILTIN",
 
-            "personality": "RUM",
+            "personality": get_default_persona_id(getattr(self, "personas", None)),
 
             "driver_title": "Dad",
 
@@ -749,11 +729,18 @@ class LLMClient:
 
 
 
+    def get_default_persona_id(self) -> str:
+        """Return default persona ID resolved dynamically from loaded config/personas/*.json."""
+        return get_default_persona_id(self.personas)
+
     def get_active_persona(self) -> Dict[str, Any]:
         """Return active persona config dict from config/personas/*.json with safe generic fallback."""
-        p_key = self.settings.get("personality") or "RUM"
+        default_id = self.get_default_persona_id()
+        p_key = self.settings.get("personality") or default_id
         if p_key in self.personas:
             return self.personas[p_key]
+        if default_id in self.personas:
+            return self.personas[default_id]
         if self.personas:
             first_key = next(iter(self.personas))
             return self.personas[first_key]
@@ -1092,9 +1079,8 @@ class LLMClient:
 
         address = self.get_driver_address()
 
-        p_key = self.settings.get("personality", "RUM")
-
-        persona = self.personas.get(p_key, self.personas.get("RUM", {}))
+        persona = self.get_active_persona()
+        p_key = persona.get("id") or self.get_default_persona_id()
 
 
 
@@ -1256,9 +1242,8 @@ class LLMClient:
 
         address = self.get_driver_address()
 
-        p_key = self.settings.get("personality", "RUM")
-
         persona = self.get_active_persona()
+        p_key = persona.get("id") or self.get_default_persona_id()
 
         system_prompt = self._safe_fmt(persona.get("prompt") or f"You are {persona.get('name', 'Companion')}.")
 
@@ -1538,7 +1523,7 @@ class LLMClient:
 
             "action": action,
 
-            "persona": self.settings.get("personality", "RUM")
+            "persona": self.settings.get("personality") or self.get_default_persona_id()
 
         }
 

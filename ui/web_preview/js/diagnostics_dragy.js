@@ -606,7 +606,7 @@ function armDragStaging() {
     dragStagingState = 'STAGED';
     setBulbsActive(['treeStageL', 'treeStageR'], true);
     updateDragTreeStatus('STAGED - READY', '#00e676', 'rgba(0,230,118,0.2)');
-    setRumDragCallout("STAGED! Eyes on the tree!");
+    setVrmDragCallout("STAGED! Eyes on the tree!");
     // 3. Initiate Countdown sequence after 1.2s
     dragTreeTimeouts.push(setTimeout(() => {
       startTreeCountdown();
