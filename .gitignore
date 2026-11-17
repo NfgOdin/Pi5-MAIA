@@ -26,3 +26,12 @@ storage/trip_archives/
 storage/tts_cache/
 storage/map_tiles/
 storage/*.db
+
+# Runtime device state & SQLite WAL/SHM sidecars
+config/app_settings.json
+backend/bluetooth_saved.json
+backend/telemetry/*.db
+backend/telemetry/*.db-shm
+backend/telemetry/*.db-wal
+storage/*.db-shm
+storage/*.db-wal
