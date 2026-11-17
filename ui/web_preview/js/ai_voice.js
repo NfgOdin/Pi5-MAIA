@@ -56,7 +56,10 @@ function updatePersonaUI(personaKey) {
   const minPill = document.getElementById('vrmMinHudPill');
   if (minPill) minPill.innerText = `${icon} ${shortName}`;
   const hudTitle = document.getElementById('vrmHudTitle');
-  if (hudTitle) hudTitle.innerHTML = `<span>${icon}</span> ${formatPersonaText(vrmDef.hud_title || `${shortName} • SHOTGUN`)}`;
+  if (hudTitle) {
+    const rawHud = formatPersonaText(vrmDef.hud_title || `${shortName} • SHOTGUN`);
+    hudTitle.innerHTML = (icon && rawHud.startsWith(icon)) ? rawHud : `<span>${icon}</span> ${rawHud}`;
+  }
 
   // 2. Update AI Chat Header Title & Subtitle
   const titleEl = document.getElementById('chatAssistantTitle');
@@ -875,7 +878,7 @@ function togglePcAudioMode() {
     showAiSpeechToast('🔇 PC Audio/Mic OFF (Using Pi 5 speakers & USB mic).');
   } else {
     _playNextPcSpeechClip();
-    showAiSpeechToast('💻 PC Audio/Mic ON! Tap 🎙️ to speak via your laptop mic & hear R.U.M. on your speakers.');
+    showAiSpeechToast(`💻 PC Audio/Mic ON! Tap 🎙️ to speak via your laptop mic & hear ${getPersonaDisplayName()} on your speakers.`);
   }
 }
 
@@ -1065,7 +1068,7 @@ async function startPcMicCapture() {
     source.connect(proc);
     proc.connect(ctx.destination);
     syncVoiceButtonState(true, true, isWakeWordEnabled);
-    showAiSpeechToast('🎙️ Laptop Mic LIVE! Speak to R.U.M. anytime — pause briefly to send.');
+    showAiSpeechToast(`🎙️ Laptop Mic LIVE! Speak to ${getPersonaDisplayName()} anytime — pause briefly to send.`);
   } catch (err) {
     console.error('[PC MIC] Permission/init error:', err);
     showAiSpeechToast('⚠️ Could not open laptop microphone: ' + (err.message || err));

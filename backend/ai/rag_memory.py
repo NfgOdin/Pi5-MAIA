@@ -27,6 +27,12 @@ STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 RAG_DB_PATH = STORAGE_DIR / "rag_memory.db"
 
 
+import threading
+
+_SHARED_MINILM_LOCK = threading.Lock()
+_SHARED_MINILM_ENGINES: Dict[tuple, tuple] = {}
+
+
 class MiniLMEmbeddingEngine:
     """Ultra-fast local embedding generator running quantized all-MiniLM-L6-v2 via ONNX Runtime."""
     def __init__(self, model_dir: Optional[Path] = None):
@@ -45,20 +51,31 @@ class MiniLMEmbeddingEngine:
                 print(f"[RAG EMBED] Model files not found in {self.model_dir}. Falling back to sparse mode.")
                 return
 
-            import onnxruntime as ort
-            from tokenizers import Tokenizer
+            cache_key = (str(self.onnx_path.resolve()), str(self.tok_path.resolve()))
+            with _SHARED_MINILM_LOCK:
+                cached = _SHARED_MINILM_ENGINES.get(cache_key)
+                if cached is not None:
+                    self.session, self.tokenizer = cached
+                    self.ready = True
+                    return
 
-            self.tokenizer = Tokenizer.from_file(str(self.tok_path))
-            self.tokenizer.enable_truncation(max_length=128)
-            self.tokenizer.no_padding()
+                import onnxruntime as ort
+                from tokenizers import Tokenizer
 
-            sess_options = ort.SessionOptions()
-            sess_options.intra_op_num_threads = 2
-            sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                tokenizer = Tokenizer.from_file(str(self.tok_path))
+                tokenizer.enable_truncation(max_length=128)
+                tokenizer.no_padding()
 
-            self.session = ort.InferenceSession(str(self.onnx_path), sess_options)
-            self.ready = True
-            print("[RAG EMBED] Local all-MiniLM-L6-v2 ONNX embedding engine ready (<12ms latency).")
+                sess_options = ort.SessionOptions()
+                sess_options.intra_op_num_threads = 2
+                sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+                session = ort.InferenceSession(str(self.onnx_path), sess_options)
+                _SHARED_MINILM_ENGINES[cache_key] = (session, tokenizer)
+                self.session = session
+                self.tokenizer = tokenizer
+                self.ready = True
+                print("[RAG EMBED] Local all-MiniLM-L6-v2 ONNX embedding engine ready (<12ms latency).")
         except Exception as e:
             print(f"[RAG EMBED] Initialization note (fallback enabled): {e}")
 

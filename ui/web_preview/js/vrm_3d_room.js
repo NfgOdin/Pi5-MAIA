@@ -2928,7 +2928,7 @@ function switchAvatarEngine(mode) {
   } else {
     resizeVrmToStage();
   }
-  if (emotionPill) emotionPill.innerText = "💖 R.U.M. (3D VRM) • DEVOTED TO MASTER";
+  if (emotionPill) emotionPill.innerText = `✨ ${typeof getPersonaDisplayName === "function" ? getPersonaDisplayName() : "Companion"} (3D VRM) • ACTIVE`;
 }
 
 // Auto-initialize 3D VRM Rum on startup
@@ -4816,7 +4816,7 @@ function callVrmToSelectedProp() {
 
   }
 
-  showAiSpeechToast(`R.U.M. walking to ${name}...`);
+  showAiSpeechToast(`${typeof getPersonaDisplayName === "function" ? getPersonaDisplayName() : "Companion"} walking to ${name}...`);
 
   closeRoomCustomizerModal();
 
@@ -5402,7 +5402,7 @@ function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, 
         if (vrmaClips['pose_shy_wave']) {
           playVrmAction('pose_shy_wave', 2200, true);
         }
-        showAiSpeechToast(`R.U.M. sensed edge: ${obstacle.name}`);
+        showAiSpeechToast(`${typeof getPersonaDisplayName === "function" ? getPersonaDisplayName() : "Companion"} sensed edge: ${obstacle.name}`);
       } else {
         vrmRoamCurrentPos.x = nextX;
         vrmRoamCurrentPos.z = nextZ;

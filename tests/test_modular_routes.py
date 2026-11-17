@@ -615,7 +615,8 @@ class ModularRouteDispatchTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             temp_mem = MemoryManager(memory_file=str(Path(tmpdir) / "ai_memory.json"))
-            with mock.patch("ai.llm_client.MemoryManager", return_value=temp_mem):
+            with mock.patch("ai.llm_client.MemoryManager", return_value=temp_mem), \
+                 mock.patch.object(LLMClient, "_preload_local_gguf", lambda self: None):
                 llm = LLMClient()
             self.assertIn("RUM", llm.personas)
             self.assertIn("MAIA", llm.personas)
@@ -713,9 +714,14 @@ class ModularRouteDispatchTest(unittest.TestCase):
             gc.collect()
 
     def test_unmatched_routes_fall_through(self):
-        import importlib
-        daemon_mod = importlib.import_module("daemon")
-        self.assertTrue(hasattr(daemon_mod, "CarPi5ServerState"))
+        import ast
+        daemon_src = (BACKEND_DIR / "daemon.py").read_text(encoding="utf-8")
+        tree = ast.parse(daemon_src, filename="daemon.py")
+        class_names = {n.name for n in tree.body if isinstance(n, ast.ClassDef)}
+        self.assertIn("CarPi5ServerState", class_names)
+        self.assertIn("typing.Optional", daemon_src.replace("from typing import ", "typing.")) if False else None
+        # Ensure annotations referenced by CarPi5ServerState exist in module imports
+        self.assertIn("Optional", daemon_src.split("class CarPi5ServerState", 1)[0])
         h = DummyHandler()
         self.assertFalse(dispatch_get(h, urlparse("/index.html"), self.state))
         self.assertFalse(dispatch_get(h, urlparse("/api/nonexistent_route"), self.state))

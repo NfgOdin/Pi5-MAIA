@@ -2572,12 +2572,13 @@ html, body {
 }
 
 .vrm-hud-header {
-  padding: 8px 12px;
+  padding: 6px 10px;
   background: rgba(255, 255, 255, 0.05);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 6px;
   cursor: grab;
   user-select: none;
 }
@@ -2590,16 +2591,20 @@ html, body {
   font-size: 11px;
   font-weight: 900;
   color: var(--accent-pink);
-  letter-spacing: 0.5px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
+  letter-spacing: 0.4px;
+  display: block;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .vrm-hud-actions {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 .vrm-hud-btn {
@@ -4269,6 +4274,7 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
   padding: 8px 14px;
   background: rgba(16, 21, 31, 0.85);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -4279,6 +4285,20 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
 .ai-chat-header-info {
   display: flex;
   align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ai-chat-header-info #chatAssistantTitle {
+  flex-shrink: 0;
+}
+.ai-chat-header-info #chatAssistantSubtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 

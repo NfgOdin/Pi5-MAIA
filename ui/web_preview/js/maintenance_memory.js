@@ -338,7 +338,7 @@ function submitRememberNote() {
   .then(res => {
     closeRememberModal();
     quickQueryMemory(title);
-    if (window.showToast) window.showToast("Memory indexed into R.U.M. vector store!");
+    if (window.showToast) window.showToast(`Memory indexed into ${typeof getPersonaDisplayName === "function" ? getPersonaDisplayName() : "Companion"} vector store!`);
   })
   .catch(err => {
     console.error('[MAINT] Remember error:', err);

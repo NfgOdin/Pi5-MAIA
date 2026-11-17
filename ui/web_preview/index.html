@@ -83,7 +83,7 @@
     <div class="boot-splash-vignette"></div>
     <div class="boot-splash-content">
       <div class="boot-splash-badge">DODGE DART MULTIAIR TURBO</div>
-      <div class="boot-splash-title" id="bootSplashPersonaName">R.U.M. v1.0.0</div>
+      <div class="boot-splash-title" id="bootSplashPersonaName">CARPI5 COMPANION</div>
       <div class="boot-splash-sub" id="bootSplashSubtitle">Realtime Underhood MultiAir • The Forgotten Triplet</div>
       <div class="boot-splash-progress-track">
         <div class="boot-splash-progress-bar" id="bootSplashProgressBar"></div>
@@ -406,7 +406,7 @@
           <div>
             <div class="card-icon" style="color:#b452ff;">🛠️</div>
             <div class="card-title">MAINTENANCE & MEMORY</div>
-            <div class="card-subtitle">MultiAir service intervals, oil life, spark plugs, transaxle, and R.U.M. vector recall memory.</div>
+            <div class="card-subtitle">MultiAir service intervals, oil life, spark plugs, transaxle, and vector recall memory.</div>
           </div>
           <div style="font-size:10px; font-weight:800; color:#b452ff; letter-spacing:0.5px;">VIEW SERVICE & MEMORY →</div>
         </div>
@@ -541,7 +541,7 @@
       </main>
     </div>
 
-    <!-- 3. R.U.M. (AI COMPANION TERMINAL) SCREEN -->
+    <!-- 3. AI COMPANION TERMINAL SCREEN -->
     <div class="screen-view" id="screenAI">
       <!-- Left Column: Interactive Chat & Spoken Events Stream -->
       <div class="ai-chat-column">
@@ -1233,18 +1233,18 @@
       </div>
 
 
-      <!-- ACCORDION 1: R.U.M. & AI NEURAL ENGINE (Default Open) -->
+      <!-- ACCORDION 1: AI COMPANION & NEURAL ENGINE (Default Open) -->
       <div class="settings-accordion-group active" id="accAiGroup">
         <div class="accordion-header" onclick="toggleAccordion('accAiGroup')">
           <div class="accordion-header-left">
             <span class="accordion-icon">🤖</span>
             <div>
-              <div class="accordion-title">R.U.M. & AI NEURAL ENGINE</div>
+              <div class="accordion-title">AI COMPANION &amp; NEURAL ENGINE</div>
               <div class="accordion-desc">Persona, voice mode, wake word, driver nickname, and neural brain hot-swap</div>
             </div>
           </div>
           <div class="accordion-header-right">
-            <span class="accordion-badge" id="accAiBadge">ACTIVE: R.U.M.</span>
+            <span class="accordion-badge" id="accAiBadge">ACTIVE</span>
             <span class="accordion-chevron">▼</span>
           </div>
         </div>
@@ -1382,7 +1382,7 @@
           </div>
         </div>
         <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">
-          Hot-swap the active local LLM neural network powering R.U.M. directly in RAM. Choose between ultra-low-latency 1.5B (14-18 tokens/sec) or full 3B depth without restarting.
+          Hot-swap the active local LLM neural network directly in RAM. Choose between ultra-low-latency 1.5B (14-18 tokens/sec) or full 3B depth without restarting.
         </p>
         <div style="display:flex; align-items:center; gap:12px;">
           <select id="neuralBrainSelector" class="slot-dropdown" style="flex:1; border-color:var(--accent-purple); color:#fff; font-size:12px; padding:8px;">
@@ -1595,7 +1595,7 @@
             <button class="cluster-action-btn" onclick="saveTtsVoiceSettings()" style="background:var(--accent-pink); color:#fff; font-weight:800;">Save Cloud Voice</button>
           </div>
 
-          <!-- R.U.M. Voice Speech Cache & Instant Playback Reserve -->
+          <!-- Voice Speech Cache & Instant Playback Reserve -->
           <div style="background:#090d14; border:1px solid #1a2332; border-radius:8px; padding:12px 14px; margin-top:12px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
               <div>
@@ -2300,7 +2300,7 @@
             </div>
           </div>
           <button class="cluster-action-btn" onclick="playCreatorTribute()" style="background:rgba(255,45,120,0.18); color:var(--accent-pink); border-color:var(--accent-pink); font-size:10px; padding:7px 14px; font-weight:900; white-space:nowrap;">
-            💖 HEAR R.U.M.'s DEDICATION
+            💖 HEAR COMPANION DEDICATION
           </button>
         </div>
 
@@ -2670,12 +2670,12 @@
               No trouble codes detected in ECU memory. Engine is operating within factory MultiAir calibration parameters.
             </div>
 
-            <!-- R.U.M. Mechanic Audio Briefing Card -->
+            <!-- AI Mechanic Audio Briefing Card -->
             <div class="diag-mechanic-card" id="diagMechanicBox" style="display:none;">
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
                 <div style="display:flex; align-items:center; gap:8px;">
                   <span style="font-size:18px;">💜</span>
-                  <span style="font-size:12px; font-weight:900; color:var(--accent-pink);">R.U.M. MECHANIC DIAGNOSIS</span>
+                  <span style="font-size:12px; font-weight:900; color:var(--accent-pink);">AI MECHANIC DIAGNOSIS</span>
                 </div>
                 <button class="cluster-action-btn" onclick="speakMechanicBriefing()" style="background:var(--accent-pink); color:#fff; font-size:10px; font-weight:900; padding:4px 10px;">
                   🗣️ SPEAK ANALYSIS
@@ -2818,7 +2818,7 @@
       </div>
     </div>
 
-    <!-- 11. MULTIAIR MAINTENANCE SCHEDULE & R.U.M. VECTOR MEMORY -->
+    <!-- 11. MULTIAIR MAINTENANCE SCHEDULE & VECTOR MEMORY -->
     <div class="screen-view" id="screenMaintenance">
       <div class="maint-container">
         <!-- Top Sticky Header -->
@@ -2828,7 +2828,7 @@
               🏎️ VEHICLE
             </button>
             <div>
-              <div class="maint-header-title">🛠️ DODGE DART 1.4T MULTIAIR SERVICE & R.U.M. MEMORY</div>
+              <div class="maint-header-title">🛠️ DODGE DART 1.4T MULTIAIR SERVICE &amp; COMPANION MEMORY</div>
               <div class="maint-header-sub">Factory Maintenance Intervals • Hydraulic Actuator Health • Offline Semantic Vector RAG</div>
             </div>
           </div>
@@ -2854,7 +2854,7 @@
             🔧 POWERTRAIN COMPONENT LIFECYCLES &amp; FLUID SPECS
           </button>
           <button id="btnTabMaintMind" class="maint-tab-btn" onclick="switchMaintTab('mind')" style="flex:1; min-height:44px; font-size:12px; font-weight:800; border-radius:8px; border:1px solid #334155; background:#141c26; color:#94a3b8; cursor:pointer;">
-            📖 R.U.M.'S DIARY, LIVING BOND &amp; DRIVER FACTS
+            📖 COMPANION DIARY, LIVING BOND &amp; DRIVER FACTS
           </button>
         </div>
 
@@ -2881,12 +2881,12 @@
             </div>
           </div>
 
-          <!-- Right Column: R.U.M. Semantic Vector Recall & Offline Memory Explorer -->
+          <!-- Right Column: Companion Semantic Vector Recall & Offline Memory Explorer -->
           <div class="maint-panel maint-memory-col">
             <div class="maint-panel-header">
               <div style="display:flex; align-items:center; gap:8px;">
                 <span style="font-size:16px;">🧠</span>
-                <span class="maint-panel-title">R.U.M. VECTOR MEMORY & FLIGHT LOGS</span>
+                <span class="maint-panel-title">VECTOR MEMORY &amp; FLIGHT LOGS</span>
               </div>
               <button class="cluster-action-btn" onclick="openRememberModal()" style="min-height:36px; padding:4px 10px; font-size:11px; font-weight:800; border-color:#00f0ff; color:#00f0ff;">
                 + REMEMBER NOTE
@@ -2895,7 +2895,7 @@
 
             <!-- Memory Search Bar -->
             <div class="maint-search-box">
-              <input type="text" id="maintSearchInput" class="maint-search-input" placeholder="Query R.U.M. memory (e.g. 'oil spec', 'plug gap', 'trip')..." onkeydown="if(event.key==='Enter') submitMaintSearch()">
+              <input type="text" id="maintSearchInput" class="maint-search-input" placeholder="Query vector memory (e.g. 'oil spec', 'plug gap', 'trip')..." onkeydown="if(event.key==='Enter') submitMaintSearch()">
               <button class="maint-search-btn" onclick="submitMaintSearch()">🔍 SEARCH</button>
             </div>
 
@@ -2911,7 +2911,7 @@
             <!-- Search Results / Vector Memory Cards -->
             <div class="maint-results-list" id="maintSearchResults">
               <div class="maint-memory-empty">
-                Tap a topic above or type a search to query R.U.M.'s 384-dimensional offline semantic vector database.
+                Tap a topic above or type a search to query the 384-dimensional offline semantic vector database.
               </div>
             </div>
           </div>
@@ -2925,7 +2925,7 @@
               <div style="display:flex; align-items:center; gap:10px;">
                 <span style="font-size:24px;">💖</span>
                 <div>
-                  <div style="font-size:10px; color:#c084fc; font-weight:700; letter-spacing:0.5px;">R.U.M. CO-PILOT BOND TIER</div>
+                  <div style="font-size:10px; color:#c084fc; font-weight:700; letter-spacing:0.5px;">CO-PILOT BOND TIER</div>
                   <div id="bondTierTitle" class="bond-tier-title" style="font-size:18px; font-weight:900; color:#fff; letter-spacing:0.5px;">INSEPARABLE DAUGHTER</div>
                 </div>
               </div>
@@ -3550,7 +3550,7 @@
 
       <!-- Live Screening Transcript Box -->
       <div id="incallScreeningBox" style="display:none; margin-top:8px; padding:8px 12px; background:rgba(15,23,42,0.8); border:1px solid #334155; border-radius:8px; font-size:11px; color:#e2e8f0;">
-        <span style="font-weight:800; color:#38bdf8;">🤖 R.U.M. LIVE CALL SCREENING:</span>
+        <span style="font-weight:800; color:#38bdf8;">🤖 LIVE CALL SCREENING:</span>
         <div id="incallLiveTranscript" style="margin-top:4px; font-style:italic;">Listening to caller...</div>
       </div>
     </div>
@@ -3683,7 +3683,7 @@
                 <input type="text" id="contactNameInput" class="cockpit-modal-input" placeholder="e.g. Steven" style="width:100%; min-height:44px; background:#1e293b; border:1px solid #334155; border-radius:6px; color:#fff; padding:6px 12px; box-sizing:border-box;" onfocus="showVirtualKeyboard(this)" />
               </div>
               <div>
-                <label style="font-size:10px; color:#94a3b8; font-weight:700;">KINSHIP TITLE (How R.U.M. announces caller)</label>
+                <label style="font-size:10px; color:#94a3b8; font-weight:700;">KINSHIP TITLE (How companion announces caller)</label>
                 <input type="text" id="contactKinshipInput" class="cockpit-modal-input" placeholder="e.g. Uncle Steven" style="width:100%; min-height:44px; background:#1e293b; border:1px solid #334155; border-radius:6px; color:#fff; padding:6px 12px; box-sizing:border-box;" onfocus="showVirtualKeyboard(this)" />
                 <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
                   <button type="button" class="cluster-action-btn" onclick="document.getElementById('contactKinshipInput').value='Nanny'" style="min-height:32px; padding:2px 8px; font-size:10px;">👵 Nanny</button>
@@ -3720,7 +3720,7 @@
               <button onclick="closeSimulateModal()" class="cockpit-modal-close" style="background:none; border:none; color:#94a3b8; font-size:18px; cursor:pointer;">✕</button>
             </div>
             <div style="display:flex; flex-direction:column; gap:10px; padding:16px;">
-              <div style="font-size:11px; color:#94a3b8;">Select a caller to test R.U.M.'s speech screening and family announcement:</div>
+              <div style="font-size:11px; color:#94a3b8;">Select a caller to test speech screening and family announcement:</div>
               <div style="display:flex; flex-direction:column; gap:6px;">
                 <button class="cluster-action-btn" onclick="phoneSimulateInbound('928-555-0199')" style="min-height:44px; text-align:left; padding:8px 12px; border-color:#38bdf8; color:#fff;">🧔 Uncle Steven (928-555-0199)</button>
                 <button class="cluster-action-btn" onclick="phoneSimulateInbound('928-555-0142')" style="min-height:44px; text-align:left; padding:8px 12px; border-color:#38bdf8; color:#fff;">👵 Nanny / Mom (928-555-0142)</button>
@@ -3896,7 +3896,7 @@
             </div>
           </div>
 
-          <!-- R.U.M. Canyon Copilot Callout Bar -->
+          <!-- Canyon Copilot Callout Bar -->
           <div style="background:rgba(179,136,255,0.08); border:1px solid rgba(179,136,255,0.25); border-radius:8px; padding:6px 12px; display:flex; align-items:center; gap:8px;">
             <span style="font-size:14px;">✨</span>
             <span id="canyonVrmCallout" style="font-size:11px; font-weight:700; color:#d8b4fe;">Companion: Pinal Mountain Pass armed. Green flag waiting at Canyon Base.</span>
@@ -5215,12 +5215,12 @@
       </div>
     </div>
 
-    <!-- TEACH R.U.M. A MEMORY NOTE MODAL -->
+    <!-- TEACH COMPANION A MEMORY NOTE MODAL -->
     <div class="config-modal-overlay" id="maintRememberModal" style="display:none;">
       <div class="config-modal-content" style="max-width:480px; border-color:#00f0ff;">
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
           <span style="font-size:24px;">🧠</span>
-          <h3 style="font-size:16px; font-weight:900; color:#fff;">TEACH R.U.M. A NEW MEMORY</h3>
+          <h3 style="font-size:16px; font-weight:900; color:#fff;">TEACH COMPANION A NEW MEMORY</h3>
         </div>
         <p style="font-size:12px; color:#c7d5e4; line-height:1.5; margin-bottom:14px;">
           Add a custom automotive note or fact. R.U.M. will generate a 384-dimensional dense vector embedding and store it in offline long-term memory for conversational recall.
