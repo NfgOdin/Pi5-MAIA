@@ -220,6 +220,13 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
         send_json(handler, {"status": "ok", "tracks": lt.get_tracks() if lt else []})
         return True
 
+    if path == "/api/telemetry/headlights":
+        frame = getattr(state, "latest_frame", None)
+        hl = getattr(frame, "headlights_on", False) if frame else False
+        lux = getattr(frame, "ambient_light_lux", 100.0) if frame else 100.0
+        send_json(handler, {"status": "ok", "headlights_on": hl, "ambient_light_lux": lux})
+        return True
+
     return False
 
 
@@ -261,6 +268,15 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
         gps = getattr(state, "gps", None)
         res = gps.reset_dragy() if gps else {"status": "ok", "state": "IDLE"}
         send_json(handler, res)
+        return True
+
+    if path == "/api/telemetry/headlights":
+        req_data = read_json_body(handler)
+        new_hl = bool(req_data.get("headlights", True))
+        sim = getattr(state, "simulator", None)
+        if sim and hasattr(sim, "set_headlights"):
+            sim.set_headlights(new_hl)
+        send_json(handler, {"status": "ok", "headlights_on": new_hl})
         return True
 
     if not path.startswith("/api/telemetry/lap_timer/"):

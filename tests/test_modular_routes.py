@@ -71,22 +71,88 @@ def make_dummy_state():
         telemetry_mode="SIM",
         lock=threading.Lock(),
         latest_ui_action=None,
-        latest_frame=SimpleNamespace(speed_mph=0.0),
+        latest_frame=SimpleNamespace(speed_mph=0.0, headlights_on=False, ambient_light_lux=100.0),
         last_frame={"rpm": 900, "boost_psi": -8.2, "coolant_temp_f": 192, "speed_mph": 0, "engine_load_pct": 18.0, "pedal_pos_pct": 10.0},
         latest_thermal_data=None,
         is_music_playing=False,
+        is_mic_listening=False,
+        live_convo_mode=False,
+        wake_word_enabled=True,
+        listen_once_requested=False,
+        pending_voice_transcripts=[],
+        pop_voice_transcript=lambda: None,
+        stop_current_listen=lambda: None,
         save_settings=lambda cfg: None,
+        reset_settings=lambda: {"telemetry_mode": "REAL"},
         obd_reader=SimpleNamespace(connected=False, status_message="Offline", dyno=dyno, active_dtcs=[], clear_dtcs=lambda: None),
         simulator=SimpleNamespace(
             dyno=dyno,
             active_dtcs=["P0299"],
             inject_dtc=lambda code: None,
             clear_dtcs=lambda: None,
+            set_headlights=lambda on: None,
         ),
         copilot=SimpleNamespace(
+            voice_mode="COPILOT",
+            driver_name="Dad",
+            last_spoken_time=0.0,
+            set_voice_mode=lambda m: None,
+            get_current_mood=lambda: {"mood": "HAPPY_PROUD", "valence": 0.6, "arousal": 0.4},
+            generate_shower_thought=lambda: "Turbo boost is basically forced enthusiasm.",
             diagnostics=SimpleNamespace(explain_code=lambda c: {"code": c, "title": "Turbo Underboost"}),
             announced_dtcs={"P0299"},
         ),
+        llm=SimpleNamespace(
+            settings={"personality": "RUM", "mode": "LOCAL", "gguf_model_path": "models/qwen3b.gguf", "api_key": "", "gemini_model": "gemini-3.5-flash"},
+            personas={"RUM": {"name": "R.U.M.", "full_name": "R.U.M. AI", "description": "Daughter co-pilot"}},
+            chat_history=[],
+            speech_log=[],
+            circadian_override=None,
+            _llama_model=object(),
+            ai_core_status="ONLINE",
+            get_ai_core_status=lambda: "ONLINE",
+            get_driver_address=lambda: "Dad",
+            get_circadian_state=lambda: {"is_night": False, "phase": "DAY"},
+            get_morning_dream=lambda force=False: {"dream": "Dreamt of Pinal Pass!", "action": "action_standup.bvh"},
+            get_instant_greeting=lambda: {"greeting": "[EMOTION: HAPPY] Morning Dad!"},
+            get_neural_greeting=lambda live_telemetry=None: {"greeting": "[EMOTION: DEVOTED] Ready to drive Dad!"},
+            get_startup_greeting=lambda live_telemetry=None: {"greeting": "Ready, Dad!"},
+            get_available_gguf_models=lambda: ["qwen3b.gguf"],
+            reload_personas=lambda: None,
+            save_settings=lambda cfg: None,
+            chat_with_action=lambda msg, live_telemetry=None, on_clause=None: {
+                "reply": "[EMOTION: HAPPY] Boosting cleanly, Dad!",
+                "action": None,
+                "persona": "RUM",
+            },
+            google_auth=SimpleNamespace(
+                get_status=lambda: {"authenticated": False},
+                start_device_flow=lambda cid, csec: {"status": "ok", "user_code": "ABCD-1234"},
+                logout=lambda: None,
+                save_client_credentials=lambda cid, csec: {"status": "ok"},
+            ),
+        ),
+        rag=SimpleNamespace(
+            get_maintenance_status=lambda: {"odometer": 85240, "items": []},
+            search=lambda q, top_k=5: [{"title": "Oil Spec", "score": 0.91}],
+            get_relationship_bond=lambda: {"miles": 120.5, "level": 2},
+            get_recent_diary_entries=lambda limit=10: [],
+            get_driver_facts=lambda: [{"id": 1, "entity": "Car", "attribute": "Oil", "value": "5W-40"}],
+            get_recent_episodic_memories=lambda limit=10: [],
+            set_driver_fact=lambda e, a, v, c, s: bool(e and a and v),
+            delete_driver_fact=lambda fid: fid == 1,
+            delete_diary_entry=lambda did: did == 1,
+            record_service=lambda k, m, n: bool(k),
+            set_odometer=lambda o: None,
+            add_document=lambda did, cat, title, content, metadata=None: None,
+        ),
+        pip=SimpleNamespace(
+            step=lambda dt, frame, is_night=False: {"wing_hz": 220, "sugar_pct": 85},
+            stimulate_sugar_water=lambda: None,
+            stimulate_scare=lambda force=1.0: None,
+        ),
+        drive_buffer=SimpleNamespace(record_dialogue=lambda u, r: None),
+        hippocampus=SimpleNamespace(consolidate_drive=lambda buf, rag, data: {"status": "ok", "consolidated": 1}),
         gps=SimpleNamespace(
             get_telemetry=lambda: {"dragy": {}, "g_forces": {}, "speed_mph": 0.0, "road_grade_pct": 0.0},
             arm_staging=lambda tree: {"status": "ok", "state": "STAGED", "tree": tree},
@@ -133,6 +199,7 @@ def make_dummy_state():
             update_position=lambda lat, lon, spd: {"is_navigating": False},
         ),
         settings={},
+        display_settings={},
         avrcp_player=SimpleNamespace(
             current_track={"title": "Test"},
             playback_status="paused",
@@ -142,7 +209,12 @@ def make_dummy_state():
         audio=SimpleNamespace(
             _is_currently_ducking=False,
             is_speaking=False,
+            play_acknowledgment=lambda p: None,
+            play_instant_ack=lambda: None,
+            speak=lambda txt, priority=1: None,
+            configure_tts=lambda s: None,
             cache_mgr=SimpleNamespace(get_stats=lambda: {"entries": 10}),
+            get_speech_clip=lambda seq: b"RIFFdemo" if seq == 1 else None,
             get_cache_stats=lambda: {"size_mb": 4.2, "max_mb": 200},
             calculate_downsize_impact=lambda mb: {"target_mb": mb, "prune_count": 0},
             set_cache_limit=lambda mb: {"max_mb": mb},
@@ -407,11 +479,136 @@ class ModularRouteDispatchTest(unittest.TestCase):
                 self.assertEqual(h2.status, 200)
                 self.assertIn("Sample error", h2.wfile.getvalue().decode("utf-8"))
 
+    def test_sprint3_ai_and_maintenance_pip_routes(self):
+        from routes.ai_routes import extract_emotion_and_clean_speech
+
+        emo, clean = extract_emotion_and_clean_speech("[EMOTION: EXCITED] Boost ready!")
+        self.assertEqual(emo, "EXCITED")
+        self.assertEqual(clean, "Boost ready!")
+
+        for path in (
+            "/api/ai/status",
+            "/api/ai/voice_mode?mode=COPILOT",
+            "/api/ai/memory/query?q=oil",
+            "/api/ai/memory/living_summary",
+            "/api/ai/memory/facts",
+            "/api/ai/memory/diary",
+            "/api/ai/memory/bond",
+            "/api/ai/circadian",
+            "/api/ai/mood",
+            "/api/ai/morning_dream",
+            "/api/ai/greeting/instant",
+            "/api/ai/greeting/official",
+            "/api/ai/models",
+            "/api/ai/greeting",
+            "/api/ai/personas",
+            "/api/ai/history",
+            "/api/ai/settings",
+            "/api/maintenance/status",
+            "/api/pip/state",
+        ):
+            h = DummyHandler()
+            self.assertTrue(dispatch_get(h, urlparse(path), self.state), path)
+            self.assertEqual(h.status, 200)
+
+        self.state.llm.personas["RUM"]["touch_interactions"] = {
+            "head_top": {"lines": ["Pat!"], "animations": ["greeting"]}
+        }
+        self.state.llm.personas["RUM"]["banned_touch_zones"] = ["restricted_zone"]
+        h_hist = DummyHandler()
+        self.assertTrue(dispatch_get(h_hist, urlparse("/api/ai/history"), self.state))
+        self.assertEqual(h_hist.status, 200)
+        rum_payload = h_hist.json_body()["personalities"]["RUM"]
+        self.assertIn("head_top", rum_payload["touch_interactions"])
+        self.assertEqual(rum_payload["banned_touch_zones"], ["restricted_zone"])
+
+        for path, body in (
+            ("/api/ai/chat", {"message": "How is boost?"}),
+            ("/api/ai/listen", {"action": "toggle_convo"}),
+            ("/api/ai/speak", {"text": "Hello Dad"}),
+            ("/api/ai/wake_test", {}),
+            ("/api/ai/circadian/simulate", {"mode": "NIGHT"}),
+            ("/api/ai/morning_dream", {}),
+            ("/api/ai/shower_thought", {}),
+            ("/api/ai/settings", {"personality": "RUM"}),
+            ("/api/ai/memory/facts", {"entity": "Dart", "attribute": "PlugGap", "value": "0.026in"}),
+            ("/api/ai/memory/facts/delete", {"id": 1}),
+            ("/api/ai/memory/diary/delete", {"id": 1}),
+            ("/api/ai/memory/consolidate", {}),
+            ("/api/ai/memory/remember", {"title": "Torque", "content": "184 lb-ft"}),
+            ("/api/maintenance/record", {"item_key": "oil_5w40", "mileage": 85300, "notes": "Done"}),
+            ("/api/maintenance/odometer", {"odometer": 85310}),
+            ("/api/pip/feed", {}),
+            ("/api/pip/scare", {}),
+        ):
+            h = DummyHandler(body)
+            self.assertTrue(dispatch_post(h, urlparse(path), self.state), path)
+            self.assertEqual(h.status, 200)
+
+    def test_sprint3_settings_auth_assets_media_and_headlights_routes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            (tmp_path / "storage").mkdir()
+            (tmp_path / "storage" / "manual.txt").write_text("MultiAir manual", encoding="utf-8")
+            (tmp_path / "config").mkdir()
+            self.state.base_dir = tmp_path
+
+            for path in (
+                "/api/status",
+                "/api/settings/all",
+                "/api/display/settings",
+                "/api/auth/google/status",
+                "/api/ui/navigate?screen=canyon",
+                "/api/telemetry/headlights",
+                "/api/media/now_playing",
+                "/api/media/stremio_addons",
+                "/api/media/tracks",
+                "/api/audio/speech_clip?seq=1",
+                "/api/media/external_app_status",
+                "/api/models/avatars",
+                "/api/models/vrma",
+                "/api/models/bvh",
+                "/api/models/custom_props",
+                "/api/models/room_layout",
+                "/storage/manual.txt",
+            ):
+                h = DummyHandler()
+                self.assertTrue(dispatch_get(h, urlparse(path), self.state), path)
+                self.assertEqual(h.status, 200)
+
+            for path, body in (
+                ("/api/settings/save", {"brightness": 80}),
+                ("/api/settings/reset", {}),
+                ("/api/ui/navigate", {"screen": "phone"}),
+                ("/api/auth/google/start", {"client_id": "cid", "client_secret": "csec"}),
+                ("/api/auth/google/config", {"client_id": "cid", "client_secret": "csec"}),
+                ("/api/auth/google/logout", {}),
+                ("/api/telemetry/headlights", {"headlights": True}),
+                ("/api/models/room_layout", {"version": 1, "props": [{"id": "lamp"}]}),
+            ):
+                h = DummyHandler(body)
+                self.assertTrue(dispatch_post(h, urlparse(path), self.state), path)
+                self.assertEqual(h.status, 200)
+            self.assertEqual(self.state.latest_ui_action["target"], "phone")
+
+            # Storage traversal protection returns 404
+            h_trav = DummyHandler()
+            self.assertTrue(dispatch_get(h_trav, urlparse("/storage/../secret.txt"), self.state))
+            self.assertEqual(h_trav.status, 404)
+
+    def test_voice_listener_normalization(self):
+        from ai.voice_listener import normalize_wake_transcript
+
+        self.assertEqual(normalize_wake_transcript("hey rem"), ("Hey Rum", True))
+        self.assertEqual(normalize_wake_transcript("hey ron, what is boost"), ("Hey Rum, what is boost", True))
+        self.assertEqual(normalize_wake_transcript("drum"), ("Hey Rum", True))
+        self.assertEqual(normalize_wake_transcript("turn left ahead"), ("turn left ahead", False))
+
     def test_unmatched_routes_fall_through(self):
         h = DummyHandler()
-        self.assertFalse(dispatch_get(h, urlparse("/api/status"), self.state))
-        self.assertFalse(dispatch_post(h, urlparse("/api/ai/chat"), self.state))
-        self.assertFalse(dispatch_post(h, urlparse("/api/models/room_layout"), self.state))
+        self.assertFalse(dispatch_get(h, urlparse("/index.html"), self.state))
+        self.assertFalse(dispatch_get(h, urlparse("/api/nonexistent_route"), self.state))
+        self.assertFalse(dispatch_post(h, urlparse("/api/nonexistent_route"), self.state))
 
 
 if __name__ == "__main__":

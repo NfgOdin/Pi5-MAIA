@@ -1518,6 +1518,12 @@ class LLMClient:
                 if f"{pct}" in t:
                     return {"type": "fan", "action": "set", "duty": pct}
 
+        # Room / Outdoor Balcony Navigation for R.U.M.
+        elif any(k in t for k in ["go outside", "walk outside", "step outside", "go to the balcony", "out to the balcony", "onto the balcony", "out on the balcony"]):
+            return {"type": "rum_walk", "target": "balcony"}
+        elif any(k in t for k in ["come inside", "go inside", "come back inside", "go back inside", "back inside the room"]):
+            return {"type": "rum_walk", "target": "inside"}
+
         # Direct App Launchers
         if "launch retroarch" in t or "open retroarch" in t:
             return {"type": "launch", "target": "retroarch"}

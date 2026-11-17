@@ -509,6 +509,9 @@ class AudioPlayer:
         self._music_playing_checker = None
         self._is_currently_ducking = False
         self._duck_lock = threading.Lock()
+        self._speech_lock = threading.Lock()
+        self._speech_seq = 0
+        self._speech_clips: Dict[int, bytes] = {}
 
 
 
@@ -1912,6 +1915,33 @@ class AudioPlayer:
 
 
 
+    def register_speech_clip(self, file_path: str) -> int:
+        """Store rendered WAV bytes in an in-memory ring buffer for remote browser playback."""
+        try:
+            with open(file_path, "rb") as f:
+                wav_bytes = f.read()
+            if not wav_bytes:
+                return 0
+            with self._speech_lock:
+                self._speech_seq += 1
+                seq = self._speech_seq
+                self._speech_clips[seq] = wav_bytes
+                # Keep only the latest 24 clips in RAM
+                stale = [k for k in self._speech_clips if k <= seq - 24]
+                for k in stale:
+                    self._speech_clips.pop(k, None)
+                return seq
+        except Exception:
+            return 0
+
+    def get_speech_seq(self) -> int:
+        with self._speech_lock:
+            return self._speech_seq
+
+    def get_speech_clip(self, seq: int) -> Optional[bytes]:
+        with self._speech_lock:
+            return self._speech_clips.get(seq)
+
     def _play_file_direct(self, file_path: str, lead_in_silence_sec: float = 0.0):
 
 
@@ -1925,6 +1955,8 @@ class AudioPlayer:
 
 
             return
+
+        self.register_speech_clip(file_path)
 
 
 
