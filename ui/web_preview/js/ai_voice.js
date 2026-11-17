@@ -2,61 +2,95 @@
 
 // --- 7. DYNAMIC AI COMPANION (M.A.I.A. / J.A.R.V.I.S. / PIT WALL) ---
 
+function getActivePersonaData(pKey) {
+  const key = pKey || currentAiSettings.personality || 'RUM';
+  if (window.allPersonas && window.allPersonas[key]) return window.allPersonas[key];
+  if (window.allPersonas) {
+    const firstKey = Object.keys(window.allPersonas)[0];
+    if (firstKey) return window.allPersonas[firstKey];
+  }
+  return {};
+}
+
 function getPersonaDisplayName(pKey) {
-  if (!pKey) pKey = currentAiSettings.personality || 'RUM';
-  if (pKey === 'JARVIS') return 'J.A.R.V.I.S.';
-  if (pKey === 'RACE_ENGINEER' || pKey === 'PITWALL') return 'PIT WALL';
-  return 'R.U.M.';
+  const pData = getActivePersonaData(pKey);
+  if (pData && pData.name) return pData.name;
+  return pKey || currentAiSettings.personality || 'Companion';
+}
+
+function formatPersonaText(template, extra = {}) {
+  if (!template || typeof template !== 'string') return '';
+  const addr = (typeof getDriverDisplayAddress === 'function') ? getDriverDisplayAddress() : 'Driver';
+  const pData = getActivePersonaData();
+  const ctx = Object.assign({
+    driver_address: addr,
+    persona_name: pData.name || 'Companion',
+  }, extra || {});
+  return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (m, k) => (ctx[k] !== undefined ? String(ctx[k]) : m));
 }
 
 function updatePersonaUI(personaKey) {
-  if (!personaKey || personaKey === 'MAIA') personaKey = 'RUM';
+  if (!personaKey) personaKey = currentAiSettings.personality || 'RUM';
   currentAiSettings.personality = personaKey;
 
-  const pData = (window.allPersonas && window.allPersonas[personaKey]) ? window.allPersonas[personaKey] : null;
-  const avatarPath = (pData && pData.avatar_image) ? pData.avatar_image : 'assets/pics/rum_avatar.png';
-  const splashImg = (pData && pData.boot_splash_image) ? pData.boot_splash_image : 'assets/pics/splash.png';
-  const splashVid = (pData && pData.boot_splash_video) ? pData.boot_splash_video : '';
+  const pData = (window.allPersonas && window.allPersonas[personaKey]) ? window.allPersonas[personaKey] : {};
+  const vrmDef = pData.vrm_defaults || {};
+  const uiLbl = pData.ui_labels || {};
+  const wakeCfg = pData.wake_words || {};
+  const avatarPath = pData.avatar_image || 'assets/pics/splash.png';
+  const splashImg = pData.boot_splash_image || 'assets/pics/splash.png';
+  const splashVid = pData.boot_splash_video || '';
 
-  let displayName = "R.U.M.";
-  let subtitleText = "Realtime Underhood MultiAir • The Forgotten Triplet";
-  let statusBadgeText = "R.U.M. ACTIVE";
-  let cardTitleText = "R.U.M.";
-  let bannerQuote = "Master! Rum is right here riding shotgun with you!";
-  let icon = "💜";
+  const displayName = pData.name || personaKey;
+  const shortName = pData.display_short_name || displayName;
+  const icon = pData.icon || '✨';
+  const subtitleText = pData.subtitle || pData.archetype || 'Dedicated Cockpit AI Companion';
+  const statusBadgeText = formatPersonaText(vrmDef.status_badge || `${displayName} ACTIVE`);
+  const cardTitleText = formatPersonaText(vrmDef.card_title || displayName);
+  const bannerQuote = formatPersonaText(vrmDef.banner_quote || `${displayName} is riding shotgun with you!`);
+  const wakeExample = wakeCfg.canonical_prefix || `Hey ${shortName}`;
 
-  if (personaKey === 'JARVIS') {
-    displayName = "J.A.R.V.I.S.";
-    subtitleText = "Just A Rather Very Intelligent System • Tactical Cockpit Butler";
-    statusBadgeText = "J.A.R.V.I.S. READY";
-    cardTitleText = "J.A.R.V.I.S. COCKPIT";
-    bannerQuote = "All cockpit systems nominal, Sir.";
-    icon = "🛡️";
-  } else if (personaKey === 'RACE_ENGINEER' || personaKey === 'PITWALL') {
-    displayName = "PIT WALL";
-    subtitleText = "F1 Telemetry & Race Engineer • Performance Strategist";
-    statusBadgeText = "PIT WALL READY";
-    cardTitleText = "PIT WALL STRATEGY";
-    bannerQuote = "Radio check. Telemetry green, box this lap if needed.";
-    icon = "🏎️";
-  }
-
-  // 1. Update Bottom Navigation Dock Button
+  // 1. Update Bottom Navigation Dock Button & Min Pill
   const dockBtn = document.getElementById('dockBtnAI');
-  if (dockBtn) dockBtn.innerText = `${icon} ${displayName === 'R.U.M.' ? 'RUM' : displayName}`;
+  if (dockBtn) dockBtn.innerText = `${icon} ${shortName}`;
+  const minPill = document.getElementById('vrmMinHudPill');
+  if (minPill) minPill.innerText = `${icon} ${shortName}`;
+  const hudTitle = document.getElementById('vrmHudTitle');
+  if (hudTitle) hudTitle.innerHTML = `<span>${icon}</span> ${formatPersonaText(vrmDef.hud_title || `${shortName} • SHOTGUN`)}`;
 
   // 2. Update AI Chat Header Title & Subtitle
   const titleEl = document.getElementById('chatAssistantTitle');
-  if (titleEl) titleEl.innerText = `${displayName} Copilot`;
-
+  if (titleEl) titleEl.innerText = `${icon} ${displayName} Copilot`;
   const subEl = document.getElementById('chatAssistantSubtitle');
   if (subEl) subEl.innerText = subtitleText;
 
-  // 3. Update Chat Input Placeholder
+  // 3. Update Chat Input Placeholder & Quick Prompts Bar (Data-driven from persona JSON)
   const inputEl = document.getElementById('chatInput');
-  if (inputEl) inputEl.placeholder = `Talk to Rum (or say 'Hey Rum' / tap 🎙️)...`;
+  if (inputEl) inputEl.placeholder = `Talk to ${displayName} (or say '${wakeExample}' / tap 🎙️)...`;
+  const promptsBar = document.getElementById('quickPromptsBar');
+  if (promptsBar && Array.isArray(uiLbl.quick_prompts) && uiLbl.quick_prompts.length > 0) {
+    promptsBar.innerHTML = uiLbl.quick_prompts.map(q => {
+      const promptText = formatPersonaText(q.prompt || '');
+      const safePrompt = promptText.replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+      return `<button class="quick-prompt-chip" onclick="sendQuickPrompt('${safePrompt}')">${escapeHtml(q.label || promptText)}</button>`;
+    }).join('');
+  }
 
-  // 4. Update Home Screen Card & Badges
+  // 4. Update Drag / Canyon / Teach / Voice Copy
+  const dragCallout = document.getElementById('dragVrmCallout');
+  if (dragCallout && uiLbl.drag_ready) dragCallout.innerText = formatPersonaText(uiLbl.drag_ready);
+  const canyonCallout = document.getElementById('canyonVrmCallout');
+  if (canyonCallout && uiLbl.canyon_ready) canyonCallout.innerText = formatPersonaText(uiLbl.canyon_ready);
+  const teachBtn = document.getElementById('btnTeachPersona');
+  if (teachBtn && uiLbl.teach_btn) teachBtn.innerText = uiLbl.teach_btn;
+  const wakeHint = document.getElementById('settingsWakeHint');
+  if (wakeHint) wakeHint.innerText = `Say "${shortName}" or "${wakeExample}" to speak hands-free via USB mic.`;
+  const voiceHeader = document.getElementById('settingsVoiceHeader');
+  if (voiceHeader) voiceHeader.innerText = `🎙️ ${shortName.toUpperCase()} VOICE SYNTHESIS ENGINE`;
+  const modelBtn = document.getElementById('btnVrmModelToggle');
+  if (modelBtn && window.vrmModel) modelBtn.innerText = `${icon} ${shortName}`;
+
+  // 5. Update Home Screen Card & Badges
   const homeBadge = document.getElementById('homeAiStatusBadge');
   if (homeBadge) homeBadge.innerText = statusBadgeText;
 
@@ -82,11 +116,11 @@ function updatePersonaUI(personaKey) {
   const homeQuote = document.getElementById('homeBannerAiQuote');
   if (homeQuote) homeQuote.innerText = bannerQuote;
 
-  // 5. Update Dropdown Selectors
+  // 6. Update Dropdown Selectors
   const chatSelect = document.getElementById('personaSelector');
   if (chatSelect && chatSelect.value !== personaKey) chatSelect.value = personaKey;
 
-  // 6. Update Settings Screen Labels & Profile Hints
+  // 7. Update Settings Screen Labels & Profile Hints
   const profileCardTitle = document.getElementById('settingsProfileCardTitle');
   if (profileCardTitle) profileCardTitle.innerHTML = `<span>👤</span> DRIVER PROFILE & WHAT ${displayName} CALLS YOU`;
 
@@ -265,12 +299,12 @@ function handleAiAction(action) {
     showAiSpeechToast(action.speech);
     setWaifuEmotion(action.emotion || 'HAPPY_PROUD');
     if (action.action && typeof playVrmAction === 'function') {
-      playVrmAction(action.action, 4500);
+      playVrmAction(action.action, 4500, true);
     }
     if (action.type === 'PIP_FEED') {
-      if (typeof attachPipDropperToRum === 'function') attachPipDropperToRum();
+      if (typeof attachPipDropperToVrm === 'function') attachPipDropperToVrm();
       setTimeout(() => {
-        if (typeof detachPipDropperFromRum === 'function') detachPipDropperFromRum();
+        if (typeof detachPipDropperFromVrm === 'function') detachPipDropperFromVrm();
       }, 5000);
     }
     return;
@@ -284,7 +318,7 @@ function handleAiAction(action) {
     showAiSpeechToast(action.speech);
     setWaifuEmotion('HAPPY_PROUD');
     if (typeof playVrmAction === 'function') {
-      playVrmAction('action_standup.bvh', 5000);
+      playVrmAction('action_standup.bvh', 5000, true);
     }
     return;
   }
@@ -336,11 +370,11 @@ function handleAiAction(action) {
     } else if (action.action === 'mute') {
       toggleAudioMute();
     }
-  } else if (action.type === 'rum_walk') {
-    if (action.target === 'balcony' && typeof walkRumOutsideToBalcony === 'function') {
-      walkRumOutsideToBalcony();
-    } else if (action.target === 'inside' && typeof walkRumInsideRoom === 'function') {
-      walkRumInsideRoom();
+  } else if (action.type === 'avatar_walk' || action.type === 'rum_walk') {
+    if (action.target === 'balcony' && typeof walkVrmOutsideToBalcony === 'function') {
+      walkVrmOutsideToBalcony();
+    } else if (action.target === 'inside' && typeof walkVrmInsideRoom === 'function') {
+      walkVrmInsideRoom();
     }
   }
 }
@@ -349,10 +383,7 @@ function fetchAiHistory() {
   fetch('/api/ai/history')
     .then(r => r.json())
     .then(data => {
-      renderChatMessages(data.chat_history || []);
-      renderSpeechLogs(data.speech_log || []);
       if (data.personalities) {
-
         window.allPersonas = data.personalities;
         const sel = document.getElementById('personaSelector');
         const settSel = document.getElementById('settingsPersonaSelector');
@@ -369,6 +400,9 @@ function fetchAiHistory() {
         syncSettingsUI();
         updatePersonaUI(data.settings.personality);
       }
+      if (_renderedSpeechIds) _renderedSpeechIds.clear();
+      renderChatMessages(data.chat_history || []);
+      renderSpeechLogs(data.speech_log || []);
     })
     .catch(err => console.error("[AI] History fetch error:", err));
 }
@@ -380,21 +414,16 @@ function renderChatMessages(history) {
   const currentName = getPersonaDisplayName(currentAiSettings.personality);
 
   if (history.length === 0) {
-    const addr = getDriverDisplayAddress();
-    const isRum = (currentAiSettings.personality === 'RUM' || activeAvatarEngine === '3D_VRM');
-    const introMsg = isRum
-      ? `Yay, ${addr}! Rum is right here riding shotgun with you! Tap any quick prompt below or talk to me anytime!`
-      : `Hey ${addr}, cockpit systems are loaded and ready. Talk to me or tap any of the quick prompts below!`;
+    const pData = getActivePersonaData();
+    const introTpl = (pData.greetings && pData.greetings.first_chat_intro)
+      ? pData.greetings.first_chat_intro
+      : `Hey {driver_address}, cockpit systems are loaded and ready. Talk to me or tap any prompt below!`;
+    const introMsg = formatPersonaText(introTpl);
     container.innerHTML = `
-
       <div class="chat-bubble maia">
-
-        <strong>${currentName}:</strong> ${introMsg}
-
+        <strong>${escapeHtml(currentName)}:</strong> ${escapeHtml(introMsg)}
         <div class="chat-time">Just now</div>
-
       </div>
-
     `;
     return;
   }
@@ -404,11 +433,8 @@ function renderChatMessages(history) {
     bubble.className = `chat-bubble ${msg.role === 'user' ? 'user' : 'maia'}`;
     const namePrefix = msg.role === 'user' ? 'You' : currentName;
     bubble.innerHTML = `
-
-      <div><strong>${namePrefix}:</strong> ${msg.text}</div>
-
-      <div class="chat-time">${msg.time || ''}</div>
-
+      <div><strong>${escapeHtml(namePrefix)}:</strong> ${escapeHtml(msg.text)}</div>
+      <div class="chat-time">${escapeHtml(msg.time || '')}</div>
     `;
     container.appendChild(bubble);
   });
@@ -423,44 +449,57 @@ function renderSpeechLogs(logs) {
   });
 }
 
+const _renderedSpeechIds = new Set();
+const _recentSpeechFingerprints = new Map();
+
 function appendSpeechLogItem(item) {
   if (!item || (!item.speech && !item.text && !item.hud_message)) return;
-  const chatContainer = document.getElementById('aiChatMessages');
-  if (!chatContainer) return;
+  const container = document.getElementById('aiChatMessages');
+  if (!container) return;
 
-  const text = item.speech || item.text || item.hud_message;
+  const text = String(item.speech || item.text || item.hud_message || '').trim();
+  if (!text) return;
+  const src = String(item.source || item.type || 'COPILOT').toUpperCase();
+
+  // Conversational CHAT replies are already rendered as standard chat-bubbles
+  if (src === 'CHAT') return;
+
+  if (item.client_id && _renderedSpeechIds.has(`cli:${item.client_id}`)) return;
+  if (item.id && _renderedSpeechIds.has(`id:${item.id}`)) return;
+
+  const fp = `${src}|${text}`;
+  const now = Date.now();
+  const prevAt = _recentSpeechFingerprints.get(fp) || 0;
+  if (now - prevAt < 4000) return;
+
+  if (item.client_id) _renderedSpeechIds.add(`cli:${item.client_id}`);
+  if (item.id) _renderedSpeechIds.add(`id:${item.id}`);
+  _recentSpeechFingerprints.set(fp, now);
+  if (_recentSpeechFingerprints.size > 80) {
+    const oldestKey = _recentSpeechFingerprints.keys().next().value;
+    _recentSpeechFingerprints.delete(oldestKey);
+  }
+
   const timeStr = item.time_str || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const src = item.source || item.type || 'COPILOT';
-
-  // Do not duplicate chat replies or boot-stage audio milestones into user conversational chat
-  if (src === 'CHAT' || src === 'INSTANT_BOOT' || src === 'NEURAL_BOOT') return;
-
+  const pData = getActivePersonaData();
+  const speakerName = item.persona || pData.display_short_name || getPersonaDisplayName();
+  const speakerIcon = pData.icon || '✨';
   const isAlert = (item.type === 'CRITICAL' || (item.tags && item.tags.includes('ALERT')));
   const div = document.createElement('div');
   div.className = 'copilot-event-entry';
   div.innerHTML = `
-
     <div class="copilot-event-bubble ${isAlert ? 'alert' : ''}">
-
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 4px; font-size: 10px; font-weight: 800;">
-
         <span style="color:${isAlert ? 'var(--accent-red)' : 'var(--accent-lavender, #c084fc)'}; display:flex; align-items:center; gap:5px;">
-
-          <span>${isAlert ? '⚠️' : '💜'}</span> <b>RUM • ${src}</b>
-
+          <span>${isAlert ? '⚠️' : escapeHtml(speakerIcon)}</span> <b>${escapeHtml(speakerName)} • ${escapeHtml(src)}</b>
         </span>
-
-        <span style="color:var(--text-secondary); font-size: 9px;">${timeStr}</span>
-
+        <span style="color:var(--text-secondary); font-size: 9px;">${escapeHtml(timeStr)}</span>
       </div>
-
-      <div style="color: #f3f0ff; font-size: 11px; line-height: 1.4;">${text}</div>
-
+      <div style="color: #f3f0ff; font-size: 11px; line-height: 1.4;">${escapeHtml(text)}</div>
     </div>
-
   `;
-  chatContainer.appendChild(div);
-  chatContainer.scrollTop = chatContainer.scrollHeight;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
 }
 
 function scrollChatToBottom() {
@@ -689,12 +728,37 @@ function scheduleShotgunAutoDismiss(delayMs = 2800) {
   }, delayMs);
 }
 
-function speakUtterance(text, emotion) {
-  if (!text || currentVoiceMode === "MUTED") return;
+function speakUtterance(text, emotion, source = 'COMPANION') {
+  if (!text) return;
+  const cleanSpeech = String(text).trim();
+  if (!cleanSpeech) return;
+
+  const clientMsgId = 'cli_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  const srcTag = source || 'COMPANION';
+  appendSpeechLogItem({
+    client_id: clientMsgId,
+    speech: cleanSpeech,
+    source: srcTag,
+    emotion: emotion || 'DEVOTED',
+  });
+
+  // Persist in backend speech_log (backend handles MUTED check before TTS synthesis)
+  fetch('/api/ai/speak', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      text: cleanSpeech,
+      source: srcTag,
+      emotion: emotion || 'DEVOTED',
+      client_id: clientMsgId,
+    })
+  }).catch(() => {});
+
+  if (currentVoiceMode === "MUTED") return;
   setMediaDuckState(true);
 
   if (currentScreen !== 'ai') {
-    handleSpeechAutoShotgun(text, Math.max(2200, (text.length / 9.5) * 1000 + 400));
+    handleSpeechAutoShotgun(cleanSpeech, Math.max(2200, (cleanSpeech.length / 9.5) * 1000 + 400));
   }
 
   if (emotion) {
@@ -702,13 +766,18 @@ function speakUtterance(text, emotion) {
   }
 
   // Fallback timer only if SSE stream is disconnected
-  const estimatedDurationMs = Math.max(2200, (text.length / 9.5) * 1000 + 300);
-  rumGazeRetentionUntil = Math.max(rumGazeRetentionUntil, Date.now() + estimatedDurationMs + 9000);
+  const estimatedDurationMs = Math.max(2200, (cleanSpeech.length / 9.5) * 1000 + 300);
+  if (typeof window.vrmGazeRetentionUntil === 'number') {
+    window.vrmGazeRetentionUntil = Math.max(window.vrmGazeRetentionUntil, Date.now() + estimatedDurationMs + 9000);
+  }
+  if (typeof vrmGazeRetentionUntil !== 'undefined') {
+    vrmGazeRetentionUntil = Math.max(vrmGazeRetentionUntil, Date.now() + estimatedDurationMs + 9000);
+  }
   if (!eventSource || eventSource.readyState !== 1) {
     waifuSpeechEndTime = Date.now() + estimatedDurationMs;
     setTimeout(() => { if (!isHardwareSpeaking) setMediaDuckState(false); }, estimatedDurationMs);
   }
-  if (typeof setVrmSpeaking === 'function') setVrmSpeaking(estimatedDurationMs, text, false);
+  if (typeof setVrmSpeaking === 'function') setVrmSpeaking(estimatedDurationMs, cleanSpeech, false);
   const stage = document.getElementById('waifuStage');
 
   if (!eventSource || eventSource.readyState !== 1) {
@@ -732,30 +801,16 @@ function speakUtterance(text, emotion) {
     avatarEls.forEach(el => el && el.classList.remove('waifu-speaking'));
   }, estimatedDurationMs);
 
-  // 2. Play via Backend Piper TTS out of HDMI Monitor Speakers
-  fetch('/api/ai/speak', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: text })
-  }).catch(() => {});
-
   // 3. Fallback browser SpeechSynthesis ONLY for offline desktop browser preview (not on live Pi backend)
   const isDevPreview = window.location.protocol === 'file:';
   if (isDevPreview && 'speechSynthesis' in window) {
     try {
-
       window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      const p = currentAiSettings.personality || 'RUM';
-      if (p === 'JARVIS') {
-        utterance.rate = 0.96; utterance.pitch = 0.90;
-      } else if (p === 'RACE_ENGINEER' || p === 'PITWALL') {
-        utterance.rate = 1.14; utterance.pitch = 1.0;
-      } else {
-        // High-pitched 12-yr-old anime girl pitch for Rum
-        utterance.rate = 1.08; utterance.pitch = 1.24;
-      }
-
+      const utterance = new SpeechSynthesisUtterance(cleanSpeech);
+      const pData = getActivePersonaData();
+      const pitch = parseFloat(pData.pitch_factor || 1.1);
+      utterance.rate = 1.05;
+      utterance.pitch = Number.isFinite(pitch) ? Math.min(1.6, Math.max(0.7, pitch)) : 1.05;
       window.speechSynthesis.speak(utterance);
     } catch (e) {}
   }
@@ -1064,6 +1119,7 @@ function syncVoiceButtonState(convoActive, micCapturing, wakeEnabled) {
 
   const btn = document.getElementById('btnLiveConvo');
   if (!btn) return;
+  const pName = getPersonaDisplayName();
   if (convoActive) {
     btn.innerHTML = "🔴";
     btn.classList.add('recording');
@@ -1071,8 +1127,8 @@ function syncVoiceButtonState(convoActive, micCapturing, wakeEnabled) {
     btn.style.boxShadow = "0 0 16px rgba(239, 68, 68, 0.85)";
     btn.style.background = "rgba(239, 68, 68, 0.35)";
     btn.title = _pcMicActive
-      ? "Laptop Microphone LIVE (Speak to R.U.M.! Tap to stop)"
-      : "Live Voice Conversation Active (Speak freely to Rum! Tap to stop)";
+      ? `Laptop Microphone LIVE (Speak to ${pName}! Tap to stop)`
+      : `Live Voice Conversation Active (Speak freely to ${pName}! Tap to stop)`;
   } else {
     btn.innerHTML = "🎙️";
     btn.classList.remove('recording');
@@ -1080,7 +1136,7 @@ function syncVoiceButtonState(convoActive, micCapturing, wakeEnabled) {
     btn.style.boxShadow = "";
     btn.style.background = "";
     btn.title = isPcAudioMode
-      ? "Speak to R.U.M. via Laptop Microphone"
+      ? `Speak to ${pName} via Laptop Microphone`
       : "Toggle Live Voice Conversation Mode (USB Mic)";
   }
 }
@@ -1103,10 +1159,13 @@ async function toggleLiveConversationMode() {
     });
     const data = await resp.json();
     syncVoiceButtonState(data.live_convo_mode, data.is_mic_listening, data.wake_word_enabled);
+    const pData = getActivePersonaData();
+    const pName = getPersonaDisplayName();
+    const wakeEx = (pData.wake_words && pData.wake_words.canonical_prefix) || `Hey ${pName}`;
     if (data.live_convo_mode) {
-      showAiSpeechToast("🔴 Live Voice Mode ON! Speak to Rum anytime — your words appear in chat!");
+      showAiSpeechToast(`🔴 Live Voice Mode ON! Speak to ${pName} anytime — your words appear in chat!`);
     } else {
-      showAiSpeechToast("🎙️ Live Voice Mode paused. Wake word 'Hey Rum' is still active!");
+      showAiSpeechToast(`🎙️ Live Voice Mode paused. Wake word '${wakeEx}' is still active!`);
     }
   } catch (err) {
     console.error("[VOICE] Backend listen toggle failed:", err);
@@ -1115,6 +1174,8 @@ async function toggleLiveConversationMode() {
 
 function toggleWakeWordListening() {
   const nextWake = !isWakeWordEnabled;
+  const pData = getActivePersonaData();
+  const wakeEx = (pData.wake_words && pData.wake_words.canonical_prefix) || `Hey ${getPersonaDisplayName()}`;
   fetch('/api/ai/listen', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1123,7 +1184,7 @@ function toggleWakeWordListening() {
     .then(r => r.json())
     .then(data => {
       syncVoiceButtonState(data.live_convo_mode, data.is_mic_listening, data.wake_word_enabled);
-      showAiSpeechToast(data.wake_word_enabled ? "🎤 Wake word 'Hey Rum' enabled!" : "🔇 Wake word listening paused.");
+      showAiSpeechToast(data.wake_word_enabled ? `🎤 Wake word '${wakeEx}' enabled!` : "🔇 Wake word listening paused.");
     })
     .catch(err => console.warn("[VOICE] Wake toggle error:", err));
 }
@@ -1136,19 +1197,16 @@ function handleSpokenTranscript(text, isFromMic = true) {
   let query = rawText;
   const qLower = query.toLowerCase();
 
-  // Strip wake words if prepended to a longer question
-  const wakePrefixes = [
-    'hey rum', 'hi rum', 'hello rum', 'okay rum', 'ok rum', 'yo rum', 'rum',
-    'hey ram', 'hi ram', 'hello ram', 'okay ram', 'ok ram', 'ram',
-    'hey rem', 'hi rem', 'hello rem', 'okay rem', 'ok rem', 'rem',
-    'hey ron', 'hi ron', 'hello ron', 'okay ron', 'ok ron', 'ron',
-    'hey run', 'hi run', 'hello run', 'okay run', 'ok run', 'run',
-    'hey rob', 'hi rob', 'hello rob', 'okay rob', 'ok rob', 'rob',
-    'hey rome', 'hi rome', 'hello rome', 'okay rome', 'rome',
-    'hey room', 'hi room', 'hello room', 'okay room', 'room',
-    'hey drum', 'hi drum', 'hello drum', 'drum',
-    'r.u.m.', 'r.u.m'
-  ];
+  // Strip active persona wake words cleanly from persona JSON
+  const pData = getActivePersonaData();
+  const wakeCfg = pData.wake_words || {};
+  const shortLow = String(pData.display_short_name || pData.name || 'companion').toLowerCase().replace(/\./g, '').trim();
+  const wakePrefixes = Array.from(new Set([
+    ...(wakeCfg.prefixes || []),
+    ...(wakeCfg.standalone || []),
+    `hey ${shortLow}`, `hi ${shortLow}`, `hello ${shortLow}`, `okay ${shortLow}`, `ok ${shortLow}`, shortLow
+  ].map(s => String(s).toLowerCase()).filter(Boolean)));
+
   let matchedWakeOnly = false;
   for (const w of wakePrefixes) {
     if (qLower === w || qLower === w + '!' || qLower === w + '?') {
@@ -1859,9 +1917,14 @@ function saveTtsVoiceSettings() {
 function testTtsVoiceSample() {
   saveTtsVoiceSettings();
   const eng = (currentAiSettings.tts_engine || 'KOKORO');
-  const sample = `Yay Master! Rum is speaking with the ${eng === 'KOKORO' ? 'Kokoro neural' : eng.toLowerCase()} voice engine right now! How do I sound?`;
+  const pData = getActivePersonaData();
+  const uiLbl = pData.ui_labels || {};
+  const engLabel = (eng === 'KOKORO' ? 'Kokoro neural' : eng.toLowerCase());
+  const sample = uiLbl.voice_sample
+    ? formatPersonaText(uiLbl.voice_sample, { engine_label: engLabel })
+    : `Voice check! ${getPersonaDisplayName()} is speaking with the ${engLabel} voice engine right now!`;
   showAiSpeechToast(sample);
-  speakUtterance(sample, 'HAPPY');
+  speakUtterance(sample, 'HAPPY', 'SYSTEM');
 }
 
 function saveAiSettings() {

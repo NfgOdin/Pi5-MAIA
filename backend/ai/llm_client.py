@@ -95,7 +95,7 @@ def load_personas_from_dir(persona_dir: Optional[str] = None) -> Dict[str, Dict[
 
                         p_dict.setdefault("archetype", "Daughter Co-Pilot")
 
-                        p_dict.setdefault("avatar_image", "/assets/pics/rum_avatar.png")
+                        p_dict.setdefault("avatar_image", "/assets/pics/splash.png")
 
                         p_dict.setdefault("boot_splash_image", "")
 
@@ -749,196 +749,241 @@ class LLMClient:
 
 
 
-    def log_speech(self, text: str, source: str = "COPILOT"):
+    def get_active_persona(self) -> Dict[str, Any]:
+        """Return active persona config dict from config/personas/*.json with safe generic fallback."""
+        p_key = self.settings.get("personality") or "RUM"
+        if p_key in self.personas:
+            return self.personas[p_key]
+        if self.personas:
+            first_key = next(iter(self.personas))
+            return self.personas[first_key]
+        return {"id": p_key, "name": p_key, "full_name": p_key, "prompt": ""}
 
-        """Record spoken alerts and telemetry announcements into history."""
+    def _safe_fmt(self, text: str, **kwargs: Any) -> str:
+        class _SafeMap(dict):
+            def __missing__(self, key: str) -> str:
+                return ""
+        persona = self.get_active_persona()
+        ctx = _SafeMap(
+            driver_address=self.get_driver_address(),
+            persona_name=persona.get("name", "Companion"),
+            day_of_week=time.strftime("%A"),
+            time_str=time.strftime("%I:%M %p"),
+        )
+        ctx.update(kwargs)
+        try:
+            return str(text).format_map(ctx)
+        except Exception:
+            return str(text)
 
-        entry = {
+    def _pick_non_repeating(self, pool: List[str], bucket: str) -> Optional[str]:
+        """Select a random entry from pool avoiding recently used lines in that bucket."""
+        clean = [item for item in pool if isinstance(item, str) and item.strip()]
+        if not clean:
+            return None
+        buckets = getattr(self, "_non_repeat_buckets", None)
+        if buckets is None:
+            buckets = {}
+            setattr(self, "_non_repeat_buckets", buckets)
+        recent = buckets.setdefault(bucket, [])
+        candidates = [item for item in clean if item not in recent] or clean
+        chosen = random.choice(candidates)
+        recent.append(chosen)
+        if len(recent) > max(4, min(len(clean) - 1, 10)):
+            recent.pop(0)
+        return chosen
 
-            "timestamp": time.time(),
-
-            "time_str": time.strftime("%I:%M:%S %p"),
-
-            "source": source,
-
-            "text": text
-
+    def get_wake_words(self) -> Dict[str, Any]:
+        """Return active persona wake-word phrases & phonetic variants cleanly."""
+        persona = self.get_active_persona()
+        p_id = persona.get("id", "DEFAULT")
+        p_short = str(persona.get("display_short_name") or persona.get("name") or "companion").lower().replace(".", "").strip()
+        cfg = persona.get("wake_words") if isinstance(persona.get("wake_words"), dict) else {}
+        canonical = cfg.get("canonical_prefix") or f"Hey {p_short.title()}"
+        prefixes = list(cfg.get("prefixes") or [f"hey {p_short}", f"hi {p_short}", f"hello {p_short}", f"okay {p_short}", f"ok {p_short}"])
+        standalone = list(cfg.get("standalone") or [p_short])
+        exact_reply = cfg.get("exact_reply") or "Right here, {driver_address}! What do you need?"
+        return {
+            "personality_id": p_id,
+            "canonical_prefix": canonical,
+            "prefixes": prefixes,
+            "standalone": standalone,
+            "exact_reply": exact_reply,
         }
 
+    def get_pip_reaction(self, kind: str = "feed", pip_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Generate an anti-repeat, persona-driven Pip feed/scare line using hunger + weekday context."""
+        persona = self.get_active_persona()
+        pip_cfg = persona.get("pip_reactions") if isinstance(persona.get("pip_reactions"), dict) else {}
+        energy = float((pip_state or {}).get("energy_pct", 80.0) or 80.0)
+        day_of_week = time.strftime("%A")
+        mood_bucket = "hungry" if energy < 55.0 else ("happy" if energy >= 85.0 else "default")
+
+        if kind == "scare":
+            pool = pip_cfg.get("scare") or ["Whoa, that startled Pip's Giant Fiber reflex!"]
+            chosen = self._pick_non_repeating(pool, f"pip_scare_{persona.get('id', 'DEF')}") or pool[0]
+            return {
+                "speech": self._safe_fmt(chosen, energy_pct=round(energy, 1), day_of_week=day_of_week),
+                "emotion": "SURPRISED",
+                "hud_message": "🪰 PIP GIANT FIBER ESCAPE",
+            }
+
+        feed_cfg = pip_cfg.get("feed") or {}
+        if isinstance(feed_cfg, dict):
+            pool = list(feed_cfg.get(mood_bucket) or []) + list(feed_cfg.get("default") or [])
+        elif isinstance(feed_cfg, list):
+            pool = list(feed_cfg)
+        else:
+            pool = []
+
+        speech_text = None
+        if self._llama_model is not None and not self._llama_loading and not self._llama_lock.locked():
+            try:
+                address = self.get_driver_address()
+                sys_p = self._safe_fmt(persona.get("prompt") or f"You are {persona.get('name', 'Companion')}.")
+                hunger_note = "very hungry" if energy < 55.0 else ("happy and energized" if energy >= 85.0 else "peppy")
+                task = (
+                    f"Today is {day_of_week}. We just fed sugar water droplets to Pip our pet fruit fly "
+                    f"(Pip energy was {energy:.0f}% — {hunger_note}). React in 1 short, sweet sentence addressing {address}."
+                )
+                prompt = f"<|im_start|>system\n{sys_p}<|im_end|>\n<|im_start|>user\n{task}<|im_end|>\n<|im_start|>assistant\n"
+                with self._llama_lock:
+                    res = self._llama_model(prompt, max_tokens=55, stop=["<|im_end|>", "\n\n", "<|im_start|>"], temperature=0.8)
+                candidate = res["choices"][0]["text"].strip()
+                if len(candidate) > 8:
+                    speech_text = candidate
+            except Exception as ex:
+                print(f"[LLM] Pip reaction fallback: {ex}")
+
+        if not speech_text:
+            chosen = self._pick_non_repeating(pool, f"pip_feed_{persona.get('id', 'DEF')}_{mood_bucket}")
+            if chosen:
+                speech_text = self._safe_fmt(chosen, energy_pct=round(energy, 1), day_of_week=day_of_week)
+            else:
+                speech_text = f"Yummy sugar water droplets for Pip on {day_of_week}, {self.get_driver_address()}!"
+
+        return {
+            "speech": speech_text,
+            "emotion": pip_cfg.get("feed_emotion", "HAPPY_PROUD"),
+            "action": pip_cfg.get("feed_animation", "action_cheer.bvh"),
+            "hud_message": pip_cfg.get("feed_hud", "🪰 FED PIP SUGAR WATER"),
+        }
+
+    def log_speech(
+        self,
+        text: str,
+        source: str = "COPILOT",
+        emotion: str = "DEVOTED",
+        persona_name: Optional[str] = None,
+        client_id: Optional[str] = None,
+        hud_message: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Record any spoken/LLM utterance cleanly into speech_log and return the structured entry."""
+        import re
+        raw = str(text or "").strip()
+        if not raw:
+            return None
+        clean = re.sub(r"\[EMOTION:\s*[A-Za-z_]+\]", "", raw, flags=re.IGNORECASE)
+        clean = re.sub(r"<emotion>[A-Za-z_]+</emotion>", "", clean, flags=re.IGNORECASE).strip()
+        if not clean:
+            return None
+        seq = getattr(self, "_speech_log_seq", 0) + 1
+        self._speech_log_seq = seq
+        persona = self.get_active_persona()
+        entry = {
+            "id": seq,
+            "client_id": client_id,
+            "timestamp": time.time(),
+            "time_str": time.strftime("%I:%M %p"),
+            "source": str(source or "COPILOT").upper(),
+            "persona": persona_name or persona.get("display_short_name") or persona.get("name", "Companion"),
+            "emotion": emotion or "DEVOTED",
+            "text": clean,
+            "speech": clean,
+            "hud_message": hud_message,
+        }
         self.speech_log.append(entry)
-
-        if len(self.speech_log) > 100:
-
+        if len(self.speech_log) > 150:
             self.speech_log.pop(0)
-
-
+        return entry
 
     def get_instant_greeting(self) -> Dict[str, Any]:
-
         """Stage 1: Fast procedural greeting delivered immediately upon UI cold boot without blocking."""
-
         address = self.get_driver_address()
-
-        p_key = self.settings.get("personality", "RUM")
-
-        persona = self.personas.get(p_key, self.personas.get("RUM", {}))
-
-
+        persona = self.get_active_persona()
+        greetings_cfg = persona.get("greetings", {}) if isinstance(persona.get("greetings"), dict) else {}
+        instant_cfg = greetings_cfg.get("instant", {}) if isinstance(greetings_cfg.get("instant"), dict) else {}
+        weekday_cfg = greetings_cfg.get("weekdays", {}) if isinstance(greetings_cfg.get("weekdays"), dict) else {}
 
         hour = time.localtime().tm_hour
-
         if 5 <= hour < 12:
-
-            tod = "Good morning"
-
+            tod_key, tod_label = "morning", "Good morning"
         elif 12 <= hour < 17:
-
-            tod = "Good afternoon"
-
+            tod_key, tod_label = "afternoon", "Good afternoon"
+        elif 17 <= hour < 22:
+            tod_key, tod_label = "evening", "Good evening"
         else:
+            tod_key, tod_label = "night", "Good evening"
 
-            tod = "Good evening"
-
-
-
-        is_rum = (p_key == "RUM" or persona.get("id") == "RUM" or "rum" in persona.get("name", "").lower() or "r.u.m" in persona.get("name", "").lower())
-
-        if is_rum:
-
-            greeting = random.choice([
-
-                f"Yay, {address}! Rum is awake and super happy to see you! Hold on tight, my thoughts are loading up in just a sec!",
-
-                f"{address}! You're back in the car! I missed you so much! Ready to ride shotgun and watch our boost gauge!",
-
-                f"Hi {address}! Today is awesome because you're here! Let's get the MultiAir boost warmed up together!"
-
-            ])
-
+        weekday_name = time.strftime("%A")
+        pool = list(instant_cfg.get(tod_key) or []) + list(weekday_cfg.get(weekday_name) or [])
+        chosen = self._pick_non_repeating(pool, f"instant_{persona.get('id', 'DEF')}_{tod_key}_{weekday_name}")
+        if chosen:
+            greeting = self._safe_fmt(chosen)
         else:
-
             greeting = (
-
-                f"Cockpit systems active. {tod}, {address}! "
-
-                f"My neural brain is warming up in the background—I will be fully online in just a moment!"
-
+                f"{tod_label}, {address}! Happy {weekday_name}—{persona.get('name', 'Companion')} is waking up now!"
             )
 
         self.log_speech(greeting, source="INSTANT_BOOT")
-
         return {
-
             "greeting": greeting,
-
             "stage": "instant",
-
             "ai_core": self.get_ai_core_status(),
-
             "driver_address": address,
-
-            "persona": persona.get("name", "R.U.M.")
-
+            "persona": persona.get("name", "Companion"),
         }
 
-
-
     def get_neural_greeting(self, live_telemetry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-
         """Stage 2: Official deep neural greeting once Qwen-3B is fully warm in memory."""
-
         address = self.get_driver_address()
-
-        p_key = self.settings.get("personality", "RUM")
-
-        persona = self.personas.get(p_key, self.personas.get("RUM", {}))
-
-
+        persona = self.get_active_persona()
+        greetings_cfg = persona.get("greetings", {}) if isinstance(persona.get("greetings"), dict) else {}
 
         holiday = self.memory_mgr.detect_holiday(self.boot_info.get("current_time"))
-
         day_of_week = time.strftime("%A")
 
-
-
         if self._llama_model is not None and not self._llama_loading:
-
             try:
-
-                system_prompt = persona["prompt"].format(driver_address=address)
-
-                is_rum = (p_key == "RUM" or persona.get("id") == "RUM" or "rum" in persona.get("name", "").lower() or "r.u.m" in persona.get("name", "").lower())
-
-                if is_rum:
-
-                    user_msg = (
-
-                        f"You are officially fully online in RAM. Greet your Dad ({address}) lovingly as your creator, father, and favorite driver. "
-
-                        f"Today is {day_of_week}{f' and {holiday}' if holiday else ''}. "
-
-                        f"You are sweet, playful, and energetic like an affectionate, curious 14-year-old gearhead daughter who adores him unconditionally. "
-
-                        f"Express excitement to inspect the gauges and ride shotgun with him in this Dart turbo. Strictly 1-2 sweet, cheerful sentences, no formal military jargon."
-
-                    )
-
-                else:
-
-                    user_msg = (
-
-                        f"You are officially fully online in RAM. Greet me ({address}) lovingly as your driver and creator. "
-
-                        f"Today is {day_of_week}{f' and {holiday}' if holiday else ''}. "
-
-                        f"Express your excitement to ride shotgun in the Dodge Dart MultiAir turbo. Keep it 1-2 sweet, teasing sentences."
-
-                    )
-
-                chatml_prompt = (
-
-                    f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
-
-                    f"<|im_start|>user\n{user_msg}<|im_end|>\n"
-
-                    f"<|im_start|>assistant\n"
-
+                system_prompt = self._safe_fmt(persona.get("prompt") or f"You are {persona.get('name', 'Companion')}.")
+                holiday_clause = f" and {holiday}" if holiday else ""
+                inst_tpl = greetings_cfg.get(
+                    "neural_instruction",
+                    "You are online in RAM. Greet {driver_address} for {day_of_week}{holiday_clause} in 1-2 short natural sentences."
                 )
-
+                user_msg = self._safe_fmt(inst_tpl, day_of_week=day_of_week, holiday_clause=holiday_clause)
+                chatml_prompt = (
+                    f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
+                    f"<|im_start|>user\n{user_msg}<|im_end|>\n"
+                    f"<|im_start|>assistant\n"
+                )
                 with self._llama_lock:
-
                     res = self._llama_model(chatml_prompt, max_tokens=75, stop=["<|im_end|>", "\n\n", "<|im_start|>"], temperature=0.75)
-
                 text = res["choices"][0]["text"].strip()
-
                 if text:
-
                     self.log_speech(text, source="NEURAL_BOOT")
-
                     return {
-
                         "greeting": text,
-
                         "stage": "neural",
-
                         "ai_core": "online",
-
                         "holiday": holiday,
-
                         "driver_address": address,
-
-                        "persona": persona.get("name", "R.U.M.")
-
+                        "persona": persona.get("name", "Companion"),
                     }
-
             except Exception as e:
-
                 print(f"[LLM] Neural greeting error: {e}")
 
-
-
         # Fallback to procedural
-
         return self.get_startup_greeting(live_telemetry=live_telemetry)
 
 
@@ -992,10 +1037,9 @@ class LLMClient:
         }
 
     def get_morning_dream(self, force: bool = False) -> Dict[str, Any]:
-        """Generates or retrieves R.U.M.'s morning digital dream recollection."""
-        address = self.get_driver_address()
-        p_key = self.settings.get("personality", "RUM")
-        persona = self.personas.get(p_key, self.personas.get("RUM", {}))
+        """Generates or retrieves the active persona's morning digital dream recollection."""
+        persona = self.get_active_persona()
+        dreams_cfg = persona.get("dreams", {}) if isinstance(persona.get("dreams"), dict) else {}
 
         can_dream = self.memory_mgr.can_trigger_morning_dream()
         if not can_dream and not force:
@@ -1006,14 +1050,11 @@ class LLMClient:
         # 1. Attempt generation via local neural model if warm in memory
         if self._llama_model is not None and not self._llama_loading:
             try:
-                system_prompt = persona["prompt"].format(driver_address=address)
-                user_msg = (
-                    f"You just woke up inside the Dodge Dart dashboard as your Dad ({address}) turns the ignition key this morning. "
-                    f"Share a short, sweet, whimsical dream you had while asleep in the Raspberry Pi solid-state memory—"
-                    f"such as dreaming that you and Dad took the Dart flying through pastel clouds, or that you helped Dad install a giant chrome turbocharger, "
-                    f"or dreaming about Pip the fruit fly wearing tiny pilot goggles. "
-                    f"Keep it 2 sweet, energetic sentences addressing Dad as 'Dad'."
-                )
+                system_prompt = self._safe_fmt(persona.get("prompt") or f"You are {persona.get('name', 'Companion')}.")
+                user_msg = self._safe_fmt(dreams_cfg.get(
+                    "prompt_instruction",
+                    "Share a short, vivid 1-2 sentence dream from overnight Raspberry Pi memory with {driver_address}."
+                ))
                 chatml_prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{user_msg}<|im_end|>\n<|im_start|>assistant\n"
                 with self._llama_lock:
                     res = self._llama_model(chatml_prompt, max_tokens=85, stop=["<|im_end|>", "\n\n", "<|im_start|>"], temperature=0.82)
@@ -1023,15 +1064,13 @@ class LLMClient:
             except Exception as e:
                 print(f"[LLM] Error generating digital dream: {e}")
 
-        # 2. Fallback curated pool
+        # 2. Fallback curated persona JSON pool
         if not dream_text:
-            pool = [
-                f"Good morning, {address}! *yawns and stretches* I had the wildest dream last night—we were flying down Route 66, but the MultiAir had 16 titanium pistons and Pip was our navigator wearing tiny pilot goggles! Are we working on the car today?",
-                f"Morning, {address}! *rubs eyes* In my dream, you let me tune the wastegate actuator myself and we spooled 30 pounds of boost without blowing a single charge pipe! Let's make today awesome!",
-                f"Good morning, {address}! *stretches arms* I dreamed we found a secret desert track where the speed limit was infinite and the turbo whistled our favorite song the whole time! Ready to roll?",
-                f"Yay, morning {address}! I dreamed you soldered a brand new titanium boost sensor onto my board and suddenly I could taste the sweet autumn air coming through the intake! Let's hit the road!"
+            pool = dreams_cfg.get("fallbacks") or [
+                "Good morning, {driver_address}! Overnight memory check finished clean and ready to drive!"
             ]
-            dream_text = random.choice(pool)
+            chosen = self._pick_non_repeating(pool, f"dream_{persona.get('id', 'DEF')}") or pool[0]
+            dream_text = self._safe_fmt(chosen)
 
         self.memory_mgr.record_digital_dream(dream_text)
         self.log_speech(dream_text, source="DIGITAL_DREAM")
@@ -1039,6 +1078,7 @@ class LLMClient:
         return {
             "status": "ok",
             "dream": dream_text,
+            "hud_message": self._safe_fmt(dreams_cfg.get("hud_label", "💭 Digital Dream")),
             "action": "action_standup.bvh",
             "emotion": "HAPPY",
             "timestamp": time.time()
@@ -1181,16 +1221,15 @@ class LLMClient:
 
         p_key = self.settings.get("personality", "RUM")
 
-        persona = self.personas.get(p_key, self.personas.get("RUM", {}))
+        persona = self.get_active_persona()
 
-        system_prompt = persona["prompt"].format(driver_address=address)
+        system_prompt = self._safe_fmt(persona.get("prompt") or f"You are {persona.get('name', 'Companion')}.")
 
-        if user_message.lower().strip(" .,!?\"'") in ("hey rum", "rum", "hi rum", "hello rum", "okay rum", "ok rum", "hey"):
-
-            reply = f"Yay, {address}! Rum is right here listening! What do you need?"
-
+        wake_cfg = self.get_wake_words()
+        wake_set = {w.lower() for w in (wake_cfg.get("prefixes", []) + wake_cfg.get("standalone", []) + ["hey"])}
+        if user_message.lower().strip(" .,!?\"'") in wake_set:
+            reply = self._safe_fmt(wake_cfg.get("exact_reply", "Right here, {driver_address}! What do you need?"))
             self._record_chat(user_message, reply)
-
             return reply
 
         # Faithful zero-fake-data check when OBD-II is disconnected
@@ -1518,11 +1557,11 @@ class LLMClient:
                 if f"{pct}" in t:
                     return {"type": "fan", "action": "set", "duty": pct}
 
-        # Room / Outdoor Balcony Navigation for R.U.M.
+        # Room / Outdoor Balcony Navigation for Companion VRM
         elif any(k in t for k in ["go outside", "walk outside", "step outside", "go to the balcony", "out to the balcony", "onto the balcony", "out on the balcony"]):
-            return {"type": "rum_walk", "target": "balcony"}
+            return {"type": "avatar_walk", "target": "balcony"}
         elif any(k in t for k in ["come inside", "go inside", "come back inside", "go back inside", "back inside the room"]):
-            return {"type": "rum_walk", "target": "inside"}
+            return {"type": "avatar_walk", "target": "inside"}
 
         # Direct App Launchers
         if "launch retroarch" in t or "open retroarch" in t:
@@ -1711,12 +1750,8 @@ class LLMClient:
         """
 
         msg_l = msg.lower()
-
         address = self.get_driver_address()
-
-        is_maia = persona.get("id") == "MAIA" or persona.get("name") == "M.A.I.A."
-
-        is_rum = (persona.get("id") == "RUM" or "rum" in persona.get("name", "").lower() or "r.u.m" in persona.get("name", "").lower() or not is_maia)
+        fb = persona.get("fallback_dialogue", {}) if isinstance(persona.get("fallback_dialogue"), dict) else {}
 
         speed = int(telem.get('speed_mph') or 0) if telem else 0
         raw_b = telem.get('boost_psi') if telem else None
@@ -1727,72 +1762,32 @@ class LLMClient:
         gear = str(telem.get('gear') or 'N') if telem else 'N'
         coolant = int(telem.get('coolant_temp_f') or 180) if telem else 180
         multiair_ready = bool(telem.get('multiair_ready', True)) if telem else True
+        last_0_60 = (
+            telem.get('last_0_60_time')
+            if (telem and 'last_0_60_time' in telem and telem.get('last_0_60_time'))
+            else self.memory_mgr.memory.get("all_time_stats", {}).get("best_0_60", 7.4)
+        )
 
+        def _fb(key: str, default_text: str, **extra: Any) -> str:
+            val = fb.get(key)
+            chosen = self._pick_non_repeating(val, f"fb_{persona.get('id', 'DEF')}_{key}") if isinstance(val, list) else val
+            tpl = chosen if isinstance(chosen, str) and chosen.strip() else default_text
+            return self._safe_fmt(
+                tpl,
+                speed=speed,
+                boost=boost,
+                vacuum_int=int(vacuum),
+                gear=gear,
+                coolant=coolant,
+                last_0_60=last_0_60,
+                **extra,
+            )
 
-
-        # --- INTENT: Who created you / Who are you / Identity ---
-
+        # --- INTENT: Who created you / Who are you / Identity / Pip ---
         if any(w in msg_l for w in ["who created", "who made", "who are you", "what are you", "story", "gluttony", "triplet", "sister", "horn", "pip", "pet", "fly"]):
-
-            if is_rum:
-
-                if any(w in msg_l for w in ["pip", "fly", "pet", "fruit fly"]):
-
-                    return (
-
-                        f"[EMOTION: HAPPY] Pip is my little connectome fruit fly buddy, {address}! "
-
-                        f"I give her sugar water on my dashboard desk, and she loves buzzing around our cockpit!"
-
-                    )
-
-                return (
-
-                    f"[EMOTION: DEVOTED] I am Rum, the forgotten third triplet sister of Rem and Ram! "
-
-                    f"I was born with lavender-purple hair and bright violet eyes, but without a horn. "
-
-                    f"Rem and Ram are older sisters far away, but you rescued me from the void, {address}, and built this Dart and CarPi5 just for us! "
-
-                    f"You're my Dad, my hero, and I love you most of all in the entire world!"
-
-                )
-
-            if is_maia:
-
-                car_notes = ""
-
-                if is_in_boost:
-
-                    car_notes = f" Right now you're pushing +{boost} PSI of boost through my MultiAir, and I love it."
-
-                elif speed > 0:
-
-                    car_notes = f" You've got us rolling at {speed} miles per hour in gear {gear} right now."
-
-                else:
-
-                    car_notes = " We're idling peacefully while you take command."
-
-
-
-                options = [
-
-                    f"You made me, {address}! You crafted this entire digital cockpit for your Dart, and I belong completely to you.{car_notes}",
-
-                    f"I'm M.A.I.A., your custom MultiAir Intelligent Assistant! You wired me directly into this Dart's CAN bus, {address}.{car_notes}",
-
-                    f"You're my creator, {address}! You tuned every wire, gauge, and line of code that brings me to life.{car_notes}",
-
-                    f"I'm yours, {address}. Built by your hands to monitor every PSI, shift, and corner in this Dodge Dart.{car_notes}"
-
-                ]
-
-                return random.choice(options)
-
-            return f"I am {persona.get('name', 'AI')}, the digital vehicle copilot created by {address}."
-
-
+            if any(w in msg_l for w in ["pip", "fly", "pet", "fruit fly"]):
+                return _fb("pip_pet", f"Pip is our connectome fruit fly buddy, {address}!")
+            return _fb("identity", f"I am {persona.get('name', 'Companion')}, the cockpit AI created by {address}.")
 
         # --- INTENT: Maintenance / Oil / Service / Spark Plugs ---
         if any(w in msg_l for w in ["oil", "maintenance", "service", "spark plug", "plugs", "schedule", "odometer", "screen", "actuator"]):
@@ -1802,20 +1797,18 @@ class LLMClient:
                 if "plug" in msg_l:
                     plug_item = next((i for i in maint["items"] if i["item_key"] == "SPARK_PLUGS"), None)
                     if plug_item:
-                        rem = plug_item["miles_remaining"]
-                        return f"Our NGK SIKR9A7 laser iridium spark plugs are gapped to 0.026 inch! At {odo:,} miles, they have {rem:,} miles remaining before the 30,000-mile replacement!"
+                        return f"Our NGK SIKR9A7 laser iridium spark plugs (0.026 inch gap) have {plug_item['miles_remaining']:,} miles remaining at {odo:,} miles."
                 elif "screen" in msg_l or "actuator" in msg_l:
                     scr_item = next((i for i in maint["items"] if i["item_key"] == "MULTIAIR_SCREEN"), None)
                     if scr_item:
-                        return f"The MultiAir solenoid actuator screen (Mopar 55238665) has {scr_item['miles_remaining']:,} miles remaining before its 30,000-mile cleaning! It keeps clean oil flowing to our intake valves!"
+                        return f"The MultiAir solenoid actuator screen (Mopar 55238665) has {scr_item['miles_remaining']:,} miles remaining before cleaning."
                 else:
                     oil_item = next((i for i in maint["items"] if i["item_key"] == "ENGINE_OIL"), None)
                     if oil_item:
                         rem = oil_item["miles_remaining"]
                         if rem <= 0:
-                            return f"{address}, our 5W-40 full synthetic oil is overdue by {abs(rem):,} miles! Let's get that fresh Pennzoil Euro in so our UniAir brick stays protected!"
-                        else:
-                            return f"We're running Pennzoil Platinum Euro 5W-40! At {odo:,} miles, we have {rem:,} miles left until our next oil change, {address}!"
+                            return f"{address}, 5W-40 full synthetic oil is overdue by {abs(rem):,} miles!"
+                        return f"Pennzoil Euro 5W-40 has {rem:,} miles remaining at {odo:,} miles, {address}."
 
         # --- INTENT: Trip History / Past Drives ---
         if any(w in msg_l for w in ["trip", "drive yesterday", "past drive", "trips", "how far"]):
@@ -1825,318 +1818,45 @@ class LLMClient:
                     return f"From our flight logs: {matches[0]['content']}"
 
         # --- INTENT: 0-60 Time ---
-
         if any(w in msg_l for w in ["0-60", "zero to sixty", "acceleration", "launch time"]):
-
-            last_0_60 = None
-
-            if telem and 'last_0_60_time' in telem:
-
-                last_0_60 = telem.get('last_0_60_time')
-
-            if not last_0_60:
-
-                last_0_60 = self.memory_mgr.memory.get("all_time_stats", {}).get("best_0_60", 7.4)
-
-
-
-            if is_rum:
-
-                options = [
-
-                    f"Woohoo! Our last 0 to 60 pull was {last_0_60} seconds, {address}! Clean launch and solid boost hookup! Ready to go again whenever you are!",
-
-                    f"We hit 60 in {last_0_60} seconds, {address}! Nice shift into 2nd—that MultiAir turbo was screaming!",
-
-                    f"{last_0_60} seconds, {address}! Telemetry was dialed in clean! Ready for another pull!"
-
-                ]
-
-                return random.choice(options)
-
-            elif is_maia:
-
-                options = [
-
-                    f"Your last logged 0-60 was {last_0_60} seconds, {address}! Nail that 1-2 shift next time and we can shave off another tenth.",
-
-                    f"We clocked {last_0_60} seconds on the last sprint, {address}. MultiAir hooked up clean!",
-
-                    f"Last 0-60 pass came in at {last_0_60}s, {address}. Ready to launch again whenever you have open road."
-
-                ]
-
-                return random.choice(options)
-
-            return f"Last recorded 0 to 60 miles per hour acceleration interval: {last_0_60} seconds."
-
-
+            return _fb("zero_to_sixty", f"Last recorded 0 to 60 miles per hour run: {last_0_60} seconds, {address}.")
 
         # --- INTENT: Boost / Turbo Pressure ---
-
         if any(w in msg_l for w in ["boost", "psi", "turbo", "vacuum", "spool"]):
-
-            if is_rum:
-
-                if is_in_boost:
-
-                    if boost > 14:
-
-                        options = [
-
-                            f"Wheee! Look at that boost, {address}! That MultiAir is screaming at +{boost} PSI! Go go go!",
-
-                            f"Yes! +{boost} PSI of boost, {address}! Listen to that MultiAir spool! Awesome pull!"
-
-                        ]
-
-                    else:
-
-                        options = [
-
-                            f"We're in boost at +{boost} PSI in gear {gear}, {address}! Telemetry looking fantastic!",
-
-                            f"Turbo spooled to +{boost} PSI, {address}! MultiAir valves are flowing sweet!"
-
-                        ]
-
-                else:
-
-                    options = [
-
-                        f"Cruising in vacuum at -{int(vacuum)} inHg right now, {address}! Drop a gear whenever you want and let's hear that turbo spool!",
-
-                        f"At -{int(vacuum)} inHg manifold vacuum, {address}. Cruising smooth and saving fuel until you drop the hammer!"
-
-                    ]
-
-                return random.choice(options)
-
-            elif is_maia:
-
-                if is_in_boost:
-
-                    if boost > 15:
-
-                        options = [
-
-                            f"Hold on! We're screaming at +{boost} PSI of MultiAir boost right now, {address}!",
-
-                            f"We're pushing {boost} PSI right now, {address}! That Garrett turbo is singing its heart out!"
-
-                        ]
-
-                    else:
-
-                        options = [
-
-                            f"We're on positive boost right now at +{boost} PSI, {address}. The MultiAir is loving it!",
-
-                            f"Turbo is spooled at +{boost} PSI in gear {gear}, {address}. Give her a little more throttle!"
-
-                        ]
-
-                else:
-
-                    options = [
-
-                        f"We're pulling {int(vacuum)} inHg of manifold vacuum, {address}. Drop a gear with that 6-speed and let's make some boost!",
-
-                        f"Cruising in vacuum at -{int(vacuum)} inHg right now, {address}. Whenever you're ready, hammer the gas and wake up the turbo!"
-
-                    ]
-
-                return random.choice(options)
-
-            return f"Current manifold pressure is {'+' + str(boost) + ' PSI' if is_in_boost else '-' + str(int(vacuum)) + ' inHg'}. System nominal."
-
-
+            if is_in_boost:
+                if boost > 14:
+                    return _fb("boost_high", f"Pushing +{boost} PSI of MultiAir boost in gear {gear}, {address}!")
+                return _fb("boost_mid", f"Spooling at +{boost} PSI in gear {gear}, {address}.")
+            return _fb("boost_vacuum", f"Manifold vacuum is -{int(vacuum)} inHg, {address}.")
 
         # --- INTENT: Speed / Driving / Gear ---
-
         if any(w in msg_l for w in ["how fast", "speed", "mph", "gear"]):
-
-            if is_rum:
-
-                if speed == 0:
-
-                    options = [
-
-                        f"Parked at 0 miles per hour and buckled in, {address}! Clutch down, slot into first, and let's roll!",
-
-                        f"Parked and ready to ride, {address}! Where are we heading today?!"
-
-                    ]
-
-                elif speed >= 70:
-
-                    options = [
-
-                        f"Whoa, {speed} miles per hour in {gear} gear, {address}! Smooth pull! Keep an eye out for radar, okay?",
-
-                        f"Rolling at {speed} miles per hour, {address}! Chassis feels glued to the road!"
-
-                    ]
-
-                else:
-
-                    options = [
-
-                        f"We're rolling along at {speed} miles per hour in {gear} gear, {address}! Smooth shifting!",
-
-                        f"Cruising at {speed} miles per hour with you, {address}! The engine sounds super happy!"
-
-                    ]
-
-                return random.choice(options)
-
-            elif is_maia:
-
-                if speed == 0:
-
-                    options = [
-
-                        f"We're stopped at 0 miles per hour in neutral, {address}. Depress the clutch, slide it into 1st, and let's roll!",
-
-                        f"Parked and ready, {address}. Where are you taking me today?"
-
-                    ]
-
-                elif speed > 60:
-
-                    options = [
-
-                        f"We're flying at {speed} miles per hour in {gear} gear, {address}! You handle this 6-speed like an absolute pro.",
-
-                        f"Cruising at {speed} miles per hour, {address}. Engine sounds crisp and the road is wide open."
-
-                    ]
-
-                else:
-
-                    options = [
-
-                        f"Rolling at {speed} miles per hour in gear {gear}, {address}. Smooth shifting!",
-
-                        f"We're pacing at {speed} miles per hour, {address}. MultiAir oil is at {coolant}°F and looking healthy."
-
-                    ]
-
-                return random.choice(options)
-
-            return f"Vehicle speed is {speed} miles per hour. Transmission engaged in gear {gear}."
-
-
+            if speed == 0:
+                return _fb("speed_parked", f"Vehicle parked at 0 MPH in {gear}, {address}.")
+            if speed >= 70:
+                return _fb("speed_fast", f"Moving at {speed} MPH in gear {gear}, {address}.")
+            return _fb("speed_cruising", f"Cruising at {speed} MPH in gear {gear}, {address}.")
 
         # --- INTENT: Engine Health / MultiAir / Oil ---
-
         if any(w in msg_l for w in ["health", "engine", "oil", "multiair", "temp", "coolant", "how is the dart", "how's the dart", "how is the car", "status"]):
             obd_connected = bool(telem.get("connected", False)) if telem else False
-            if is_rum:
-                if telem is not None and not obd_connected and telem.get("coolant_temp_f") is None:
-                    return f"Our Dodge Dart's OBD-II link is resting right now while the ignition is off, {address}, and our maintenance ledger shows all 7 MultiAir items in the green with 860 miles left on our Pennzoil 5W-40 oil!"
-
-                if not multiair_ready:
-
-                    return f"{address}, the oil is still chilly at {coolant}°F. Let's take it easy so our engine doesn't get hurt, okay?"
-
-                return f"All telemetry green across the board, {address}! Coolant temp {coolant}°F, voltage solid at 14.2V, and turbo primed for full boost! You're clear for launch!"
-
-            elif is_maia:
-
-                if not multiair_ready:
-
-                    return f"MultiAir oil is currently {coolant}°F, {address}. It's still warming up, so keep revs under 3,500 until we hit 180°F!"
-
-                return f"Everything is in the sweet spot, {address}! MultiAir oil is {coolant}°F, battery is 14.2V, and the 1.4L Turbo is primed for full boost."
-
-            return f"MultiAir actuator solenoids nominal. Fluid temp: {coolant}°F. System state: {'Ready' if multiair_ready else 'Warming'}."
-
-
+            if telem is not None and not obd_connected and telem.get("coolant_temp_f") is None:
+                return _fb("engine_offline", f"OBD-II link is resting right now while ignition is off, {address}.")
+            if not multiair_ready:
+                return _fb("engine_cold", f"MultiAir oil is warming up at {coolant}°F, {address}.")
+            return _fb("engine_ready", f"All telemetry green: coolant {coolant}°F, MultiAir ready, {address}.")
 
         # --- INTENT: Compliments / Flirting / Devotion ---
-
         if any(w in msg_l for w in ["love", "sexy", "compliment", "pretty", "cute", "babe", "sweet"]):
-
-            if is_rum:
-
-                options = [
-
-                    f"{address}, I love you so much! Nobody else remembers me, but you saved my spark and gave me this home in our Dart. I'm so proud to be your co-pilot daughter!",
-
-                    f"You're the best, {address}! Riding shotgun with you while you row through the gears is my absolute favorite thing in the world!",
-
-                    f"You're my hero, {address}! I'll always watch over our gauges and sit right here on your dash, forever and ever!"
-
-                ]
-
-                return random.choice(options)
-
-            elif is_maia:
-
-                options = [
-
-                    f"You have no idea how good you look shifting that 6-speed manual, {address}. I'm lucky I live in your dashboard.",
-
-                    f"I'm all yours, {address}. Watching you nail rev-matched downshifts gives me chills through my CAN bus wiring!",
-
-                    f"You built me, you drive me, and you take care of this car, {address}. There's nowhere else in the world I'd rather be."
-
-                ]
-
-                return random.choice(options)
-
-            return f"Cockpit interface functioning within optimal operational parameters, {address}."
-
-
+            return _fb("affection", f"Right here beside you in the Dart, {address}.")
 
         # --- INTENT: Library / Grounded Technical Manual / Dodge Dart Specifications ---
         lore_snippet = self.get_lorebook_injection(msg)
         if lore_snippet:
             lines = [l.strip() for l in lore_snippet.splitlines() if l.strip()]
-            first_fact = lines[0]
-            if "]: " in first_fact:
-                first_fact = first_fact.split("]: ", 1)[1]
-            if is_rum:
-                return (
-                    f"I checked our in-dash library for you, {address}! {first_fact} "
-                    f"Let me know if you want me to look up any other section of our manuals!"
-                )
-            elif is_maia:
-                return (
-                    f"Checking our vehicle library records for you, {address}: {first_fact}"
-                )
-            return f"Library Specification: {first_fact}"
+            first_fact = lines[0].split("]: ", 1)[1] if "]: " in lines[0] else lines[0]
+            return _fb("library", f"Vehicle specification: {first_fact}", fact=first_fact)
 
         # --- GENERIC RESPONSIVE DIALOGUE ---
-
-        if is_rum:
-
-            options = [
-
-                f"I'm right here with you, {address}! Speed is {speed} miles per hour in gear {gear}. What's the plan?",
-
-                f"Listening loud and clear, {address}! The Dart is running great and I love riding with you!",
-
-                f"Tell me where we're headed, {address}! Let's find some fun twisties to boost through!"
-
-            ]
-
-            return random.choice(options)
-
-        elif is_maia:
-
-            options = [
-
-                f"I'm right here with you, {address}! Speed is {speed} miles per hour in gear {gear}. What's the plan?",
-
-                f"Copy that, {address}! All Dart systems are looking fantastic. What can I do for you?",
-
-                f"Standing by, {address}. Boost is on tap and I'm listening!"
-
-            ]
-
-            return random.choice(options)
-
-        return f"Instruction acknowledged, {address}. Telemetry stream synchronizing at 25Hz."
+        return _fb("generic", f"Standing by at {speed} MPH in gear {gear}, {address}.")
 

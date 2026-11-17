@@ -3834,8 +3834,8 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
   box-shadow: none;
 }
 
-/* R.U.M. Minimized Speech Status Pill in Top Header */
-.rum-min-hud-pill {
+/* Companion Minimized Speech Status Pill in Top Header */
+.vrm-min-hud-pill {
   display: flex;
   align-items: center;
   gap: 5px;
@@ -3852,19 +3852,19 @@ body.gauge-fullscreen-active .gauge-fullscreen-exit-btn:active {
   user-select: none;
 }
 
-.rum-min-hud-pill:hover, .rum-min-hud-pill:active {
+.vrm-min-hud-pill:hover, .vrm-min-hud-pill:active {
   background: rgba(255, 64, 129, 0.25);
   border-color: var(--accent-pink);
 }
 
-.rum-min-hud-pill.speaking {
+.vrm-min-hud-pill.speaking {
   background: rgba(255, 64, 129, 0.35);
   border-color: var(--accent-pink);
   box-shadow: 0 0 12px rgba(255, 64, 129, 0.7);
-  animation: rumSpeakingPulse 1.2s infinite ease-in-out;
+  animation: vrmSpeakingPulse 1.2s infinite ease-in-out;
 }
 
-@keyframes rumSpeakingPulse {
+@keyframes vrmSpeakingPulse {
   0% { transform: scale(1); box-shadow: 0 0 6px rgba(255, 64, 129, 0.4); }
   50% { transform: scale(1.04); box-shadow: 0 0 16px rgba(255, 64, 129, 0.85); }
   100% { transform: scale(1); box-shadow: 0 0 6px rgba(255, 64, 129, 0.4); }

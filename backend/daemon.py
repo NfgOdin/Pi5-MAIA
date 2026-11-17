@@ -20,7 +20,7 @@ from pathlib import Path
 import subprocess
 import threading
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 import urllib.request
 
@@ -218,6 +218,8 @@ class CarPi5ServerState:
         self.pip = PipConnectome()
         self.latest_pip_state = None
         self.copilot = AICopilot(driver_name=initial_name)
+        if hasattr(self.copilot, "set_llm_client"):
+            self.copilot.set_llm_client(self.llm)
         if self.rag and hasattr(self.copilot, "set_rag_engine"):
             self.copilot.set_rag_engine(self.rag)
 
@@ -257,6 +259,59 @@ class CarPi5ServerState:
                 proc.terminate()
             except Exception:
                 pass
+
+    def emit_ai_speech(
+        self,
+        text: str,
+        source: str = "COPILOT",
+        emotion: Optional[str] = None,
+        hud_message: Optional[str] = None,
+        speak: bool = True,
+        priority: int = 1,
+        client_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        action: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Unified backend speech emitter: cleans emotion tags, logs to history, updates SSE ai_event, and speaks."""
+        import re
+        raw = str(text or "").strip()
+        if not raw:
+            return None
+        detected_emotion = emotion or "DEVOTED"
+        m = re.search(r"\[EMOTION:\s*([A-Za-z_]+)\]", raw, re.IGNORECASE)
+        if m and not emotion:
+            detected_emotion = m.group(1).upper()
+        clean_text = re.sub(r"\[EMOTION:\s*[A-Za-z_]+\]", "", raw, flags=re.IGNORECASE)
+        clean_text = re.sub(r"<emotion>[A-Za-z_]+</emotion>", "", clean_text, flags=re.IGNORECASE).strip()
+        if not clean_text:
+            return None
+
+        entry = self.llm.log_speech(
+            clean_text,
+            source=source,
+            emotion=detected_emotion,
+            client_id=client_id,
+            hud_message=hud_message,
+        )
+        ev = {
+            "id": entry["id"] if entry else int(time.time() * 1000),
+            "client_id": client_id,
+            "type": event_type or str(source or "COPILOT").upper(),
+            "source": str(source or "COPILOT").upper(),
+            "persona": entry.get("persona") if entry else self.llm.get_active_persona().get("name", "Companion"),
+            "emotion": detected_emotion,
+            "speech": clean_text,
+            "hud_message": hud_message,
+            "action": action,
+            "timestamp": entry["timestamp"] if entry else time.time(),
+            "time_str": entry["time_str"] if entry else time.strftime("%I:%M %p"),
+        }
+        with self.lock:
+            self.latest_ai_event = ev
+        if speak and self.copilot.voice_mode != "MUTED":
+            self.audio.speak(clean_text, priority=priority)
+            self.copilot.last_spoken_time = time.time()
+        return ev
 
     def get_pi3_dashcam_host(self) -> str:
         now = time.time()
@@ -372,14 +427,20 @@ def telemetry_loop():
                     lat_g = gps_t.get("g_forces", {}).get("lateral", 0.0)
                     state.lap_timer.step(gps_t["lat"], gps_t["lon"], gps_t.get("speed_mph", 0.0), lat_g)
             if ai_event:
-                state.latest_ai_event = ai_event
-                state.llm.log_speech(ai_event["speech"], source="COPILOT")
-                if state.copilot.voice_mode != "MUTED" and ai_event.get("speech"):
-                    ev_type = str(ai_event.get("type", "")).lower()
-                    is_critical = any(k in ev_type for k in ["fault", "overheat", "temp", "cold", "panic", "dtc"])
-                    p_level = 0 if is_critical else 1
-                    state.audio.speak(ai_event["speech"], priority=p_level)
-                print(f"[AI COPILOT] {ai_event['hud_message']} -> \"{ai_event['speech']}\"")
+                ev_type = str(ai_event.get("type", "")).lower()
+                is_critical = any(k in ev_type for k in ["fault", "overheat", "temp", "cold", "panic", "dtc"])
+                p_level = 0 if is_critical else 1
+                state.emit_ai_speech(
+                    ai_event.get("speech", ""),
+                    source="COPILOT",
+                    emotion=ai_event.get("emotion", "DEVOTED"),
+                    hud_message=ai_event.get("hud_message"),
+                    speak=True,
+                    priority=p_level,
+                    event_type=ai_event.get("type"),
+                    action=ai_event.get("action"),
+                )
+                print(f"[AI COPILOT] {ai_event.get('hud_message')} -> \"{ai_event.get('speech')}\"")
 
         if tick_count % 25 == 0 and frame:
             state.trip_logger.log_telemetry_sample(asdict(frame))

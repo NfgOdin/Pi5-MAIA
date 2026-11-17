@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from routes import read_json_body, send_json
+from routes import emit_ai_speech, frame_to_dict, read_json_body, send_json
 
 
 def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
@@ -58,21 +58,61 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
         return True
 
     if path == "/api/pip/feed":
+        pre_state = frame_to_dict(state.pip.get_state()) if hasattr(state.pip, "get_state") else {}
         state.pip.stimulate_sugar_water()
-        if state.copilot.voice_mode != "MUTED":
-            state.audio.speak("Here you go, Pip! Yummy sugar water droplets for my favorite little connectome fly!")
+        if getattr(state, "llm", None) and hasattr(state.llm, "get_pip_reaction"):
+            reaction = state.llm.get_pip_reaction("feed", pip_state=pre_state)
+        else:
+            reaction = {
+                "speech": "Here you go, Pip! Yummy sugar water droplets!",
+                "emotion": "HAPPY_PROUD",
+                "action": "action_cheer.bvh",
+                "hud_message": "🪰 FED PIP SUGAR WATER",
+            }
+        speech_text = reaction.get("speech", "Here you go, Pip! Yummy sugar water droplets!")
+        hud_msg = reaction.get("hud_message", "🪰 FED PIP SUGAR WATER")
+        emotion = reaction.get("emotion", "HAPPY_PROUD")
+        anim = reaction.get("action", "action_cheer.bvh")
+        emit_ai_speech(
+            state,
+            speech_text,
+            source="PIP_FEED",
+            emotion=emotion,
+            hud_message=hud_msg,
+            speak=True,
+            priority=1,
+            event_type="PIP_FEED",
+            action=anim,
+        )
         state.latest_ui_action = {
             "type": "PIP_FEED",
-            "speech": "Here you go, Pip! Yummy sugar water droplets!",
-            "action": "action_cheer.bvh",
-            "emotion": "HAPPY_PROUD",
-            "hud_message": "🪰 FED PIP SUGAR WATER",
+            "speech": speech_text,
+            "action": anim,
+            "emotion": emotion,
+            "hud_message": hud_msg,
         }
-        send_json(handler, {"status": "ok", "action": "SUGAR_WATER_FED"})
+        send_json(handler, {"status": "ok", "action": "SUGAR_WATER_FED", "speech": speech_text})
         return True
 
     if path == "/api/pip/scare":
+        pre_state = frame_to_dict(state.pip.get_state()) if hasattr(state.pip, "get_state") else {}
         state.pip.stimulate_scare(force=1.0)
+        reaction = (
+            state.llm.get_pip_reaction("scare", pip_state=pre_state)
+            if (getattr(state, "llm", None) and hasattr(state.llm, "get_pip_reaction"))
+            else None
+        )
+        if reaction and reaction.get("speech"):
+            emit_ai_speech(
+                state,
+                reaction["speech"],
+                source="PIP_SCARE",
+                emotion=reaction.get("emotion", "SURPRISED"),
+                hud_message=reaction.get("hud_message", "🪰 PIP GIANT FIBER ESCAPE"),
+                speak=True,
+                priority=2,
+                event_type="PIP_SCARE",
+            )
         send_json(handler, {"status": "ok", "action": "GIANT_FIBER_ESCAPE_TRIGGERED"})
         return True
 

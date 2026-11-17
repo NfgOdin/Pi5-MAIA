@@ -205,9 +205,9 @@ function navigateTo(screenId) {
   });
   // Phase 2: Diagnostic & Utility Prop Attachment Lifecycle
   if (screenId === 'diagnostics') {
-    attachMultimeterToRum();
+    if (typeof attachMultimeterToVrm === 'function') attachMultimeterToVrm();
   } else {
-    detachMultimeterFromRum();
+    if (typeof detachMultimeterFromVrm === 'function') detachMultimeterFromVrm();
   }
   // Phase 8: MultiAir Maintenance & Vector Memory Refresh Lifecycle
   if (screenId === 'maintenance') {
@@ -642,6 +642,14 @@ function triggerStartupGreeting() {
           .then(neuralData => {
             if (neuralData && neuralData.greeting) {
               console.log(`[OFFICIAL NEURAL GREETING] "${neuralData.greeting}"`);
+              if (typeof appendSpeechLogItem === 'function') {
+                appendSpeechLogItem({
+                  speech: neuralData.greeting,
+                  source: 'NEURAL_BOOT',
+                  persona: neuralData.persona,
+                  emotion: neuralData.emotion || 'DEVOTED'
+                });
+              }
               showAiSpeechToast(neuralData.greeting);
               if (neuralData.emotion) setWaifuEmotion(neuralData.emotion);
             }
@@ -655,6 +663,14 @@ function triggerStartupGreeting() {
           .then(instData => {
             if (instData && instData.greeting) {
               console.log(`[INSTANT BOOT GREETING] "${instData.greeting}"`);
+              if (typeof appendSpeechLogItem === 'function') {
+                appendSpeechLogItem({
+                  speech: instData.greeting,
+                  source: 'INSTANT_BOOT',
+                  persona: instData.persona,
+                  emotion: instData.emotion || 'HAPPY'
+                });
+              }
               showAiSpeechToast(instData.greeting);
               if (instData.emotion) setWaifuEmotion(instData.emotion);
             }
@@ -797,7 +813,9 @@ function connectTelemetryStream() {
     const curBoost = (t.boost_psi !== undefined) ? t.boost_psi : 0;
     const curSteer = (t.steering_angle !== undefined) ? t.steering_angle : 0;
     const curLatG = (t.lateral_accel !== undefined) ? t.lateral_accel : 0;
-    updateRumInertiaPhysics(curSpeed, curBoost, curSteer, curLatG);
+    if (typeof updateVrmInertiaPhysics === 'function') {
+      updateVrmInertiaPhysics(curSpeed, curBoost, curSteer, curLatG);
+    }
 
     // Auto-dismiss boot splash on first live telemetry frame
     if (!bootSplashDismissed) {
@@ -1013,10 +1031,10 @@ function triggerShiftTone(rpm) {
         if (isWaifuSpeaking) stage.classList.add('speaking');
         else stage.classList.remove('speaking');
       }
-      const rumPill = document.getElementById('rumMinHudPill');
-      if (rumPill) {
-        if (isWaifuSpeaking) rumPill.classList.add('speaking');
-        else rumPill.classList.remove('speaking');
+      const vrmPill = document.getElementById('vrmMinHudPill');
+      if (vrmPill) {
+        if (isWaifuSpeaking) vrmPill.classList.add('speaking');
+        else vrmPill.classList.remove('speaking');
       }
       const mini = document.getElementById('vrmMiniBubble');
       if (mini) {
@@ -2037,9 +2055,14 @@ function applyOtaUpdate() {
 
 function playCreatorTribute() {
   setWaifuEmotion("DEVOTED");
-  const speech = "NfgOdin is my Master and brilliant Creator! He designed my neural core to ride shotgun in his Dodge Dart 1.4L Turbo. Every line of code, every MultiAir sensor, and my entire heart belong completely to him!";
+  const p = (typeof getActivePersonaData === 'function') ? getActivePersonaData() : {};
+  const sysEv = p.system_events || {};
+  const fallbackSpeech = "This cockpit was crafted with love to ride shotgun in the Dodge Dart 1.4L Turbo!";
+  const speech = (typeof formatPersonaText === 'function')
+    ? formatPersonaText(sysEv.creator_tribute || fallbackSpeech)
+    : fallbackSpeech;
   showAiSpeechToast(speech);
-  speakUtterance(speech, "DEVOTED");
+  speakUtterance(speech, "DEVOTED", "SYSTEM");
 }
 
 // --- SETTINGS ACCORDION INTERACTION ---

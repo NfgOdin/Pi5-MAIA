@@ -224,7 +224,7 @@ function renderMiniDtcWaifu() {
 
 let currentSelectedDtc = null;
 
-let isRumMechanicActive = false;
+let isVrmMechanicActive = false;
 
 function refreshDiagnostics() {
 
@@ -470,15 +470,15 @@ function promptClearDtcCodes() {
 
 }
 
-function toggleRumMechanicMode() {
+function toggleVrmMechanicMode() {
 
-  isRumMechanicActive = !isRumMechanicActive;
+  isVrmMechanicActive = !isVrmMechanicActive;
 
-  const btn = document.getElementById('btnRumMechanicMode');
+  const btn = document.getElementById('btnVrmMechanicMode');
 
   if (btn) {
 
-    if (isRumMechanicActive) {
+    if (isVrmMechanicActive) {
 
       btn.style.boxShadow = '0 0 16px rgba(255, 64, 129, 0.8)';
 
@@ -569,9 +569,10 @@ function updateDragTreeStatus(label, color, bg) {
   }
 }
 
-function setRumDragCallout(msg) {
-  const callout = document.getElementById('dragRumCallout');
-  if (callout) callout.innerText = 'R.U.M.: ' + msg;
+function setVrmDragCallout(msg) {
+  const callout = document.getElementById('dragVrmCallout');
+  const pName = (typeof getPersonaDisplayName === 'function') ? getPersonaDisplayName() : 'Companion';
+  if (callout) callout.innerText = `${pName}: ` + msg;
   const bubble = document.getElementById('vrmHudBubble');
   if (bubble) {
     bubble.innerText = msg;
@@ -591,7 +592,7 @@ function armDragStaging() {
   // 1. Light Pre-Stage
   setBulbsActive(['treePreStageL', 'treePreStageR'], true);
   updateDragTreeStatus('PRE-STAGED', '#38bdf8', 'rgba(56,189,248,0.2)');
-  setRumDragCallout("Rolling into pre-stage... Hold the clutch and rev, Dad!");
+  setVrmDragCallout("Rolling into pre-stage... Hold the clutch and rev!");
   // Notify backend
   const apiBase = (typeof DAEMON_ORIGIN !== 'undefined' ? DAEMON_ORIGIN : (window.location.origin.startsWith('http') ? '' : 'http://127.0.0.1:8080'));
   fetch(`${apiBase}/api/drag/stage`, {
@@ -664,7 +665,7 @@ function triggerGreenLight() {
   dragGreenTime = performance.now();
   setBulbsActive(['treeGreenL', 'treeGreenR'], true);
   updateDragTreeStatus('GREEN - GO!', '#00e676', 'rgba(0,230,118,0.3)');
-  setRumDragCallout("GREEN LIGHT! FLOOR IT DAD!");
+  setVrmDragCallout("GREEN LIGHT! FLOOR IT!");
 }
 
 function triggerRedLightFoul() {
@@ -674,7 +675,7 @@ function triggerRedLightFoul() {
   clearAllTreeBulbs();
   setBulbsActive(['treeRedL', 'treeRedR'], true);
   updateDragTreeStatus('RED LIGHT - FOUL', '#ff1744', 'rgba(255,23,68,0.3)');
-  setRumDragCallout("RED LIGHT! False start Dad! You jumped the tree!");
+  setVrmDragCallout("RED LIGHT! False start! You jumped the tree!");
   const rtEl = document.getElementById('treeReactionTime');
   if (rtEl) rtEl.innerText = 'FOUL (-.---)';
 }
@@ -687,7 +688,7 @@ function resetDragRun() {
   dragReactionTime = null;
   clearAllTreeBulbs();
   updateDragTreeStatus('READY TO STAGE', '#94a3b8', 'rgba(100,116,139,0.2)');
-  setRumDragCallout("Drag timer reset. Tap ARM STAGE when staged at the line!");
+  setVrmDragCallout("Drag timer reset. Tap ARM STAGE when staged at the line!");
   const rtEl = document.getElementById('treeReactionTime');
   if (rtEl) rtEl.innerText = '--.---';
   const timerEl = document.getElementById('dragStudioTimer');
@@ -729,7 +730,7 @@ function updateDragyStudioUI(gps, telem) {
       dragReactionTime = (rtMs / 1000).toFixed(3);
       const rtEl = document.getElementById('treeReactionTime');
       if (rtEl) rtEl.innerText = dragReactionTime;
-      setRumDragCallout(`Clean launch! Reaction time: ${dragReactionTime}s! Hammer down!`);
+      setVrmDragCallout(`Clean launch! Reaction time: ${dragReactionTime}s! Hammer down!`);
     }
   }
   // 3. Update Drag Studio Speed & Timer
@@ -787,7 +788,7 @@ function updateDragyStudioUI(gps, telem) {
       if (dragStagingState === 'ACCELERATING') {
         dragStagingState = 'FINISHED';
         updateDragTreeStatus('RUN COMPLETE', '#00e5ff', 'rgba(0,229,255,0.2)');
-        setRumDragCallout(`1/4-mile complete! ${d.time_1_4mi.toFixed(2)}s @ ${d.speed_1_4mi || '--'} MPH! Amazing run Dad!`);
+        setVrmDragCallout(`1/4-mile complete! ${d.time_1_4mi.toFixed(2)}s @ ${d.speed_1_4mi || '--'} MPH! Amazing run!`);
       }
     }
     if (gps.road_grade_pct !== undefined) {

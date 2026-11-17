@@ -25,6 +25,65 @@ def send_json(handler: Any, payload: Any, status: int = 200) -> None:
     handler.wfile.write(json.dumps(payload).encode("utf-8"))
 
 
+def emit_ai_speech(
+    state: Any,
+    text: str,
+    source: str = "COPILOT",
+    emotion: str = None,
+    hud_message: str = None,
+    speak: bool = True,
+    priority: int = 1,
+    client_id: str = None,
+    event_type: str = None,
+    action: str = None,
+) -> Any:
+    """Emit spoken companion output into history, SSE ai_event, and audio TTS safely."""
+    import re
+    import time
+
+    if hasattr(state, "emit_ai_speech") and callable(state.emit_ai_speech):
+        return state.emit_ai_speech(
+            text,
+            source=source,
+            emotion=emotion,
+            hud_message=hud_message,
+            speak=speak,
+            priority=priority,
+            client_id=client_id,
+            event_type=event_type,
+            action=action,
+        )
+
+    raw = str(text or "").strip()
+    if not raw:
+        return None
+    clean = re.sub(r"\[EMOTION:\s*[A-Za-z_]+\]", "", raw, flags=re.IGNORECASE)
+    clean = re.sub(r"<emotion>[A-Za-z_]+</emotion>", "", clean, flags=re.IGNORECASE).strip()
+    if not clean:
+        return None
+    if getattr(state, "llm", None) and hasattr(state.llm, "log_speech"):
+        state.llm.log_speech(clean, source=source)
+    ev = {
+        "id": int(time.time() * 1000),
+        "client_id": client_id,
+        "type": event_type or str(source or "COPILOT").upper(),
+        "source": str(source or "COPILOT").upper(),
+        "emotion": emotion or "DEVOTED",
+        "speech": clean,
+        "hud_message": hud_message,
+        "action": action,
+        "timestamp": time.time(),
+        "time_str": time.strftime("%I:%M %p"),
+    }
+    if hasattr(state, "latest_ai_event"):
+        state.latest_ai_event = ev
+    copilot = getattr(state, "copilot", None)
+    voice_mode = getattr(copilot, "voice_mode", "COPILOT")
+    if speak and voice_mode != "MUTED" and getattr(state, "audio", None) and hasattr(state.audio, "speak"):
+        state.audio.speak(clean, priority=priority)
+    return ev
+
+
 def send_bytes(
     handler: Any,
     data: bytes,

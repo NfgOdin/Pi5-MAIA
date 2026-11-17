@@ -210,12 +210,20 @@ class RagMemoryEngine:
                     created_at TEXT NOT NULL,
                     location_name TEXT DEFAULT '',
                     driver_quote TEXT DEFAULT '',
-                    rum_summary TEXT NOT NULL,
+                    companion_summary TEXT NOT NULL,
                     emotion_tag TEXT DEFAULT 'JOY',
                     importance INTEGER DEFAULT 5,
                     vector BLOB
                 )
             """)
+            # Silent schema migration from legacy 'rum_summary' column
+            ep_cols = {row[1] for row in c.execute("PRAGMA table_info(episodic_memories)").fetchall()}
+            if "rum_summary" in ep_cols and "companion_summary" not in ep_cols:
+                try:
+                    c.execute("ALTER TABLE episodic_memories RENAME COLUMN rum_summary TO companion_summary")
+                except Exception:
+                    c.execute("ALTER TABLE episodic_memories ADD COLUMN companion_summary TEXT NOT NULL DEFAULT ''")
+                    c.execute("UPDATE episodic_memories SET companion_summary = rum_summary WHERE companion_summary = ''")
             # 7. Driver Facts Table (Layer 2)
             c.execute("""
                 CREATE TABLE IF NOT EXISTS driver_facts (
@@ -229,9 +237,9 @@ class RagMemoryEngine:
                     UNIQUE(entity, attribute)
                 )
             """)
-            # 8. R.U.M. Personal Trip Diary Table (Layer 3)
+            # 8. Companion Personal Trip Diary Table (Layer 3)
             c.execute("""
-                CREATE TABLE IF NOT EXISTS rum_diary (
+                CREATE TABLE IF NOT EXISTS persona_diary (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     trip_id INTEGER,
                     entry_date TEXT NOT NULL,
@@ -244,6 +252,18 @@ class RagMemoryEngine:
                     vector BLOB
                 )
             """)
+            # Silent table migration from legacy 'rum_diary' table
+            has_legacy_diary = c.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='rum_diary'"
+            ).fetchone()
+            if has_legacy_diary:
+                c.execute("SELECT COUNT(*) FROM persona_diary")
+                if c.fetchone()[0] == 0:
+                    c.execute("""
+                        INSERT INTO persona_diary (trip_id, entry_date, created_at, title, content, peak_boost, mileage, mood, vector)
+                        SELECT trip_id, entry_date, created_at, title, content, peak_boost, mileage, mood, vector
+                        FROM rum_diary
+                    """)
             # 9. Relationship Bond Table (Layer 4)
             c.execute("""
                 CREATE TABLE IF NOT EXISTS relationship_bond (
@@ -286,10 +306,10 @@ class RagMemoryEngine:
                     """, (ent, attr, val, conf, src, now_iso))
 
             # Seed initial diary entry if empty
-            c.execute("SELECT COUNT(*) FROM rum_diary")
+            c.execute("SELECT COUNT(*) FROM persona_diary")
             if c.fetchone()[0] == 0:
                 c.execute("""
-                    INSERT INTO rum_diary (trip_id, entry_date, created_at, title, content, peak_boost, mileage, mood)
+                    INSERT INTO persona_diary (trip_id, entry_date, created_at, title, content, peak_boost, mileage, mood)
                     VALUES (
                         1, '2026-11-09', ?,
                         'A Sunset Cruise and Boost Pulls with Dad',
@@ -720,19 +740,22 @@ class RagMemoryEngine:
     # -------------------------------------------------------------------------
     def add_episodic_memory(
         self,
-        rum_summary: str,
+        companion_summary: str = "",
         driver_quote: str = "",
         location_name: str = "",
         emotion_tag: str = "JOY",
-        importance: int = 5
+        importance: int = 5,
+        **kwargs: Any,
     ) -> int:
         """Stores a memorable driving moment or conversational beat with vector embeddings."""
-        if not rum_summary or not rum_summary.strip():
+        summary_text = companion_summary or kwargs.get("summary") or ""
+        if not summary_text or not str(summary_text).strip():
             return -1
+        summary_text = str(summary_text).strip()
         now_ts = time.time()
         now_iso = datetime.now().isoformat()
         importance = max(1, min(10, int(importance)))
-        embed_text = f"{location_name} {driver_quote} {rum_summary}".strip()
+        embed_text = f"{location_name} {driver_quote} {summary_text}".strip()
         vector = self.embed_engine.embed_text(embed_text)
 
         with self._get_connection() as conn:
@@ -740,16 +763,16 @@ class RagMemoryEngine:
             c.execute("""
                 INSERT INTO episodic_memories (
                     timestamp, created_at, location_name, driver_quote,
-                    rum_summary, emotion_tag, importance, vector
+                    companion_summary, emotion_tag, importance, vector
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 now_ts, now_iso, location_name.strip(), driver_quote.strip(),
-                rum_summary.strip(), emotion_tag.strip().upper(), importance,
+                summary_text, emotion_tag.strip().upper(), importance,
                 vector.tobytes()
             ))
             memory_id = c.lastrowid
             conn.commit()
-            print(f"[EPISODIC MEMORY #{memory_id}] Indexed: '{rum_summary[:50]}...' ({emotion_tag}, Imp: {importance})")
+            print(f"[EPISODIC MEMORY #{memory_id}] Indexed: '{summary_text[:50]}...' ({emotion_tag}, Imp: {importance})")
             return memory_id
 
     def get_recent_episodic_memories(self, limit: int = 15) -> List[Dict[str, Any]]:
@@ -758,7 +781,7 @@ class RagMemoryEngine:
             c = conn.cursor()
             c.execute("""
                 SELECT id, timestamp, created_at, location_name, driver_quote,
-                       rum_summary, emotion_tag, importance
+                       companion_summary, emotion_tag, importance
                 FROM episodic_memories
                 ORDER BY timestamp DESC LIMIT ?
             """, (max(1, int(limit)),))
@@ -772,7 +795,7 @@ class RagMemoryEngine:
                 "created_at": r[2],
                 "location_name": r[3],
                 "driver_quote": r[4],
-                "rum_summary": r[5],
+                "companion_summary": r[5],
                 "emotion_tag": r[6],
                 "importance": r[7]
             })
@@ -784,7 +807,7 @@ class RagMemoryEngine:
             c = conn.cursor()
             c.execute("""
                 SELECT id, timestamp, created_at, location_name, driver_quote,
-                       rum_summary, emotion_tag, importance, vector
+                       companion_summary, emotion_tag, importance, vector
                 FROM episodic_memories
                 ORDER BY timestamp DESC LIMIT 60
             """)
@@ -820,7 +843,7 @@ class RagMemoryEngine:
                 "created_at": created_at,
                 "location_name": loc,
                 "driver_quote": quote,
-                "rum_summary": summary,
+                "companion_summary": summary,
                 "emotion_tag": emotion,
                 "importance": imp,
                 "score": round(final_score, 4)
@@ -910,7 +933,7 @@ class RagMemoryEngine:
         with self._get_connection() as conn:
             c = conn.cursor()
             c.execute("""
-                INSERT INTO rum_diary (
+                INSERT INTO persona_diary (
                     trip_id, entry_date, created_at, title, content,
                     peak_boost, mileage, mood, vector
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -921,16 +944,16 @@ class RagMemoryEngine:
             ))
             entry_id = c.lastrowid
             conn.commit()
-            print(f"[RUM DIARY #{entry_id}] Saved: '{title}' ({now_date})")
+            print(f"[PERSONA DIARY #{entry_id}] Saved: '{title}' ({now_date})")
             return entry_id
 
     def get_recent_diary_entries(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """Returns R.U.M.'s post-drive reflections for cockpit display."""
+        """Returns the companion's post-drive reflections for cockpit display."""
         with self._get_connection() as conn:
             c = conn.cursor()
             c.execute("""
                 SELECT id, trip_id, entry_date, created_at, title, content, peak_boost, mileage, mood
-                FROM rum_diary
+                FROM persona_diary
                 ORDER BY id DESC LIMIT ?
             """, (max(1, int(limit)),))
             rows = c.fetchall()
@@ -951,7 +974,7 @@ class RagMemoryEngine:
         """Deletes a diary entry."""
         with self._get_connection() as conn:
             c = conn.cursor()
-            c.execute("DELETE FROM rum_diary WHERE id = ?", (int(entry_id),))
+            c.execute("DELETE FROM persona_diary WHERE id = ?", (int(entry_id),))
             conn.commit()
             return c.rowcount > 0
 
@@ -1117,7 +1140,7 @@ class RagMemoryEngine:
         episodes = self.query_episodic_memories(query, top_k=2)
         for ep in episodes:
             if ep["score"] >= 0.40:
-                lines.append(f"• Shared Memory: {ep['rum_summary']}")
+                lines.append(f"• Shared Memory: {ep['companion_summary']}")
 
         # 4. Latest Diary Reflection
         recent_diaries = self.get_recent_diary_entries(limit=1)

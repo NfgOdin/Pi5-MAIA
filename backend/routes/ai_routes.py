@@ -9,7 +9,7 @@ import time
 from typing import Any
 from urllib.parse import parse_qs
 
-from routes import frame_to_dict, read_json_body, send_json
+from routes import emit_ai_speech, frame_to_dict, read_json_body, send_json
 
 
 def extract_emotion_and_clean_speech(text: str) -> tuple[str, str]:
@@ -46,14 +46,24 @@ def extract_emotion_and_clean_speech(text: str) -> tuple[str, str]:
 def _handle_morning_dream(handler: Any, state: Any) -> bool:
     dream_data = state.llm.get_morning_dream(force=True)
     if dream_data.get("dream"):
-        if state.copilot.voice_mode != "MUTED":
-            state.audio.speak(dream_data["dream"], priority=2)
+        hud_msg = dream_data.get("hud_message", "💭 Digital Dream")
+        emit_ai_speech(
+            state,
+            dream_data["dream"],
+            source="DIGITAL_DREAM",
+            emotion="HAPPY",
+            hud_message=hud_msg,
+            speak=True,
+            priority=2,
+            event_type="MORNING_DREAM",
+            action=dream_data.get("action", "action_standup.bvh"),
+        )
         state.latest_ui_action = {
             "type": "MORNING_DREAM",
             "speech": dream_data["dream"],
             "action": dream_data.get("action", "action_standup.bvh"),
             "emotion": "HAPPY",
-            "hud_message": "💭 R.U.M.'s Digital Dream",
+            "hud_message": hud_msg,
         }
     send_json(handler, dream_data)
     return True
@@ -64,9 +74,26 @@ def _speak_greeting(handler: Any, state: Any, greeting_info: dict) -> bool:
     emotion, clean_text = extract_emotion_and_clean_speech(raw_text)
     greeting_info["greeting"] = clean_text
     greeting_info["emotion"] = emotion or "DEVOTED"
-    if state.copilot.voice_mode != "MUTED" and clean_text:
-        state.audio.speak(clean_text)
-        state.copilot.last_spoken_time = time.time()
+    if clean_text:
+        stage = str(greeting_info.get("stage", "STARTUP")).upper()
+        src = "NEURAL_BOOT" if stage == "NEURAL" else ("INSTANT_BOOT" if stage == "INSTANT" else "STARTUP")
+        # Greeting methods already called state.llm.log_speech; still emit SSE event & TTS cleanly
+        ev = {
+            "id": int(time.time() * 1000),
+            "type": src,
+            "source": src,
+            "persona": greeting_info.get("persona"),
+            "emotion": greeting_info["emotion"],
+            "speech": clean_text,
+            "hud_message": f"{greeting_info.get('persona', 'Companion')} • Greeting",
+            "timestamp": time.time(),
+            "time_str": time.strftime("%I:%M %p"),
+        }
+        with state.lock:
+            state.latest_ai_event = ev
+        if state.copilot.voice_mode != "MUTED":
+            state.audio.speak(clean_text)
+            state.copilot.last_spoken_time = time.time()
     send_json(handler, greeting_info)
     return True
 
@@ -154,9 +181,20 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
         return _speak_greeting(handler, state, state.llm.get_neural_greeting(live_telemetry=frame_dict))
 
     if path == "/api/ai/speak":
-        text = parse_qs(parsed.query).get("text", [""])[0]
-        if text and state.copilot.voice_mode != "MUTED":
-            state.audio.speak(text)
+        qs = parse_qs(parsed.query)
+        text = qs.get("text", [""])[0]
+        source = qs.get("source", ["UI_SPEECH"])[0]
+        emotion = qs.get("emotion", ["DEVOTED"])[0]
+        client_id = qs.get("client_id", [None])[0]
+        if text:
+            emit_ai_speech(
+                state,
+                text,
+                source=source,
+                emotion=emotion,
+                speak=True,
+                client_id=client_id,
+            )
         send_json(handler, {"status": "ok", "spoken": text})
         return True
 
@@ -179,10 +217,14 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
             frame_dict = frame_to_dict(state.latest_frame)
             greeting_info = state.llm.get_startup_greeting(live_telemetry=frame_dict)
             state.latest_ai_event = {
+                "id": int(time.time() * 1000),
                 "type": "STARTUP_GREETING",
+                "source": "STARTUP",
+                "persona": greeting_info.get("persona"),
                 "severity": "NORMAL",
                 "speech": greeting_info["greeting"],
                 "timestamp": time.time(),
+                "time_str": time.strftime("%I:%M %p"),
             }
         send_json(handler, greeting_info)
         return True
@@ -200,13 +242,26 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
                 "settings": state.llm.settings,
                 "personalities": {
                     k: {
+                        "id": v.get("id", k),
                         "name": v["name"],
+                        "display_short_name": v.get("display_short_name", v["name"]),
+                        "icon": v.get("icon", "✨"),
+                        "subtitle": v.get("subtitle", v.get("archetype", "Cockpit AI Companion")),
                         "full_name": v["full_name"],
                         "desc": v["description"],
                         "archetype": v.get("archetype", "Dedicated Cockpit AI"),
-                        "avatar_image": v.get("avatar_image", "assets/pics/maia_avatar.jpg"),
+                        "driver_address_default": v.get("driver_address_default", "Driver"),
+                        "avatar_image": v.get("avatar_image", "assets/pics/splash.png"),
                         "boot_splash_image": v.get("boot_splash_image", "assets/pics/splash.png"),
                         "boot_splash_video": v.get("boot_splash_video", ""),
+                        "vrm_defaults": v.get("vrm_defaults", {}),
+                        "ui_labels": v.get("ui_labels", {}),
+                        "wake_words": v.get("wake_words", {}),
+                        "greetings": {"first_chat_intro": (v.get("greetings") or {}).get("first_chat_intro", "")},
+                        "system_events": v.get("system_events", {}),
+                        "animation_lines": v.get("animation_lines", {}),
+                        "proactive_care": v.get("proactive_care", {}),
+                        "pip_reactions": v.get("pip_reactions", {}),
                         "default": v.get("default", False),
                         "touch_interactions": v.get("touch_interactions", {}),
                         "banned_touch_zones": v.get("banned_touch_zones", []),
@@ -385,9 +440,19 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
 
     if path == "/api/ai/speak":
         req_data = read_json_body(handler)
-        text = req_data.get("text", "").strip()
-        if text and state.copilot.voice_mode != "MUTED":
-            state.audio.speak(text)
+        text = str(req_data.get("text", "")).strip()
+        source = str(req_data.get("source", "UI_SPEECH")).strip()
+        emotion = req_data.get("emotion", "DEVOTED")
+        client_id = req_data.get("client_id")
+        if text:
+            emit_ai_speech(
+                state,
+                text,
+                source=source,
+                emotion=emotion,
+                speak=True,
+                client_id=client_id,
+            )
         send_json(handler, {"status": "ok", "spoken": text})
         return True
 
@@ -438,11 +503,17 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
     if path == "/api/ai/wake_test":
         state.listen_once_requested = True
         state.is_mic_listening = True
-        if hasattr(state.audio, "play_instant_ack"):
+        p_id = state.llm.settings.get("personality", "RUM")
+        if hasattr(state.audio, "play_acknowledgment"):
+            state.audio.play_acknowledgment(p_id)
+        elif hasattr(state.audio, "play_instant_ack"):
             state.audio.play_instant_ack()
+        persona = state.llm.get_active_persona() if hasattr(state.llm, "get_active_persona") else {}
+        sys_ev = persona.get("system_events") or {}
+        wake_phrase = sys_ev.get("wake_test_phrase") or (persona.get("wake_words") or {}).get("canonical_prefix") or "Hey Companion"
         with state.lock:
             state.pending_voice_transcripts.append({
-                "text": "Hey Rum",
+                "text": wake_phrase,
                 "mode": "wake",
                 "timestamp": time.time(),
             })
@@ -461,13 +532,24 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
 
     if path == "/api/ai/shower_thought":
         thought = state.copilot.generate_shower_thought()
-        if state.copilot.voice_mode != "MUTED":
-            state.audio.speak(thought, priority=2)
+        persona = state.llm.get_active_persona() if hasattr(state.llm, "get_active_persona") else {}
+        care = persona.get("proactive_care") or {}
+        hud_msg = state.llm._safe_fmt(care.get("hud_reminisce", "💭 Companion Thought")) if hasattr(state.llm, "_safe_fmt") else "💭 Companion Thought"
+        emit_ai_speech(
+            state,
+            thought,
+            source="SHOWER_THOUGHT",
+            emotion="THOUGHTFUL",
+            hud_message=hud_msg,
+            speak=True,
+            priority=2,
+            event_type="SHOWER_THOUGHT",
+        )
         state.latest_ui_action = {
             "type": "SHOWER_THOUGHT",
             "speech": thought,
             "emotion": "THOUGHTFUL",
-            "hud_message": "💭 R.U.M. Shower Thought",
+            "hud_message": hud_msg,
         }
         send_json(handler, {"status": "ok", "thought": thought, "emotion": "THOUGHTFUL"})
         return True
@@ -479,15 +561,23 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
             send_json(handler, {"status": "error", "message": "No model specified"}, status=400)
             return True
 
-        swap_announcement = f"Swapping out my neural brain to {model_target.replace('.gguf', '')}... give me just a moment!"
-        state.audio.speak(swap_announcement)
+        persona = state.llm.get_active_persona() if hasattr(state.llm, "get_active_persona") else {}
+        sys_ev = persona.get("system_events") or {}
+        fmt = state.llm._safe_fmt if hasattr(state.llm, "_safe_fmt") else (lambda s, **kw: s.format(**kw))
+        swap_announcement = fmt(
+            sys_ev.get("model_swapping", "Swapping my neural model to {model}... give me just a moment!"),
+            model=model_target.replace(".gguf", ""),
+        )
+        emit_ai_speech(state, swap_announcement, source="SYSTEM", emotion="THOUGHTFUL", speak=True)
 
         def do_swap() -> None:
             res = state.llm.swap_gguf_model(model_target)
             if res.get("success"):
-                state.audio.speak("Yay, Master! My new neural thoughts are warm and ready! Let's go zoomies in the Dart!")
+                msg = fmt(sys_ev.get("model_ready", "My new neural model is warm and ready, {driver_address}!"))
+                emit_ai_speech(state, msg, source="SYSTEM", emotion="HAPPY", speak=True)
             else:
-                state.audio.speak(f"Could not complete the neural swap: {res.get('message')}")
+                msg = fmt(sys_ev.get("model_error", "Could not complete the neural swap: {message}"), message=res.get("message", ""))
+                emit_ai_speech(state, msg, source="SYSTEM", emotion="CONCERNED", speak=True)
 
         threading.Thread(target=do_swap, daemon=True).start()
         send_json(handler, {"status": "ok", "message": f"Initiated swap to {model_target}"})

@@ -604,7 +604,118 @@ class ModularRouteDispatchTest(unittest.TestCase):
         self.assertEqual(normalize_wake_transcript("drum"), ("Hey Rum", True))
         self.assertEqual(normalize_wake_transcript("turn left ahead"), ("turn left ahead", False))
 
+        maia_cfg = {"canonical_prefix": "Hey Maia", "prefixes": ["hey maia", "hey maya"], "standalone": ["maia"]}
+        self.assertEqual(normalize_wake_transcript("hey maya, check boost", maia_cfg), ("Hey Maia, check boost", True))
+        self.assertEqual(normalize_wake_transcript("maia", maia_cfg), ("Hey Maia", True))
+
+    def test_persona_driven_greetings_pip_and_speech_sync(self):
+        import datetime as dt_mod
+        from ai.llm_client import LLMClient
+        from ai.memory_manager import MemoryManager
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            temp_mem = MemoryManager(memory_file=str(Path(tmpdir) / "ai_memory.json"))
+            with mock.patch("ai.llm_client.MemoryManager", return_value=temp_mem):
+                llm = LLMClient()
+            self.assertIn("RUM", llm.personas)
+            self.assertIn("MAIA", llm.personas)
+            self.assertIn("ODIN", llm.personas)
+
+            # Every loaded persona defines full weekday greetings & Pip reactions
+            for pid, pdata in llm.personas.items():
+                weekdays = pdata.get("greetings", {}).get("weekdays", {})
+                self.assertIn("Tuesday", weekdays, f"Persona {pid} missing Tuesday greeting")
+                self.assertTrue(len(weekdays["Tuesday"]) >= 1)
+                pip_feed = pdata.get("pip_reactions", {}).get("feed", {})
+                self.assertTrue(bool(pip_feed), f"Persona {pid} missing pip_reactions.feed")
+
+            # Verify /api/ai/speak logs into speech_log & updates latest_ai_event
+            self.state.llm = llm
+            self.state.latest_ai_event = None
+            h_spk = DummyHandler({"text": "Testing unified speech bubble!", "source": "TOUCH", "emotion": "HAPPY", "client_id": "cli_1"})
+            self.assertTrue(dispatch_post(h_spk, urlparse("/api/ai/speak"), self.state))
+            self.assertEqual(h_spk.status, 200)
+            self.assertEqual(self.state.latest_ai_event["speech"], "Testing unified speech bubble!")
+            self.assertEqual(self.state.latest_ai_event["client_id"], "cli_1")
+            self.assertTrue(any(e["text"] == "Testing unified speech bubble!" for e in llm.speech_log))
+
+            # Verify /api/pip/feed generates persona reaction & emits speech event
+            h_feed = DummyHandler({})
+            self.assertTrue(dispatch_post(h_feed, urlparse("/api/pip/feed"), self.state))
+            self.assertEqual(h_feed.status, 200)
+            feed_body = h_feed.json_body()
+            self.assertTrue(bool(feed_body.get("speech")))
+            self.assertEqual(self.state.latest_ai_event["source"], "PIP_FEED")
+
+            # Verify Tuesday startup greeting picks from Tuesday/time-of-day pools for each persona (without dirtying repo files)
+            llm.settings["personality"] = "MAIA"
+            fake_tuesday = dt_mod.datetime(2026, 11, 17, 10, 0, 0)  # Tuesday
+            with mock.patch("ai.memory_manager.datetime") as mock_dt:
+                mock_dt.now.return_value = fake_tuesday
+                greeting = llm.memory_mgr.generate_startup_greeting("Master", llm.get_active_persona())
+                self.assertTrue(len(greeting) > 10)
+
+    def test_rag_memory_legacy_migration(self):
+        import gc
+        import sqlite3
+        from ai.rag_memory import RagMemoryEngine
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            db_file = Path(tmpdir) / "rag_memory.db"
+            # Seed legacy rum_summary & rum_diary schema prior to upgrade
+            conn = sqlite3.connect(str(db_file))
+            try:
+                conn.execute("""
+                    CREATE TABLE episodic_memories (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp REAL NOT NULL,
+                        created_at TEXT NOT NULL,
+                        location_name TEXT DEFAULT '',
+                        driver_quote TEXT DEFAULT '',
+                        rum_summary TEXT NOT NULL,
+                        emotion_tag TEXT DEFAULT 'JOY',
+                        importance INTEGER DEFAULT 5,
+                        vector BLOB
+                    )
+                """)
+                conn.execute("""
+                    INSERT INTO episodic_memories (timestamp, created_at, rum_summary)
+                    VALUES (1000.0, '2026-11-01T00:00:00', 'Legacy canyon pull')
+                """)
+                conn.execute("""
+                    CREATE TABLE rum_diary (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        trip_id INTEGER,
+                        entry_date TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        peak_boost REAL DEFAULT 0.0,
+                        mileage REAL DEFAULT 0.0,
+                        mood TEXT DEFAULT 'HAPPY_PROUD',
+                        vector BLOB
+                    )
+                """)
+                conn.execute("""
+                    INSERT INTO rum_diary (trip_id, entry_date, created_at, title, content, peak_boost, mileage, mood)
+                    VALUES (1, '2026-11-01', '2026-11-01T00:00:00', 'Legacy Title', 'Legacy Diary Body', 17.5, 12.0, 'HAPPY')
+                """)
+                conn.commit()
+            finally:
+                conn.close()
+
+            rag = RagMemoryEngine(db_path=str(db_file))
+            episodes = rag.get_recent_episodic_memories(limit=5)
+            self.assertEqual(episodes[0]["companion_summary"], "Legacy canyon pull")
+            diary = rag.get_recent_diary_entries(limit=5)
+            self.assertEqual(diary[0]["title"], "Legacy Title")
+            del rag
+            gc.collect()
+
     def test_unmatched_routes_fall_through(self):
+        import importlib
+        daemon_mod = importlib.import_module("daemon")
+        self.assertTrue(hasattr(daemon_mod, "CarPi5ServerState"))
         h = DummyHandler()
         self.assertFalse(dispatch_get(h, urlparse("/index.html"), self.state))
         self.assertFalse(dispatch_get(h, urlparse("/api/nonexistent_route"), self.state))

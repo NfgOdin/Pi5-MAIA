@@ -79,7 +79,7 @@ function updateCanyonAndThermalUI(thermal, lap_timer) {
     const curTimeEl = document.getElementById('canyonCurrentLapTime');
     const bestTimeEl = document.getElementById('canyonBestLapTime');
     const distBadge = document.getElementById('canyonTrackDistanceBadge');
-    const calloutEl = document.getElementById('canyonRumCallout');
+    const calloutEl = document.getElementById('canyonVrmCallout');
 
     if (curTimeEl && lap_timer.formatted_current) curTimeEl.innerText = lap_timer.formatted_current;
     if (bestTimeEl && lap_timer.formatted_best) bestTimeEl.innerText = lap_timer.formatted_best;

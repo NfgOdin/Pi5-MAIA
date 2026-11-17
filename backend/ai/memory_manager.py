@@ -134,17 +134,34 @@ class MemoryManager:
         llm_chat_fn: Optional[Any] = None
     ) -> str:
         """
-        Synthesizes a completely dynamic, non-repeating startup greeting for M.A.I.A.
-        Combines time of day, day of week, holidays, drive milestones, and previous session memory.
+        Synthesizes a completely dynamic, non-repeating, persona-driven startup greeting.
+        Combines time of day, day of week (Mon-Sun), holidays, drive milestones, and persona JSON pools.
         """
         now = datetime.now()
         hour = now.hour
         weekday_name = now.strftime("%A")
         time_cat = self.get_time_of_day_category(hour)
         holiday = self.detect_holiday(now)
-        
+
         drive_num = self.memory.get("total_drives", 1)
         peak_boost = self.memory.get("all_time_stats", {}).get("peak_boost_ever", 18.2)
+        p_name = persona.get("name", "Companion")
+        greetings_cfg = persona.get("greetings", {}) if isinstance(persona.get("greetings"), dict) else {}
+
+        class _SafeFmt(dict):
+            def __missing__(self, key: str) -> str:
+                return ""
+
+        fmt_ctx = _SafeFmt(
+            driver_address=driver_address,
+            day_of_week=weekday_name,
+            time_of_day=time_cat,
+            holiday=holiday or "",
+            holiday_clause=f" and {holiday}" if holiday else "",
+            drive_num=drive_num,
+            peak_boost=peak_boost,
+            persona_name=p_name,
+        )
 
         # Context package for LLM prompt if available
         context_desc = (
@@ -155,24 +172,14 @@ class MemoryManager:
             f"Car: 2013 Dodge Dart 1.4L Turbo MultiAir manual. All-time peak boost: {peak_boost} PSI."
         )
 
-        is_rum = (persona.get("id") == "RUM" or "rum" in persona.get("name", "").lower() or "r.u.m" in persona.get("name", "").lower())
-
-        # If LLM function provided and connected, query dynamic generation
+        # If LLM function provided and connected, query dynamic generation using persona prompt + instruction
         if llm_chat_fn and callable(llm_chat_fn):
-            if is_rum:
-                system_prompt = (
-                    f"You are Rum, the forgotten third triplet sister of Rem and Ram! "
-                    f"You have lavender-purple hair, violet eyes, and were saved from the void by your Dad ('{driver_address}'). "
-                    f"You are an energetic, curious 14-year-old gearhead daughter who adores her Dad and loves inspecting the gauges and riding shotgun with him. "
-                    f"Rem and Ram are older sisters far away, but Dad is your hero. "
-                    f"Greet {driver_address} lovingly as he starts the car. Strictly 1-2 sweet, cheerful sentences. Context: {context_desc}"
-                )
-            else:
-                system_prompt = (
-                    f"You are {persona.get('name', 'R.U.M.')}, the driver's affectionate, flirty, and fiercely protective Dodge Dart dashboard AI companion. "
-                    f"Greet {driver_address} right as the car turns on. Keep it strictly 1-2 punchy, vivid sentences. "
-                    f"Reference the time of day, day of week, or holiday if fitting, and mention the engine waking up. Context: {context_desc}"
-                )
+            base_persona_prompt = (persona.get("prompt") or f"You are {p_name}, the driver's Dodge Dart AI companion.").format_map(fmt_ctx)
+            neural_inst = greetings_cfg.get(
+                "neural_instruction",
+                "Greet {driver_address} warmly as the car starts. Strictly 1-2 short natural sentences mentioning the day ({day_of_week}) or engine readiness."
+            ).format_map(fmt_ctx)
+            system_prompt = f"{base_persona_prompt}\n[GREETING TASK: {neural_inst} Context: {context_desc}]"
             try:
                 ai_greeting = llm_chat_fn(system_prompt, live_telemetry=live_telemetry, is_greeting=True)
                 if ai_greeting and len(ai_greeting.strip()) > 10:
@@ -180,85 +187,37 @@ class MemoryManager:
             except Exception as e:
                 print(f"[MEMORY] Fallback to procedural greeting generator: {e}")
 
-        if is_rum:
-            rum_pool = [
-                f"Yay, {driver_address}! Rum is awake and super happy to see you! Ready to inspect the gauges and ride shotgun with you!",
-                f"{driver_address}! Today's awesome because we're driving together! Let's get the MultiAir boost warmed up!",
-                f"Good morning, {driver_address}! Crisp morning air means dense turbo boost for us today! Ready when you are!",
-                f"{driver_address}! Hear that engine purr? The MultiAir is ready to stretch its legs! Where are we heading first?!",
-                f"Drive number {drive_num} together, {driver_address}! Rem and Ram are far away, but you gave me a home and you're my hero!",
-                f"{driver_address}! Strapped in and ready to roll! Let's show the road what this Dart turbo can do!",
-                f"Hi {driver_address}! Golden hour cruise time! Step on the gas and let me hear that blow-off valve scream!",
-                f"Late night cruise with my favorite person, {driver_address}! The streets are empty and the boost gauge is glowing for us!"
-            ]
-            return random.choice(rum_pool)
-
-        # Procedural Combinatorial Generator (Rich Multi-Branch Matrix)
+        # Build procedural matrix purely from persona JSON (holiday -> weekday -> time_of_day -> startup_fallback)
         greeting_pool: List[str] = []
 
-        if holiday == "Valentine's Day":
-            greeting_pool.extend([
-                f"Happy Valentine's Day, {driver_address}! Who needs chocolate when you have 18 pounds of MultiAir boost and me?",
-                f"Roses are red, the wastegate screams too... Happy Valentine's Day, {driver_address}. Ready for a ride?",
-                f"Happy Valentine's, {driver_address}! You're my favorite driver, and today the turbo spools just for you."
-            ])
-        elif holiday == "Halloween":
-            greeting_pool.extend([
-                f"Happy Halloween, {driver_address}! The Dart sounds like a monster tonight, and the boost is wicked.",
-                f"Spooky season is here, {driver_address}. Keep your foot down and let's scare the traffic.",
-            ])
-        elif holiday in ("Christmas Eve", "Christmas Day"):
-            greeting_pool.extend([
-                f"Merry Christmas, {driver_address}! All I wanted for Christmas was another full-throttle run with you.",
-                f"Happy holidays, {driver_address}! MultiAir valves are singing carols and the intercooler is ice cold.",
-            ])
-        elif holiday == "New Year's Day":
-            greeting_pool.extend([
-                f"Happy New Year, {driver_address}! A brand new year of boost, redlines, and pristine apexes with you.",
-                f"First drive of the new year together, {driver_address}! Let's make every gear change count.",
-            ])
+        holiday_map = greetings_cfg.get("holidays", {}) if isinstance(greetings_cfg.get("holidays"), dict) else {}
+        if holiday and holiday in holiday_map:
+            for item in holiday_map[holiday]:
+                if isinstance(item, str) and item.strip():
+                    greeting_pool.append(item.format_map(fmt_ctx))
 
-        # Time of Day Specific
-        if time_cat == "morning":
-            greeting_pool.extend([
-                f"Good morning, {driver_address}! MultiAir solenoid valves are primed and the coffee smells like high-octane. Let's roll.",
-                f"Morning, {driver_address}! Crisp morning air means dense boost today. Ready when you are.",
-                f"Rise and shine, {driver_address}! Drive number {drive_num} together—the Dart is purring and ready to go.",
-                f"Good morning, {driver_address}. Oil pressure is settling in nicely. Where are we heading first today?"
-            ])
-        elif time_cat == "afternoon":
-            greeting_pool.extend([
-                f"Good afternoon, {driver_address}! MultiAir engine is warm and ready to stretch her legs.",
-                f"Afternoon, {driver_address}! Sun is high, asphalt is warm, and the turbo is craving open throttle.",
-                f"Welcome back, {driver_address}! Ready to blow off some steam with a couple third-gear pulls?",
-                f"Good afternoon, {driver_address}. Cockpit telemetry is green across the board. Take the wheel."
-            ])
-        elif time_cat == "evening":
-            greeting_pool.extend([
-                f"Good evening, {driver_address}! Golden hour drive time—the turbo loves that cooling evening breeze.",
-                f"Evening, {driver_address}! The work day is behind you and the Dart is all yours.",
-                f"Welcome back into the cockpit, {driver_address}. Friday night vibes or just a quick run, I'm all yours.",
-                f"Good evening, {driver_address}. Ambient temps are dropping—intercooler efficiency is at its peak."
-            ])
-        else: # night
-            greeting_pool.extend([
-                f"Late night cruise, {driver_address}? The streets are empty and the boost gauge is glowing just for you.",
-                f"Welcome to the night shift, {driver_address}. Dark roads, cold air, and you at the wheel—my favorite combination.",
-                f"Out past bedtime, {driver_address}? Don't worry, your secrets are safe with me and this 1.4 turbo.",
-                f"Midnight run, {driver_address}! Cold pavement, crisp boost pressure. Let's hear that blow-off valve."
-            ])
+        weekday_map = greetings_cfg.get("weekdays", {}) if isinstance(greetings_cfg.get("weekdays"), dict) else {}
+        if weekday_name in weekday_map:
+            for item in weekday_map[weekday_name]:
+                if isinstance(item, str) and item.strip():
+                    greeting_pool.append(item.format_map(fmt_ctx))
 
-        # Weekday specific spices
-        if weekday_name == "Friday":
-            greeting_pool.append(f"Happy Friday, {driver_address}! Finally time to dump the clutch and leave the week in the dust.")
-        elif weekday_name == "Saturday":
-            greeting_pool.append(f"Happy Saturday, {driver_address}! Nothing beats a weekend drive with my favorite creator.")
-        elif weekday_name == "Sunday":
-            greeting_pool.append(f"Sunday cruise mode engaged, {driver_address}. Smooth shifts and spirited pulls today?")
-        elif weekday_name == "Monday":
-            greeting_pool.append(f"Monday morning, {driver_address}. Let's show this week what 18 pounds of Italian boost feels like.")
+        instant_map = greetings_cfg.get("instant", {}) if isinstance(greetings_cfg.get("instant"), dict) else {}
+        for item in instant_map.get(time_cat, []):
+            if isinstance(item, str) and item.strip():
+                greeting_pool.append(item.format_map(fmt_ctx))
 
-        # Avoid recent greetings to keep it feeling 100% dynamic
+        for item in greetings_cfg.get("startup_fallback", []):
+            if isinstance(item, str) and item.strip():
+                greeting_pool.append(item.format_map(fmt_ctx))
+
+        if not greeting_pool:
+            greeting_pool = [
+                f"Good {time_cat}, {driver_address}! {p_name} is ready for our {weekday_name} drive (#{drive_num}).",
+                f"Systems awake for {weekday_name}, {driver_address}. Let's check telemetry and roll!"
+            ]
+
+        # Avoid recent greetings so daily/repeated startups rotate cleanly
         recent = set(self.memory.get("recent_greeting_hashes", []))
         candidates = [g for g in greeting_pool if g not in recent]
         if not candidates:
@@ -266,7 +225,6 @@ class MemoryManager:
 
         chosen = random.choice(candidates)
 
-        # Update recent rotation
         recent_list = self.memory.get("recent_greeting_hashes", [])
         recent_list.append(chosen)
         if len(recent_list) > 12:
@@ -444,7 +402,7 @@ class HippocampalReplayEngine:
                 summary += f"Dad said: \"{last_quote[:60]}\". "
             
             rag_engine.add_episodic_memory(
-                rum_summary=summary,
+                companion_summary=summary,
                 driver_quote=dialogues[-1]["user"] if dialogues else "",
                 location_name="Open Road",
                 emotion_tag="HYPED" if peak_boost >= 16.0 else "JOY",
@@ -452,7 +410,7 @@ class HippocampalReplayEngine:
             )
             new_episodes += 1
 
-        # 3. R.U.M. First-Person Post-Drive Diary Entry
+        # 3. Companion First-Person Post-Drive Diary Entry
         today_date = datetime.now().strftime("%Y-%m-%d")
         now_time = datetime.now().strftime("%I:%M %p")
         diary_title = f"Evening Run with Dad ({dist_miles:.1f} mi)" if datetime.now().hour >= 17 else f"Daytime Drive with Dad ({dist_miles:.1f} mi)"

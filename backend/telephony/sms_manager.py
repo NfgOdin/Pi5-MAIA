@@ -100,7 +100,7 @@ class SMSManager:
         # Log into Living Memory
         if self._rag_engine:
             self._rag_engine.add_episodic_memory(
-                rum_summary=f"Text message from {kinship} ({contact.get('name', sender)}): '{clean_text}'",
+                companion_summary=f"Text message from {kinship} ({contact.get('name', sender)}): '{clean_text}'",
                 driver_quote=f"Text from {kinship}",
                 emotion_tag="CARING",
                 importance=6

@@ -350,18 +350,19 @@ function submitMaintSearch() {
   const input = document.getElementById('maintSearchInput');
   if (!input) return;
   const q = input.value.trim();
-  if (q) queryRumVectorMemory(q);
+  if (q) queryCompanionVectorMemory(q);
 }
 
 function quickQueryMemory(query) {
   const input = document.getElementById('maintSearchInput');
   if (input) input.value = query;
-  queryRumVectorMemory(query);
+  queryCompanionVectorMemory(query);
 }
 
-function queryRumVectorMemory(query) {
+function queryCompanionVectorMemory(query) {
   const resultsContainer = document.getElementById('maintSearchResults');
   if (!resultsContainer) return;
+  const pName = (typeof getPersonaDisplayName === 'function') ? getPersonaDisplayName() : 'Companion';
   resultsContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">Searching vector database...</div>';
   fetch('/api/ai/memory/query?q=' + encodeURIComponent(query))
     .then(r => r.json())
@@ -370,7 +371,7 @@ function queryRumVectorMemory(query) {
       if (results.length === 0) {
         resultsContainer.innerHTML = `
           <div class="maint-memory-empty">
-            No semantic matches found for "<b>${query}</b>". R.U.M. searches specifications, service logs, and flight records.
+            No semantic matches found for "<b>${query}</b>". ${pName} searches specifications, service logs, and flight records.
           </div>
         `;
         return;
@@ -475,8 +476,8 @@ function loadLivingMindData() {
           return `<span class="maint-milestone-pill ${isU ? 'unlocked' : ''}">${isU ? '✅' : '🔒'} ${m.name}</span>`;
         }).join('');
       }
-      // 2. Render R.U.M. Personal Trip Diary
-      const diaryList = document.getElementById('rumDiaryList');
+      // 2. Render Companion Personal Trip Diary
+      const diaryList = document.getElementById('companionDiaryList');
       if (diaryList) {
         const entries = data.diary || [];
         if (entries.length === 0) {
@@ -506,7 +507,7 @@ function loadLivingMindData() {
       if (factsList) {
         const facts = data.facts || [];
         if (facts.length === 0) {
-          factsList.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">No driver facts learned yet. Tap "+ TEACH RUM" above!</div>';
+          factsList.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">No driver facts learned yet. Tap Teach Companion above!</div>';
         } else {
           factsList.innerHTML = facts.map(f => `
             <div class="maint-fact-card">
@@ -542,7 +543,7 @@ function deleteDiaryEntry(id) {
 }
 
 function deleteDriverFact(id) {
-  if (!confirm('Forget this fact about Dad?')) return;
+  if (!confirm('Forget this learned driver fact?')) return;
   fetch('/api/ai/memory/facts/delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -558,7 +559,8 @@ function deleteDriverFact(id) {
 }
 
 function triggerDreamConsolidation() {
-  if (window.showToast) window.showToast('Consolidating drive into R.U.M. memory & diary...');
+  const pName = (typeof getPersonaDisplayName === 'function') ? getPersonaDisplayName() : 'Companion';
+  if (window.showToast) window.showToast(`Consolidating drive into ${pName} memory & diary...`);
   fetch('/api/ai/memory/consolidate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -574,8 +576,8 @@ function triggerDreamConsolidation() {
   });
 }
 
-function openTeachRumModal() {
-  const modal = document.getElementById('maintTeachRumModal');
+function openTeachPersonaModal() {
+  const modal = document.getElementById('maintTeachPersonaModal');
   const ent = document.getElementById('teachEntityInput');
   const attr = document.getElementById('teachAttrInput');
   const val = document.getElementById('teachValInput');
@@ -585,17 +587,19 @@ function openTeachRumModal() {
   if (modal) modal.style.display = 'flex';
 }
 
-function closeTeachRumModal() {
-  const modal = document.getElementById('maintTeachRumModal');
+function closeTeachPersonaModal() {
+  const modal = document.getElementById('maintTeachPersonaModal');
   if (modal) modal.style.display = 'none';
 }
 
-function submitTeachRumFact() {
+function submitTeachPersonaFact() {
   const ent = document.getElementById('teachEntityInput')?.value.trim();
   const attr = document.getElementById('teachAttrInput')?.value.trim();
   const val = document.getElementById('teachValInput')?.value.trim();
+  const pName = (typeof getPersonaDisplayName === 'function') ? getPersonaDisplayName() : 'Companion';
+  const addr = (typeof getDriverDisplayAddress === 'function') ? getDriverDisplayAddress() : 'Driver';
   if (!ent || !attr || !val) {
-    alert('Please fill in Topic, Detail, and What should R.U.M. remember.');
+    alert(`Please fill in Topic, Detail, and What ${pName} should remember.`);
     return;
   }
   fetch('/api/ai/memory/facts', {
@@ -611,12 +615,12 @@ function submitTeachRumFact() {
   })
   .then(r => r.json())
   .then(data => {
-    closeTeachRumModal();
+    closeTeachPersonaModal();
     loadLivingMindData();
-    if (window.showToast) window.showToast('💖 R.U.M. learned new fact about Dad!');
+    if (window.showToast) window.showToast(`💖 ${pName} learned new fact about ${addr}!`);
   })
   .catch(err => {
     console.error('[MAINT] Error saving fact:', err);
-    closeTeachRumModal();
+    closeTeachPersonaModal();
   });
 }

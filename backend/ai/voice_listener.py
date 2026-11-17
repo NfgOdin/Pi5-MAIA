@@ -13,39 +13,53 @@ import time
 from typing import Any
 
 
-PHONETIC_RUM_PREFIXES = (
-    "hey rum", "hi rum", "hello rum", "okay rum", "ok rum", "yo rum",
-    "hey ram", "hi ram", "hello ram", "okay ram", "ok ram",
-    "hey rem", "hi rem", "hello rem", "okay rem", "ok rem",
-    "hey ron", "hi ron", "hello ron", "okay ron", "ok ron",
-    "hey run", "hi run", "hello run", "okay run", "ok run",
-    "hey rob", "hi rob", "hello rob", "okay rob", "ok rob",
-    "hey rome", "hi rome", "hello rome", "okay rome",
-    "hey room", "hi room", "hello room", "okay room",
-    "hey drum", "hi drum", "hello drum",
-    "hey rung", "r.u.m.", "r.u.m",
-)
-
-STANDALONE_RUM_WORDS = {
-    "rum", "r.u.m.", "r.u.m", "rem", "ram", "ron", "run", "rob", "rome", "room", "drum",
-}
-
-VOSK_WAKE_GRAMMAR = json.dumps([
-    "hey rum", "hi rum", "hello rum", "okay rum", "ok rum", "yo rum",
-    "hey ram", "hi ram", "hello ram", "okay ram", "ok ram",
-    "hey rem", "hi rem", "hello rem", "okay rem", "ok rem",
-    "hey ron", "hi ron", "hello ron", "okay ron", "ok ron",
-    "hey run", "hi run", "hello run", "okay run", "ok run",
-    "hey rob", "hi rob", "hello rob", "okay rob", "ok rob",
-    "hey rome", "hi rome", "hello rome", "okay rome",
-    "hey room", "hi room", "hello room", "okay room",
-    "hey drum", "hi drum", "hello drum",
-    "rum", "rem", "ram", "ron", "run", "rob", "rome", "room", "drum",
+DEFAULT_WAKE_COMMANDS = [
     "speed", "boost", "temperature", "coolant", "map", "maps", "navigation", "nav",
     "where", "location", "drag", "launch", "home", "gauges",
-    "hey", "hi", "hello",
-    "[unk]",
-])
+    "hey", "hi", "hello", "[unk]",
+]
+
+
+def _get_persona_wake_cfg(state: Any) -> dict[str, Any]:
+    """Read active persona wake_words config dynamically from state.llm or default persona JSON."""
+    if state is not None and getattr(state, "llm", None) and hasattr(state.llm, "get_wake_words"):
+        return state.llm.get_wake_words()
+    persona_dir = Path(__file__).resolve().parent.parent.parent / "config" / "personas"
+    fallback_cfg = None
+    if persona_dir.exists():
+        for pfile in sorted(persona_dir.glob("*.json")):
+            try:
+                data = json.loads(pfile.read_text(encoding="utf-8"))
+                ww = data.get("wake_words")
+                if isinstance(ww, dict):
+                    cfg = {
+                        "personality_id": data.get("id", pfile.stem.upper()),
+                        "canonical_prefix": ww.get("canonical_prefix", f"Hey {data.get('name', 'Companion')}"),
+                        "prefixes": list(ww.get("prefixes") or []),
+                        "standalone": list(ww.get("standalone") or []),
+                    }
+                    if data.get("default"):
+                        return cfg
+                    if fallback_cfg is None:
+                        fallback_cfg = cfg
+            except Exception:
+                continue
+    return fallback_cfg or {
+        "canonical_prefix": "Hey",
+        "prefixes": ["hey companion", "hi companion", "hello companion"],
+        "standalone": ["companion"],
+        "personality_id": "DEFAULT",
+    }
+
+
+def _build_vosk_wake_grammar(wake_cfg: dict[str, Any]) -> str:
+    """Build Vosk grammar JSON dynamically from the active persona wake phrases."""
+    tokens = list(dict.fromkeys([
+        *[str(p).lower() for p in wake_cfg.get("prefixes", []) if p],
+        *[str(w).lower() for w in wake_cfg.get("standalone", []) if w],
+        *DEFAULT_WAKE_COMMANDS,
+    ]))
+    return json.dumps(tokens)
 
 
 def _ensure_vosk_model(state: Any, base_dir: Path) -> Any:
@@ -60,23 +74,27 @@ def _ensure_vosk_model(state: Any, base_dir: Path) -> Any:
     return getattr(state, "_vosk_model", None)
 
 
-def normalize_wake_transcript(heard: str) -> tuple[str, bool]:
-    """Normalize phonetic wake variants to 'Hey Rum...' and return (text, is_wake_match)."""
+def normalize_wake_transcript(heard: str, wake_cfg: dict[str, Any] | None = None) -> tuple[str, bool]:
+    """Normalize phonetic wake variants to the active persona wake prefix and return (text, is_wake_match)."""
+    cfg = wake_cfg or _get_persona_wake_cfg(None)
+    canon = cfg.get("canonical_prefix", "Hey")
+    prefixes = tuple(str(p).lower() for p in cfg.get("prefixes", []) if p)
+    standalone = {str(w).lower() for w in cfg.get("standalone", []) if w}
     h_low = heard.lower().strip(" .,!?")
-    for pref in PHONETIC_RUM_PREFIXES:
+    for pref in prefixes:
         if h_low == pref:
-            return "Hey Rum", True
+            return canon, True
         if h_low.startswith(pref + " ") or h_low.startswith(pref + ","):
             rest = heard[len(pref):].lstrip(" ,.!?")
-            return (f"Hey Rum, {rest}" if rest else "Hey Rum"), True
+            return (f"{canon}, {rest}" if rest else canon), True
 
-    if h_low in STANDALONE_RUM_WORDS:
-        return "Hey Rum", True
+    if h_low in standalone:
+        return canon, True
     return heard, False
 
 
 def usb_mic_listener_loop(state: Any, base_dir: Path) -> None:
-    """Run continuous zero-gap hardware USB microphone capture for 'Hey Rum' and live conversation."""
+    """Run continuous zero-gap hardware USB microphone capture for persona wake-word and live conversation."""
     if not sys.platform.startswith("linux"):
         return
 
@@ -107,6 +125,7 @@ def usb_mic_listener_loop(state: Any, base_dir: Path) -> None:
             norm_samples = [max(-32767, min(32767, int(s * gain))) for s in centered]
             norm_bytes = struct.pack(f"<{ns}h", *norm_samples)
 
+            wake_cfg = _get_persona_wake_cfg(state)
             import speech_recognition as sr
 
             recognizer = sr.Recognizer()
@@ -118,8 +137,10 @@ def usb_mic_listener_loop(state: Any, base_dir: Path) -> None:
 
                     model = _ensure_vosk_model(state, base_dir)
                     if model is not None:
-                        if getattr(state, "_vosk_wake_rec", None) is None:
-                            state._vosk_wake_rec = vosk.KaldiRecognizer(model, 16000, VOSK_WAKE_GRAMMAR)
+                        p_id = wake_cfg.get("personality_id", "DEFAULT")
+                        if getattr(state, "_vosk_wake_rec", None) is None or getattr(state, "_vosk_wake_persona", None) != p_id:
+                            state._vosk_wake_rec = vosk.KaldiRecognizer(model, 16000, _build_vosk_wake_grammar(wake_cfg))
+                            state._vosk_wake_persona = p_id
                         rec = state._vosk_wake_rec
                         rec.AcceptWaveform(norm_bytes)
                         heard = json.loads(rec.FinalResult()).get("text", "").strip()
@@ -150,7 +171,7 @@ def usb_mic_listener_loop(state: Any, base_dir: Path) -> None:
                 f"(raw RMS={rms:.0f}, Peak={peak}, Gain={gain:.1f}x)",
                 flush=True,
             )
-            normalized_text, is_wake_match = normalize_wake_transcript(heard)
+            normalized_text, is_wake_match = normalize_wake_transcript(heard, wake_cfg)
 
             if not is_convo and not is_wake_match:
                 print(f"[VOICE MIC] Discarded non-wake speech in standby: '{heard}'", flush=True)
@@ -162,10 +183,11 @@ def usb_mic_listener_loop(state: Any, base_dir: Path) -> None:
                     "mode": "convo" if is_convo else "wake",
                     "timestamp": time.time(),
                 })
-            if not is_convo and normalized_text.lower().strip(" !?.") == "hey rum":
+            canon_low = str(wake_cfg.get("canonical_prefix", "hey")).lower().strip(" !?.")
+            if not is_convo and normalized_text.lower().strip(" !?.") == canon_low:
                 state.listen_once_requested = True
                 try:
-                    state.audio.play_acknowledgment(state.llm.settings.get("personality", "RUM"))
+                    state.audio.play_acknowledgment(state.llm.settings.get("personality", "DEFAULT"))
                 except Exception as ack_err:
                     print(f"[VOICE MIC] Ack play note: {ack_err}", flush=True)
             elif state.listen_once_requested and not state.live_convo_mode:

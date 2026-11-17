@@ -2094,17 +2094,17 @@ class AudioPlayer:
 
 
 
-    def play_acknowledgment(self, persona: str = "RUM") -> bool:
+    def play_acknowledgment(self, persona: str = "DEFAULT") -> bool:
 
         """Plays a natural, instant (<15ms) voice acknowledgment when mic opens."""
 
         base = Path(__file__).parent.parent.parent
 
-        ack_dir = base / "assets" / "sounds" / "acknowledgments" / persona.lower()
+        ack_dir = base / "assets" / "sounds" / "acknowledgments" / str(persona or "default").lower()
 
         if not ack_dir.exists():
 
-            ack_dir = base / "assets" / "sounds" / "acknowledgments" / "rum"
+            ack_dir = base / "assets" / "sounds" / "acknowledgments" / "default"
 
         if ack_dir.exists():
 
@@ -2114,7 +2114,7 @@ class AudioPlayer:
 
                 chosen = random.choice(wavs)
 
-                print(f"[AUDIO] Playing instant R.U.M. voice acknowledgment: {chosen.name}")
+                print(f"[AUDIO] Playing instant voice acknowledgment ({persona}): {chosen.name}")
 
                 threading.Thread(target=self._play_file_direct, args=(str(chosen), 0.0), daemon=True).start()
 

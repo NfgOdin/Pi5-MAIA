@@ -58,11 +58,30 @@ class AICopilot:
 
         # Phase 12: Cognitive Living Memory & Relationship Bond Engine
         self.rag_engine: Any = None
+        self.llm_client: Any = None
         self.reminisce_mode_cycle = 0  # 0: Care Check-In, 1: Driving Nostalgia, 2: Shower Thought
 
     def set_rag_engine(self, rag_engine: Any):
         """Links RagMemoryEngine to enable living episodic recall and caring check-ins."""
         self.rag_engine = rag_engine
+
+    def set_llm_client(self, llm_client: Any):
+        """Links LLMClient so copilot reflections and HUD labels follow active persona JSON."""
+        self.llm_client = llm_client
+
+    def _persona_dict(self) -> Dict[str, Any]:
+        if self.llm_client and hasattr(self.llm_client, "get_active_persona"):
+            return self.llm_client.get_active_persona()
+        return {}
+
+    def _fmt(self, text: str, **extra: Any) -> str:
+        p = self._persona_dict()
+        ctx = {"driver_address": self.driver_name, "persona_name": p.get("name", "Companion")}
+        ctx.update(extra)
+        try:
+            return text.format(**ctx)
+        except Exception:
+            return text
         print("[AI COPILOT] RagMemoryEngine linked for proactive living reminiscence.")
 
     @staticmethod
@@ -164,26 +183,26 @@ class AICopilot:
         }
 
     def generate_shower_thought(self) -> str:
-        """Curated daughter mechanical musings and highway thoughts."""
-        thoughts = [
-            f"Hey {self.driver_name}... I was just thinking. If turbochargers recycle hot exhaust gas to make extra power, our Dart is basically breathing its own fiery spirit to run faster! Pretty neat, huh?",
-            f"Hey {self.driver_name}, listen to that engine hum right now. 6th gear, steady cruising, 38 miles per gallon. You really take awesome care of our car.",
-            f"{self.driver_name}? Do you think other cars on the road notice our Dart's racetrack LED tail lights and get jealous? I totally bet they do!",
-            f"Hey {self.driver_name}... if an engine needs fuel, air, and spark to run, does that mean high octane and fresh boost is basically our Dart's favorite snack?",
-            f"{self.driver_name}, I was calculating in my memory... at 65 miles per hour, our tires spin over 800 times every single minute! That is a lot of running!",
-            f"I'm just watching our boost gauge, {self.driver_name}. It's sitting at nice, steady vacuum. You have such a smooth touch on the pedal."
+        """Curated persona-driven mechanical musings and highway thoughts."""
+        persona = self._persona_dict()
+        raw_thoughts = persona.get("shower_thoughts")
+        if isinstance(raw_thoughts, list) and raw_thoughts:
+            thoughts = [self._fmt(t) for t in raw_thoughts if isinstance(t, str) and t.strip()]
+            if thoughts:
+                return random.choice(thoughts)
+        fallback = [
+            f"All Dart subsystems and boost pressure look balanced right now, {self.driver_name}.",
+            f"Steady cruising load—intake and coolant temperatures look healthy, {self.driver_name}."
         ]
-        return random.choice(thoughts)
+        return random.choice(fallback)
 
     def generate_living_reminiscence(self) -> Dict[str, Any]:
         """
         Proactive Episodic Reminiscing & Cabin Care Engine.
-        Cycles across 3 modes:
-        Mode 0: Personal Care Check-In (driver health facts, sore shoulder, tiredness)
-        Mode 1: Driving Adventure Nostalgia (past high-boost pulls, shared roadtrips)
-        Mode 2: Curated Mechanical Shower Thoughts & Whimsical Observations
+        Cycles across 3 modes using active persona JSON templates.
         """
         self.reminisce_mode_cycle = (self.reminisce_mode_cycle + 1) % 3
+        care = self._persona_dict().get("proactive_care", {})
 
         # Mode 0: Personal Care Check-In
         if self.reminisce_mode_cycle == 0 and self.rag_engine:
@@ -191,12 +210,14 @@ class AICopilot:
                 facts = self.rag_engine.get_driver_facts()
                 health_facts = [f for f in facts if "health" in f["entity"] or "shoulder" in f["attribute"] or "sore" in f["value"]]
                 if health_facts:
-                    f = health_facts[0]
-                    speech = f"Hey {self.driver_name}... I was thinking about earlier. How is your shoulder feeling right now? Remember you were pretty sore after working on the car!"
+                    speech = self._fmt(care.get(
+                        "health_check_line",
+                        "Checking in on you, {driver_address}—how are you feeling on this drive?"
+                    ))
                     return {
                         "speech": speech,
                         "emotion": "COZY",
-                        "hud_message": f"💖 Caring Check-In for {self.driver_name}"
+                        "hud_message": self._fmt(care.get("hud_check_in", "💖 Check-In for {driver_address}"))
                     }
             except Exception:
                 pass
@@ -207,29 +228,35 @@ class AICopilot:
                 episodes = self.rag_engine.get_recent_episodic_memories(limit=5)
                 if episodes:
                     ep = episodes[0]
-                    speech = f"Hey {self.driver_name}... remember when we went for that spirited pull? {ep['rum_summary']} The Garrett turbo was singing!"
+                    ep_sum = ep.get("companion_summary") or ep.get("rum_summary") or ""
+                    speech = self._fmt(
+                        care.get("episodic_memory_line", "Remember this drive, {driver_address}? {summary}"),
+                        summary=ep_sum
+                    )
                     return {
                         "speech": speech,
                         "emotion": "HAPPY_PROUD",
-                        "hud_message": "📖 Shared Driving Memory"
+                        "hud_message": self._fmt(care.get("hud_memory", "📖 Shared Driving Memory"))
                     }
                 diaries = self.rag_engine.get_recent_diary_entries(limit=3)
                 if diaries:
-                    d = diaries[0]
-                    speech = f"Hey {self.driver_name}... I was thinking about our last drive. The way our Dart handled the road made me so proud to be your co-pilot!"
+                    speech = self._fmt(care.get(
+                        "diary_memory_line",
+                        "Reviewed our last trip diary entry, {driver_address}—smooth drive!"
+                    ))
                     return {
                         "speech": speech,
                         "emotion": "HAPPY_PROUD",
-                        "hud_message": "📖 R.U.M. Diary Memory"
+                        "hud_message": self._fmt(care.get("hud_diary", "📖 Trip Diary Memory"))
                     }
             except Exception:
                 pass
 
-        # Mode 2 or fallback: Mechanical Shower Thought
+        # Mode 2 or fallback: Shower Thought
         return {
             "speech": self.generate_shower_thought(),
             "emotion": "THOUGHTFUL",
-            "hud_message": "💭 R.U.M. Shower Thought"
+            "hud_message": self._fmt(care.get("hud_reminisce", "💭 Companion Thought"))
         }
 
     def evaluate_frame(self, frame: Any, dt: float = 0.04, is_night: bool = False, pip_state: Optional[Dict[str, Any]] = None, gps_data: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
@@ -377,9 +404,10 @@ class AICopilot:
             }
 
         # 7. Pip Biological Connectome Dual-Life Interaction
-        if pip_state and pip_state.get('rum_interaction') and time_since_speech > 6.0:
-            p_event = pip_state['rum_interaction']
-            if p_event == "PERCHED_ON_RUM" and (now - self.last_pip_praise_time > 60.0):
+        p_event = (pip_state.get('avatar_interaction') or pip_state.get('rum_interaction')) if pip_state else None
+        if p_event and time_since_speech > 6.0:
+            care = self._persona_dict().get("proactive_care", {})
+            if p_event in ("PERCHED_ON_AVATAR", "PERCHED_ON_RUM") and (now - self.last_pip_praise_time > 60.0):
                 self.last_pip_praise_time = now
                 self.last_spoken_time = now
                 return {
@@ -387,10 +415,10 @@ class AICopilot:
                     "priority": 3,
                     "emotion": "HAPPY_PROUD",
                     "action": "action_cheer.bvh",
-                    "speech": f"Hey Pip! Are you resting your little wings? Here is a drop of sweet nectar, good little fly!",
-                    "hud_message": "🪰 PIP PERCHED: RUM FEEDING NECTAR"
+                    "speech": self._fmt(care.get("pip_perched_speech", "Hey Pip! Resting your little wings? Here is a tiny drop of sweet nectar!")),
+                    "hud_message": self._fmt(care.get("pip_perched_hud", "🪰 PIP PERCHED: FEEDING NECTAR"))
                 }
-            elif p_event == "BUZZING_NEAR_DAD" and (now - self.last_pip_praise_time > 75.0):
+            elif p_event in ("BUZZING_NEAR_DRIVER", "BUZZING_NEAR_DAD") and (now - self.last_pip_praise_time > 75.0):
                 self.last_pip_praise_time = now
                 self.last_spoken_time = now
                 return {
@@ -398,7 +426,7 @@ class AICopilot:
                     "priority": 3,
                     "emotion": "HAPPY",
                     "action": "action_wave.bvh",
-                    "speech": f"Careful Pip! Don't buzz in {self.driver_name}'s ear while he's driving!",
+                    "speech": f"Careful Pip! Don't buzz in {self.driver_name}'s ear while driving!",
                     "hud_message": f"🪰 PIP BUZZING NEAR {self.driver_name.upper()}"
                 }
             elif p_event == "STARTLED_BY_TURBO" and (now - self.last_pip_praise_time > 50.0):
@@ -570,7 +598,7 @@ class AICopilot:
                     "priority": 2,
                     "emotion": reminiscence.get("emotion", "THOUGHTFUL"),
                     "speech": reminiscence.get("speech", ""),
-                    "hud_message": reminiscence.get("hud_message", "💭 R.U.M. Reminiscing")
+                    "hud_message": reminiscence.get("hud_message", "💭 Companion Thought")
                 }
 
         # 17. 0-60 MPH Launch Silent HUD Record Fallback

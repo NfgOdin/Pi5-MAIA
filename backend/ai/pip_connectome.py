@@ -69,11 +69,11 @@ class PipConnectome:
         self.haltere_coriolis_yaw: float = 0.0
         self.haltere_vibration_strain: float = 0.0
 
-        # R.U.M. & Dad Proximity Tracking
-        self.dist_to_rum: float = 1.0
-        self.dist_to_dad: float = 1.8
-        self.rum_interaction_event: Optional[str] = None
-        self.last_dad_buzz_time: float = 0.0
+        # Companion Avatar & Driver Proximity Tracking
+        self.dist_to_avatar: float = 1.0
+        self.dist_to_driver: float = 1.8
+        self.avatar_interaction_event: Optional[str] = None
+        self.last_driver_buzz_time: float = 0.0
         self.last_feed_time: float = 0.0
 
     @staticmethod
@@ -123,12 +123,12 @@ class PipConnectome:
         return math.atan2(sin_sum, cos_sum)
 
     def stimulate_sugar_water(self):
-        """Feeds Pip sugar water treat from R.U.M.'s dropper."""
+        """Feeds Pip sugar water treat from the companion's dropper."""
         self.energy_pct = min(100.0, self._safe_float(self.energy_pct, 95.0, 0.0, 100.0) + 45.0)
         self.last_feed_time = time.time()
         self.state = "PERCHED"
         self.state_timer = 6.0
-        self.rum_interaction_event = "SUGAR_WATER_FEED"
+        self.avatar_interaction_event = "SUGAR_WATER_FEED"
 
     def stimulate_scare(self, force: float = 1.0):
         """Triggers an external shock, loud noise, or air puff firing the Giant Fiber reflex."""
@@ -159,8 +159,8 @@ class PipConnectome:
         # Clamp dt to [0.001, 0.10] seconds to prevent Euler instability after system suspend/resume
         dt = self._safe_float(dt, 0.04, 0.001, 0.10)
         now = time.time()
-        if self.rum_interaction_event != "SUGAR_WATER_FEED":
-            self.rum_interaction_event = None
+        if self.avatar_interaction_event != "SUGAR_WATER_FEED":
+            self.avatar_interaction_event = None
 
         # -------------------------------------------------------------
         # 1. Harvest Physical Vehicle Telemetry into Mechanoreceptors
@@ -186,7 +186,7 @@ class PipConnectome:
         # Sudden Boost Kick / G-Shock triggers Giant Fiber Looming Reflex
         if (boost_psi >= 14.5 or abs(lat_g) >= 1.25) and (now - self.last_gf_spike_time > 8.0) and random.random() < 0.12:
             self.stimulate_scare(force=0.95)
-            self.rum_interaction_event = "STARTLED_BY_TURBO"
+            self.avatar_interaction_event = "STARTLED_BY_TURBO"
 
         # -------------------------------------------------------------
         # 2. Central Complex (CX) Spiking Dynamics
@@ -315,27 +315,27 @@ class PipConnectome:
                 self.heading = random.random() * math.pi * 2
 
         # -------------------------------------------------------------
-        # 4. Proximity Checks & R.U.M. Dual-Life Interaction Events
+        # 4. Proximity Checks & Companion Dual-Life Interaction Events
         # -------------------------------------------------------------
-        # R.U.M. 3D coordinates: approx (0.50, 1.15, -0.40)
-        # Dad's side coordinates: approx (-0.65, 1.30, 0.10)
-        rum_dx = self.x - 0.50
-        rum_dy = self.y - 1.15
-        rum_dz = self.z - (-0.40)
-        self.dist_to_rum = math.sqrt(rum_dx * rum_dx + rum_dy * rum_dy + rum_dz * rum_dz)
+        # Avatar 3D coordinates: approx (0.50, 1.15, -0.40)
+        # Driver's side coordinates: approx (-0.65, 1.30, 0.10)
+        avatar_dx = self.x - 0.50
+        avatar_dy = self.y - 1.15
+        avatar_dz = self.z - (-0.40)
+        self.dist_to_avatar = math.sqrt(avatar_dx * avatar_dx + avatar_dy * avatar_dy + avatar_dz * avatar_dz)
 
-        dad_dx = self.x - (-0.65)
-        dad_dy = self.y - 1.30
-        dad_dz = self.z - 0.10
-        self.dist_to_dad = math.sqrt(dad_dx * dad_dx + dad_dy * dad_dy + dad_dz * dad_dz)
+        driver_dx = self.x - (-0.65)
+        driver_dy = self.y - 1.30
+        driver_dz = self.z - 0.10
+        self.dist_to_driver = math.sqrt(driver_dx * driver_dx + driver_dy * driver_dy + driver_dz * driver_dz)
 
-        # Pip perching near R.U.M.'s hand
-        if not self.rum_interaction_event:
-            if self.dist_to_rum < 0.35 and self.state == "PERCHED":
-                self.rum_interaction_event = "PERCHED_ON_RUM"
-            elif self.dist_to_dad < 0.45 and (now - self.last_dad_buzz_time > 120.0):
-                self.last_dad_buzz_time = now
-                self.rum_interaction_event = "BUZZING_NEAR_DAD"
+        # Pip perching near companion's hand
+        if not self.avatar_interaction_event:
+            if self.dist_to_avatar < 0.35 and self.state == "PERCHED":
+                self.avatar_interaction_event = "PERCHED_ON_AVATAR"
+            elif self.dist_to_driver < 0.45 and (now - self.last_driver_buzz_time > 120.0):
+                self.last_driver_buzz_time = now
+                self.avatar_interaction_event = "BUZZING_NEAR_DRIVER"
 
         return {
             "state": self.state,
@@ -352,7 +352,7 @@ class PipConnectome:
                 "coriolis_pitch": round(self.haltere_coriolis_pitch, 3),
                 "vibration_strain": round(self.haltere_vibration_strain, 3)
             },
-            "dist_to_rum": round(self.dist_to_rum, 2),
-            "dist_to_dad": round(self.dist_to_dad, 2),
-            "rum_interaction": self.rum_interaction_event
+            "dist_to_avatar": round(self.dist_to_avatar, 2),
+            "dist_to_driver": round(self.dist_to_driver, 2),
+            "avatar_interaction": self.avatar_interaction_event
         }

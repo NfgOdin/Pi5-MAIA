@@ -95,8 +95,8 @@
   
   <!-- FLOATING EMERGENCY DTC DIAGNOSTIC HUD (ALL SCREENS) -->
   <div id="emergencyDtcHud" class="emergency-dtc-hud" style="display:none;">
-    <div class="dtc-hud-avatar-wrapper" onclick="triggerDtcHudVoice()" title="Click to ask R.U.M. about this issue">
-      <img id="dtcHudImg" src="assets/pics/rum_avatar.png" style="width:76px; height:76px; border-radius:50%; object-fit:cover;" alt="R.U.M."><canvas id="dtcHudCanvas" width="76" height="76" class="dtc-hud-canvas" style="display:none;"></canvas>
+    <div class="dtc-hud-avatar-wrapper" onclick="triggerDtcHudVoice()" title="Click to ask companion about this issue">
+      <img id="dtcHudImg" src="assets/pics/splash.png" style="width:76px; height:76px; border-radius:50%; object-fit:cover;" alt="Companion"><canvas id="dtcHudCanvas" width="76" height="76" class="dtc-hud-canvas" style="display:none;"></canvas>
       <div class="dtc-hud-glow"></div>
     </div>
     <div class="dtc-hud-body">
@@ -106,7 +106,7 @@
       </div>
       <div class="dtc-hud-desc" id="dtcHudDesc">Turbocharger Underboost condition detected on Fiat 1.4L MultiAir. Possible wastegate actuator or boost leak.</div>
       <div class="dtc-hud-actions">
-        <button class="dtc-hud-btn explain" onclick="explainActiveDtc()">🗣️ RUM EXPLAIN</button>
+        <button class="dtc-hud-btn explain" onclick="explainActiveDtc()">🗣️ EXPLAIN</button>
         <button class="dtc-hud-btn dismiss" onclick="dismissDtcHud()">✕ DISMISS</button>
       </div>
     </div>
@@ -183,18 +183,18 @@
           <div style="font-size:10px; font-weight:800; color:var(--accent-red); letter-spacing:0.5px;">OPEN VEHICLE HUB →</div>
         </div>
 
-        <!-- 2. R.U.M. -->
+        <!-- 2. COMPANION AI -->
         <div class="launcher-card card-ai" onclick="navigateTo('ai')">
           <div class="card-badge" id="homeAiBadge" style="background:rgba(255,64,129,0.2); color:var(--accent-pink); border:1px solid var(--accent-pink);">
-            <span id="homeAiStatusBadge">R.U.M. ACTIVE</span>
+            <span id="homeAiStatusBadge">AI ACTIVE</span>
             <span id="homeBannerAiName" style="display:none;"></span>
             <span id="homeBannerAiQuote" style="display:none;"></span>
           </div>
           <div>
             <div class="card-icon" id="homeAiCardIcon">
-              <img id="homeAiAvatarImg" src="assets/pics/rum_avatar.png" class="home-waifu-avatar" alt="R.U.M.">
+              <img id="homeAiAvatarImg" src="assets/pics/splash.png" class="home-waifu-avatar" alt="Companion Avatar">
             </div>
-            <div class="card-title" id="homeAiCardTitle">R.U.M.</div>
+            <div class="card-title" id="homeAiCardTitle">AI COPILOT</div>
             <div class="card-subtitle" id="homeAiCardSub">Interactive 3D voice copilot, telemetry debriefs, and live chat.</div>
           </div>
           <div style="font-size:10px; font-weight:800; color:var(--accent-pink); letter-spacing:0.5px;" id="homeAiCardAction">OPEN COPILOT →</div>
@@ -547,36 +547,33 @@
       <div class="ai-chat-column">
         <!-- Persistent Header Bar with Title & 3-Way Layout Splitter (Accessible in ALL views) -->
         <div class="ai-chat-top-header">
-          <div class="ai-chat-header-info" onclick="setAiLayoutMode('SPLIT')" style="cursor:pointer;" title="Click to view Rum on stage">
-            <span style="font-size:13px; font-weight:900; color:var(--accent-purple, #c084fc); letter-spacing:0.5px;">💜 R.U.M. COPILOT</span>
-            <span style="font-size:11px; color:var(--text-secondary); margin-left:6px;">• SHOTGUN AI</span>
+          <div class="ai-chat-header-info" onclick="setAiLayoutMode('SPLIT')" style="cursor:pointer;" title="Click to view companion on stage">
+            <span id="chatAssistantTitle" style="font-size:13px; font-weight:900; color:var(--accent-purple, #c084fc); letter-spacing:0.5px;">🤖 AI COPILOT</span>
+            <span id="chatAssistantSubtitle" style="font-size:11px; color:var(--text-secondary); margin-left:6px;">• SHOTGUN AI</span>
           </div>
           <div class="ai-layout-splitter-pill" id="aiLayoutSplitterChat">
-            <button type="button" class="ai-split-btn" id="btnPcVoiceBridge" onclick="togglePcAudioMode()" title="Play R.U.M.'s voice on laptop speakers & use laptop microphone">💻 PC AUDIO</button>
+            <button type="button" class="ai-split-btn" id="btnPcVoiceBridge" onclick="togglePcAudioMode()" title="Play voice on laptop speakers & use laptop microphone">💻 PC AUDIO</button>
             <button type="button" class="ai-split-btn" id="btnSplitChatTop" onclick="setAiLayoutMode('CHAT')" title="100% Full Width Chat Focus">💬 CHAT</button>
             <button type="button" class="ai-split-btn active" id="btnSplitBalancedTop" onclick="setAiLayoutMode('SPLIT')" title="Balanced 50/50 Split View">⚖️ SPLIT</button>
             <button type="button" class="ai-split-btn" id="btnSplitRoomTop" onclick="setAiLayoutMode('ROOM')" title="Full Screen 3D Room Focus">🛋️ ROOM</button>
           </div>
         </div>
-        <!-- Chat Messages Stream (Unifies User Chat + Copilot/Rum Events) -->
+        <!-- Chat Messages Stream (Unifies User Chat + Copilot Spoken Events) -->
         <div class="ai-chat-messages" id="aiChatMessages">
           <!-- Populated dynamically -->
         </div>
 
         <!-- Quick Prompts Bar -->
-        <div class="quick-prompts-bar">
+        <div class="quick-prompts-bar" id="quickPromptsBar">
           <button class="quick-prompt-chip" onclick="sendQuickPrompt('What was my last 0-60 launch time?')">⏱️ Last 0-60 Time</button>
-          <button class="quick-prompt-chip" onclick="sendQuickPrompt(&quot;How's our boost right now, Rum?&quot;)">⚡ How's our boost?</button>
+          <button class="quick-prompt-chip" onclick="sendQuickPrompt('How is our turbo boost right now?')">⚡ Boost</button>
           <button class="quick-prompt-chip" onclick="sendQuickPrompt('Check powertrain and engine health.')">🔧 Engine Health</button>
-          <button class="quick-prompt-chip" onclick="sendQuickPrompt('Tell me about yourself, Rum. What is your story?')">💜 Rum's Backstory</button>
-          <button class="quick-prompt-chip" onclick="sendQuickPrompt('Tell me how much you love me, Rum.')">💖 Compliment Me</button>
-          <button class="quick-prompt-chip" onclick="sendQuickPrompt('Who is your master and creator?')">👑 Who is your creator?</button>
-          <button class="quick-prompt-chip" onclick="sendQuickPrompt('Is the MultiAir oil warm enough for full boost?')">🌡️ MultiAir Oil Check</button>
+          <button class="quick-prompt-chip" onclick="sendQuickPrompt('Tell me about yourself.')">✨ Identity</button>
         </div>
 
         <!-- Unified Action Input Bar: Input + Uniform Action Buttons (Send, Convo, Clear) -->
         <form class="ai-chat-input-bar" onsubmit="handleChatSubmit(event)">
-          <input type="text" id="chatInput" class="ai-input-field" placeholder="Talk to Rum (or tap prompts)..." autocomplete="off">
+          <input type="text" id="chatInput" class="ai-input-field" placeholder="Talk to companion (or tap prompts)..." autocomplete="off">
           <button type="submit" class="ai-action-btn ai-send-btn" id="sendBtn" title="Send Message">➤</button>
           <button type="button" class="ai-action-btn ai-convo-btn" id="btnLiveConvo" onclick="toggleLiveConversationMode()" title="Toggle Voice Conversation Mode">🎙️</button>
           <button type="button" class="ai-action-btn" id="btnVoiceCommandsHelp" onclick="openVoiceCommandsModal()" title="Voice Commands Cheat Sheet" style="background:rgba(255,255,255,0.06); border:1px solid #445;">❓</button>
@@ -599,13 +596,13 @@
                   <button type="button" class="ai-split-btn active" id="btnSplitBalanced" onclick="setAiLayoutMode('SPLIT')" title="Balanced 50/50 Split View">⚖️ SPLIT</button>
                   <button type="button" class="ai-split-btn" id="btnSplitRoom" onclick="setAiLayoutMode('ROOM')" title="Full Screen 3D Room Focus">🛋️ ROOM</button>
                 </div>
-                <button class="vrm-ctrl-btn" id="btnVrmModelToggle" onclick="toggleRemRumAvatar()" title="Switch between Rem and Rum" style="border-color:#c084fc; color:#c084fc;">💜 RUM</button>
-                <button class="vrm-ctrl-btn" id="btnRoomCustomizer" onclick="openRoomCustomizerModal()" title="Customize Rum's Room, Place .OBJ / .GLTF Models & Edit Layout" style="border-color:#f472b6; color:#f472b6; font-weight:800;">🛠️ ROOM EDITOR</button>
+                <button class="vrm-ctrl-btn" id="btnVrmModelToggle" onclick="toggleVrmAvatar()" title="Switch active VRM avatar" style="border-color:#c084fc; color:#c084fc;">✨ AVATAR</button>
+                <button class="vrm-ctrl-btn" id="btnRoomCustomizer" onclick="openRoomCustomizerModal()" title="Customize 3D Room, Place .OBJ / .GLTF Models & Edit Layout" style="border-color:#f472b6; color:#f472b6; font-weight:800;">🛠️ ROOM EDITOR</button>
                 <button class="vrm-ctrl-btn" id="btnBasketballAction" onclick="triggerBasketballDribbleAction()" title="Dribble & Play with Basketball" style="display:none; border-color:#ff7a00; color:#ff7a00; font-weight:800;">🏀 DRIBBLE</button>
-                <button class="vrm-ctrl-btn" id="btnVrmRoamToggle" onclick="toggleVrmRoaming()" title="Toggle Rum Autonomous Wandering" style="border-color:#22c55e; color:#4ade80;">🚶 ROAM: ON</button>
+                <button class="vrm-ctrl-btn" id="btnVrmRoamToggle" onclick="toggleVrmRoaming()" title="Toggle Autonomous Room Wandering" style="border-color:#22c55e; color:#4ade80;">🚶 ROAM: ON</button>
                 <button class="vrm-ctrl-btn" id="btnConnectomeFlyToggle" onclick="toggleConnectomeFly()" title="Toggle Biologically Simulated Drosophila Fly in Room" style="border-color:#38bdf8; color:#38bdf8; font-weight:800;">🪰 FLY: ON</button>
                 <button class="vrm-ctrl-btn" id="btnVrmViewToggle" onclick="toggleVrmFraming()" title="Toggle Full Body / Auto Zoom / Portrait">👀 FULL BODY</button>
-                <button class="vrm-ctrl-btn" onclick="popOutFloatingCompanion()" title="Float Rum anywhere on screen (Shotgun HUD)">🪟 SHOTGUN</button>
+                <button class="vrm-ctrl-btn" onclick="popOutFloatingCompanion()" title="Float Companion anywhere on screen (Shotgun HUD)">🪟 SHOTGUN</button>
                 <button class="vrm-ctrl-btn" onclick="toggleAnimationsDrawer()" title="Open All Animations & Poses" style="background:linear-gradient(135deg, rgba(168,85,247,0.35), rgba(236,72,153,0.35)); border-color:var(--accent-pink); color:#fff; font-weight:800; box-shadow:0 0 10px rgba(236,72,153,0.3);">🎭 ANIMATIONS</button>
               </div>
             </div>
@@ -1301,7 +1298,7 @@
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <div>
               <div style="font-size:11px; font-weight:700; color:#fff;">HANDS-FREE WAKE WORD ENGINE</div>
-              <div style="font-size:10px; color:var(--text-secondary);">Say "Rum" or "Hey Rum" to speak hands-free via USB mic</div>
+              <div id="settingsWakeHint" style="font-size:10px; color:var(--text-secondary);">Say the active companion wake word to speak hands-free via USB mic</div>
             </div>
             <button class="cluster-action-btn" id="btnWakeWord" onclick="toggleWakeWordListening()" style="padding:8px 14px; font-size:11px; font-weight:800; border-color:var(--accent-pink); color:var(--accent-pink);">🎤 WAKE WORD: ON</button>
           </div>
@@ -1316,15 +1313,15 @@
           </button>
         </div>
         <p style="font-size:12px; color:var(--text-secondary); margin-bottom:14px;">
-          Configure your cockpit companion persona, custom waifu avatar, and startup boot splash animation (pictures or .MP4 video loop) loaded dynamically from JSON.
+          Configure your cockpit companion persona, avatar image, and startup boot splash animation (pictures or .MP4 video loop) loaded dynamically from JSON.
         </p>
 
         <!-- Persona Info & Avatar Preview -->
         <div style="display:flex; align-items:center; gap:16px; background:#0c1219; border:1px solid #212b38; padding:12px; border-radius:8px; margin-bottom:14px;">
-          <img id="settingsAvatarPreview" src="assets/pics/maia_avatar.jpg" class="home-waifu-avatar" style="width:60px; height:60px;" alt="Avatar">
+          <img id="settingsAvatarPreview" src="assets/pics/splash.png" class="home-waifu-avatar" style="width:60px; height:60px;" alt="Avatar">
           <div style="flex:1;">
-            <div style="font-size:14px; font-weight:800; color:#fff;" id="settingsPersonaName">R.U.M. (Realtime Underhood MultiAir • The Forgotten Triplet)</div>
-            <div style="font-size:11px; color:var(--accent-pink); font-weight:700;" id="settingsPersonaArchetype">12-Year-Old Forgotten Triplet Sister of Rem & Ram • Royal Purple Maid</div>
+            <div style="font-size:14px; font-weight:800; color:#fff;" id="settingsPersonaName">Loading active persona...</div>
+            <div style="font-size:11px; color:var(--accent-pink); font-weight:700;" id="settingsPersonaArchetype">3D VRM AI Companion</div>
             <div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">Local Qwen-3B neural network living in your Dodge Dart dashboard.</div>
           </div>
         </div>
@@ -1334,7 +1331,7 @@
           <div>
             <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px;">ACTIVE PERSONA PROFILE:</div>
             <select id="settingsPersonaSelector" class="settings-input" style="width:100%;" onchange="onSettingsPersonaChanged(this.value)">
-              <option value="RUM" selected>R.U.M. (Realtime Underhood MultiAir)</option>
+              <option value="RUM" selected>R.U.M.</option>
             </select>
           </div>
 
@@ -1342,7 +1339,7 @@
           <div>
             <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px;">AVATAR RENDER ENGINE:</div>
             <select id="cfgAvatarEngine" class="settings-input" style="width:100%;" onchange="switchAvatarEngine(this.value)">
-              <option value="3D_VRM" selected>3D VRM Character: R.U.M. (Full Body / Royal Purple Maid)</option>
+              <option value="3D_VRM" selected>3D VRM Companion Stage</option>
             </select>
           </div>
 
@@ -1543,8 +1540,8 @@
         </div>
         <div style="border-top:1px solid #212b38; padding-top:12px; margin-top:12px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-            <div style="font-size:12px; font-weight:900; color:var(--accent-pink);">🎙️ RUM'S VOICE SYNTHESIS ENGINE (LOCAL OR CLOUD)</div>
-            <button class="cluster-action-btn" onclick="testTtsVoiceSample()" style="font-size:10px; padding:4px 12px; border-color:var(--accent-pink); color:var(--accent-pink);">🔊 TEST RUM'S VOICE</button>
+            <div id="settingsVoiceHeader" style="font-size:12px; font-weight:900; color:var(--accent-pink);">🎙️ VOICE SYNTHESIS ENGINE (LOCAL OR CLOUD)</div>
+            <button class="cluster-action-btn" onclick="testTtsVoiceSample()" style="font-size:10px; padding:4px 12px; border-color:var(--accent-pink); color:var(--accent-pink);">🔊 TEST VOICE</button>
           </div>
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
             <div class="slot-item" id="optTtsKokoro" style="cursor:pointer; border-color:var(--accent-pink);" onclick="selectTtsEngine('KOKORO')">
@@ -2611,8 +2608,8 @@
             <div id="diagObdStatusBadge" class="diag-header-pill" style="background:rgba(0,230,118,0.15); color:var(--accent-green); border:1px solid var(--accent-green);">
               ● OBD-II CONNECTED
             </div>
-            <button class="cluster-action-btn" id="btnRumMechanicMode" onclick="toggleRumMechanicMode()" style="background:linear-gradient(135deg, rgba(255,64,129,0.25), rgba(124,77,255,0.25)); border:1.5px solid var(--accent-pink); color:#fff; font-weight:900;">
-              🔧 R.U.M. MECHANIC MODE
+            <button class="cluster-action-btn" id="btnVrmMechanicMode" onclick="toggleVrmMechanicMode()" style="background:linear-gradient(135deg, rgba(255,64,129,0.25), rgba(124,77,255,0.25)); border:1.5px solid var(--accent-pink); color:#fff; font-weight:900;">
+              🔧 AI MECHANIC MODE
             </button>
             <button class="cluster-action-btn" onclick="refreshDiagnostics()" style="border-color:#334455; color:var(--text-secondary);">
               🔄 RESCAN ECU
@@ -2937,8 +2934,8 @@
                 <button class="cluster-action-btn" onclick="triggerDreamConsolidation()" style="min-height:38px; padding:4px 12px; font-size:11px; border-color:#a855f7; color:#d8b4fe;" title="Manually consolidate recent drive into diary">
                   ✨ CONSOLIDATE DRIVE
                 </button>
-                <button class="cluster-action-btn" onclick="openTeachRumModal()" style="min-height:38px; padding:4px 12px; font-size:11px; border-color:#00f0ff; color:#00f0ff;" title="Teach R.U.M. a new memory fact">
-                  🧠 + TEACH RUM
+                <button class="cluster-action-btn" id="btnTeachPersona" onclick="openTeachPersonaModal()" style="min-height:38px; padding:4px 12px; font-size:11px; border-color:#00f0ff; color:#00f0ff;" title="Teach companion a new memory fact">
+                  🧠 + TEACH
                 </button>
               </div>
             </div>
@@ -2980,18 +2977,18 @@
             </div>
           </div>
 
-          <!-- 2. Bottom Two Columns: R.U.M.'s Personal Trip Diary & Driver Learned Facts -->
+          <!-- 2. Bottom Two Columns: Personal Trip Diary & Driver Learned Facts -->
           <div class="maint-living-columns" style="display:grid; grid-template-columns:1fr 1fr; gap:12px; flex:1;">
-            <!-- Left: R.U.M.'s Personal Trip Diary -->
+            <!-- Left: Personal Trip Diary -->
             <div class="maint-panel" style="background:#0f172a; border:1px solid #1e293b; border-radius:10px; padding:12px; display:flex; flex-direction:column; overflow:hidden;">
               <div class="maint-panel-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                 <div style="display:flex; align-items:center; gap:8px;">
                   <span style="font-size:16px;">📖</span>
-                  <span class="maint-panel-title" style="font-size:12px; font-weight:900; color:#fff;">R.U.M.'S PERSONAL TRIP DIARY</span>
+                  <span class="maint-panel-title" style="font-size:12px; font-weight:900; color:#fff;">PERSONAL TRIP DIARY</span>
                 </div>
                 <span class="maint-badge maint-badge-purple" style="font-size:10px; padding:2px 8px; border-radius:6px; background:rgba(168,85,247,0.15); color:#d8b4fe;">POST-DRIVE MEMORIES</span>
               </div>
-              <div id="rumDiaryList" class="maint-diary-list" style="display:flex; flex-direction:column; gap:8px; overflow-y:auto; flex:1;">
+              <div id="companionDiaryList" class="maint-diary-list" style="display:flex; flex-direction:column; gap:8px; overflow-y:auto; flex:1;">
                 <!-- Dynamically populated via loadLivingMindData() -->
                 <div style="text-align:center; padding:30px; color:#94a3b8;">Loading diary entries...</div>
               </div>
@@ -3002,7 +2999,7 @@
               <div class="maint-panel-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                 <div style="display:flex; align-items:center; gap:8px;">
                   <span style="font-size:16px;">💡</span>
-                  <span class="maint-panel-title" style="font-size:12px; font-weight:900; color:#fff;">LEARNED FACTS ABOUT DAD</span>
+                  <span class="maint-panel-title" style="font-size:12px; font-weight:900; color:#fff;">LEARNED DRIVER FACTS</span>
                 </div>
                 <span class="maint-badge maint-badge-cyan" style="font-size:10px; padding:2px 8px; border-radius:6px; background:rgba(0,240,255,0.15); color:#38bdf8;">SEMANTIC RECALL</span>
               </div>
@@ -3014,20 +3011,20 @@
           </div>
         </div>
 
-        <!-- Modal: Teach R.U.M. New Memory Fact -->
-        <div id="maintTeachRumModal" class="cockpit-modal" style="display:none; position:fixed; inset:0; z-index:2000; background:rgba(0,0,0,0.8); backdrop-filter:blur(6px); align-items:center; justify-content:center;">
+        <!-- Modal: Teach Companion New Memory Fact -->
+        <div id="maintTeachPersonaModal" class="cockpit-modal" style="display:none; position:fixed; inset:0; z-index:2000; background:rgba(0,0,0,0.8); backdrop-filter:blur(6px); align-items:center; justify-content:center;">
           <div class="cockpit-modal-box" style="background:#0f172a; border:1px solid #00f0ff; border-radius:12px; width:440px; max-width:90%;">
             <div class="cockpit-modal-header" style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid #1e293b;">
               <div style="display:flex; align-items:center; gap:8px;">
                 <span style="font-size:20px;">🧠</span>
-                <span style="font-weight:900; color:#00f0ff; font-size:13px;">TEACH R.U.M. A NEW FACT</span>
+                <span style="font-weight:900; color:#00f0ff; font-size:13px;">TEACH COMPANION A NEW FACT</span>
               </div>
-              <button onclick="closeTeachRumModal()" class="cockpit-modal-close" style="background:none; border:none; color:#94a3b8; font-size:18px; cursor:pointer;">✕</button>
+              <button onclick="closeTeachPersonaModal()" class="cockpit-modal-close" style="background:none; border:none; color:#94a3b8; font-size:18px; cursor:pointer;">✕</button>
             </div>
             <div style="display:flex; flex-direction:column; gap:10px; padding:16px;">
               <div>
-                <label style="font-size:10px; color:#94a3b8; font-weight:700;">SUBJECT / ENTITY (e.g. Dad, Dart, Route)</label>
-                <input type="text" id="teachEntityInput" class="cockpit-modal-input" placeholder="e.g. Dad" style="width:100%; min-height:44px; background:#1e293b; border:1px solid #334155; border-radius:6px; color:#fff; padding:6px 12px; box-sizing:border-box;" onfocus="showVirtualKeyboard(this)" />
+                <label style="font-size:10px; color:#94a3b8; font-weight:700;">SUBJECT / ENTITY (e.g. Driver, Dart, Route)</label>
+                <input type="text" id="teachEntityInput" class="cockpit-modal-input" placeholder="e.g. Driver" style="width:100%; min-height:44px; background:#1e293b; border:1px solid #334155; border-radius:6px; color:#fff; padding:6px 12px; box-sizing:border-box;" onfocus="showVirtualKeyboard(this)" />
               </div>
               <div>
                 <label style="font-size:10px; color:#94a3b8; font-weight:700;">ATTRIBUTE / PROPERTY (e.g. favorite drink, turbo feel)</label>
@@ -3038,8 +3035,8 @@
                 <input type="text" id="teachValInput" class="cockpit-modal-input" placeholder="e.g. Black coffee with two sugars" style="width:100%; min-height:44px; background:#1e293b; border:1px solid #334155; border-radius:6px; color:#fff; padding:6px 12px; box-sizing:border-box;" onfocus="showVirtualKeyboard(this)" />
               </div>
               <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:10px;">
-                <button class="cluster-action-btn" onclick="closeTeachRumModal()" style="min-height:44px; padding:6px 16px; border-color:#64748b; color:#94a3b8;">CANCEL</button>
-                <button class="cluster-action-btn" onclick="submitTeachRumFact()" style="min-height:44px; padding:6px 18px; background:#0284c7; border:none; color:#fff; font-weight:800; border-radius:6px;">SAVE MEMORY</button>
+                <button class="cluster-action-btn" onclick="closeTeachPersonaModal()" style="min-height:44px; padding:6px 16px; border-color:#64748b; color:#94a3b8;">CANCEL</button>
+                <button class="cluster-action-btn" onclick="submitTeachPersonaFact()" style="min-height:44px; padding:6px 18px; background:#0284c7; border:none; color:#fff; font-weight:800; border-radius:6px;">SAVE MEMORY</button>
               </div>
             </div>
           </div>
@@ -3472,10 +3469,10 @@
             </div>
           </div>
 
-          <!-- R.U.M. Staging Callout Bar -->
+          <!-- Companion Staging Callout Bar -->
           <div style="background:rgba(179,136,255,0.08); border:1px solid rgba(179,136,255,0.25); border-radius:8px; padding:6px 12px; display:flex; align-items:center; gap:8px;">
-            <span style="font-size:14px;">💜</span>
-            <span id="dragRumCallout" style="font-size:11px; font-weight:700; color:#d8b4fe;">R.U.M.: Ready on the starting line, Dad! Floor it on Green!</span>
+            <span style="font-size:14px;">✨</span>
+            <span id="dragVrmCallout" style="font-size:11px; font-weight:700; color:#d8b4fe;">Companion: Ready on the starting line! Floor it on Green!</span>
           </div>
         </div>
 
@@ -3901,8 +3898,8 @@
 
           <!-- R.U.M. Canyon Copilot Callout Bar -->
           <div style="background:rgba(179,136,255,0.08); border:1px solid rgba(179,136,255,0.25); border-radius:8px; padding:6px 12px; display:flex; align-items:center; gap:8px;">
-            <span style="font-size:14px;">💜</span>
-            <span id="canyonRumCallout" style="font-size:11px; font-weight:700; color:#d8b4fe;">R.U.M.: Pinal Mountain Pass is armed Dad! Green flag is waiting at Canyon Base.</span>
+            <span style="font-size:14px;">✨</span>
+            <span id="canyonVrmCallout" style="font-size:11px; font-weight:700; color:#d8b4fe;">Companion: Pinal Mountain Pass armed. Green flag waiting at Canyon Base.</span>
           </div>
 
         </div>
@@ -3917,7 +3914,7 @@
     <div class="dock-tabs">
       <button class="dock-btn active" id="dockBtnHome" onclick="navigateTo('home')">🏠 HOME</button>
       <button class="dock-btn" id="dockBtnGauges" onclick="navigateTo('gauges')">🏎️ GAUGES</button>
-      <button class="dock-btn" id="dockBtnAI" onclick="navigateTo('ai')">💜 RUM</button>
+      <button class="dock-btn" id="dockBtnAI" onclick="navigateTo('ai')">✨ AI</button>
       <button class="dock-btn" id="dockBtnMedia" onclick="navigateTo('media')">🎵 MEDIA</button>
       <button class="dock-btn" id="dockBtnPhone" onclick="navigateTo('phone')" title="Cockpit Telephony & Kinship">📞 PHONE</button>
       <button class="dock-btn" id="dockBtnGames" onclick="navigateTo('games')">🎮 GAMES</button>
@@ -4386,38 +4383,38 @@
   <script src="js/vrm_3d_room.js"></script>
   <script src="gauges.js?v=28"></script>
 
-  <!-- FLOATING 3D COMPANION HUD (Rum Riding Shotgun Across All Screens) -->
+  <!-- FLOATING 3D COMPANION HUD (Companion Riding Shotgun Across All Screens) -->
   <div id="vrmFloatingHud" class="vrm-floating-hud" style="display:none;">
     <div class="vrm-hud-header" id="vrmHudHeader">
-      <span class="vrm-hud-title" id="vrmHudTitle"><span>💜</span> RUM • SHOTGUN</span>
+      <span class="vrm-hud-title" id="vrmHudTitle"><span>✨</span> COMPANION • SHOTGUN</span>
       <div class="vrm-hud-actions">
         <button class="vrm-hud-btn" id="btnHudViewToggle" onclick="toggleVrmFraming()" title="Toggle Camera Framing (Portrait / Full Body / Room)">🔍</button>
         <button class="vrm-hud-btn" id="btnHudMinimize" onclick="minimizeFloatingCompanion()" title="Minimize to Floating Bubble">➖ MIN</button>
-        <button class="vrm-hud-btn" onclick="dockCompanionToAi()" title="Dock Rum back into R.U.M. tab">⬇ DOCK</button>
-        <button class="vrm-hud-btn close" onclick="dismissFloatingHud()" title="Dismiss / Hide Rum">✕</button>
+        <button class="vrm-hud-btn" onclick="dockCompanionToAi()" title="Dock companion back into AI tab">⬇ DOCK</button>
+        <button class="vrm-hud-btn close" onclick="dismissFloatingHud()" title="Dismiss / Hide Companion">✕</button>
       </div>
     </div>
     <div class="vrm-hud-body" id="vrmFloatingBody" onclick="triggerWaifuTouch()">
-      <div id="vrmHudBubble" class="vrm-hud-speech-bubble">Ready for full boost, Master!</div>
+      <div id="vrmHudBubble" class="vrm-hud-speech-bubble">Ready for full boost!</div>
       <!-- vrmCanvas moves here when floating! -->
     </div>
   </div>
 
   <!-- FLOATING MINIMIZED COMPANION OVERLAY BUBBLE (When Minimized from Shotgun) -->
-  <div id="vrmMiniBubble" class="vrm-mini-bubble" style="display:none;" onclick="expandFloatingCompanion()" title="R.U.M. Minimized • Tap to Expand Shotgun">
+  <div id="vrmMiniBubble" class="vrm-mini-bubble" style="display:none;" onclick="expandFloatingCompanion()" title="Companion Minimized • Tap to Expand Shotgun">
     <div class="vrm-mini-avatar-wrap">
-      <span class="vrm-mini-heart">💜</span>
+      <span class="vrm-mini-heart">✨</span>
     </div>
     <div class="vrm-mini-info">
-      <span class="vrm-mini-name">R.U.M.</span>
+      <span class="vrm-mini-name">COMPANION</span>
       <span class="vrm-mini-status" id="vrmMiniStatus">SHOTGUN</span>
     </div>
     <div class="vrm-mini-speech-badge" id="vrmMiniSpeechBadge">
       <span id="vrmMiniSpeechIcon">💬</span>
     </div>
-    <button class="vrm-mini-close-btn" onclick="event.stopPropagation(); dismissFloatingHud();" title="Close / Dock Rum">✕</button>
+    <button class="vrm-mini-close-btn" onclick="event.stopPropagation(); dismissFloatingHud();" title="Close / Dock Companion">✕</button>
     <!-- Live speech bubble tooltip when speaking while minimized -->
-    <div id="vrmMiniSpeechTooltip" class="vrm-mini-speech-tooltip">Ready for full boost, Master!</div>
+    <div id="vrmMiniSpeechTooltip" class="vrm-mini-speech-tooltip">Ready for full boost!</div>
   </div>
 
   <!-- HARDWARE / SCREEN BRIGHTNESS OVERLAY -->
@@ -4432,7 +4429,7 @@
         <div style="display:flex; align-items:center; gap:12px;">
           <span style="font-size:24px;">🛠️</span>
           <div>
-            <div style="font-size:16px; font-weight:900; color:#fff; letter-spacing:0.5px;">R.U.M. 3D ROOM CUSTOMIZER & PROP STUDIO</div>
+            <div style="font-size:16px; font-weight:900; color:#fff; letter-spacing:0.5px;">3D ROOM CUSTOMIZER & PROP STUDIO</div>
             <div style="font-size:11px; color:var(--text-secondary);">Place custom .OBJ / .GLTF models & reposition furniture with touch ergonomics</div>
           </div>
         </div>
@@ -4485,7 +4482,7 @@
                 </div>
               </div>
               <div style="display:flex; gap:6px;">
-                <button class="cluster-action-btn" id="btnCallRumToProp" onclick="callRumToSelectedProp()" style="padding:4px 10px; font-size:10px; font-weight:800; border-color:var(--accent-pink); color:var(--accent-pink); display:none;">💜 CALL RUM</button>
+                <button class="cluster-action-btn" id="btnCallVrmToProp" onclick="callVrmToSelectedProp()" style="padding:4px 10px; font-size:10px; font-weight:800; border-color:var(--accent-pink); color:var(--accent-pink); display:none;">✨ CALL HERE</button>
                 <button class="cluster-action-btn" id="btnDeleteSelectedProp" onclick="deleteSelectedProp()" style="padding:4px 10px; font-size:10px; font-weight:800; border-color:var(--accent-red); color:var(--accent-red); display:none;">🗑️ REMOVE</button>
               </div>
             </div>
@@ -4773,7 +4770,7 @@
         <div style="display:flex; align-items:center; gap:10px;">
           <span style="font-size:22px;">🎭</span>
           <div>
-            <div style="font-size:16px; font-weight:900; color:#fff; letter-spacing:0.5px;">RUM ANIMATIONS & POSES <span id="animHeaderCount" style="color:var(--accent-purple,#a855f7); font-size:14px; font-weight:800;">(137)</span></div>
+            <div style="font-size:16px; font-weight:900; color:#fff; letter-spacing:0.5px;">COMPANION ANIMATIONS & POSES <span id="animHeaderCount" style="color:var(--accent-purple,#a855f7); font-size:14px; font-weight:800;">(137)</span></div>
             <div style="font-size:11px; color:var(--text-secondary);">Tap any animation to play with smooth 3D crossfading</div>
           </div>
         </div>
@@ -4813,8 +4810,8 @@
         <div style="display:flex; align-items:center; gap:8px;">
           <span style="font-size:20px;">🎙️</span>
           <div>
-            <div style="font-size:16px; font-weight:900; color:#fff; letter-spacing:0.5px;">RUM VOICE COMMANDS CHEAT SHEET</div>
-            <div style="font-size:11px; color:var(--text-secondary);">Wake phrase: &ldquo;Hey Rum&rdquo; &bull; Live Conversation mode available</div>
+            <div style="font-size:16px; font-weight:900; color:#fff; letter-spacing:0.5px;">COMPANION VOICE COMMANDS CHEAT SHEET</div>
+            <div style="font-size:11px; color:var(--text-secondary);">Say the active persona wake phrase &bull; Live Conversation mode available</div>
           </div>
         </div>
         <button class="graph-close-btn" onclick="closeVoiceCommandsModal()" style="padding:6px 14px; font-size:11px;">✕ CLOSE</button>
@@ -4822,7 +4819,7 @@
 
       <div style="padding:16px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:14px;">
         <div style="background:rgba(168,85,247,0.12); border:1px solid rgba(168,85,247,0.3); border-radius:10px; padding:12px; font-size:12px; line-height:1.4;">
-          <strong style="color:var(--accent-purple);">🎤 How It Works:</strong> Say <span style="color:#fff; font-weight:800;">&ldquo;Hey Rum&rdquo;</span> followed by any command or question. She will ignore all regular passenger chatter until she hears her name! Or tap the <span style="color:#ef4444; font-weight:800;">🎙️ Mic</span> button for non-stop hands-free conversation.
+          <strong style="color:var(--accent-purple);">🎤 How It Works:</strong> Say your companion&apos;s wake phrase (configurable per persona JSON) followed by any command or question, or tap the <span style="color:#ef4444; font-weight:800;">🎙️ Mic</span> button for non-stop hands-free conversation.
         </div>
 
         <!-- Section: Car Queries -->

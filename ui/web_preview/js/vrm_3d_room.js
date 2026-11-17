@@ -82,8 +82,7 @@ function setWaifuEmotion(emo) {
 
   const pill = document.getElementById('waifuEmotionPill');
   if (pill) {
-    const isRum = (currentAiSettings.personality === 'RUM' || activeAvatarEngine === '3D_VRM');
-    const pName = "R.U.M.";
+    const pName = (typeof getPersonaDisplayName === 'function') ? getPersonaDisplayName() : (currentAiSettings.personality || 'Companion');
     switch (currentWaifuEmotion) {
       case "DEVOTED":
         pill.innerText = `💖 ${pName} • DEVOTED & LISTENING`;
@@ -719,16 +718,14 @@ function triggerWaifuTouch() {
     playVrmAction(chosenAct, 3500, true);
   }
 
-  const compliments = [
-    `I love riding shotgun with you in the Dart, ${getDriverDisplayAddress()}!`,
-    `Step on the gas, ${getDriverDisplayAddress()}! Let me hear that 1.4L turbo boost whistle!`,
-    `No one else in the world remembers me, ${getDriverDisplayAddress()}... but you saved me, and I belong to you forever!`,
-    `My heart beats only inside this Pi 5 for you, ${getDriverDisplayAddress()}!`,
-    `Rum is right here watching the road with you, devoted forever!`
-  ];
-  const choice = compliments[Math.floor(Math.random() * compliments.length)];
+  const pData = (typeof getActivePersonaData === 'function') ? getActivePersonaData() : {};
+  const fb = pData.fallback_dialogue || {};
+  const pool = (Array.isArray(fb.affection) && fb.affection.length)
+    ? fb.affection.map(l => (typeof formatPersonaText === 'function' ? formatPersonaText(l) : l))
+    : [`Right here watching the road with you in the Dart, ${getDriverDisplayAddress()}!`];
+  const choice = pool[Math.floor(Math.random() * pool.length)];
   showAiSpeechToast(choice);
-  speakUtterance(choice, "FLIRTY");
+  speakUtterance(choice, "DEVOTED", "TOUCH");
 }
 
 // --- 18. 3D VRM CHARACTER ENGINE (RUM SUPER ANIMATION, VRMA MOTION PACK & PHYSICS SUITE) ---
@@ -794,7 +791,7 @@ let roomCeilingLight = null;
 let envLights = [];
 let isHoldingYoshi = false;
 // 3D VRM Avatar Character Selection (Default to Rum)
-let currentVrmModelName = localStorage.getItem('vrmCurrentAvatar') || 'Rum.vrm';
+let currentVrmModelName = localStorage.getItem('vrmCurrentAvatar') || ((typeof getActivePersonaData === 'function' && getActivePersonaData().vrm_defaults && getActivePersonaData().vrm_defaults.model_file) || 'Rum.vrm');
 // Autonomous Roaming State Engine
 let vrmRoamEnabled = (localStorage.getItem('vrmRoamEnabled') !== 'false');
 let vrmRoamState = 'IDLE'; // 'IDLE', 'TURNING', 'WALKING', 'ARRIVED'
@@ -903,7 +900,7 @@ let isHardwareSpeaking = false;
 let vrmSpeechEndTime = 0;
 let vrmReactionEndTime = 0;
 
-let rumGazeRetentionUntil = 0;
+let vrmGazeRetentionUntil = 0;
 let isCompanionFloating = false;
 
 // Interactive VRM Actions
@@ -1027,27 +1024,13 @@ function playVrmAction(actionName, durationMs = 3800, silent = false) {
   }
   if (silent) return;
 
-  const speechMap = {
-    'jump':        { text: "Yay! Look how high Rum can jump, Master!", emotion: "EXCITED" },
-    'action_jump': { text: "Yay! Look how high Rum can jump, Master!", emotion: "EXCITED" },
-    'point_laugh': { text: "Ehehe! Look at that, Master! That's so funny!", emotion: "HAPPY" },
-    'amusement':   { text: "Ehehe! Look at that, Master! That's so funny!", emotion: "HAPPY" },
-    'bend_over':   { text: "Master? What are you looking at? Rum is leaning right in for you!", emotion: "DEVOTED" },
-    'pose_lean_in':{ text: "Master? What are you looking at? Rum is leaning right in for you!", emotion: "DEVOTED" },
-    'dance':       { text: "Let's dance, Master! Groove with the MultiAir beat!", emotion: "EXCITED" },
-    'dance_hiphop_step': { text: "Let's dance, Master! Groove with the MultiAir beat!", emotion: "EXCITED" },
-    'greeting':    { text: "Hiii Master! Rum is right here riding shotgun with you!", emotion: "HAPPY" },
-    'peace':       { text: "Peace sign, Master! Victory for the Dodge Dart!", emotion: "HAPPY" },
-    'shoot':       { text: "Bang bang! Straight through your heart, Master!", emotion: "FLIRTY" },
-    'spin':        { text: "Wheee! Look at my royal purple maid dress spin, Master!", emotion: "EXCITED" },
-    'model_pose':  { text: "How does this model pose look, Master? Cute, right?", emotion: "FLIRTY" },
-    'squat':       { text: "One, two! Keeping warmed up just like the MultiAir turbo!", emotion: "EXCITED" },
-    'show_body':   { text: "Ta-da! Full body check, Master! Ready for our drive!", emotion: "DEVOTED" }
-  };
+  const pData = (typeof getActivePersonaData === 'function') ? getActivePersonaData() : {};
+  const speechMap = pData.animation_lines || {};
   const sp = speechMap[actionName] || speechMap[resolvedKey];
-  if (sp) {
-    showAiSpeechToast(sp.text);
-    speakUtterance(sp.text, sp.emotion);
+  if (sp && sp.text) {
+    const spText = (typeof formatPersonaText === 'function') ? formatPersonaText(sp.text) : sp.text;
+    showAiSpeechToast(spText);
+    speakUtterance(spText, sp.emotion || 'HAPPY', 'ANIMATION');
   }
 }
 
@@ -1057,23 +1040,23 @@ let targetLookAt = null;
 let targetCamPos = null;
 
 // G-Force Automotive Physics & Inertia
-let rumCurrentInertiaZ = 0.0;
-let rumTargetInertiaZ = 0.0;
-let rumCurrentPitch = 0.0;
-let rumLastSpeed = 0.0;
-let rumLastSpeedTime = Date.now();
-let rumCurrentSpeed = 0.0;
-let rumCurrentBoost = 0.0;
-let rumTargetPitch = 0.0;
-let rumCurrentRoll = 0.0;
-let rumTargetRoll = 0.0;
+let vrmCurrentInertiaZ = 0.0;
+let vrmTargetInertiaZ = 0.0;
+let vrmCurrentPitch = 0.0;
+let vrmLastSpeed = 0.0;
+let vrmLastSpeedTime = Date.now();
+let vrmCurrentSpeed = 0.0;
+let vrmCurrentBoost = 0.0;
+let vrmTargetPitch = 0.0;
+let vrmCurrentRoll = 0.0;
+let vrmTargetRoll = 0.0;
 // Contextual Gauge Gaze Tracking (Phase 2)
-let rumGazeEndTime = 0;
-let rumGazeNextAllowedTime = 0;
-let rumGazeTargetYaw = 0.0;
-let rumGazeTargetPitch = 0.0;
-let rumCurrentGazeYaw = 0.0;
-let rumCurrentGazePitch = 0.0;
+let vrmGazeEndTime = 0;
+let vrmGazeNextAllowedTime = 0;
+let vrmGazeTargetYaw = 0.0;
+let vrmGazeTargetPitch = 0.0;
+let vrmCurrentGazeYaw = 0.0;
+let vrmCurrentGazePitch = 0.0;
 // Utility & Diagnostic Props (Phase 2)
 let multimeterPropGroup = null;
 let pipDropperPropGroup = null;
@@ -1113,12 +1096,12 @@ function handlePipConnectomeStream(pip) {
   latestPipState = pip;
   if (pip.state) flyState = pip.state;
   if (pip.heading !== undefined) window._flyTargetHeading = pip.heading;
-  if (pip.state === 'PERCHED' || pip.rum_interaction === 'PERCHED_ON_RUM') {
-    if (typeof attachPipDropperToRum === 'function') attachPipDropperToRum();
+  if (pip.state === 'PERCHED' || pip.avatar_interaction === 'PERCHED_ON_AVATAR') {
+    if (typeof attachPipDropperToVrm === 'function') attachPipDropperToVrm();
   } else if (pip.state === 'FLYING' || pip.state === 'ESCAPE') {
     if (typeof isHoldingDropper !== 'undefined' && isHoldingDropper && !pipDropperDetachTimer) {
       pipDropperDetachTimer = setTimeout(() => {
-        if (typeof detachPipDropperFromRum === 'function') detachPipDropperFromRum();
+        if (typeof detachPipDropperFromVrm === 'function') detachPipDropperFromVrm();
         pipDropperDetachTimer = null;
       }, 3500);
     }
@@ -1163,8 +1146,8 @@ function isMusicPlaying() {
   return !!(typeof realAudio !== 'undefined' && realAudio && !realAudio.paused && !realAudio.ended && realAudio.currentTime > 0);
 }
 
-function checkRumSpeedReaction(speedMph) {
-  rumCurrentSpeed = speedMph;
+function checkVrmSpeedReaction(speedMph) {
+  vrmCurrentSpeed = speedMph;
   const now = Date.now();
   if (speedMph >= 72 && (now - lastSpeedPanicTime > 45000)) {
     lastSpeedPanicTime = now;
@@ -1183,46 +1166,46 @@ function checkRumSpeedReaction(speedMph) {
 
 function checkGaugeGazeTriggers(boostPsi, coolantTempF) {
   const now = Date.now();
-  if (now < rumGazeNextAllowedTime) return;
+  if (now < vrmGazeNextAllowedTime) return;
   if (boostPsi >= 15.0) {
-    rumGazeEndTime = now + 1800; // 1.8 seconds gaze glance
-    rumGazeNextAllowedTime = now + 8500; // 8.5s cooldown
-    rumGazeTargetYaw = -0.38;   // Turn head & eyes down-left toward cluster
-    rumGazeTargetPitch = -0.22;
+    vrmGazeEndTime = now + 1800; // 1.8 seconds gaze glance
+    vrmGazeNextAllowedTime = now + 8500; // 8.5s cooldown
+    vrmGazeTargetYaw = -0.38;   // Turn head & eyes down-left toward cluster
+    vrmGazeTargetPitch = -0.22;
   } else if (coolantTempF >= 215.0) {
-    rumGazeEndTime = now + 1800;
-    rumGazeNextAllowedTime = now + 12000;
-    rumGazeTargetYaw = -0.38;
-    rumGazeTargetPitch = -0.22;
+    vrmGazeEndTime = now + 1800;
+    vrmGazeNextAllowedTime = now + 12000;
+    vrmGazeTargetYaw = -0.38;
+    vrmGazeTargetPitch = -0.22;
   }
 }
 
-function updateRumInertiaPhysics(speedMph, boostPsi, steeringAngle = 0, latAccel = 0) {
-  rumCurrentSpeed = speedMph;
-  rumCurrentBoost = boostPsi;
+function updateVrmInertiaPhysics(speedMph, boostPsi, steeringAngle = 0, latAccel = 0) {
+  vrmCurrentSpeed = speedMph;
+  vrmCurrentBoost = boostPsi;
   const now = Date.now();
-  const dt = Math.max(0.016, (now - rumLastSpeedTime) * 0.001);
-  const accel = (speedMph - rumLastSpeed) / dt;
-  rumLastSpeed = speedMph;
-  rumLastSpeedTime = now;
+  const dt = Math.max(0.016, (now - vrmLastSpeedTime) * 0.001);
+  const accel = (speedMph - vrmLastSpeed) / dt;
+  vrmLastSpeed = speedMph;
+  vrmLastSpeedTime = now;
   // 1. Longitudinal G-Force Coupling (Acceleration / Boost Push vs Braking Decel)
   if (accel > 1.2 || boostPsi > 1.5) {
     // Leaning back into seat under acceleration / turbo spool
-    rumTargetInertiaZ = Math.min(0.24, (boostPsi * 0.010) + (accel * 0.022));
-    rumTargetPitch = -Math.min(0.18, (boostPsi * 0.007) + (accel * 0.015));
+    vrmTargetInertiaZ = Math.min(0.24, (boostPsi * 0.010) + (accel * 0.022));
+    vrmTargetPitch = -Math.min(0.18, (boostPsi * 0.007) + (accel * 0.015));
   } else if (accel < -2.2) {
     // Bracing forward under braking deceleration
-    rumTargetInertiaZ = -Math.min(0.28, Math.abs(accel) * 0.035);
-    rumTargetPitch = Math.min(0.22, Math.abs(accel) * 0.022);
+    vrmTargetInertiaZ = -Math.min(0.28, Math.abs(accel) * 0.035);
+    vrmTargetPitch = Math.min(0.22, Math.abs(accel) * 0.022);
   } else {
-    rumTargetInertiaZ = 0.0;
-    rumTargetPitch = 0.0;
+    vrmTargetInertiaZ = 0.0;
+    vrmTargetPitch = 0.0;
   }
   // 2. Lateral Cornering Apex Lean (Torso rolls smoothly into corner apex)
   if (Math.abs(steeringAngle) > 8 || Math.abs(latAccel) > 0.08) {
-    rumTargetRoll = THREE.MathUtils.clamp(-steeringAngle * 0.0028 - latAccel * 0.12, -0.16, 0.16);
+    vrmTargetRoll = THREE.MathUtils.clamp(-steeringAngle * 0.0028 - latAccel * 0.12, -0.16, 0.16);
   } else {
-    rumTargetRoll = 0.0;
+    vrmTargetRoll = 0.0;
   }
   // 3. Contextual Gauge Gaze Check (Boost > 15 PSI or Coolant > 215°F)
   const coolant = (latestTelemetry && latestTelemetry.coolant_temp_f) ? latestTelemetry.coolant_temp_f : 0;
@@ -1991,7 +1974,7 @@ function initVrmEngine() {
   vrmScene.add(vrmEnvironmentGroup);
   initCustomPropsGroup();
   initConnectomeFly();
-  loadRumVrmModel(currentVrmModelName);
+  loadVrmModel(currentVrmModelName);
   setVrmEnvironment(currentEnvironmentName);
   // Yoshi is an optional custom prop, not a forced hardcoded fixture
   const decorCfg = loadRoomDecorationsConfig();
@@ -2049,16 +2032,16 @@ function initVrmEngine() {
 
     // 3. Smooth G-Force Inertia Interpolation (NO vertical floating!)
     // 3. Smooth G-Force Inertia, Pitch & Cornering Apex Roll Interpolation
-    rumCurrentInertiaZ += (rumTargetInertiaZ - rumCurrentInertiaZ) * Math.min(1.0, delta * 6.0);
-    rumCurrentPitch += (rumTargetPitch - rumCurrentPitch) * Math.min(1.0, delta * 5.0);
-    rumCurrentRoll += (rumTargetRoll - rumCurrentRoll) * Math.min(1.0, delta * 5.0);
+    vrmCurrentInertiaZ += (vrmTargetInertiaZ - vrmCurrentInertiaZ) * Math.min(1.0, delta * 6.0);
+    vrmCurrentPitch += (vrmTargetPitch - vrmCurrentPitch) * Math.min(1.0, delta * 5.0);
+    vrmCurrentRoll += (vrmTargetRoll - vrmCurrentRoll) * Math.min(1.0, delta * 5.0);
     // Smooth Contextual Gauge Gaze Lerp (1.8s glance toward instrument cluster when boost > 15 PSI or coolant > 215°F)
-    const isGazingAtGauges = (now < rumGazeEndTime);
-    const targetGazeYaw = isGazingAtGauges ? rumGazeTargetYaw : 0.0;
-    const targetGazePitch = isGazingAtGauges ? rumGazeTargetPitch : 0.0;
+    const isGazingAtGauges = (now < vrmGazeEndTime);
+    const targetGazeYaw = isGazingAtGauges ? vrmGazeTargetYaw : 0.0;
+    const targetGazePitch = isGazingAtGauges ? vrmGazeTargetPitch : 0.0;
     const gazeLerpRate = isGazingAtGauges ? 6.5 : 4.5;
-    rumCurrentGazeYaw += (targetGazeYaw - rumCurrentGazeYaw) * Math.min(1.0, delta * gazeLerpRate);
-    rumCurrentGazePitch += (targetGazePitch - rumCurrentGazePitch) * Math.min(1.0, delta * gazeLerpRate);
+    vrmCurrentGazeYaw += (targetGazeYaw - vrmCurrentGazeYaw) * Math.min(1.0, delta * gazeLerpRate);
+    vrmCurrentGazePitch += (targetGazePitch - vrmCurrentGazePitch) * Math.min(1.0, delta * gazeLerpRate);
 
     if (vrmModel) {
       const isActionActive = (now < vrmActionEndTime);
@@ -2072,7 +2055,7 @@ function initVrmEngine() {
       vrmModel.position.set(
         -vrmCenter.x + vrmRoamCurrentPos.x,
         vrmBaseY + vrmCurrentElevation,
-        (-vrmCenter.z) + vrmRoamCurrentPos.z + rumCurrentInertiaZ
+        (-vrmCenter.z) + vrmRoamCurrentPos.z + vrmCurrentInertiaZ
       );
       if (!isActionActive && vrmaActiveAction && vrmaActiveName !== 'walk_loop') {
         stopActiveVrmaClip(0.45);
@@ -2099,26 +2082,26 @@ function initVrmEngine() {
         vrmMixer.update(delta);
         // Apply Physical Kinematics (Longitudinal G-forces & Cornering Apex Roll)
         if (vrmBones.spine) {
-          vrmBones.spine.rotation.x = THREE.MathUtils.clamp(vrmBones.spine.rotation.x + rumCurrentPitch * 0.40, -0.30, 0.30);
-          vrmBones.spine.rotation.z = THREE.MathUtils.clamp(vrmBones.spine.rotation.z + rumCurrentRoll * 0.40, -0.25, 0.25);
+          vrmBones.spine.rotation.x = THREE.MathUtils.clamp(vrmBones.spine.rotation.x + vrmCurrentPitch * 0.40, -0.30, 0.30);
+          vrmBones.spine.rotation.z = THREE.MathUtils.clamp(vrmBones.spine.rotation.z + vrmCurrentRoll * 0.40, -0.25, 0.25);
         }
         if (vrmBones.chest) {
-          vrmBones.chest.rotation.x = THREE.MathUtils.clamp(vrmBones.chest.rotation.x + rumCurrentPitch * 0.30, -0.25, 0.25);
-          vrmBones.chest.rotation.z = THREE.MathUtils.clamp(vrmBones.chest.rotation.z + rumCurrentRoll * 0.30, -0.20, 0.20);
+          vrmBones.chest.rotation.x = THREE.MathUtils.clamp(vrmBones.chest.rotation.x + vrmCurrentPitch * 0.30, -0.25, 0.25);
+          vrmBones.chest.rotation.z = THREE.MathUtils.clamp(vrmBones.chest.rotation.z + vrmCurrentRoll * 0.30, -0.20, 0.20);
         }
         if (vrmBones.neck) {
-          vrmBones.neck.rotation.x = THREE.MathUtils.clamp(vrmBones.neck.rotation.x + rumCurrentPitch * 0.15 + rumCurrentGazePitch * 0.25, -0.30, 0.30);
-          vrmBones.neck.rotation.y = THREE.MathUtils.clamp(vrmBones.neck.rotation.y + rumCurrentGazeYaw * 0.35, -0.40, 0.40);
-          vrmBones.neck.rotation.z = THREE.MathUtils.clamp(vrmBones.neck.rotation.z + rumCurrentRoll * 0.15, -0.20, 0.20);
+          vrmBones.neck.rotation.x = THREE.MathUtils.clamp(vrmBones.neck.rotation.x + vrmCurrentPitch * 0.15 + vrmCurrentGazePitch * 0.25, -0.30, 0.30);
+          vrmBones.neck.rotation.y = THREE.MathUtils.clamp(vrmBones.neck.rotation.y + vrmCurrentGazeYaw * 0.35, -0.40, 0.40);
+          vrmBones.neck.rotation.z = THREE.MathUtils.clamp(vrmBones.neck.rotation.z + vrmCurrentRoll * 0.15, -0.20, 0.20);
         }
 
         // Prevent unnatural owl-like head spinning! Strictly clamp head & neck rotation to natural human anatomy
         if (vrmBones.head) {
-          vrmBones.head.rotation.y = THREE.MathUtils.clamp(vrmBones.head.rotation.y + rumCurrentGazeYaw * 0.65, -0.55, 0.55);
-          vrmBones.head.rotation.x = THREE.MathUtils.clamp(vrmBones.head.rotation.x + rumCurrentPitch * 0.20 + rumCurrentGazePitch * 0.65, -0.45, 0.45);
-          vrmBones.head.rotation.z = THREE.MathUtils.clamp(vrmBones.head.rotation.z + rumCurrentRoll * 0.20, -0.35, 0.35);
+          vrmBones.head.rotation.y = THREE.MathUtils.clamp(vrmBones.head.rotation.y + vrmCurrentGazeYaw * 0.65, -0.55, 0.55);
+          vrmBones.head.rotation.x = THREE.MathUtils.clamp(vrmBones.head.rotation.x + vrmCurrentPitch * 0.20 + vrmCurrentGazePitch * 0.65, -0.45, 0.45);
+          vrmBones.head.rotation.z = THREE.MathUtils.clamp(vrmBones.head.rotation.z + vrmCurrentRoll * 0.20, -0.35, 0.35);
           // R.U.M. head tracking towards the fruit fly when actively feeding Pip with the dropper (maintains direct forward eye contact with Dad otherwise)
-          if (connectomeFlyEnabled && connectomeFlyGroup && isHoldingDropper && !isSpeaking && !isReacting && !(Date.now() < rumGazeRetentionUntil)) {
+          if (connectomeFlyEnabled && connectomeFlyGroup && isHoldingDropper && !isSpeaking && !isReacting && !(Date.now() < vrmGazeRetentionUntil)) {
             const rx = vrmRoamCurrentPos.x;
             const ry = vrmBaseY + 1.2;
             const rz = vrmRoamCurrentPos.z;
@@ -2185,11 +2168,11 @@ function initVrmEngine() {
           vrmBones.rEyeball.position.z = vrmBones.rEyeball.userData.restPos.z + 0.010 * blinkAmt;
         }
       // Contextual Gauge Gaze Eyeball Coupling
-      if (vrmBones.lEyeball && vrmBones.rEyeball && (isGazingAtGauges || Math.abs(rumCurrentGazeYaw) > 0.02)) {
-        vrmBones.lEyeball.rotation.y = THREE.MathUtils.clamp(rumCurrentGazeYaw * 0.45, -0.35, 0.35);
-        vrmBones.lEyeball.rotation.x = THREE.MathUtils.clamp(rumCurrentGazePitch * 0.45, -0.25, 0.25);
-        vrmBones.rEyeball.rotation.y = THREE.MathUtils.clamp(rumCurrentGazeYaw * 0.45, -0.35, 0.35);
-        vrmBones.rEyeball.rotation.x = THREE.MathUtils.clamp(rumCurrentGazePitch * 0.45, -0.25, 0.25);
+      if (vrmBones.lEyeball && vrmBones.rEyeball && (isGazingAtGauges || Math.abs(vrmCurrentGazeYaw) > 0.02)) {
+        vrmBones.lEyeball.rotation.y = THREE.MathUtils.clamp(vrmCurrentGazeYaw * 0.45, -0.35, 0.35);
+        vrmBones.lEyeball.rotation.x = THREE.MathUtils.clamp(vrmCurrentGazePitch * 0.45, -0.25, 0.25);
+        vrmBones.rEyeball.rotation.y = THREE.MathUtils.clamp(vrmCurrentGazeYaw * 0.45, -0.35, 0.35);
+        vrmBones.rEyeball.rotation.x = THREE.MathUtils.clamp(vrmCurrentGazePitch * 0.45, -0.25, 0.25);
       }
       // Phase 3: Circadian Slow Breathing & Night Resting Idle
       const isNightSenses = latestCircadian && latestCircadian.is_night;
@@ -2344,7 +2327,7 @@ function initVrmEngine() {
 function updateCameraDirector(delta, isSpeaking, isReacting) {
   if (!vrmCamera || !targetCamPos || !targetLookAt || !currentLookAt) return;
   const isDoingAction = (Date.now() < vrmActionEndTime);
-  const isGazeRetained = (Date.now() < rumGazeRetentionUntil);
+  const isGazeRetained = (Date.now() < vrmGazeRetentionUntil);
   const isVocal = isSpeaking || isReacting || isGazeRetained;
   // Rum's live dynamic coordinates on the stage floor
   const rx = vrmRoamCurrentPos.x;
@@ -2504,7 +2487,7 @@ function initRoomTouchOrbitLookAround(canvas) {
   window.addEventListener('touchend', onPointerUp, { passive: true });
 }
 
-function loadRumVrmModel(modelName = (currentVrmModelName || 'Rum.vrm')) {
+function loadVrmModel(modelName = (currentVrmModelName || 'Rum.vrm')) {
   currentVrmModelName = modelName;
   localStorage.setItem('vrmCurrentAvatar', modelName);
   const notice = document.getElementById('vrmLoadingNotice');
@@ -2598,16 +2581,16 @@ function loadRumVrmModel(modelName = (currentVrmModelName || 'Rum.vrm')) {
     (progress) => {
       if (progress.total > 0 && notice) {
         const pct = Math.round((progress.loaded / progress.total) * 100);
-        notice.innerHTML = `<span>⚡</span> LOADING RUM VRM (${pct}%)...`;
+        notice.innerHTML = `<span>⚡</span> LOADING 3D VRM (${pct}%)...`;
       }
     },
     (error) => {
       console.warn(`[VRM] Fallback checking Rem.vrm:`, error);
       if (modelName === 'Rem.vrm') {
-        loadRumVrmModel('Rum.vrm');
+        loadVrmModel('Rum.vrm');
         return;
       } else if (modelName === 'Rum.vrm') {
-        loadRumVrmModel('Rem.vrm');
+        loadVrmModel('Rem.vrm');
         return;
       }
       if (notice) {
@@ -2697,7 +2680,7 @@ function triggerVrmReaction() {
 function setVrmSpeaking(durationMs, text, forceTimer = false) {
   if (forceTimer || !eventSource || eventSource.readyState !== 1) {
     vrmSpeechEndTime = Date.now() + (durationMs || 3000);
-    rumGazeRetentionUntil = Math.max(rumGazeRetentionUntil, Date.now() + (durationMs || 3000) + 9000);
+    vrmGazeRetentionUntil = Math.max(vrmGazeRetentionUntil, Date.now() + (durationMs || 3000) + 9000);
   }
   if (text) {
     const bubble = document.getElementById('vrmHudBubble');
@@ -2750,7 +2733,8 @@ function popOutFloatingCompanion(isAuto = false) {
   resizeVrmToStage();
   if (!isAuto) {
     triggerVrmReaction();
-    showVrmSpeech("Master! Rum is riding shotgun with you across all screens!", 4500);
+    const bq = (typeof getActivePersonaData === "function" && getActivePersonaData().vrm_defaults && getActivePersonaData().vrm_defaults.banner_quote) ? formatPersonaText(getActivePersonaData().vrm_defaults.banner_quote) : "Riding shotgun with you across all screens!";
+    showVrmSpeech(bq, 4500);
   }
 }
 
@@ -2886,8 +2870,8 @@ function initFloatingHudDraggable() {
 
     window._lastHudDragSpeed = Math.hypot(curVx, curVy);
     // Apply lateral G-force balance inertia to R.U.M.
-    rumCurrentInertiaX = THREE.MathUtils.clamp(-curVx * 0.0016, -0.45, 0.45);
-    rumCurrentInertiaZ = THREE.MathUtils.clamp(-curVy * 0.0012, -0.35, 0.35);
+    vrmCurrentInertiaX = THREE.MathUtils.clamp(-curVx * 0.0016, -0.45, 0.45);
+    vrmCurrentInertiaZ = THREE.MathUtils.clamp(-curVy * 0.0012, -0.35, 0.35);
     // Dynamic tilt angle of Rum leaning to maintain balance as her window is dragged
     if (vrmModel) {
       vrmModel.rotation.z = THREE.MathUtils.clamp(curVx * 0.0005, -0.22, 0.22);
@@ -2913,8 +2897,8 @@ function initFloatingHudDraggable() {
     }
 
     window._lastHudDragSpeed = 0;
-    rumCurrentInertiaX = 0;
-    rumCurrentInertiaZ = 0;
+    vrmCurrentInertiaX = 0;
+    vrmCurrentInertiaZ = 0;
     if (vrmModel) vrmModel.rotation.z = 0;
   };
 
@@ -3503,7 +3487,7 @@ function defaultRoomDecorationsConfig() {
 
 function loadRoomDecorationsConfig() {
   try {
-    const raw = localStorage.getItem('rum_room_decorations');
+    const raw = localStorage.getItem('vrm_room_decorations') || localStorage.getItem('rum_room_decorations');
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && parsed.schemaVersion === 2) {
@@ -3518,7 +3502,7 @@ function loadRoomDecorationsConfig() {
 
 function saveRoomDecorationsConfig(cfg) {
   try {
-    localStorage.setItem('rum_room_decorations', JSON.stringify({ ...cfg, schemaVersion: 2 }));
+    localStorage.setItem('vrm_room_decorations', JSON.stringify({ ...cfg, schemaVersion: 2 }));
   } catch (e) {}
 }
 
@@ -4177,8 +4161,8 @@ function updateConnectomeFly(delta, time) {
       flyStateTimer = 0.6 + Math.random() * 1.2;
     }
     // 5. Giant Fiber (GF) Proximity Escape Trigger (if near Rum or moving hand)
-    const dToRum = Math.hypot(flyPos.x - vrmRoamCurrentPos.x, flyPos.z - vrmRoamCurrentPos.z);
-    if (dToRum < 0.38 && Math.abs(flyPos.y - (vrmBaseY + 1.2)) < 0.45) {
+    const dToAvatar = Math.hypot(flyPos.x - vrmRoamCurrentPos.x, flyPos.z - vrmRoamCurrentPos.z);
+    if (dToAvatar < 0.38 && Math.abs(flyPos.y - (vrmBaseY + 1.2)) < 0.45) {
       flyHeading += Math.PI * (0.8 + Math.random() * 0.4);
       flyPitch = 0.6;
       flyState = 'ESCAPE';
@@ -4207,7 +4191,7 @@ function updateConnectomeFly(delta, time) {
         // Touch down!
         flyPos.set(flyTargetPerch.x, flyTargetPerch.y, flyTargetPerch.z);
         flyState = 'PERCHED';
-        if (typeof attachPipDropperToRum === 'function') attachPipDropperToRum();
+        if (typeof attachPipDropperToVrm === 'function') attachPipDropperToVrm();
         flyStateTimer = 4.5 + Math.random() * 5.0;
         flyTargetPerch = null;
       }
@@ -4223,8 +4207,8 @@ function updateConnectomeFly(delta, time) {
     if (flyStateTimer <= 0) {
       // Take off again!
       flyPitch = 0.55;
-      if (typeof detachPipDropperFromRum === 'function') {
-        setTimeout(detachPipDropperFromRum, 3500);
+      if (typeof detachPipDropperFromVrm === 'function') {
+        setTimeout(detachPipDropperFromVrm, 3500);
       }
       flyHeading = Math.random() * Math.PI * 2;
       flyState = 'FLYING';
@@ -4638,7 +4622,7 @@ function selectCustomProp(propMesh) {
 
   const coords = document.getElementById('inspectorPropCoords');
 
-  const btnCall = document.getElementById('btnCallRumToProp');
+  const btnCall = document.getElementById('btnCallVrmToProp');
 
   const btnDelete = document.getElementById('btnDeleteSelectedProp');
 
@@ -4804,7 +4788,7 @@ function clearAllCustomProps() {
 
 }
 
-function callRumToSelectedProp() {
+function callVrmToSelectedProp() {
 
   if (!vrmSelectedProp) return;
 
@@ -5204,7 +5188,7 @@ function stopRoamWalkAnimation() {
 
 // ============================================================================
 
-let rumSpatialMemory = {
+let vrmSpatialMemory = {
 
   knownProps: {},
 
@@ -5216,9 +5200,9 @@ function onRoomEnvironmentChanged(prop, changeType) {
 
   const now = Date.now();
 
-  if (now - rumSpatialMemory.lastNoticeTime < 4500) return; // Debounce notices
+  if (now - vrmSpatialMemory.lastNoticeTime < 4500) return; // Debounce notices
 
-  rumSpatialMemory.lastNoticeTime = now;
+  vrmSpatialMemory.lastNoticeTime = now;
 
   const propName = (prop && prop.userData && prop.userData.name) || 'the furniture';
 
@@ -5236,10 +5220,11 @@ function onRoomEnvironmentChanged(prop, changeType) {
 
     'saved': `Room layout saved! I love how you've styled my space, Master!`
   };
-  const speechText = actionMessages[changeType] || `I noticed the room changed, Master!`;
-  showAiSpeechToast(`R.U.M. noticed: ${propName} ${changeType}!`);
-  if (typeof speakUtterance === 'function' && currentAiPersona === 'RUM') {
-    speakUtterance(speechText);
+  const speechText = actionMessages[changeType] || `I noticed the room changed!`;
+  const pName = (typeof getPersonaDisplayName === 'function') ? getPersonaDisplayName() : 'Companion';
+  showAiSpeechToast(`${pName} noticed: ${propName} ${changeType}!`);
+  if (typeof speakUtterance === 'function') {
+    speakUtterance(speechText, 'HAPPY', 'ROOM');
   }
   // Walk over to inspect newly placed or moved furniture
   if (prop && (changeType === 'placed' || changeType === 'moved')) {
@@ -5279,7 +5264,7 @@ function clampWalkableDestination(x, z, isBalcony) {
   };
 }
 
-function walkRumToPoint(targetX, targetZ, opts = {}) {
+function walkVrmToPoint(targetX, targetZ, opts = {}) {
   const isOutdoor = !!opts.isBalcony || targetZ < ROOM_WALL_Z;
   const clamped = clampWalkableDestination(targetX, targetZ, isOutdoor);
   const curIsOutdoor = vrmRoamCurrentPos.z < ROOM_WALL_Z;
@@ -5314,21 +5299,21 @@ function walkRumToPoint(targetX, targetZ, opts = {}) {
   updateRoamButtonLabel();
 }
 
-function walkRumOutsideToBalcony() {
-  walkRumToPoint(-2.20, -6.50, { name: 'Ocean Balcony', faceOcean: true, isBalcony: true, manual: true });
-  showAiSpeechToast('R.U.M. walking outside through the door onto the balcony...');
+function walkVrmOutsideToBalcony() {
+  walkVrmToPoint(-2.20, -6.50, { name: 'Ocean Balcony', faceOcean: true, isBalcony: true, manual: true });
+  showAiSpeechToast(`${typeof getPersonaDisplayName === 'function' ? getPersonaDisplayName() : 'Companion'} walking outside onto the balcony...`);
 }
 
-function walkRumInsideRoom() {
-  walkRumToPoint(0.0, 0.2, { name: 'Room Center', faceOcean: false, isBalcony: false, manual: true });
-  showAiSpeechToast('R.U.M. walking back inside...');
+function walkVrmInsideRoom() {
+  walkVrmToPoint(0.0, 0.2, { name: 'Room Center', faceOcean: false, isBalcony: false, manual: true });
+  showAiSpeechToast(`${typeof getPersonaDisplayName === 'function' ? getPersonaDisplayName() : 'Companion'} walking back inside...`);
 }
 
-window.walkRumToPoint = walkRumToPoint;
-window.walkRumOutsideToBalcony = walkRumOutsideToBalcony;
-window.walkRumInsideRoom = walkRumInsideRoom;
+window.walkVrmToPoint = walkVrmToPoint;
+window.walkVrmOutsideToBalcony = walkVrmOutsideToBalcony;
+window.walkVrmInsideRoom = walkVrmInsideRoom;
 
-function checkRumCollisionObstacle(nextX, nextZ) {
+function checkVrmCollisionObstacle(nextX, nextZ) {
   // 1. Interior room, open doorway corridor (X = -2.50), and outdoor teakwood balcony bounds
   if (!isPointInWalkableZone(nextX, nextZ)) {
     return { name: nextZ < ROOM_WALL_Z ? 'Balcony Railing' : 'Room Wall Boundary' };
@@ -5351,7 +5336,7 @@ function checkRumCollisionObstacle(nextX, nextZ) {
 
 function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, dancing, isSpeedPanic) {
   const isDriverInteracting = isSpeaking || isReacting || isSpeedPanic || dancing;
-  const isGazeRetained = (Date.now() < rumGazeRetentionUntil);
+  const isGazeRetained = (Date.now() < vrmGazeRetentionUntil);
   if (!vrmRoamEnabled) {
     vrmManualWalkActive = false;
   }
@@ -5382,7 +5367,7 @@ function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, 
         return d > 0.25;
       });
       const wp = candidates[Math.floor(Math.random() * candidates.length)] || VRM_ROAM_WAYPOINTS[0];
-      walkRumToPoint(wp.x, wp.z, { name: wp.name, faceOcean: wp.faceOcean, isBalcony: wp.z < ROOM_WALL_Z, manual: false });
+      walkVrmToPoint(wp.x, wp.z, { name: wp.name, faceOcean: wp.faceOcean, isBalcony: wp.z < ROOM_WALL_Z, manual: false });
     }
   } else if (vrmRoamState === 'TURNING') {
     let diff = THREE.MathUtils.euclideanModulo(vrmRoamTargetRotY - vrmRoamCurrentRotY + Math.PI, Math.PI * 2) - Math.PI;
@@ -5406,7 +5391,7 @@ function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, 
       const step = Math.min(dist, walkSpeed * delta);
       const nextX = vrmRoamCurrentPos.x + (dx / dist) * step;
       const nextZ = vrmRoamCurrentPos.z + (dz / dist) * step;
-      const obstacle = checkRumCollisionObstacle(nextX, nextZ);
+      const obstacle = checkVrmCollisionObstacle(nextX, nextZ);
       if (obstacle) {
         stopRoamWalkAnimation();
         vrmRoamWaypointsQueue = [];
@@ -5488,12 +5473,12 @@ function updateRoamButtonLabel() {
   }
 }
 
-function toggleRemRumAvatar() {
+function toggleVrmAvatar() {
   const isRem = (currentVrmModelName.includes('Rem') || currentVrmModelName.toLowerCase().includes('rem'));
   const newModel = isRem ? 'Rum.vrm' : 'Rem.vrm';
   currentVrmModelName = newModel;
   localStorage.setItem('vrmCurrentAvatar', newModel);
-  loadRumVrmModel(newModel);
+  loadVrmModel(newModel);
   updateModelButtonLabel();
 }
 
@@ -5501,17 +5486,22 @@ function updateModelButtonLabel() {
   const btn = document.getElementById('btnVrmModelToggle');
   const hudTitle = document.getElementById('vrmHudTitle');
   const emotionPill = document.getElementById('waifuEmotionPill');
-  const isRem = (currentVrmModelName.includes('Rem') || currentVrmModelName.toLowerCase().includes('rem'));
+  const pData = (typeof getActivePersonaData === 'function') ? getActivePersonaData() : {};
+  const shortName = pData.display_short_name || pData.name || 'AVATAR';
+  const icon = pData.icon || '✨';
+  const vrmDef = pData.vrm_defaults || {};
+  const isRem = currentVrmModelName.toLowerCase().includes('rem');
   if (btn) {
-    btn.innerText = isRem ? '💙 REM' : '💜 RUM';
-    btn.style.borderColor = isRem ? '#38bdf8' : '#c084fc';
-    btn.style.color = isRem ? '#38bdf8' : '#c084fc';
+    btn.innerText = isRem ? '💙 REM' : `${icon} ${shortName}`;
+    btn.style.borderColor = isRem ? '#38bdf8' : (vrmDef.accent_color || '#c084fc');
+    btn.style.color = isRem ? '#38bdf8' : (vrmDef.accent_color || '#c084fc');
   }
   if (hudTitle) {
-    hudTitle.innerHTML = isRem ? '<span>💙</span> REM • SHOTGUN' : '<span>💜</span> RUM • SHOTGUN';
+    const hudTxt = (typeof formatPersonaText === 'function' && vrmDef.hud_title) ? formatPersonaText(vrmDef.hud_title) : `${icon} ${shortName} • SHOTGUN`;
+    hudTitle.innerHTML = isRem ? '<span>💙</span> REM • SHOTGUN' : hudTxt;
   }
   if (emotionPill) {
-    emotionPill.innerText = isRem ? '💙 REM (3D VRM) • DEVOTED TO MASTER' : '💜 RUM (3D VRM) • PLAYFUL SISTER';
+    emotionPill.innerText = isRem ? '💙 REM (3D VRM)' : `${icon} ${shortName} (3D VRM) • ACTIVE`;
   }
 }
 
@@ -5610,7 +5600,7 @@ function initAvatarPokeRaycaster(canvas) {
     if (floorHits.length > 0) {
       const hit = floorHits[0];
       const isBalcony = !!(hit.object.userData && hit.object.userData.isBalconyFloor);
-      walkRumToPoint(hit.point.x, hit.point.z, {
+      walkVrmToPoint(hit.point.x, hit.point.z, {
         isBalcony,
         name: isBalcony ? 'Outdoor Balcony' : 'Room Floor',
         faceOcean: isBalcony
@@ -5828,16 +5818,10 @@ function detectAvatarTouchZone(hitPoint) {
   return 'feet';
 }
 
-function getActivePersonaData() {
-  const pKey = (typeof currentAiSettings !== 'undefined' && currentAiSettings.personality) ? currentAiSettings.personality : 'RUM';
-  const personas = (typeof window !== 'undefined' && window.allPersonas) ? window.allPersonas : null;
-  return (personas && personas[pKey]) ? personas[pKey] : null;
-}
-
 function isTouchZoneBanned(zoneKey) {
   if (!zoneKey) return false;
   const key = String(zoneKey).toLowerCase().trim();
-  const personaData = getActivePersonaData();
+  const personaData = (typeof getActivePersonaData === 'function') ? getActivePersonaData() : null;
   if (!personaData) return false;
 
   if (Array.isArray(personaData.banned_touch_zones)) {
@@ -5854,7 +5838,7 @@ function isTouchZoneBanned(zoneKey) {
 }
 
 function getPersonaTouchZoneConfig(zoneKey) {
-  const personaData = getActivePersonaData();
+  const personaData = (typeof getActivePersonaData === 'function') ? getActivePersonaData() : null;
   const configured = (personaData && personaData.touch_interactions && personaData.touch_interactions[zoneKey])
     ? personaData.touch_interactions[zoneKey]
     : null;
@@ -5914,7 +5898,7 @@ function triggerAvatarPokeReaction(zoneOrRelY) {
   const spoken = formatTouchLineText(rawText);
   if (spoken) {
     if (typeof showAiSpeechToast === 'function') showAiSpeechToast(spoken);
-    speakUtterance(spoken, emotion);
+    speakUtterance(spoken, emotion, 'TOUCH');
   }
 }
 
@@ -6082,9 +6066,9 @@ function createPipDropperProp() {
   return group;
 }
 
-function attachMultimeterToRum() {
+function attachMultimeterToVrm() {
   if (isHoldingMultimeter) return;
-  detachPipDropperFromRum();
+  detachPipDropperFromVrm();
   const meter = createMultimeterProp();
   if (attachPropToVrmHand(meter, 'rightHand')) {
     meter.position.set(0.02, -0.035, 0.065);
@@ -6093,16 +6077,16 @@ function attachMultimeterToRum() {
   }
 }
 
-function detachMultimeterFromRum() {
+function detachMultimeterFromVrm() {
   if (!isHoldingMultimeter || !multimeterPropGroup) return;
   detachPropFromVrmHand(multimeterPropGroup);
   if (multimeterPropGroup.parent) multimeterPropGroup.parent.remove(multimeterPropGroup);
   isHoldingMultimeter = false;
 }
 
-function attachPipDropperToRum() {
+function attachPipDropperToVrm() {
   if (isHoldingDropper) return;
-  detachMultimeterFromRum();
+  detachMultimeterFromVrm();
   const dropper = createPipDropperProp();
   if (attachPropToVrmHand(dropper, 'rightHand')) {
     dropper.position.set(0.015, -0.04, 0.075);
@@ -6111,7 +6095,7 @@ function attachPipDropperToRum() {
   }
 }
 
-function detachPipDropperFromRum() {
+function detachPipDropperFromVrm() {
   if (!isHoldingDropper || !pipDropperPropGroup) return;
   detachPropFromVrmHand(pipDropperPropGroup);
   if (pipDropperPropGroup.parent) pipDropperPropGroup.parent.remove(pipDropperPropGroup);
@@ -6379,7 +6363,7 @@ function minimizeFloatingCompanion() {
 
   hud.style.display = 'none';
 
-  const pill = document.getElementById('rumMinHudPill');
+  const pill = document.getElementById('vrmMinHudPill');
 
   if (pill) {
 
@@ -6453,7 +6437,7 @@ function dismissFloatingHud() {
 
 }
 
-function toggleRumHudFromPill() {
+function toggleVrmHudFromPill() {
 
   const hud = document.getElementById('vrmFloatingHud');
 

@@ -308,7 +308,7 @@ class PhoneManager:
             if call_record["notes"]:
                 summary += f" Screened message: {call_record['notes']}"
             self._rag_engine.add_episodic_memory(
-                rum_summary=summary,
+                companion_summary=summary,
                 driver_quote=f"Call with {self.active_caller_kinship}",
                 emotion_tag="CARING",
                 importance=7
