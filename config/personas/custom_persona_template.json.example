@@ -6,5 +6,24 @@
   "gender": "female",
   "description": "Short summary of your companion's personality and tone.",
   "prompt": "You are CUSTOM, an AI companion in the Dodge Dart dashboard. You address the driver as '{driver_address}'. Keep answers under 3 sentences.",
+  "banned_touch_zones": [],
+  "touch_interactions": {
+    "head_top": {
+      "emotion": "HAPPY",
+      "hud_label": "😊 HAPPY • HEADPAT",
+      "animations": ["greeting"],
+      "duration_ms": 3200,
+      "lines": [
+        "Thanks for the pat, {driver_address}!",
+        { "text": "Watch this move, {driver_address}!", "animation": "spin", "duration_ms": 3200 }
+      ]
+    },
+    "hands": {
+      "emotion": "EXCITED",
+      "hud_label": "🙌 HIGH FIVE!",
+      "animations": ["greeting_wave_right"],
+      "lines": ["High five, {driver_address}!"]
+    }
+  },
   "default": false
 }
