@@ -713,6 +713,84 @@ class ModularRouteDispatchTest(unittest.TestCase):
             del rag
             gc.collect()
 
+    def test_emote_choreographer_tags_and_goemotions_mapping(self):
+        from ai.emote_choreographer import GOEMOTION_CATALOG, analyze_reply_choreography
+
+        self.assertEqual(len(GOEMOTION_CATALOG), 27)
+        # Verify every mapped emotion clip exists in models/bvh/emotions/*.bvh or known VRMA keys
+        bvh_names = {p.stem.lower() for p in (BACKEND_DIR.parent / "models" / "bvh").rglob("*.bvh")}
+        vrma_names = {
+            "show_body", "greeting", "greeting_wave_right", "peace", "shoot", "spin",
+            "model_pose", "squat", "pose_lean_in", "pose_angled_wave", "pose_shy_wave",
+            "pose_hand_raised_high", "pose_side_glance", "idol_pose_showcase", "turn_and_wave_hello",
+            "sit_idle", "walk_loop", "jog_loop", "sunbathing",
+        }
+        all_clips = bvh_names | vrma_names
+        for cat, meta in GOEMOTION_CATALOG.items():
+            for clip in meta.get("clips", []):
+                self.assertIn(clip.lower(), all_clips, f"Missing clip {clip} for {cat}")
+
+        # Inline multi-beat tag stripping & persona remap verification
+        rum_persona = {"id": "RUM", "gender": "female", "emote_profile": {"remap": {"desire": "admiration"}}}
+        res = analyze_reply_choreography(
+            "[EMOTE:desire] Boost is ready, Dad! [beat:excitement] Let's launch this turbo!",
+            persona_data=rum_persona,
+        )
+        self.assertNotIn("[EMOTE", res["speech"])
+        self.assertNotIn("[beat", res["speech"])
+        self.assertEqual(res["goemotion"], "admiration")
+        self.assertGreaterEqual(len(res["beats"]), 2)
+        self.assertEqual(res["beats"][1]["goemotion"], "excitement")
+
+        odin_persona = {
+            "id": "ODIN",
+            "gender": "male",
+            "emote_profile": {"excluded_clips": ["pose_lady_bow"], "clip_overrides": {"gratitude": ["pose_gentlemen_bow"]}},
+        }
+        res_odin = analyze_reply_choreography("[EMOTE:gratitude] Good run, warrior.", persona_data=odin_persona)
+        self.assertEqual(res_odin["emote_clip"], "pose_gentlemen_bow")
+
+    def test_viseme_analyzer_wav_and_text_sync(self):
+        import io
+        import math
+        import struct
+        import wave
+        from hardware.viseme_analyzer import extract_wav_viseme_timeline
+
+        # Build deterministic 16kHz mono PCM WAV: 0.2s silence -> 0.4s loud tone -> 0.2s silence
+        sr = 16000
+        samples = [0] * int(0.2 * sr)
+        samples += [int(14000 * math.sin(2 * math.pi * 440 * i / sr)) for i in range(int(0.4 * sr))]
+        samples += [0] * int(0.2 * sr)
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sr)
+            wf.writeframes(struct.pack(f"<{len(samples)}h", *samples))
+
+        tl = extract_wav_viseme_timeline(buf.getvalue(), "Hello world!")
+        self.assertEqual(tl["fps"], 25)
+        self.assertGreaterEqual(tl["duration_ms"], 750)
+        amps = tl["amps"]
+        self.assertEqual(len(amps), len(tl["visemes"]))
+        self.assertEqual(amps[0], 0)
+        self.assertGreater(max(amps), 10)
+        self.assertEqual(amps[-1], 0)
+        self.assertTrue(set(tl["visemes"]).issubset({"0", "a", "i", "u", "e", "o"}))
+
+        # Test /api/audio/speech_viseme route
+        h404 = DummyHandler()
+        self.state.audio.get_speech_viseme = lambda seq=None: None
+        self.assertTrue(dispatch_get(h404, urlparse("/api/audio/speech_viseme?seq=99"), self.state))
+        self.assertEqual(h404.status, 404)
+
+        self.state.audio.get_speech_viseme = lambda seq=None: tl
+        h200 = DummyHandler()
+        self.assertTrue(dispatch_get(h200, urlparse("/api/audio/speech_viseme?seq=1"), self.state))
+        self.assertEqual(h200.status, 200)
+        self.assertEqual(h200.json_body()["viseme"]["fps"], 25)
+
     def test_unmatched_routes_fall_through(self):
         import ast
         daemon_src = (BACKEND_DIR / "daemon.py").read_text(encoding="utf-8")

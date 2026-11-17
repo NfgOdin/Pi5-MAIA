@@ -545,6 +545,9 @@ function sendChatMessage(userText, isVoice = false) {
     sendBtn.disabled = true;
     sendBtn.innerHTML = "⏳";
   }
+  if (typeof setVrmConversationalState === 'function') {
+    setVrmConversationalState('THINKING');
+  }
 
   fetch('/api/ai/chat', {
     method: 'POST',
@@ -575,10 +578,16 @@ function sendChatMessage(userText, isVoice = false) {
         scrollChatToBottom();
       }
 
-      // Trigger speaking animation on 3D VRM
+      // Trigger speaking animation + choreographed 27-GoEmotions emote on 3D VRM
       const estMs = Math.max(2400, (data.reply.length / 10.0) * 1000);
+      if (typeof setVrmConversationalState === 'function') {
+        setVrmConversationalState('SPEAKING');
+      }
       if (typeof setVrmSpeaking === 'function') {
         setVrmSpeaking(estMs, data.reply);
+      }
+      if (typeof triggerChoreographedEmote === 'function') {
+        triggerChoreographedEmote(data, estMs);
       }
 
       // Remote browser audio is streamed sequentially via SSE speech_seq -> /api/audio/speech_clip
@@ -605,6 +614,9 @@ function sendChatMessage(userText, isVoice = false) {
     })
     .catch(err => {
       console.error("[AI] Chat error:", err);
+      if (typeof setVrmConversationalState === 'function') {
+        setVrmConversationalState('IDLE_ALIVE');
+      }
       if (sendBtn) {
         sendBtn.disabled = false;
         sendBtn.innerHTML = "➤";
@@ -913,6 +925,9 @@ function _playNextPcSpeechClip() {
   _pcSpeechPlaying = true;
   const audio = new Audio(`/api/audio/speech_clip?seq=${nextSeq}&t=${Date.now()}`);
   _pcAudioEl = audio;
+  if (typeof vrmVisemeCtrl !== 'undefined' && vrmVisemeCtrl && typeof vrmVisemeCtrl.attachPcAudioElement === 'function') {
+    vrmVisemeCtrl.attachPcAudioElement(audio);
+  }
   const done = () => {
     _pcSpeechPlaying = false;
     _playNextPcSpeechClip();
@@ -1110,6 +1125,10 @@ function syncVoiceButtonState(convoActive, micCapturing, wakeEnabled) {
   }
   isLiveConvoMode = !!convoActive;
   isVoiceRecording = !!(convoActive || micCapturing);
+  if (typeof setVrmConversationalState === 'function') {
+    if (micCapturing) setVrmConversationalState('LISTENING');
+    else if (typeof vrmConvoState !== 'undefined' && vrmConvoState === 'LISTENING') setVrmConversationalState('IDLE_ALIVE');
+  }
   if (wakeEnabled !== undefined) {
     isWakeWordEnabled = !!wakeEnabled;
     const wBtn = document.getElementById('btnWakeWord');

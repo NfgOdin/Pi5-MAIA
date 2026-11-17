@@ -277,14 +277,22 @@ class CarPi5ServerState:
         raw = str(text or "").strip()
         if not raw:
             return None
-        detected_emotion = emotion or "DEVOTED"
-        m = re.search(r"\[EMOTION:\s*([A-Za-z_]+)\]", raw, re.IGNORECASE)
-        if m and not emotion:
-            detected_emotion = m.group(1).upper()
-        clean_text = re.sub(r"\[EMOTION:\s*[A-Za-z_]+\]", "", raw, flags=re.IGNORECASE)
-        clean_text = re.sub(r"<emotion>[A-Za-z_]+</emotion>", "", clean_text, flags=re.IGNORECASE).strip()
+        try:
+            from ai.emote_choreographer import analyze_reply_choreography
+        except ImportError:
+            from backend.ai.emote_choreographer import analyze_reply_choreography
+
+        choreo = analyze_reply_choreography(
+            raw,
+            explicit_emotion=emotion,
+            explicit_action=action,
+            persona_data=self.llm.get_active_persona() if hasattr(self.llm, "get_active_persona") else None,
+            telemetry=asdict(self.latest_frame) if self.latest_frame else None,
+        )
+        clean_text = choreo["speech"]
         if not clean_text:
             return None
+        detected_emotion = choreo["hud_emotion"]
 
         entry = self.llm.log_speech(
             clean_text,
@@ -300,6 +308,10 @@ class CarPi5ServerState:
             "source": str(source or "COPILOT").upper(),
             "persona": entry.get("persona") if entry else self.llm.get_active_persona().get("name", "Companion"),
             "emotion": detected_emotion,
+            "goemotion": choreo["goemotion"],
+            "facial_preset": choreo["facial_preset"],
+            "emote_clip": choreo["emote_clip"],
+            "beats": choreo["beats"],
             "speech": clean_text,
             "hud_message": hud_message,
             "action": action,
@@ -478,6 +490,7 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             try:
                 last_ai_id = None
+                last_viseme_seq = 0
                 while state.running:
                     with state.lock:
                         frame_dict = asdict(state.latest_frame) if state.latest_frame else {}
@@ -487,6 +500,11 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                             state.latest_ui_action = None
 
                     voice_item = state.pop_voice_transcript()
+                    cur_seq = state.audio.get_speech_seq() if hasattr(state.audio, "get_speech_seq") else 0
+                    viseme_to_send = None
+                    if cur_seq and cur_seq != last_viseme_seq and hasattr(state.audio, "get_speech_viseme"):
+                        viseme_to_send = state.audio.get_speech_viseme(cur_seq)
+                        last_viseme_seq = cur_seq
                     payload = {
                         "telemetry": frame_dict,
                         "gps": state.gps.get_telemetry(),
@@ -496,7 +514,8 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                         "ai_event": ai_dict if ai_dict != last_ai_id else None,
                         "action": action_to_send,
                         "is_speaking": getattr(state.audio, "is_speaking", False),
-                        "speech_seq": state.audio.get_speech_seq() if hasattr(state.audio, "get_speech_seq") else 0,
+                        "speech_seq": cur_seq,
+                        "speech_viseme": viseme_to_send,
                         "audio_duck": getattr(state.audio, "_is_currently_ducking", False),
                         "is_music_playing": getattr(state, "is_music_playing", False),
                         "music_playing": getattr(state, "is_music_playing", False),

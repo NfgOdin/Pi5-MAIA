@@ -27,8 +27,14 @@
   },
   "ui_labels": {
     "quick_prompts": [
-      { "label": "⚡ Boost", "prompt": "How's our boost right now?" },
-      { "label": "🔧 Status", "prompt": "How's the engine health?" }
+      {
+        "label": "⚡ Boost",
+        "prompt": "How's our boost right now?"
+      },
+      {
+        "label": "🔧 Status",
+        "prompt": "How's the engine health?"
+      }
     ],
     "drag_ready": "Companion: Pre-stage ready!",
     "canyon_ready": "Companion: Canyon Run telemetry active.",
@@ -38,36 +44,72 @@
   "wake_words": {
     "canonical_prefix": "Hey Custom",
     "exact_reply": "I'm here, {driver_address}! What do you need?",
-    "prefixes": ["hey custom", "hi custom", "hello custom", "okay custom", "ok custom"],
-    "standalone": ["custom"]
+    "prefixes": [
+      "hey custom",
+      "hi custom",
+      "hello custom",
+      "okay custom",
+      "ok custom"
+    ],
+    "standalone": [
+      "custom"
+    ]
   },
   "greetings": {
     "first_chat_intro": "Hey {driver_address}, cockpit systems are loaded and ready. Talk to me anytime!",
     "neural_instruction": "Greet {driver_address} for {day_of_week}{holiday_clause} in 1-2 short sentences.",
     "instant": {
-      "morning": ["Good morning, {driver_address}! Neural core warming up."],
-      "afternoon": ["Good afternoon, {driver_address}! Neural core warming up."],
-      "evening": ["Good evening, {driver_address}! Neural core warming up."],
-      "night": ["Good night, {driver_address}! Neural core warming up."]
+      "morning": [
+        "Good morning, {driver_address}! Neural core warming up."
+      ],
+      "afternoon": [
+        "Good afternoon, {driver_address}! Neural core warming up."
+      ],
+      "evening": [
+        "Good evening, {driver_address}! Neural core warming up."
+      ],
+      "night": [
+        "Good night, {driver_address}! Neural core warming up."
+      ]
     },
     "weekdays": {
-      "Monday": ["Happy Monday, {driver_address}!"],
-      "Tuesday": ["Happy Tuesday, {driver_address}!"],
-      "Wednesday": ["Happy Wednesday, {driver_address}!"],
-      "Thursday": ["Happy Thursday, {driver_address}!"],
-      "Friday": ["Happy Friday, {driver_address}!"],
-      "Saturday": ["Happy Saturday, {driver_address}!"],
-      "Sunday": ["Happy Sunday, {driver_address}!"]
+      "Monday": [
+        "Happy Monday, {driver_address}!"
+      ],
+      "Tuesday": [
+        "Happy Tuesday, {driver_address}!"
+      ],
+      "Wednesday": [
+        "Happy Wednesday, {driver_address}!"
+      ],
+      "Thursday": [
+        "Happy Thursday, {driver_address}!"
+      ],
+      "Friday": [
+        "Happy Friday, {driver_address}!"
+      ],
+      "Saturday": [
+        "Happy Saturday, {driver_address}!"
+      ],
+      "Sunday": [
+        "Happy Sunday, {driver_address}!"
+      ]
     },
     "holidays": {},
-    "startup_fallback": ["Drive #{drive_num} initialized, {driver_address}!"]
+    "startup_fallback": [
+      "Drive #{drive_num} initialized, {driver_address}!"
+    ]
   },
   "dreams": {
     "prompt_instruction": "Share a 1-2 sentence dream from memory with {driver_address}.",
     "hud_label": "💭 Digital Dream",
-    "fallbacks": ["Fresh drive ready whenever you are, {driver_address}!"]
+    "fallbacks": [
+      "Fresh drive ready whenever you are, {driver_address}!"
+    ]
   },
-  "shower_thoughts": ["Telemetry streaming cleanly, {driver_address}."],
+  "shower_thoughts": [
+    "Telemetry streaming cleanly, {driver_address}."
+  ],
   "proactive_care": {
     "health_check_line": "Checking in on you, {driver_address}—all good behind the wheel?",
     "episodic_memory_line": "Remember this run, {driver_address}? {summary}",
@@ -84,11 +126,19 @@
     "feed_animation": "action_cheer.bvh",
     "feed_emotion": "HAPPY_PROUD",
     "feed": {
-      "hungry": ["Pip was hungry—she drank that sugar droplet fast!"],
-      "happy": ["Pip is buzzing happily with sugar water!"],
-      "default": ["Here you go, Pip! Fresh sugar water droplets!"]
+      "hungry": [
+        "Pip was hungry—she drank that sugar droplet fast!"
+      ],
+      "happy": [
+        "Pip is buzzing happily with sugar water!"
+      ],
+      "default": [
+        "Here you go, Pip! Fresh sugar water droplets!"
+      ]
     },
-    "scare": ["Pip's escape reflex fired!"]
+    "scare": [
+      "Pip's escape reflex fired!"
+    ]
   },
   "system_events": {
     "creator_tribute": "{driver_address} created this cockpit setup.",
@@ -105,19 +155,38 @@
     "head_top": {
       "emotion": "HAPPY",
       "hud_label": "😊 HAPPY • HEADPAT",
-      "animations": ["greeting"],
+      "animations": [
+        "greeting"
+      ],
       "duration_ms": 3200,
       "lines": [
         "Thanks for the pat, {driver_address}!",
-        { "text": "Watch this move, {driver_address}!", "animation": "spin", "duration_ms": 3200 }
+        {
+          "text": "Watch this move, {driver_address}!",
+          "animation": "spin",
+          "duration_ms": 3200
+        }
       ]
     },
     "hands": {
       "emotion": "EXCITED",
       "hud_label": "🙌 HIGH FIVE!",
-      "animations": ["greeting_wave_right"],
-      "lines": ["High five, {driver_address}!"]
+      "animations": [
+        "greeting_wave_right"
+      ],
+      "lines": [
+        "High five, {driver_address}!"
+      ]
     }
   },
-  "default": false
+  "default": false,
+  "emote_profile": {
+    "default_goemotion": "joy",
+    "excluded_clips": [
+      "tied_up"
+    ],
+    "remap": {},
+    "clip_overrides": {},
+    "intensity": 1.0
+  }
 }

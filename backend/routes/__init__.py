@@ -57,18 +57,34 @@ def emit_ai_speech(
     raw = str(text or "").strip()
     if not raw:
         return None
-    clean = re.sub(r"\[EMOTION:\s*[A-Za-z_]+\]", "", raw, flags=re.IGNORECASE)
-    clean = re.sub(r"<emotion>[A-Za-z_]+</emotion>", "", clean, flags=re.IGNORECASE).strip()
+    try:
+        from ai.emote_choreographer import analyze_reply_choreography
+    except ImportError:
+        from backend.ai.emote_choreographer import analyze_reply_choreography
+
+    persona_data = state.llm.get_active_persona() if getattr(state, "llm", None) and hasattr(state.llm, "get_active_persona") else None
+    choreo = analyze_reply_choreography(
+        raw,
+        explicit_emotion=emotion,
+        explicit_action=action,
+        persona_data=persona_data,
+        telemetry=frame_to_dict(getattr(state, "latest_frame", None)),
+    )
+    clean = choreo["speech"]
     if not clean:
         return None
     if getattr(state, "llm", None) and hasattr(state.llm, "log_speech"):
-        state.llm.log_speech(clean, source=source)
+        state.llm.log_speech(clean, source=source, emotion=choreo["hud_emotion"], client_id=client_id, hud_message=hud_message)
     ev = {
         "id": int(time.time() * 1000),
         "client_id": client_id,
         "type": event_type or str(source or "COPILOT").upper(),
         "source": str(source or "COPILOT").upper(),
-        "emotion": emotion or "DEVOTED",
+        "emotion": choreo["hud_emotion"],
+        "goemotion": choreo["goemotion"],
+        "facial_preset": choreo["facial_preset"],
+        "emote_clip": choreo["emote_clip"],
+        "beats": choreo["beats"],
         "speech": clean,
         "hud_message": hud_message,
         "action": action,

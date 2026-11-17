@@ -879,12 +879,14 @@ class LLMClient:
         hud_message: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Record any spoken/LLM utterance cleanly into speech_log and return the structured entry."""
-        import re
         raw = str(text or "").strip()
         if not raw:
             return None
-        clean = re.sub(r"\[EMOTION:\s*[A-Za-z_]+\]", "", raw, flags=re.IGNORECASE)
-        clean = re.sub(r"<emotion>[A-Za-z_]+</emotion>", "", clean, flags=re.IGNORECASE).strip()
+        try:
+            from ai.emote_choreographer import _strip_tags_and_collect_beats
+        except ImportError:
+            from backend.ai.emote_choreographer import _strip_tags_and_collect_beats
+        clean, _ = _strip_tags_and_collect_beats(raw)
         if not clean:
             return None
         seq = getattr(self, "_speech_log_seq", 0) + 1
@@ -1281,7 +1283,7 @@ class LLMClient:
 
             system_prompt += telem_context
 
-
+        system_prompt += "\n[EMOTE CUES: Optionally prefix replies with [EMOTE:tag] (and [beat:tag] mid-reply) from joy, love, amusement, excitement, admiration, pride, curiosity, caring, gratitude, relief, embarrassment, surprise, annoyance, concern.]"
 
         # 1. If using Tailscale or Local Ollama
 

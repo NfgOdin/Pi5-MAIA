@@ -1369,6 +1369,34 @@
         </div>
       </div>
 
+      <!-- 3D LIVING VRM ENGINE: RENDER QUALITY & AUTONOMOUS EMOTES -->
+      <div class="settings-card" style="border-color:rgba(56,189,248,0.45);">
+        <div class="settings-title" style="color:var(--accent-cyan);">
+          <span>🎭</span> 3D VRM QUALITY &amp; AUTONOMOUS EMOTE ENGINE
+        </div>
+        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">
+          Scale WebGL shadows &amp; FPS between Raspberry Pi 5 kiosk efficiency and Desktop Ultra fidelity, and tune how expressively your companion performs 27-GoEmotions gestures when speaking.
+        </p>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div>
+            <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px;">RENDER QUALITY PRESET:</div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+              <button class="cluster-action-btn vrm-q-btn" id="btnVrmQualAUTO" onclick="selectVrmQualityPreset('AUTO')" style="min-height:48px; flex:1; font-size:11px; font-weight:800;">⚡ AUTO</button>
+              <button class="cluster-action-btn vrm-q-btn" id="btnVrmQualPI5_BALANCED" onclick="selectVrmQualityPreset('PI5_BALANCED')" style="min-height:48px; flex:1; font-size:11px; font-weight:800;">🥧 PI 5</button>
+              <button class="cluster-action-btn vrm-q-btn" id="btnVrmQualPC_ULTRA" onclick="selectVrmQualityPreset('PC_ULTRA')" style="min-height:48px; flex:1; font-size:11px; font-weight:800;">🖥️ ULTRA</button>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px;">EMOTE CHOREOGRAPHY:</div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+              <button class="cluster-action-btn vrm-e-btn" id="btnVrmEmoteEXPRESSIVE" onclick="selectVrmEmoteIntensity('EXPRESSIVE')" style="min-height:48px; flex:1; font-size:11px; font-weight:800;">💃 EXPRESSIVE</button>
+              <button class="cluster-action-btn vrm-e-btn" id="btnVrmEmoteSUBTLE" onclick="selectVrmEmoteIntensity('SUBTLE')" style="min-height:48px; flex:1; font-size:11px; font-weight:800;">😊 SUBTLE</button>
+              <button class="cluster-action-btn vrm-e-btn" id="btnVrmEmotePOSE_LOCK" onclick="selectVrmEmoteIntensity('POSE_LOCK')" style="min-height:48px; flex:1; font-size:11px; font-weight:800;">🧘 FACE ONLY</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- TELEMETRY DATA SOURCE: TEST MODE VS REAL VEHICLE (OBD-II / CAN) -->
       <!-- VEHICLE TELEMETRY & BENCH TEST OPTION -->
       
@@ -4380,8 +4408,9 @@
   <script src="js/ai_voice.js"></script>
   <script src="js/media_dsp.js"></script>
   <script src="js/maintenance_memory.js"></script>
+  <script src="js/vrm_living_rig.js"></script>
   <script src="js/vrm_3d_room.js"></script>
-  <script src="gauges.js?v=28"></script>
+  <script src="gauges.js?v=29"></script>
 
   <!-- FLOATING 3D COMPANION HUD (Companion Riding Shotgun Across All Screens) -->
   <div id="vrmFloatingHud" class="vrm-floating-hud" style="display:none;">

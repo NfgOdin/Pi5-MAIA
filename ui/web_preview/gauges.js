@@ -723,8 +723,11 @@ function connectTelemetryStream() {
     }
     if (data.mood) {
       latestMood = data.mood;
-      if (typeof setWaifuEmotion === 'function' && data.mood.emotion) {
-        setWaifuEmotion(data.mood.emotion);
+      if (data.mood && data.mood.emotion && data.mood.emotion !== window._lastStreamMoodEmotion) {
+        window._lastStreamMoodEmotion = data.mood.emotion;
+        if (!isWaifuSpeaking && typeof setWaifuEmotion === 'function') {
+          setWaifuEmotion(data.mood.emotion);
+        }
       }
     if (data.pip) {
       handlePipConnectomeStream(data.pip);
@@ -735,6 +738,9 @@ function connectTelemetryStream() {
     }
     if (data.is_speaking !== undefined) {
       isHardwareSpeaking = data.is_speaking;
+    }
+    if (data.speech_viseme && typeof vrmVisemeCtrl !== 'undefined' && vrmVisemeCtrl) {
+      vrmVisemeCtrl.setSseTimeline(data.speech_viseme);
     }
     if (data.speech_seq !== undefined && typeof handleRemoteSpeechSeq === 'function') {
       handleRemoteSpeechSeq(data.speech_seq);
@@ -1048,11 +1054,16 @@ function triggerShiftTone(rpm) {
       }
     }
 
-    // 9. AI Voice Toast Banner & Real-Time Event Log
+    // 9. AI Voice Toast Banner, Real-Time Event Log & Choreographed Emote Sync
     if (data.ai_event) {
       appendSpeechLogItem(data.ai_event);
       if (data.ai_event.emotion) {
         setWaifuEmotion(data.ai_event.emotion);
+      }
+      if (typeof triggerChoreographedEmote === 'function' && (data.ai_event.beats || data.ai_event.emote_clip || data.ai_event.facial_preset)) {
+        const spLen = (data.ai_event.speech || '').length;
+        const estDurMs = Math.max(2400, (spLen / 10.0) * 1000);
+        triggerChoreographedEmote(data.ai_event, estDurMs);
       }
       if (currentVoiceMode !== "MUTED" && data.ai_event.speech) {
         showAiSpeechToast(data.ai_event.speech);

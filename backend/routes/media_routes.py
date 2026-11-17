@@ -331,6 +331,19 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
         send_bytes(handler, clip_bytes, "audio/wav", cache_control="no-store")
         return True
 
+    if path == "/api/audio/speech_viseme":
+        seq_raw = parse_qs(parsed.query).get("seq", ["0"])[0]
+        try:
+            seq = int(seq_raw)
+        except ValueError:
+            seq = 0
+        tl = state.audio.get_speech_viseme(seq if seq > 0 else None) if hasattr(state.audio, "get_speech_viseme") else None
+        if not tl:
+            send_json(handler, {"error": "viseme timeline not found"}, status=404)
+            return True
+        send_json(handler, {"status": "ok", "viseme": tl})
+        return True
+
     if path == "/api/media/now_playing":
         cur = getattr(state.avrcp_player, "current_track", {}) if hasattr(state, "avrcp_player") else {}
         send_json(handler, {"status": "ok", "track": cur})

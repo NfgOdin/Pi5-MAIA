@@ -16,31 +16,12 @@ def extract_emotion_and_clean_speech(text: str) -> tuple[str, str]:
     """Extract emotion tag from text and return (emotion, cleaned_text)."""
     if not text:
         return "DEVOTED", ""
-
-    emotion = "DEVOTED"
-    cleaned = text
-    m = re.search(r"\[EMOTION:\s*([A-Za-z_]+)\]", text, re.IGNORECASE)
-    if m:
-        emotion = m.group(1).upper()
-        cleaned = re.sub(r"\[EMOTION:\s*[A-Za-z_]+\]", "", cleaned).strip()
-    else:
-        m2 = re.search(r"<emotion>([A-Za-z_]+)</emotion>", text, re.IGNORECASE)
-        if m2:
-            emotion = m2.group(1).upper()
-            cleaned = re.sub(r"<emotion>[A-Za-z_]+</emotion>", "", cleaned).strip()
-        else:
-            lower = text.lower()
-            if any(w in lower for w in ["love", "darling", "sweetheart", "babe", "master", "adore"]):
-                emotion = "DEVOTED"
-            elif any(w in lower for w in ["tease", "wink", "flirt", "handsome", "cute", "naughty"]):
-                emotion = "FLIRTY"
-            elif any(w in lower for w in ["boost", "speed", "turbo", "pull", "fast", "whoosh", "launch", "spool"]):
-                emotion = "EXCITED"
-            elif any(w in lower for w in ["warning", "overheat", "danger", "check", "trouble", "fault", "hot"]):
-                emotion = "CONCERNED"
-            elif any(w in lower for w in ["happy", "great", "smile", "yay", "wonderful"]):
-                emotion = "HAPPY"
-    return emotion, cleaned
+    try:
+        from ai.emote_choreographer import analyze_reply_choreography
+    except ImportError:
+        from backend.ai.emote_choreographer import analyze_reply_choreography
+    res = analyze_reply_choreography(text)
+    return res["hud_emotion"], res["speech"]
 
 
 def _handle_morning_dream(handler: Any, state: Any) -> bool:
@@ -186,8 +167,9 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
         source = qs.get("source", ["UI_SPEECH"])[0]
         emotion = qs.get("emotion", ["DEVOTED"])[0]
         client_id = qs.get("client_id", [None])[0]
+        ev = None
         if text:
-            emit_ai_speech(
+            ev = emit_ai_speech(
                 state,
                 text,
                 source=source,
@@ -195,7 +177,16 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
                 speak=True,
                 client_id=client_id,
             )
-        send_json(handler, {"status": "ok", "spoken": text})
+        send_json(
+            handler,
+            {
+                "status": "ok",
+                "spoken": ev["speech"] if ev else text,
+                "emotion": ev["emotion"] if ev else emotion,
+                "goemotion": ev.get("goemotion") if ev else None,
+                "emote_clip": ev.get("emote_clip") if ev else None,
+            },
+        )
         return True
 
     if path == "/api/ai/models":
@@ -444,8 +435,9 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
         source = str(req_data.get("source", "UI_SPEECH")).strip()
         emotion = req_data.get("emotion", "DEVOTED")
         client_id = req_data.get("client_id")
+        ev = None
         if text:
-            emit_ai_speech(
+            ev = emit_ai_speech(
                 state,
                 text,
                 source=source,
@@ -453,7 +445,16 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
                 speak=True,
                 client_id=client_id,
             )
-        send_json(handler, {"status": "ok", "spoken": text})
+        send_json(
+            handler,
+            {
+                "status": "ok",
+                "spoken": ev["speech"] if ev else text,
+                "emotion": ev["emotion"] if ev else emotion,
+                "goemotion": ev.get("goemotion") if ev else None,
+                "emote_clip": ev.get("emote_clip") if ev else None,
+            },
+        )
         return True
 
     if path == "/api/ai/chat":
@@ -481,7 +482,14 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
             with state.lock:
                 state.latest_ui_action = res["action"]
         raw_reply = res.get("reply", "")
-        emotion, clean_reply = extract_emotion_and_clean_speech(raw_reply)
+        try:
+            from ai.emote_choreographer import analyze_reply_choreography
+        except ImportError:
+            from backend.ai.emote_choreographer import analyze_reply_choreography
+        persona = state.llm.get_active_persona() if hasattr(state.llm, "get_active_persona") else None
+        choreo = analyze_reply_choreography(raw_reply, persona_data=persona, telemetry=frame_dict)
+        emotion = choreo["hud_emotion"]
+        clean_reply = choreo["speech"]
         if getattr(state, "drive_buffer", None):
             state.drive_buffer.record_dialogue(user_msg, clean_reply or raw_reply)
         if not clauses_spoken and clean_reply and state.copilot.voice_mode != "MUTED":
@@ -494,6 +502,10 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
                 "user_message": user_msg,
                 "reply": clean_reply,
                 "emotion": emotion,
+                "goemotion": choreo["goemotion"],
+                "facial_preset": choreo["facial_preset"],
+                "emote_clip": choreo["emote_clip"],
+                "beats": choreo["beats"],
                 "action": res.get("action"),
                 "persona": res.get("persona", state.llm.settings.get("personality", "RUM")),
             },

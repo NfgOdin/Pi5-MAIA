@@ -837,14 +837,26 @@ const VRM_ROAM_WAYPOINTS = [
   { id: 'balcony_center',  x: -1.65, z: -5.20, name: 'Balcony Deck',    desc: 'Strolling across the outdoor balcony deck', faceOcean: true }
 ];
 
-// VRMA & BVH Motion Pack Mixer, Smooth Crossfading & Clips
+// VRMA & BVH Motion Pack Mixer, Smooth Crossfading & Bounded LRU Clips
 let vrmMixer = null;
-let vrmaClips = {};
+let vrmaClips = (typeof createVrmaClipStore === 'function') ? createVrmaClipStore(28) : {};
 let vrmaActiveAction = null;
 let vrmaActiveName = null;
+let vrmaActiveUpperMasked = false;
 let vrmaIdleAction = null;
 let vrmBaseY = -0.68;
 let vrmBvhCatalog = {};
+let vrmInFlightClipLoads = new Set();
+let vrmCapabilities = null;
+let vrmSpringSolver = (typeof VrmSpringBoneSolver === 'function') ? new VrmSpringBoneSolver() : null;
+let vrmVisemeCtrl = (typeof VrmSpeechVisemeController === 'function') ? new VrmSpeechVisemeController() : null;
+let vrmExprCtrl = (typeof VrmExpressionController === 'function') ? new VrmExpressionController() : null;
+let vrmConvoState = 'IDLE_ALIVE'; // 'IDLE_ALIVE' | 'LISTENING' | 'THINKING' | 'SPEAKING'
+let vrmEmoteBeatTimers = [];
+let vrmRenderQualityMode = localStorage.getItem('carpi5_vrm_quality') || 'AUTO';
+let vrmEmoteIntensityMode = localStorage.getItem('carpi5_vrm_emote_intensity') || 'EXPRESSIVE';
+let vrmNextIdleRotateTime = Date.now() + 26000;
+let _vrmTargetFrameMs = 0;
 
 const VRMA_MOTION_FILES = {
   'show_body':             { file: 'show_full_body.vrma',        label: 'Show Full Body',     startOffset: 0.0,  timeScale: 1.0 },
@@ -911,7 +923,9 @@ let vrmActionEndTime = 0;
 function stopActiveVrmaClip(fadeSec = 0.42) {
   if (vrmaActiveAction) {
     try {
-      if (vrmaIdleAction && fadeSec > 0) {
+      if (vrmaActiveUpperMasked) {
+        vrmaActiveAction.fadeOut(Math.max(0.18, fadeSec));
+      } else if (vrmaIdleAction && fadeSec > 0) {
         vrmaIdleAction.enabled = true;
         vrmaIdleAction.setEffectiveTimeScale(0.85);
         vrmaIdleAction.setEffectiveWeight(1.0);
@@ -924,6 +938,7 @@ function stopActiveVrmaClip(fadeSec = 0.42) {
     vrmaActiveAction = null;
   }
   vrmaActiveName = null;
+  vrmaActiveUpperMasked = false;
   vrmCurrentAction = 'idle';
 }
 
@@ -940,13 +955,19 @@ function resetAllVrmBonesToRest() {
   }
 }
 
-function startClipWithSmoothCrossfade(resolvedKey, durationMs = 3800) {
-  if (!vrmMixer || !vrmaClips[resolvedKey]) return false;
+function startClipWithSmoothCrossfade(resolvedKey, durationMs = 3800, opts = {}) {
+  const baseClip = vrmaClips[resolvedKey];
+  if (!vrmMixer || !baseClip) return false;
   const meta = VRMA_MOTION_FILES[resolvedKey] || { timeScale: 1.0, startOffset: 0.0 };
-  const clip = vrmaClips[resolvedKey];
+  const isFullBodyForced = resolvedKey.includes('walk') || resolvedKey.includes('jog') || resolvedKey.includes('dance') ||
+    resolvedKey.includes('sit') || resolvedKey.includes('squat') || resolvedKey.includes('jump') ||
+    resolvedKey.includes('spin') || resolvedKey.includes('lay') || resolvedKey.includes('kneel') ||
+    resolvedKey.includes('hitarea') || resolvedKey.includes('reaction_');
+  const useUpperMask = Boolean(opts.upperBodyOnly && !isFullBodyForced && vrmaIdleAction && typeof buildMaskedUpperBodyClip === 'function');
+  const clip = useUpperMask ? buildMaskedUpperBodyClip(baseClip, vrmHumanoidMap) : baseClip;
   const nextAction = vrmMixer.clipAction(clip);
 
-  const prevAction = vrmaActiveAction || vrmaIdleAction;
+  const prevAction = vrmaActiveAction;
   nextAction.reset();
   nextAction.enabled = true;
   const isWalkOrJog = resolvedKey.includes('walk') || resolvedKey.includes('jog');
@@ -957,67 +978,84 @@ function startClipWithSmoothCrossfade(resolvedKey, durationMs = 3800) {
   nextAction.timeScale = meta.timeScale || 1.0;
   const startOff = meta.startOffset || 0.0;
   nextAction.time = startOff;
-  nextAction.setEffectiveWeight(1.0);
+
+  const targetWeight = (opts.weight !== undefined) ? opts.weight : (useUpperMask && vrmEmoteIntensityMode === 'SUBTLE' ? 0.68 : 1.0);
+  nextAction.setEffectiveWeight(targetWeight);
   nextAction.play();
 
-  if (prevAction && prevAction !== nextAction) {
-    try {
-      prevAction.crossFadeTo(nextAction, 0.40, false);
-    } catch (e) {}
-  }
+  try {
+    if (useUpperMask) {
+      if (vrmaIdleAction) {
+        vrmaIdleAction.enabled = true;
+        vrmaIdleAction.setEffectiveWeight(1.0);
+        vrmaIdleAction.play();
+      }
+      if (prevAction && prevAction !== nextAction) prevAction.fadeOut(0.32);
+      nextAction.fadeIn(0.32);
+    } else {
+      const fadeFrom = prevAction || vrmaIdleAction;
+      if (fadeFrom && fadeFrom !== nextAction) fadeFrom.crossFadeTo(nextAction, 0.40, false);
+    }
+  } catch (e) {}
 
   const clipDurMs = ((clip.duration - startOff) / nextAction.timeScale) * 1000;
   const effectiveDurMs = isLoopingPose ? (durationMs || 4200) : Math.max(2400, Math.min(12000, clipDurMs));
   vrmaActiveAction = nextAction;
   vrmaActiveName = resolvedKey;
+  vrmaActiveUpperMasked = useUpperMask;
   vrmCurrentAction = resolvedKey;
   vrmActionStartTime = Date.now();
   vrmActionEndTime = Date.now() + effectiveDurMs;
   return true;
 }
 
-function playVrmAction(actionName, durationMs = 3800, silent = false) {
+function playVrmAction(actionName, durationMs = 3800, silent = false, opts = {}) {
   const rawKey = (actionName || 'idle').toLowerCase().replace(/\.(vrma|bvh)$/i, '');
   const resolvedKey = VRM_ACTION_ALIASES[rawKey] || rawKey;
   if (vrmMixer && vrmaClips[resolvedKey]) {
-    startClipWithSmoothCrossfade(resolvedKey, durationMs);
+    startClipWithSmoothCrossfade(resolvedKey, durationMs, opts);
   } else if (typeof VRMA_MOTION_FILES !== 'undefined' && VRMA_MOTION_FILES[resolvedKey]) {
-    // On-demand lazy load for any VRMA animation
     const vrmaInfo = VRMA_MOTION_FILES[resolvedKey];
-    if (THREE.GLTFLoader && vrmModel) {
+    if (THREE.GLTFLoader && vrmModel && !vrmInFlightClipLoads.has(resolvedKey)) {
+      vrmInFlightClipLoads.add(resolvedKey);
       const loader = new THREE.GLTFLoader();
       loader.load(
         `/api/models/vrma?name=${encodeURIComponent(vrmaInfo.file)}`,
         (vrmaGltf) => {
+          vrmInFlightClipLoads.delete(resolvedKey);
           try {
             const clip = buildRetargetedVrmaClip(resolvedKey, vrmaGltf);
             if (clip) {
               vrmaClips[resolvedKey] = clip;
-              startClipWithSmoothCrossfade(resolvedKey, durationMs);
+              startClipWithSmoothCrossfade(resolvedKey, durationMs, opts);
             }
           } catch (e) {
             console.error(`[VRMA] Error lazy loading ${vrmaInfo.file}:`, e);
           }
         },
         undefined,
-        (err) => console.warn(`[VRMA] Failed to load ${vrmaInfo.file}:`, err)
+        (err) => {
+          vrmInFlightClipLoads.delete(resolvedKey);
+          console.warn(`[VRMA] Failed to load ${vrmaInfo.file}:`, err);
+        }
       );
     }
-  } else if (vrmBvhCatalog[resolvedKey]) {
-    // On-demand lazy load from the 116-file BVH library
+  } else if (vrmBvhCatalog[resolvedKey] && !vrmInFlightClipLoads.has(resolvedKey)) {
     const fileName = vrmBvhCatalog[resolvedKey];
+    vrmInFlightClipLoads.add(resolvedKey);
     fetch(`/api/models/bvh?name=${encodeURIComponent(fileName)}`)
       .then(r => r.ok ? r.text() : '')
       .then(bvhText => {
+        vrmInFlightClipLoads.delete(resolvedKey);
         if (!bvhText || !bvhText.includes('HIERARCHY')) return;
         const clip = buildRetargetedBvhClip(resolvedKey, bvhText);
         if (clip) {
           vrmaClips[resolvedKey] = clip;
-          startClipWithSmoothCrossfade(resolvedKey, durationMs);
+          startClipWithSmoothCrossfade(resolvedKey, durationMs, opts);
         }
       })
-      .catch(() => {});
-  } else {
+      .catch(() => { vrmInFlightClipLoads.delete(resolvedKey); });
+  } else if (!vrmInFlightClipLoads.has(resolvedKey)) {
     vrmCurrentAction = resolvedKey;
     vrmActionStartTime = Date.now();
     vrmActionEndTime = Date.now() + durationMs;
@@ -1033,6 +1071,85 @@ function playVrmAction(actionName, durationMs = 3800, silent = false) {
     speakUtterance(spText, sp.emotion || 'HAPPY', 'ANIMATION');
   }
 }
+
+function setVrmConversationalState(newState) {
+  const valid = ['IDLE_ALIVE', 'LISTENING', 'THINKING', 'SPEAKING'];
+  const s = valid.includes(newState) ? newState : 'IDLE_ALIVE';
+  if (vrmConvoState === s) return;
+  vrmConvoState = s;
+  if (s === 'THINKING' && vrmEmoteIntensityMode !== 'POSE_LOCK') {
+    playVrmAction('curiosity', 3200, true, { upperBodyOnly: true, weight: 0.72 });
+  }
+}
+
+function triggerChoreographedEmote(choreo, estDurationMs = 3500) {
+  if (!choreo || typeof choreo !== 'object') return;
+  vrmEmoteBeatTimers.forEach((tid) => clearTimeout(tid));
+  vrmEmoteBeatTimers = [];
+
+  if (choreo.emotion && typeof setWaifuEmotion === 'function') {
+    setWaifuEmotion(choreo.emotion);
+  }
+  if (vrmExprCtrl && choreo.facial_preset) {
+    vrmExprCtrl.setFacialPreset(choreo.facial_preset);
+  }
+  if (vrmEmoteIntensityMode === 'POSE_LOCK') return;
+
+  const beats = (Array.isArray(choreo.beats) && choreo.beats.length > 0)
+    ? choreo.beats
+    : (choreo.emote_clip ? [{ offset_pct: 0.0, clip: choreo.emote_clip, upper_body: true, facial: choreo.facial_preset }] : []);
+
+  const totalMs = Math.max(2400, Number(estDurationMs) || 3500);
+  beats.forEach((b, idx) => {
+    const delayMs = idx === 0 ? 0 : Math.max(450, Math.round((Number(b.offset_pct) || 0.5) * totalMs));
+    if (idx > 0 && vrmEmoteIntensityMode === 'SUBTLE') return;
+    const runBeat = () => {
+      if (vrmExprCtrl && b.facial) vrmExprCtrl.setFacialPreset(b.facial);
+      if (b.hud_emotion && typeof setWaifuEmotion === 'function') setWaifuEmotion(b.hud_emotion);
+      if (b.clip && b.clip !== 'neutral_idle' && b.clip !== vrmaActiveName) {
+        playVrmAction(b.clip, Math.max(2600, totalMs - delayMs), true, {
+          upperBodyOnly: b.upper_body !== false
+        });
+      }
+    };
+    if (delayMs === 0) runBeat();
+    else vrmEmoteBeatTimers.push(setTimeout(runBeat, delayMs));
+  });
+}
+
+function applyAdaptiveQualityPreset(mode = 'AUTO') {
+  vrmRenderQualityMode = mode || 'AUTO';
+  try { localStorage.setItem('carpi5_vrm_quality', vrmRenderQualityMode); } catch (e) {}
+  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
+  const isArmLinux = /Linux arm|aarch64/i.test(ua);
+  const resolved = (vrmRenderQualityMode === 'AUTO') ? (isArmLinux ? 'PI5_BALANCED' : 'PC_ULTRA') : vrmRenderQualityMode;
+  const isUltra = (resolved === 'PC_ULTRA');
+
+  _vrmTargetFrameMs = isUltra ? 0 : 25; // Uncapped 60fps on Desktop vs crisp 40fps cap on Pi 5
+  if (vrmRenderer) {
+    vrmRenderer.setPixelRatio(isUltra ? Math.min(window.devicePixelRatio || 1, 2.0) : 1.0);
+    if (vrmRenderer.shadowMap) {
+      vrmRenderer.shadowMap.enabled = true;
+      vrmRenderer.shadowMap.type = isUltra ? THREE.PCFSoftShadowMap : THREE.BasicShadowMap;
+    }
+    resizeVrmToStage();
+  }
+  if (vrmBaseRimLight) vrmBaseRimLight.intensity = isUltra ? 0.62 : 0.42;
+  if (vrmBaseKeyLight) vrmBaseKeyLight.intensity = isUltra ? 0.78 : 0.68;
+  window._vrmResolvedQuality = resolved;
+  return resolved;
+}
+
+function setVrmEmoteIntensity(mode = 'EXPRESSIVE') {
+  vrmEmoteIntensityMode = ['EXPRESSIVE', 'SUBTLE', 'POSE_LOCK'].includes(mode) ? mode : 'EXPRESSIVE';
+  try { localStorage.setItem('carpi5_vrm_emote_intensity', vrmEmoteIntensityMode); } catch (e) {}
+  return vrmEmoteIntensityMode;
+}
+
+window.setVrmConversationalState = setVrmConversationalState;
+window.triggerChoreographedEmote = triggerChoreographedEmote;
+window.applyAdaptiveQualityPreset = applyAdaptiveQualityPreset;
+window.setVrmEmoteIntensity = setVrmEmoteIntensity;
 
 // Dynamic Camera LookAt & Targets
 let currentLookAt = null;
@@ -1463,10 +1580,12 @@ function preloadVrmaMotionPack() {
   if (!vrmModel || !THREE.GLTFLoader) return;
   const loader = new THREE.GLTFLoader();
 
-  // Deduplicate file loads so shared files (like pose_lean_in.vrma) load once
+  // Eagerly warm only essential core clips at boot; all 150 remaining clips lazy-load cleanly on demand into the LRU cache
+  const coreFiles = new Set(['greeting.vrma', 'walk_loop.vrma', 'sit_idle.vrma', 'peace_sign.vrma', 'pose_lean_in.vrma']);
   const fileToKeys = {};
   Object.keys(VRMA_MOTION_FILES).forEach((k) => {
     const fn = VRMA_MOTION_FILES[k].file;
+    if (!coreFiles.has(fn)) return;
     if (!fileToKeys[fn]) fileToKeys[fn] = [];
     fileToKeys[fn].push(k);
   });
@@ -1482,7 +1601,7 @@ function preloadVrmaMotionPack() {
           const clip = buildRetargetedVrmaClip(keys[0], vrmaGltf);
           if (clip) {
             keys.forEach((k) => { vrmaClips[k] = clip; });
-            console.log(`[VRMA] Loaded & retargeted ${fileName} -> ${keys.join(',')} (${clip.duration.toFixed(2)}s)`);
+            console.log(`[VRMA] Core warmed ${fileName} -> ${keys.join(',')} (${clip.duration.toFixed(2)}s)`);
           }
         } catch (err) {
           console.error(`[VRMA] Retarget error for ${fileName}:`, err);
@@ -1528,8 +1647,7 @@ function preloadBvhMotionPack() {
       });
       if (typeof renderAnimationsDrawer === 'function') renderAnimationsDrawer();
       const priorityBvh = [
-        'neutral_idle', 'neutral_idle2', 'action_jump', 'amusement',
-        'dance_hiphop_step', 'dance_side_groove', 'excitement', 'joy', 'curiosity'
+        'neutral_idle', 'amusement', 'excitement', 'joy', 'curiosity'
       ];
       priorityBvh.forEach((key) => {
         const fileName = vrmBvhCatalog[key];
@@ -1967,6 +2085,7 @@ function initVrmEngine() {
   vrmScene.add(vrmBaseRimLight);
 
   vrmInitialized = true;
+  applyAdaptiveQualityPreset(vrmRenderQualityMode);
   initFloatingHudDraggable();
   initAvatarPokeRaycaster(canvas);
   initRoomTouchOrbitLookAround(canvas);
@@ -1994,7 +2113,8 @@ function initVrmEngine() {
       ['maps', 'dragy', 'maintenance', 'settings', 'music'].includes(currentScreen)
     );
     const nowPerf = performance.now();
-    if (isOccluded && (nowPerf - lastVrmThrottleRenderTime < 200)) {
+    const minFrameMs = isOccluded ? 200 : _vrmTargetFrameMs;
+    if (minFrameMs > 0 && (nowPerf - lastVrmThrottleRenderTime < minFrameMs)) {
       return;
     }
     lastVrmThrottleRenderTime = nowPerf;
@@ -2167,31 +2287,37 @@ function initVrmEngine() {
           vrmBones.rEyeball.scale.set(1.0, Math.max(0.05, 1.0 - 0.95 * blinkAmt), 1.0);
           vrmBones.rEyeball.position.z = vrmBones.rEyeball.userData.restPos.z + 0.010 * blinkAmt;
         }
-      // Contextual Gauge Gaze Eyeball Coupling
-      if (vrmBones.lEyeball && vrmBones.rEyeball && (isGazingAtGauges || Math.abs(vrmCurrentGazeYaw) > 0.02)) {
-        vrmBones.lEyeball.rotation.y = THREE.MathUtils.clamp(vrmCurrentGazeYaw * 0.45, -0.35, 0.35);
-        vrmBones.lEyeball.rotation.x = THREE.MathUtils.clamp(vrmCurrentGazePitch * 0.45, -0.25, 0.25);
-        vrmBones.rEyeball.rotation.y = THREE.MathUtils.clamp(vrmCurrentGazeYaw * 0.45, -0.35, 0.35);
-        vrmBones.rEyeball.rotation.x = THREE.MathUtils.clamp(vrmCurrentGazePitch * 0.45, -0.25, 0.25);
       }
-      // Phase 3: Circadian Slow Breathing & Night Resting Idle
+
+      // Conversational Rig State Sync + Listening/Thinking Body Cues
+      const activeConvo = (vrmConvoState === 'THINKING') ? 'THINKING' : (vrmConvoState === 'LISTENING' ? 'LISTENING' : (isSpeaking ? 'SPEAKING' : 'IDLE_ALIVE'));
+      let effGazeYaw = vrmCurrentGazeYaw;
+      let effGazePitch = vrmCurrentGazePitch;
+      if (activeConvo === 'LISTENING' && vrmBones.head && !isGazingAtGauges) {
+        vrmBones.head.rotation.z = THREE.MathUtils.clamp(vrmBones.head.rotation.z + 0.065, -0.35, 0.35);
+        vrmBones.head.rotation.x = THREE.MathUtils.clamp(vrmBones.head.rotation.x + 0.04, -0.45, 0.45);
+        if (vrmBones.chest) vrmBones.chest.rotation.x += 0.035;
+      } else if (activeConvo === 'THINKING' && vrmBones.head && !isGazingAtGauges) {
+        vrmBones.head.rotation.z = THREE.MathUtils.clamp(vrmBones.head.rotation.z - 0.055, -0.35, 0.35);
+        effGazeYaw += 0.14;
+        effGazePitch += 0.08;
+      }
+
+      // Circadian Slow Breathing & Night Resting Idle
       const isNightSenses = latestCircadian && latestCircadian.is_night;
-      const breathFreq = isNightSenses ? 1.2 : 2.6;
+      const breathFreq = isNightSenses ? 1.2 : (activeConvo === 'SPEAKING' ? 3.1 : 2.3);
       const breathAmp = isNightSenses ? 0.035 : 0.022;
       const breathPitch = Math.sin(time * breathFreq) * breathAmp;
       if (vrmBones.chest) {
         vrmBones.chest.rotation.x += breathPitch;
       }
-      // Night resting idle transition when parked/stopped
-      if (isNightSenses && !isSpeaking && !isReacting && vrmCurrentAction === 'neutral_idle') {
+      if (isNightSenses && !isSpeaking && !isReacting && vrmCurrentAction === 'idle') {
         const spd = (latestTelemetry && (latestTelemetry.speed || latestTelemetry.speed_mph)) || 0;
         if (spd < 2.0) {
           parkedIdleTimer += delta;
           if (parkedIdleTimer > 12.0 && !isNightResting) {
             isNightResting = true;
-            if (typeof playVrmAction === 'function') {
-              playVrmAction('sit_idle2.bvh', 25000);
-            }
+            if (typeof playVrmAction === 'function') playVrmAction('sit_idle2.bvh', 25000, true);
           }
         } else {
           parkedIdleTimer = 0.0;
@@ -2200,78 +2326,44 @@ function initVrmEngine() {
             if (typeof stopActiveVrmaClip === 'function') stopActiveVrmaClip(0.5);
           }
         }
-      }
-      // Phase 3: Dynamic Affective Facial Expressions
-      const curEmo = (latestMood && latestMood.emotion) ? latestMood.emotion : currentWaifuEmotion;
-      if (curEmo === 'EXCITED') {
-        if (vrmBones.lMouthCorner) vrmBones.lMouthCorner.position.y += 0.007;
-        if (vrmBones.rMouthCorner) vrmBones.rMouthCorner.position.y += 0.007;
-        if (vrmBones.lBrowIn) vrmBones.lBrowIn.position.y += 0.005;
-        if (vrmBones.rBrowIn) vrmBones.rBrowIn.position.y += 0.005;
-      } else if (curEmo === 'COZY' || isNightSenses) {
-        if (vrmBones.lEyeUpper && !vrmIsBlinking) vrmBones.lEyeUpper.position.y -= 0.010;
-        if (vrmBones.rEyeUpper && !vrmIsBlinking) vrmBones.rEyeUpper.position.y -= 0.010;
-        if (vrmBones.lMouthCorner) vrmBones.lMouthCorner.position.y += 0.003;
-        if (vrmBones.rMouthCorner) vrmBones.rMouthCorner.position.y += 0.003;
-      } else if (curEmo === 'CONCERNED') {
-        if (vrmBones.lBrowIn) vrmBones.lBrowIn.position.y += 0.012;
-        if (vrmBones.rBrowIn) vrmBones.rBrowIn.position.y += 0.012;
-        if (vrmBones.lBrowOut) vrmBones.lBrowOut.position.y -= 0.004;
-        if (vrmBones.rBrowOut) vrmBones.rBrowOut.position.y -= 0.004;
-      } else if (curEmo === 'HAPPY_PROUD') {
-        if (vrmBones.lMouthCorner) vrmBones.lMouthCorner.position.y += 0.008;
-        if (vrmBones.rMouthCorner) vrmBones.rMouthCorner.position.y += 0.008;
-      } else if (curEmo === 'THOUGHTFUL') {
-        if (vrmBones.head && !isGazingAtGauges) vrmBones.head.rotation.z += 0.05;
-      }
+      } else if (!isNightSenses && !isSpeaking && !isReacting && !isActionActive && activeConvo === 'IDLE_ALIVE' && now > vrmNextIdleRotateTime && vrmEmoteIntensityMode === 'EXPRESSIVE') {
+        vrmNextIdleRotateTime = now + 24000 + Math.random() * 14000;
+        const idlePool = ['neutral2', 'neutral3', 'idle_akimbo_waiting', 'approval'];
+        const pick = idlePool[Math.floor(Math.random() * idlePool.length)];
+        if (vrmBvhCatalog[pick]) playVrmAction(pick, 4200, true, { upperBodyOnly: true, weight: 0.72 });
       }
 
-      if (isSpeaking || vrmCurrentAction === 'amusement' || vrmCurrentAction === 'point_laugh') {
-        const syl1 = Math.sin(time * 18.5);
-        const syl2 = Math.sin(time * 11.3 + 0.8);
-        const syl3 = Math.cos(time * 27.0);
-        const rawOpen = Math.max(0.0, (syl1 * 0.55 + syl2 * 0.35 + syl3 * 0.25 + 0.35));
-        const mouthOpen = Math.min(1.0, rawOpen);
-        const vowelWidth = 0.5 + 0.5 * Math.sin(time * 7.2);
+      // Hybrid Morph Target + Procedural Face Bone Expression & Real Viseme Lip-Sync
+      const isTalkingMouth = (isSpeaking || vrmCurrentAction === 'amusement' || vrmCurrentAction === 'point_laugh');
+      const visemeWeights = vrmVisemeCtrl
+        ? vrmVisemeCtrl.sample(delta, time, isTalkingMouth)
+        : { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0, jawOpen: isTalkingMouth ? Math.max(0, Math.sin(time * 18.5) * 0.6 + 0.3) : 0 };
 
-        if (vrmBones.jaw && vrmBones.jaw.userData.restPos) {
-          vrmBones.jaw.position.y = vrmBones.jaw.userData.restPos.y - (0.0045 * mouthOpen);
-          vrmBones.jaw.rotation.x = -0.05 * mouthOpen;
+      // Gentle speaking head emphasis synchronized to acoustic amplitude
+      if (isTalkingMouth && visemeWeights.jawOpen > 0.25 && vrmBones.head && !isGazingAtGauges) {
+        vrmBones.head.rotation.x = THREE.MathUtils.clamp(vrmBones.head.rotation.x + (visemeWeights.jawOpen * 0.032 * Math.sin(time * 7.4)), -0.45, 0.45);
+      }
+
+      if (vrmExprCtrl) {
+        const cozySoftLid = (currentWaifuEmotion === 'COZY' || isNightSenses) && !vrmIsBlinking;
+        if (cozySoftLid) {
+          if (vrmBones.lEyeUpper && vrmBones.lEyeUpper.userData.restPos) vrmBones.lEyeUpper.position.y = vrmBones.lEyeUpper.userData.restPos.y - 0.008;
+          if (vrmBones.rEyeUpper && vrmBones.rEyeUpper.userData.restPos) vrmBones.rEyeUpper.position.y = vrmBones.rEyeUpper.userData.restPos.y - 0.008;
         }
-        if (vrmBones.lLipLower && vrmBones.lLipLower.userData.restPos) {
-          vrmBones.lLipLower.position.y = vrmBones.lLipLower.userData.restPos.y - (0.0055 * mouthOpen);
-        }
-        if (vrmBones.rLipLower && vrmBones.rLipLower.userData.restPos) {
-          vrmBones.rLipLower.position.y = vrmBones.rLipLower.userData.restPos.y - (0.0055 * mouthOpen);
-        }
-        if (vrmBones.lLipUpper && vrmBones.lLipUpper.userData.restPos) {
-          vrmBones.lLipUpper.position.y = vrmBones.lLipUpper.userData.restPos.y + (0.0025 * mouthOpen);
-        }
-        if (vrmBones.rLipUpper && vrmBones.rLipUpper.userData.restPos) {
-          vrmBones.rLipUpper.position.y = vrmBones.rLipUpper.userData.restPos.y + (0.0025 * mouthOpen);
-        }
-        if (vrmBones.lMouthCorner && vrmBones.lMouthCorner.userData.restPos) {
-          vrmBones.lMouthCorner.position.y = vrmBones.lMouthCorner.userData.restPos.y + (0.003 * vowelWidth);
-          vrmBones.lMouthCorner.position.x = vrmBones.lMouthCorner.userData.restPos.x * (1.0 + 0.14 * vowelWidth);
-        }
-        if (vrmBones.rMouthCorner && vrmBones.rMouthCorner.userData.restPos) {
-          vrmBones.rMouthCorner.position.y = vrmBones.rMouthCorner.userData.restPos.y + (0.003 * vowelWidth);
-          vrmBones.rMouthCorner.position.x = vrmBones.rMouthCorner.userData.restPos.x * (1.0 + 0.14 * vowelWidth);
-        }
-        const browLift = 0.003 * mouthOpen;
-        ['lBrowIn', 'rBrowIn', 'lBrowOut', 'rBrowOut'].forEach((bk) => {
-          if (vrmBones[bk] && vrmBones[bk].userData.restPos) {
-            vrmBones[bk].position.y = vrmBones[bk].userData.restPos.y + browLift;
-          }
-        });
+        vrmExprCtrl.apply(delta, now, vrmCapabilities, vrmBones, visemeWeights, blinkAmt, effGazeYaw, effGazePitch, vrmIsBlinking);
       }
     }
 
-    // 4b. World-Space Gravity Drape for Hanging Kimono Sleeves (Bone001_m & Bone001)
+    // 4b. Verlet Secondary Spring-Bone Physics + Weighted Kimono Sleeve Gravity Drape
     if (vrmModel) {
+      if (vrmSpringSolver && vrmSpringSolver.chains && vrmSpringSolver.chains.length > 0) {
+        vrmSpringSolver.step(delta, vrmCurrentInertiaZ, vrmCurrentRoll);
+      }
       vrmModel.updateMatrixWorld(true);
+      const sleevePitch = 0.45 + Math.sin(time * 2.2) * 0.025 + (vrmCurrentInertiaZ * 0.55);
+      const sleeveRoll = Math.cos(time * 1.8) * 0.02 + (vrmCurrentRoll * 0.45);
       const sleeveTargetWorldQ = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(0.45 + Math.sin(time * 2.2) * 0.02, Math.PI, Math.cos(time * 1.8) * 0.02)
+        new THREE.Euler(sleevePitch, Math.PI, sleeveRoll)
       );
       ['Bone001_m', 'Bone001'].forEach((sName) => {
         const sb = vrmModel.getObjectByName(sName);
@@ -2512,17 +2604,22 @@ function loadVrmModel(modelName = (currentVrmModelName || 'Rum.vrm')) {
       vrmaIdleAction = null;
       vrmaActiveAction = null;
 
-      // Fix 3ds Max Biped hierarchy & map bones
+      // Fix 3ds Max Biped hierarchy & map bones + Universal VRM 0.x/1.0 self-calibration
       const rig = fixVrmBipedHierarchy(vrmModel, gltf);
       vrmBones = rig.bones;
       vrmHumanoidMap = rig.hMap;
       vrmAllBones = rig.allBones;
       vrmSecondaryBones = rig.secondary;
+      vrmCapabilities = (typeof parseVrmCapabilities === 'function') ? parseVrmCapabilities(gltf, vrmModel) : null;
+      if (vrmSpringSolver && vrmCapabilities) {
+        vrmSpringSolver.initFromCapabilities(vrmCapabilities, vrmModel);
+      }
       currentVrm = {
         humanoid: {
           getBoneNode: (b) => (vrmBones && vrmBones[b]) || (vrmHumanoidMap && vrmHumanoidMap[b]),
           getNormalizedBoneNode: (b) => (vrmBones && vrmBones[b]) || (vrmHumanoidMap && vrmHumanoidMap[b])
         },
+        capabilities: vrmCapabilities,
         scene: vrmModel
       };
 
@@ -2571,11 +2668,8 @@ function loadVrmModel(modelName = (currentVrmModelName || 'Rum.vrm')) {
       updateRoamButtonLabel();
       updateModelButtonLabel();
       resizeVrmToStage();
-
-      const emotionPill = document.getElementById('waifuEmotionPill');
-      if (emotionPill) {
-        const isRem = (currentVrmModelName.includes('Rem') || currentVrmModelName.toLowerCase().includes('rem'));
-        emotionPill.innerText = isRem ? "💙 REM (3D VRM) • DEVOTED TO MASTER" : "💜 RUM (3D VRM) • PLAYFUL SISTER";
+      if (typeof setWaifuEmotion === 'function') {
+        setWaifuEmotion(currentWaifuEmotion || 'DEVOTED');
       }
     },
     (progress) => {

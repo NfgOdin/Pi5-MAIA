@@ -512,6 +512,7 @@ class AudioPlayer:
         self._speech_lock = threading.Lock()
         self._speech_seq = 0
         self._speech_clips: Dict[int, bytes] = {}
+        self._speech_visemes: Dict[int, Dict[str, Any]] = {}
 
 
 
@@ -1186,15 +1187,13 @@ class AudioPlayer:
                 fpath = item.get("file") if isinstance(item, dict) else str(item)
 
                 lead_in = item.get("lead_in", 0.0) if isinstance(item, dict) else 0.0
-
                 cleanup = item.get("cleanup", False) if isinstance(item, dict) else False
-
-
+                spoken_text = item.get("text", "") if isinstance(item, dict) else ""
 
                 if fpath and os.path.exists(fpath):
                     if not self._is_currently_ducking:
                         self._trigger_duck_state(True)
-                    self._play_file_direct(fpath, lead_in_silence_sec=lead_in)
+                    self._play_file_direct(fpath, lead_in_silence_sec=lead_in, spoken_text=spoken_text)
 
 
 
@@ -1715,7 +1714,7 @@ class AudioPlayer:
 
             print(f"[AUDIO] TTS Cache HIT ({self.cache_mgr.get_stats()['total_hits']} hits): '{text[:40]}'")
 
-            self.playback_queue.put({"file": cached_wav, "lead_in": 0.04, "cleanup": False})
+            self.playback_queue.put({"file": cached_wav, "lead_in": 0.04, "cleanup": False, "text": text})
 
             return
 
@@ -1869,7 +1868,7 @@ class AudioPlayer:
 
             if cached_file and os.path.exists(cached_file):
 
-                self.playback_queue.put({"file": cached_file, "lead_in": 0.04, "cleanup": False})
+                self.playback_queue.put({"file": cached_file, "lead_in": 0.04, "cleanup": False, "text": text})
 
                 if os.path.exists(wav_path):
 
@@ -1883,7 +1882,7 @@ class AudioPlayer:
 
             else:
 
-                self.playback_queue.put({"file": wav_path, "lead_in": 0.04, "cleanup": True})
+                self.playback_queue.put({"file": wav_path, "lead_in": 0.04, "cleanup": True, "text": text})
 
 
 
@@ -1915,21 +1914,34 @@ class AudioPlayer:
 
 
 
-    def register_speech_clip(self, file_path: str) -> int:
-        """Store rendered WAV bytes in an in-memory ring buffer for remote browser playback."""
+    def register_speech_clip(self, file_path: str, spoken_text: str = "") -> int:
+        """Store rendered WAV bytes + 25Hz RMS/vowel viseme timeline in an in-memory ring buffer."""
         try:
             with open(file_path, "rb") as f:
                 wav_bytes = f.read()
             if not wav_bytes:
                 return 0
+            viseme_tl = None
+            try:
+                try:
+                    from backend.hardware.viseme_analyzer import extract_wav_viseme_timeline
+                except ImportError:
+                    from hardware.viseme_analyzer import extract_wav_viseme_timeline
+                viseme_tl = extract_wav_viseme_timeline(wav_bytes, spoken_text)
+            except Exception as ex:
+                print(f"[AUDIO] Viseme extract note: {ex}")
             with self._speech_lock:
                 self._speech_seq += 1
                 seq = self._speech_seq
                 self._speech_clips[seq] = wav_bytes
+                if viseme_tl:
+                    viseme_tl["seq"] = seq
+                    self._speech_visemes[seq] = viseme_tl
                 # Keep only the latest 24 clips in RAM
                 stale = [k for k in self._speech_clips if k <= seq - 24]
                 for k in stale:
                     self._speech_clips.pop(k, None)
+                    self._speech_visemes.pop(k, None)
                 return seq
         except Exception:
             return 0
@@ -1942,7 +1954,12 @@ class AudioPlayer:
         with self._speech_lock:
             return self._speech_clips.get(seq)
 
-    def _play_file_direct(self, file_path: str, lead_in_silence_sec: float = 0.0):
+    def get_speech_viseme(self, seq: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        with self._speech_lock:
+            target = self._speech_seq if seq is None else seq
+            return self._speech_visemes.get(target)
+
+    def _play_file_direct(self, file_path: str, lead_in_silence_sec: float = 0.0, spoken_text: str = ""):
 
 
 
@@ -1956,7 +1973,7 @@ class AudioPlayer:
 
             return
 
-        self.register_speech_clip(file_path)
+        self.register_speech_clip(file_path, spoken_text=spoken_text)
 
 
 
