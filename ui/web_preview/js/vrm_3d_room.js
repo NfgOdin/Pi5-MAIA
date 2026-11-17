@@ -1263,19 +1263,78 @@ function isMusicPlaying() {
   return !!(typeof realAudio !== 'undefined' && realAudio && !realAudio.paused && !realAudio.ended && realAudio.currentTime > 0);
 }
 
+let _vrmReflexNextAllowed = { surge: 0, brake: 0, shift: 0, thermal: 0 };
+let _vrmLastShiftReflexKey = null;
+let _vrmReflexResetTimer = null;
+
+function _triggerSilentReflex(facialPreset, clipName, durationMs = 1550) {
+  if (typeof isHardwareSpeaking !== 'undefined' && isHardwareSpeaking) return;
+  if (typeof isWaifuSpeaking !== 'undefined' && isWaifuSpeaking) return;
+  if (vrmaActiveAction) return;
+  if (vrmExprCtrl && facialPreset) {
+    vrmExprCtrl.setFacialPreset(facialPreset);
+    if (_vrmReflexResetTimer) clearTimeout(_vrmReflexResetTimer);
+    _vrmReflexResetTimer = setTimeout(() => {
+      if (!isHardwareSpeaking && vrmExprCtrl) {
+        vrmExprCtrl.setFacialPreset({ happy: 0.25, relaxed: 0.25, blush: 0.25 });
+      }
+    }, durationMs);
+  }
+  if (clipName && vrmEmoteIntensityMode === 'EXPRESSIVE' && typeof playVrmAction === 'function') {
+    playVrmAction(clipName, durationMs, true, { upperBodyOnly: true, weight: 0.58 });
+  }
+}
+
+function updateSilentTelemetryReflexes(speedMph, boostPsi, accelMphSec, coolantF, telem) {
+  const now = Date.now();
+  if (boostPsi >= 11.0 && now > _vrmReflexNextAllowed.surge) {
+    _vrmReflexNextAllowed.surge = now + 7000;
+    _triggerSilentReflex({ happy: 0.55, surprised: 0.60, blush: 0.25 }, 'excitement', 1650);
+    return 'BOOST_SURGE';
+  }
+  if (accelMphSec <= -3.2 && speedMph >= 10.0 && now > _vrmReflexNextAllowed.brake) {
+    _vrmReflexNextAllowed.brake = now + 6000;
+    _triggerSilentReflex({ surprised: 0.72, brow_tilt: 0.35 }, 'nervousness', 1400);
+    return 'HARD_BRAKE';
+  }
+  if (telem && telem.last_shift_type === 'PERFECT_REV_MATCH' && now > _vrmReflexNextAllowed.shift) {
+    const shiftKey = `${telem.last_shift_time || ''}_${telem.last_shift_score || ''}_${telem.gear || ''}`;
+    if (shiftKey !== _vrmLastShiftReflexKey) {
+      _vrmLastShiftReflexKey = shiftKey;
+      _vrmReflexNextAllowed.shift = now + 8000;
+      _triggerSilentReflex({ happy: 0.78, relaxed: 0.35, blush: 0.30 }, 'approval', 1750);
+      return 'REV_MATCH';
+    }
+  }
+  if (coolantF >= 208.0 && coolantF < 220.0 && now > _vrmReflexNextAllowed.thermal) {
+    _vrmReflexNextAllowed.thermal = now + 15000;
+    vrmGazeEndTime = now + 1600;
+    vrmGazeTargetYaw = -0.35;
+    vrmGazeTargetPitch = -0.20;
+    _triggerSilentReflex({ relaxed: 0.15, brow_tilt: 0.42 }, null, 1800);
+    return 'THERMAL_GLANCE';
+  }
+  return null;
+}
+window.updateSilentTelemetryReflexes = updateSilentTelemetryReflexes;
+
 function checkVrmSpeedReaction(speedMph) {
   vrmCurrentSpeed = speedMph;
   const now = Date.now();
   if (speedMph >= 72 && (now - lastSpeedPanicTime > 45000)) {
     lastSpeedPanicTime = now;
     vrmSpeedPanicEndTime = now + 5000;
-    const dTitle = (typeof getFormattedDriverAddress === 'function') ? getFormattedDriverAddress() : "Dad";
-    const screams = [
-      `W-Waaaah! ${dTitle}, we're going ${Math.round(speedMph)} miles per hour!! The MultiAir turbo is screaming, hold on to meee!`,
-      `Kyaaa! ${Math.round(speedMph)} miles an hour?! ${dTitle}, my heart is beating at 7,000 RPM, hold the steering wheel tight!`,
-      `W-We're flying, ${dTitle}! ${Math.round(speedMph)} miles per hour! Hold tight, waaah!`
-    ];
-    const scream = screams[Math.floor(Math.random() * screams.length)];
+    const pData = (typeof getActivePersonaData === 'function') ? getActivePersonaData() : {};
+    const sysEv = pData.system_events || {};
+    const screams = (Array.isArray(sysEv.high_speed_alerts) && sysEv.high_speed_alerts.length > 0)
+      ? sysEv.high_speed_alerts
+      : [
+          `W-Waaaah! {driver_address}, we're going ${Math.round(speedMph)} miles per hour!! Hold on tight!`,
+          `{driver_address}, we're flying at ${Math.round(speedMph)} miles an hour! MultiAir turbo is screaming!`
+        ];
+    let scream = screams[Math.floor(Math.random() * screams.length)];
+    scream = scream.replace(/\{speed_mph\}/g, Math.round(speedMph));
+    if (typeof formatPersonaText === 'function') scream = formatPersonaText(scream);
     showAiSpeechToast(scream);
     speakUtterance(scream, "EXCITED");
   }
@@ -1324,9 +1383,12 @@ function updateVrmInertiaPhysics(speedMph, boostPsi, steeringAngle = 0, latAccel
   } else {
     vrmTargetRoll = 0.0;
   }
-  // 3. Contextual Gauge Gaze Check (Boost > 15 PSI or Coolant > 215°F)
+  // 3. Contextual Gauge Gaze Check & Silent Continuous Telemetry Reflexes
   const coolant = (latestTelemetry && latestTelemetry.coolant_temp_f) ? latestTelemetry.coolant_temp_f : 0;
   checkGaugeGazeTriggers(boostPsi, coolant);
+  if (typeof updateSilentTelemetryReflexes === 'function') {
+    updateSilentTelemetryReflexes(speedMph, boostPsi, accel, coolant, latestTelemetry);
+  }
 }
 
 function triggerVrmErrorAlert(code, message) {
@@ -5429,7 +5491,8 @@ function checkVrmCollisionObstacle(nextX, nextZ) {
 }
 
 function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, dancing, isSpeedPanic) {
-  const isDriverInteracting = isSpeaking || isReacting || isSpeedPanic || dancing;
+  const isConvoActive = (typeof vrmConvoState !== 'undefined' && (vrmConvoState === 'LISTENING' || vrmConvoState === 'THINKING' || vrmConvoState === 'SPEAKING'));
+  const isDriverInteracting = isSpeaking || isReacting || isSpeedPanic || dancing || isConvoActive;
   const isGazeRetained = (Date.now() < vrmGazeRetentionUntil);
   if (!vrmRoamEnabled) {
     vrmManualWalkActive = false;
@@ -5440,10 +5503,10 @@ function updateAutonomousRoaming(delta, isSpeaking, isReacting, isActionActive, 
     }
     vrmRoamState = 'IDLE';
     vrmRoamWaypointsQueue = [];
-    // Smoothly turn to face driver/master (Math.PI)
+    // Turn promptly to maintain direct forward eye contact with driver (Math.PI)
     let diff = THREE.MathUtils.euclideanModulo(Math.PI - vrmRoamCurrentRotY + Math.PI, Math.PI * 2) - Math.PI;
     if (Math.abs(diff) > 0.02) {
-      vrmRoamCurrentRotY += Math.sign(diff) * Math.min(Math.abs(diff), delta * 3.8);
+      vrmRoamCurrentRotY += Math.sign(diff) * Math.min(Math.abs(diff), delta * 6.5);
     } else {
       vrmRoamCurrentRotY = Math.PI;
     }

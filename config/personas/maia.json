@@ -285,5 +285,9 @@
     ],
     "remap": {},
     "intensity": 1.05
-  }
+  },
+  "thinking_fillers": [
+    "Hmm, checking right now...",
+    "One moment, {driver_address}!"
+  ]
 }

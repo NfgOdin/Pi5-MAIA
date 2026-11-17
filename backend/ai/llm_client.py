@@ -1215,7 +1215,42 @@ class LLMClient:
 
 
 
-    def chat(self, user_message: str, live_telemetry: Optional[Dict[str, Any]] = None, on_clause: Optional[Callable[[str], None]] = None) -> str:
+    def _flush_clauses(
+        self,
+        buffer: str,
+        on_clause: Optional[Callable[[str], None]],
+        cancel_event: Optional[Any] = None,
+        flush_all: bool = False,
+    ) -> str:
+        """Emit complete sentences/clauses cleanly from a streaming token buffer."""
+        if on_clause is None or (cancel_event is not None and cancel_event.is_set()):
+            return "" if flush_all else buffer
+        delims = (". ", "! ", "? ", ".\n", "!\n", "?\n", "...", "\n")
+        moved = True
+        while moved and buffer:
+            moved = False
+            for p in delims:
+                if p in buffer:
+                    parts = buffer.split(p, 1)
+                    clause = parts[0].strip()
+                    if len(clause) > 3:
+                        punct = p.strip() or "."
+                        on_clause(clause + punct)
+                    buffer = parts[1]
+                    moved = True
+                    break
+        if flush_all and buffer.strip() and not (cancel_event is not None and cancel_event.is_set()):
+            on_clause(buffer.strip())
+            return ""
+        return buffer
+
+    def chat(
+        self,
+        user_message: str,
+        live_telemetry: Optional[Dict[str, Any]] = None,
+        on_clause: Optional[Callable[[str], None]] = None,
+        cancel_event: Optional[Any] = None,
+    ) -> str:
 
         """Send a message to the active AI persona via Tailscale, Local, or Offline Built-in."""
 
@@ -1353,21 +1388,15 @@ class LLMClient:
                                 stream=True
                             )
                             for chunk in stream_iter:
+                                if cancel_event is not None and cancel_event.is_set():
+                                    break
                                 text = chunk["choices"][0].get("text", "")
                                 if not text:
                                     continue
                                 full_reply += text
                                 buffer += text
-                                for p in [". ", "! ", "? ", ".\n", "!\n", "?\n", "...", "\n"]:
-                                    if p in buffer:
-                                        parts = buffer.split(p, 1)
-                                        clause = parts[0].strip()
-                                        if len(clause) > 3:
-                                            punct = p.strip() or "."
-                                            on_clause(clause + punct)
-                                        buffer = parts[1]
-                            if buffer.strip():
-                                on_clause(buffer.strip())
+                                buffer = self._flush_clauses(buffer, on_clause, cancel_event=cancel_event, flush_all=False)
+                            self._flush_clauses(buffer, on_clause, cancel_event=cancel_event, flush_all=True)
                         reply = full_reply.strip()
                     else:
                         with self._llama_lock:
@@ -1380,10 +1409,10 @@ class LLMClient:
                             )
                         reply = res["choices"][0]["text"].strip()
 
+                    if cancel_event is not None and cancel_event.is_set():
+                        return ""
                     if reply:
-
                         self._record_chat(user_message, reply)
-
                         return reply
 
                 except Exception as e:
@@ -1404,6 +1433,7 @@ class LLMClient:
 
             ollama_url = f"http://{host}:{port}/api/generate"
 
+            use_stream = on_clause is not None
             payload = {
 
                 "model": model,
@@ -1412,7 +1442,7 @@ class LLMClient:
 
                 "prompt": user_message,
 
-                "stream": False
+                "stream": use_stream
 
             }
 
@@ -1430,18 +1460,36 @@ class LLMClient:
 
                 )
 
-                with urllib.request.urlopen(req, timeout=6.0) as resp:
+                with urllib.request.urlopen(req, timeout=1.5) as resp:
 
                     if resp.status == 200:
-
-                        res_json = json.loads(resp.read().decode("utf-8"))
-
-                        reply = res_json.get("response", "").strip()
+                        if use_stream:
+                            full_reply = ""
+                            buffer = ""
+                            for raw_line in resp:
+                                if cancel_event is not None and cancel_event.is_set():
+                                    break
+                                line = raw_line.decode("utf-8", errors="ignore").strip()
+                                if not line:
+                                    continue
+                                chunk_obj = json.loads(line)
+                                token = chunk_obj.get("response", "")
+                                if token:
+                                    full_reply += token
+                                    buffer += token
+                                    buffer = self._flush_clauses(buffer, on_clause, cancel_event=cancel_event, flush_all=False)
+                                if chunk_obj.get("done"):
+                                    break
+                            self._flush_clauses(buffer, on_clause, cancel_event=cancel_event, flush_all=True)
+                            if cancel_event is not None and cancel_event.is_set():
+                                return ""
+                            reply = full_reply.strip()
+                        else:
+                            res_json = json.loads(resp.read().decode("utf-8"))
+                            reply = res_json.get("response", "").strip()
 
                         if reply:
-
                             self._record_chat(user_message, reply)
-
                             return reply
 
             except Exception as e:
@@ -1470,13 +1518,19 @@ class LLMClient:
 
 
 
-    def chat_with_action(self, user_message: str, live_telemetry: Optional[Dict[str, Any]] = None, on_clause: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
+    def chat_with_action(
+        self,
+        user_message: str,
+        live_telemetry: Optional[Dict[str, Any]] = None,
+        on_clause: Optional[Callable[[str], None]] = None,
+        cancel_event: Optional[Any] = None,
+    ) -> Dict[str, Any]:
 
         """Queries LLM with optional clause streaming and simultaneously resolves any cockpit navigation or device action."""
 
         action = self.extract_voice_action(user_message)
 
-        reply = self.chat(user_message, live_telemetry=live_telemetry, on_clause=on_clause)
+        reply = self.chat(user_message, live_telemetry=live_telemetry, on_clause=on_clause, cancel_event=cancel_event)
 
         return {
 

@@ -526,7 +526,108 @@ function sendQuickPrompt(promptText) {
   sendChatMessage(promptText);
 }
 
+function abortLocalSpeechOutput() {
+  if (_pcAudioEl) {
+    try {
+      _pcAudioEl.pause();
+      _pcAudioEl.currentTime = 0;
+    } catch (e) {}
+  }
+  _pcSpeechQueue = [];
+  _pcSpeechPlaying = false;
+  isWaifuSpeaking = false;
+  isHardwareSpeaking = false;
+  waifuSpeechEndTime = 0;
+  if (typeof vrmEmoteBeatTimers !== 'undefined' && Array.isArray(vrmEmoteBeatTimers)) {
+    vrmEmoteBeatTimers.forEach((tid) => clearTimeout(tid));
+    vrmEmoteBeatTimers = [];
+  }
+  if (typeof vrmVisemeCtrl !== 'undefined' && vrmVisemeCtrl && typeof vrmVisemeCtrl.clearSseTimeline === 'function') {
+    vrmVisemeCtrl.clearSseTimeline();
+  }
+  const stage = document.getElementById('waifuStage');
+  if (stage) stage.classList.remove('speaking');
+  const vrmPill = document.getElementById('vrmMinHudPill');
+  if (vrmPill) vrmPill.classList.remove('speaking');
+  if (typeof setMediaDuckState === 'function') setMediaDuckState(false);
+  if (typeof setVrmConversationalState === 'function') setVrmConversationalState('LISTENING');
+}
+
+function interruptAiTurn(reason = 'UI_TAP') {
+  abortLocalSpeechOutput();
+  return fetch('/api/ai/interrupt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason })
+  }).then(r => r.json()).catch(() => ({ status: 'ok', local_only: true }));
+}
+
+function applyAiStreamChunk(pkt) {
+  if (!pkt || !pkt.stream_id) return;
+  if (pkt.interrupted) {
+    abortLocalSpeechOutput();
+    const existing = document.querySelector(`[data-stream-id="${pkt.stream_id}"]`);
+    if (existing) {
+      const tEl = existing.querySelector('.chat-time');
+      if (tEl) tEl.innerText = 'Interrupted';
+    }
+    return;
+  }
+  const container = document.getElementById('aiChatMessages');
+  const respName = pkt.persona || getPersonaDisplayName(currentAiSettings.personality);
+  const textSoFar = pkt.full_so_far || pkt.chunk || '';
+  if (container && textSoFar) {
+    let bubble = container.querySelector(`[data-stream-id="${pkt.stream_id}"]`);
+    if (!bubble) {
+      bubble = document.createElement('div');
+      bubble.className = 'chat-bubble maia';
+      bubble.setAttribute('data-stream-id', pkt.stream_id);
+      bubble.innerHTML = `<div class="ai-stream-line"><strong>${respName}:</strong> <span class="ai-stream-body"></span></div><div class="chat-time">${pkt.done ? 'Just now' : 'Streaming...'}</div>`;
+      container.appendChild(bubble);
+    }
+    const bodyEl = bubble.querySelector('.ai-stream-body');
+    if (bodyEl) bodyEl.innerText = textSoFar;
+    const tEl = bubble.querySelector('.chat-time');
+    if (tEl && pkt.done) tEl.innerText = 'Just now';
+    scrollChatToBottom();
+  }
+  if (pkt.chunk_index === 0 && !pkt.done) {
+    const estMs = Math.max(2200, ((pkt.chunk || textSoFar).length / 10.0) * 1000);
+    if (typeof setVrmConversationalState === 'function') setVrmConversationalState('SPEAKING');
+    if (typeof setVrmSpeaking === 'function') setVrmSpeaking(estMs, pkt.chunk || textSoFar);
+    if (typeof triggerChoreographedEmote === 'function') triggerChoreographedEmote(pkt, estMs);
+  }
+}
+function setThinkingFillersEnabled(enabled) {
+  const on = Boolean(enabled);
+  const bOn = document.getElementById('btnFillerON');
+  const bOff = document.getElementById('btnFillerOFF');
+  if (bOn) {
+    bOn.style.borderColor = on ? 'var(--accent-green)' : '';
+    bOn.style.color = on ? '#fff' : '';
+    bOn.style.background = on ? 'rgba(0,230,118,0.18)' : '';
+  }
+  if (bOff) {
+    bOff.style.borderColor = !on ? 'var(--accent-cyan)' : '';
+    bOff.style.color = !on ? '#fff' : '';
+    bOff.style.background = !on ? 'rgba(56,189,248,0.18)' : '';
+  }
+  fetch('/api/ai/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ thinking_fillers_enabled: on })
+  }).catch(() => {});
+}
+
+window.abortLocalSpeechOutput = abortLocalSpeechOutput;
+window.interruptAiTurn = interruptAiTurn;
+window.applyAiStreamChunk = applyAiStreamChunk;
+window.setThinkingFillersEnabled = setThinkingFillersEnabled;
+
 function sendChatMessage(userText, isVoice = false) {
+  if (isWaifuSpeaking || isHardwareSpeaking || _pcSpeechPlaying) {
+    abortLocalSpeechOutput();
+  }
   const container = document.getElementById('aiChatMessages');
   const sendBtn = document.getElementById('sendBtn');
   const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -560,6 +661,11 @@ function sendChatMessage(userText, isVoice = false) {
         sendBtn.disabled = false;
         sendBtn.innerHTML = "➤";
       }
+      if (data.status === 'interrupted') {
+        const timeEl = userBubble.querySelector('.chat-time');
+        if (timeEl) timeEl.innerText = 'Interrupted';
+        return;
+      }
       const timeEl = userBubble.querySelector('.chat-time');
       if (timeEl) {
         timeEl.innerText = isVoice ? `🎤 Voice • Sent ${nowTime}` : `Sent • ${nowTime}`;
@@ -568,26 +674,40 @@ function sendChatMessage(userText, isVoice = false) {
       const p = data.persona || data.personality || currentAiSettings.personality;
       const respName = getPersonaDisplayName(p);
 
-      // Append R.U.M. response bubble on the left side
+      // Update single streamed bubble if SSE already rendered Clause #1, else create fresh bubble
       if (container && userBubble.parentNode !== container) container.appendChild(userBubble);
-      const maiaBubble = document.createElement('div');
-      maiaBubble.className = 'chat-bubble maia';
-      maiaBubble.innerHTML = `<div><strong>${respName}:</strong> ${data.reply}</div><div class="chat-time">Just now</div>`;
-      if (container) {
-        container.appendChild(maiaBubble);
-        scrollChatToBottom();
+      let maiaBubble = (container && data.stream_id)
+        ? container.querySelector(`[data-stream-id="${data.stream_id}"]`)
+        : null;
+      const didStreamAlready = Boolean(maiaBubble);
+      if (maiaBubble) {
+        const bodyEl = maiaBubble.querySelector('.ai-stream-body');
+        if (bodyEl) bodyEl.innerText = data.reply;
+        const tEl = maiaBubble.querySelector('.chat-time');
+        if (tEl) tEl.innerText = 'Just now';
+      } else {
+        maiaBubble = document.createElement('div');
+        maiaBubble.className = 'chat-bubble maia';
+        if (data.stream_id) maiaBubble.setAttribute('data-stream-id', data.stream_id);
+        maiaBubble.innerHTML = `<div><strong>${respName}:</strong> <span class="ai-stream-body">${data.reply}</span></div><div class="chat-time">Just now</div>`;
+        if (container) {
+          container.appendChild(maiaBubble);
+        }
       }
+      if (container) scrollChatToBottom();
 
       // Trigger speaking animation + choreographed 27-GoEmotions emote on 3D VRM
       const estMs = Math.max(2400, (data.reply.length / 10.0) * 1000);
-      if (typeof setVrmConversationalState === 'function') {
-        setVrmConversationalState('SPEAKING');
-      }
-      if (typeof setVrmSpeaking === 'function') {
-        setVrmSpeaking(estMs, data.reply);
-      }
-      if (typeof triggerChoreographedEmote === 'function') {
-        triggerChoreographedEmote(data, estMs);
+      if (!didStreamAlready) {
+        if (typeof setVrmConversationalState === 'function') {
+          setVrmConversationalState('SPEAKING');
+        }
+        if (typeof setVrmSpeaking === 'function') {
+          setVrmSpeaking(estMs, data.reply);
+        }
+        if (typeof triggerChoreographedEmote === 'function') {
+          triggerChoreographedEmote(data, estMs);
+        }
       }
 
       // Remote browser audio is streamed sequentially via SSE speech_seq -> /api/audio/speech_clip
@@ -1164,6 +1284,9 @@ function syncVoiceButtonState(convoActive, micCapturing, wakeEnabled) {
 }
 
 async function toggleLiveConversationMode() {
+  if (isWaifuSpeaking || isHardwareSpeaking || _pcSpeechPlaying) {
+    await interruptAiTurn('MIC_TAP_BARGE_IN');
+  }
   if (isPcAudioMode) {
     if (_pcMicActive) {
       stopPcMicCapture(true);

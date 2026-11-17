@@ -236,6 +236,9 @@ class CarPi5ServerState:
 
         self.latest_frame = None
         self.latest_ai_event = None
+        self.latest_ai_stream = None
+        self._active_chat_cancel: Optional[threading.Event] = None
+        self._active_stream_id: Optional[str] = None
         self.latest_ui_action = None
         self.sse_clients = []
         self.running = True
@@ -245,6 +248,26 @@ class CarPi5ServerState:
         self.is_mic_listening = False
         self.pending_voice_transcripts = []
         self._active_rec_proc = None
+
+    def interrupt_ai_turn(self, reason: str = "USER_BARGE_IN") -> Dict[str, Any]:
+        """Cancel active LLM stream, abort hardware speech playback, and reset stream state."""
+        with self.lock:
+            cancel_ev = self._active_chat_cancel
+            active_sid = self._active_stream_id
+            if cancel_ev is not None:
+                cancel_ev.set()
+            if active_sid:
+                self.latest_ai_stream = {
+                    "id": int(time.time() * 1000),
+                    "stream_id": active_sid,
+                    "interrupted": True,
+                    "done": True,
+                    "reason": reason,
+                }
+        seq = self.audio.stop_speaking() if hasattr(self.audio, "stop_speaking") else 0
+        self.is_mic_listening = True
+        print(f"[AI BARGE-IN] Interrupted active turn ({reason}, seq={seq})")
+        return {"status": "ok", "interrupt_seq": seq, "reason": reason}
 
     def pop_voice_transcript(self):
         with self.lock:
@@ -490,11 +513,13 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
 
             try:
                 last_ai_id = None
+                last_stream_pkt_id = None
                 last_viseme_seq = 0
                 while state.running:
                     with state.lock:
                         frame_dict = asdict(state.latest_frame) if state.latest_frame else {}
                         ai_dict = state.latest_ai_event
+                        stream_pkt = state.latest_ai_stream
                         action_to_send = state.latest_ui_action
                         if action_to_send:
                             state.latest_ui_action = None
@@ -505,6 +530,7 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                     if cur_seq and cur_seq != last_viseme_seq and hasattr(state.audio, "get_speech_viseme"):
                         viseme_to_send = state.audio.get_speech_viseme(cur_seq)
                         last_viseme_seq = cur_seq
+                    stream_pkt_id = stream_pkt.get("id") if isinstance(stream_pkt, dict) else None
                     payload = {
                         "telemetry": frame_dict,
                         "gps": state.gps.get_telemetry(),
@@ -512,9 +538,11 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                         "mood": state.copilot.get_current_mood(),
                         "pip": state.latest_pip_state,
                         "ai_event": ai_dict if ai_dict != last_ai_id else None,
+                        "ai_stream": stream_pkt if (stream_pkt and stream_pkt_id != last_stream_pkt_id) else None,
                         "action": action_to_send,
                         "is_speaking": getattr(state.audio, "is_speaking", False),
                         "speech_seq": cur_seq,
+                        "speech_interrupt_seq": state.audio.get_speech_interrupt_seq() if hasattr(state.audio, "get_speech_interrupt_seq") else 0,
                         "speech_viseme": viseme_to_send,
                         "audio_duck": getattr(state.audio, "_is_currently_ducking", False),
                         "is_music_playing": getattr(state, "is_music_playing", False),
@@ -528,6 +556,8 @@ class CarPi5Handler(SimpleHTTPRequestHandler):
                     }
                     if ai_dict:
                         last_ai_id = ai_dict
+                    if stream_pkt_id is not None:
+                        last_stream_pkt_id = stream_pkt_id
 
                     self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode("utf-8"))
                     self.wfile.flush()

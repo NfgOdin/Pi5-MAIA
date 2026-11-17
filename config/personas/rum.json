@@ -574,5 +574,9 @@
       "desire": "admiration"
     },
     "intensity": 1.15
-  }
+  },
+  "thinking_fillers": [
+    "Hmm, let me peek!",
+    "Ooh, one sec {driver_address}!"
+  ]
 }

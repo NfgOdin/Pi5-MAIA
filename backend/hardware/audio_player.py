@@ -511,6 +511,9 @@ class AudioPlayer:
         self._duck_lock = threading.Lock()
         self._speech_lock = threading.Lock()
         self._speech_seq = 0
+        self._speech_interrupt_seq = 0
+        self._interrupt_event = threading.Event()
+        self._active_play_proc: Optional[subprocess.Popen] = None
         self._speech_clips: Dict[int, bytes] = {}
         self._speech_visemes: Dict[int, Dict[str, Any]] = {}
 
@@ -1083,6 +1086,7 @@ class AudioPlayer:
         """Queue text to be spoken aloud through in-dash speakers with automatic clause streaming & de-duplication."""
         if not text or not text.strip():
             return
+        self._interrupt_event.clear()
         clean_text = text.strip()
         clean_text = clean_text.replace("*", "").replace("`", "").replace('"', '')
         # Automotive Metric & Acronym Phonetic Normalization
@@ -1959,6 +1963,59 @@ class AudioPlayer:
             target = self._speech_seq if seq is None else seq
             return self._speech_visemes.get(target)
 
+    def get_speech_interrupt_seq(self) -> int:
+        with self._speech_lock:
+            return self._speech_interrupt_seq
+
+    def stop_speaking(self) -> int:
+        """Immediately halt active TTS playback, flush queued clauses, and release audio ducking."""
+        self._interrupt_event.set()
+        proc = self._active_play_proc
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+        for q in (self.synthesis_queue, self.playback_queue):
+            while True:
+                try:
+                    q.get_nowait()
+                    q.task_done()
+                except queue.Empty:
+                    break
+                except Exception:
+                    break
+        self.is_speaking = False
+        try:
+            self._trigger_duck_state(False)
+        except Exception:
+            pass
+        with self._speech_lock:
+            self._speech_interrupt_seq += 1
+            return self._speech_interrupt_seq
+
+    def _run_interruptible_player(self, cmd: list, env: Optional[dict] = None, timeout: float = 25.0) -> bool:
+        if self._interrupt_event.is_set():
+            return False
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+            self._active_play_proc = proc
+            deadline = time.time() + timeout
+            while proc.poll() is None:
+                if self._interrupt_event.is_set() or time.time() > deadline:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=0.35)
+                    except Exception:
+                        proc.kill()
+                    return False
+                time.sleep(0.03)
+            return proc.returncode == 0
+        except Exception:
+            return False
+        finally:
+            self._active_play_proc = None
+
     def _play_file_direct(self, file_path: str, lead_in_silence_sec: float = 0.0, spoken_text: str = ""):
 
 
@@ -2040,46 +2097,17 @@ class AudioPlayer:
                 env["XDG_RUNTIME_DIR"] = "/run/user/1000"
 
                 # 1. Primary: Use PipeWire pw-play targeting CarPi-Master-Sink for AEC loopback reference
-                try:
-                    # Target CarPi-Master-Sink first so WebRTC AEC receives reference audio
-                    res = subprocess.run(["pw-play", "--target", "CarPi-Master-Sink", file_path], capture_output=True, timeout=25, env=env)
-                    if res.returncode == 0:
-                        played = True
-                    else:
-                        # Fallback to default sink if custom master sink node is not active
-                        res = subprocess.run(["pw-play", file_path], capture_output=True, timeout=25, env=env)
-                        if res.returncode == 0:
-                            played = True
-                except Exception:
-                    pass
+                played = self._run_interruptible_player(["pw-play", "--target", "CarPi-Master-Sink", file_path], env=env)
+                if not played and not self._interrupt_event.is_set():
+                    played = self._run_interruptible_player(["pw-play", file_path], env=env)
 
                 # 2. Secondary: Default ALSA player
-
-                if not played:
-
-                    try:
-
-                        res = subprocess.run(["aplay", "-B", "100000", "-q", file_path], capture_output=True, timeout=25, env=env)
-
-                        if res.returncode == 0:
-
-                            played = True
-
-                    except Exception:
-
-                        pass
+                if not played and not self._interrupt_event.is_set():
+                    played = self._run_interruptible_player(["aplay", "-B", "100000", "-q", file_path], env=env)
 
                 # 3. Fallback: Direct ALSA HDMI plughw:0,0
-
-                if not played:
-
-                    try:
-
-                        subprocess.run(["aplay", "-D", "plughw:0,0", "-B", "100000", "-q", file_path], capture_output=True, timeout=25)
-
-                    except Exception:
-
-                        pass
+                if not played and not self._interrupt_event.is_set():
+                    self._run_interruptible_player(["aplay", "-D", "plughw:0,0", "-B", "100000", "-q", file_path])
 
             elif sys.platform == "win32":
 

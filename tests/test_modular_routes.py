@@ -791,6 +791,102 @@ class ModularRouteDispatchTest(unittest.TestCase):
         self.assertEqual(h200.status, 200)
         self.assertEqual(h200.json_body()["viseme"]["fps"], 25)
 
+    def test_audio_player_interrupt_and_queue_flush(self):
+        import queue as py_queue
+        from hardware.audio_player import AudioPlayer
+
+        ap = AudioPlayer.__new__(AudioPlayer)
+        ap.synthesis_queue = py_queue.Queue()
+        ap.playback_queue = py_queue.Queue()
+        ap._speech_lock = threading.Lock()
+        ap._speech_seq = 0
+        ap._speech_interrupt_seq = 0
+        ap._interrupt_event = threading.Event()
+        ap._active_play_proc = None
+        ap.is_speaking = True
+        ap._duck_lock = threading.Lock()
+        ap._is_currently_ducking = True
+        ap._duck_callback = None
+        ap._music_playing_checker = None
+
+        ap.synthesis_queue.put("clause one")
+        ap.playback_queue.put({"file": "/tmp/fake.wav", "text": "fake"})
+
+        seq = ap.stop_speaking()
+        self.assertEqual(seq, 1)
+        self.assertEqual(ap.get_speech_interrupt_seq(), 1)
+        self.assertTrue(ap._interrupt_event.is_set())
+        self.assertFalse(ap.is_speaking)
+        self.assertTrue(ap.synthesis_queue.empty())
+        self.assertTrue(ap.playback_queue.empty())
+
+    def test_ai_interrupt_route_and_ollama_streaming_parser(self):
+        from ai.llm_client import LLMClient
+
+        # Test /api/ai/interrupt route dispatch cleanly
+        self.state.interrupt_ai_turn = lambda reason="UI": {"status": "ok", "interrupt_seq": 3, "reason": reason}
+        h_int = DummyHandler({"reason": "TEST_TAP"})
+        self.assertTrue(dispatch_post(h_int, urlparse("/api/ai/interrupt"), self.state))
+        self.assertEqual(h_int.status, 200)
+        self.assertEqual(h_int.json_body()["interrupt_seq"], 3)
+
+        # Test NDJSON streaming clause emission + mid-stream cancellation via _flush_clauses
+        fake_llm = LLMClient.__new__(LLMClient)
+        clauses = []
+        cancel_ev = threading.Event()
+        buf = "First boost clause! Second "
+        buf = fake_llm._flush_clauses(buf, clauses.append, cancel_event=cancel_ev, flush_all=False)
+        self.assertEqual(clauses, ["First boost clause!"])
+        self.assertEqual(buf, "Second ")
+
+        # Cancel mid-stream: flush_all=True must emit nothing once cancel_event is set
+        cancel_ev.set()
+        fake_llm._flush_clauses(buf, clauses.append, cancel_event=cancel_ev, flush_all=True)
+        self.assertEqual(clauses, ["First boost clause!"])
+
+        # Verify Ollama stream=True NDJSON handling end-to-end with mocked urlopen
+        fake_ndjson = [
+            b'{"response":"[EMOTE:excitement] Turbo spooling ","done":false}\n',
+            b'{"response":"at 16 PSI! Second beat coming.","done":true}\n',
+        ]
+
+        class FakeResp:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def __iter__(self): return iter(fake_ndjson)
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            from ai.memory_manager import MemoryManager
+            fake_llm.settings = {"mode": "TAILSCALE_OLLAMA", "personality": "RUM", "tailscale_ip": "127.0.0.1", "tailscale_port": 11434, "ollama_model": "qwen2.5:3b"}
+            fake_llm.personas = {"RUM": {"id": "RUM", "name": "R.U.M.", "prompt": "Test {driver_address}."}}
+            fake_llm.lorebooks = {}
+            fake_llm.chat_history = []
+            fake_llm.speech_log = []
+            fake_llm.memory_mgr = MemoryManager(memory_file=str(Path(tmpdir) / "ai_mem.json"))
+            fake_llm.rag_memory = None
+            streamed = []
+            with mock.patch("urllib.request.urlopen", return_value=FakeResp()):
+                full = fake_llm.chat("How is boost?", on_clause=streamed.append)
+            self.assertIn("Turbo spooling at 16 PSI!", full)
+            self.assertGreaterEqual(len(streamed), 2)
+
+    def test_voice_barge_in_energy_gate(self):
+        from ai.voice_listener import evaluate_barge_in_frame
+
+        hits = 0
+        # Speaker floor bleed should not trigger interrupt
+        for _ in range(5):
+            trig, hits = evaluate_barge_in_frame(rms=120.0, noise_rms=95.0, barge_hits=hits)
+            self.assertFalse(trig)
+        # Sustained loud driver barge-in (>=240 & >=2.8x floor for 3 frames) triggers interrupt
+        for idx in range(3):
+            trig, hits = evaluate_barge_in_frame(rms=420.0, noise_rms=95.0, barge_hits=hits)
+            if idx < 2:
+                self.assertFalse(trig)
+            else:
+                self.assertTrue(trig)
+
     def test_unmatched_routes_fall_through(self):
         import ast
         daemon_src = (BACKEND_DIR / "daemon.py").read_text(encoding="utf-8")

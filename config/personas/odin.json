@@ -252,5 +252,9 @@
       ]
     },
     "intensity": 0.9
-  }
+  },
+  "thinking_fillers": [
+    "Scanning.",
+    "One moment."
+  ]
 }

@@ -457,6 +457,17 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
         )
         return True
 
+    if path == "/api/ai/interrupt":
+        req_data = read_json_body(handler)
+        reason = str(req_data.get("reason", "UI_TAP")).strip() or "UI_TAP"
+        if hasattr(state, "interrupt_ai_turn"):
+            res = state.interrupt_ai_turn(reason=reason)
+        else:
+            seq = state.audio.stop_speaking() if hasattr(state.audio, "stop_speaking") else 0
+            res = {"status": "ok", "interrupt_seq": seq, "reason": reason}
+        send_json(handler, res)
+        return True
+
     if path == "/api/ai/chat":
         req_data = read_json_body(handler)
         user_msg = req_data.get("message", "").strip()
@@ -465,28 +476,93 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
             handler.end_headers()
             return True
 
+        # Cancel any prior in-flight reply before starting the new turn
+        if hasattr(state, "interrupt_ai_turn"):
+            state.interrupt_ai_turn(reason="NEW_CHAT_TURN")
+
+        cancel_ev = threading.Event()
+        stream_id = f"str_{int(time.time() * 1000)}"
         with state.lock:
+            state._active_chat_cancel = cancel_ev
+            state._active_stream_id = stream_id
             frame_dict = frame_to_dict(state.latest_frame)
 
-        clauses_spoken = []
-
-        def _handle_clause(clause_text: str) -> None:
-            if state.copilot.voice_mode != "MUTED":
-                _, clean_chunk = extract_emotion_and_clean_speech(clause_text)
-                if clean_chunk:
-                    clauses_spoken.append(clean_chunk)
-                    state.audio.speak(clean_chunk)
-
-        res = state.llm.chat_with_action(user_msg, live_telemetry=frame_dict, on_clause=_handle_clause)
-        if res.get("action"):
-            with state.lock:
-                state.latest_ui_action = res["action"]
-        raw_reply = res.get("reply", "")
         try:
             from ai.emote_choreographer import analyze_reply_choreography
         except ImportError:
             from backend.ai.emote_choreographer import analyze_reply_choreography
         persona = state.llm.get_active_persona() if hasattr(state.llm, "get_active_persona") else None
+
+        clauses_spoken = []
+        chunk_idx = 0
+        first_clause_seen = threading.Event()
+
+        def _emit_latency_filler() -> None:
+            if cancel_ev.is_set() or first_clause_seen.is_set():
+                return
+            if not getattr(state.llm, "settings", {}).get("thinking_fillers_enabled", True):
+                return
+            if state.copilot.voice_mode == "MUTED":
+                return
+            fillers = (persona or {}).get("thinking_fillers") or []
+            if not fillers:
+                return
+            import random
+            addr = state.llm.get_driver_address() if hasattr(state.llm, "get_driver_address") else "Dad"
+            cue = random.choice(fillers).replace("{driver_address}", addr)
+            if cue and hasattr(state.audio, "speak"):
+                state.audio.speak(cue, priority=1)
+
+        filler_timer = threading.Timer(0.95, _emit_latency_filler)
+        filler_timer.daemon = True
+        filler_timer.start()
+
+        def _handle_clause(clause_text: str) -> None:
+            nonlocal chunk_idx
+            if cancel_ev.is_set():
+                return
+            first_clause_seen.set()
+            filler_timer.cancel()
+            clause_choreo = analyze_reply_choreography(clause_text, persona_data=persona, telemetry=frame_dict)
+            clean_chunk = clause_choreo["speech"]
+            if not clean_chunk:
+                return
+            clauses_spoken.append(clean_chunk)
+            with state.lock:
+                state.latest_ai_stream = {
+                    "id": int(time.time() * 1000) + chunk_idx,
+                    "stream_id": stream_id,
+                    "chunk_index": chunk_idx,
+                    "chunk": clean_chunk,
+                    "full_so_far": " ".join(clauses_spoken),
+                    "persona": (persona or {}).get("display_short_name") or (persona or {}).get("name", "Companion"),
+                    "emotion": clause_choreo["hud_emotion"],
+                    "goemotion": clause_choreo["goemotion"],
+                    "facial_preset": clause_choreo["facial_preset"],
+                    "emote_clip": clause_choreo["emote_clip"],
+                    "beats": clause_choreo["beats"],
+                    "done": False,
+                }
+            chunk_idx += 1
+            if state.copilot.voice_mode != "MUTED":
+                state.audio.speak(clean_chunk)
+
+        try:
+            res = state.llm.chat_with_action(user_msg, live_telemetry=frame_dict, on_clause=_handle_clause, cancel_event=cancel_ev)
+        except TypeError:
+            res = state.llm.chat_with_action(user_msg, live_telemetry=frame_dict, on_clause=_handle_clause)
+        finally:
+            first_clause_seen.set()
+            filler_timer.cancel()
+
+        if cancel_ev.is_set():
+            send_json(handler, {"status": "interrupted", "stream_id": stream_id, "user_message": user_msg, "reply": " ".join(clauses_spoken)})
+            return True
+
+        if res.get("action"):
+            with state.lock:
+                state.latest_ui_action = res["action"]
+        raw_reply = res.get("reply", "")
         choreo = analyze_reply_choreography(raw_reply, persona_data=persona, telemetry=frame_dict)
         emotion = choreo["hud_emotion"]
         clean_reply = choreo["speech"]
@@ -494,11 +570,29 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
             state.drive_buffer.record_dialogue(user_msg, clean_reply or raw_reply)
         if not clauses_spoken and clean_reply and state.copilot.voice_mode != "MUTED":
             state.audio.speak(clean_reply)
+        with state.lock:
+            state.latest_ai_stream = {
+                "id": int(time.time() * 1000) + chunk_idx + 1,
+                "stream_id": stream_id,
+                "chunk_index": chunk_idx,
+                "full_so_far": clean_reply,
+                "persona": (persona or {}).get("display_short_name") or (persona or {}).get("name", "Companion"),
+                "emotion": emotion,
+                "goemotion": choreo["goemotion"],
+                "facial_preset": choreo["facial_preset"],
+                "emote_clip": choreo["emote_clip"],
+                "beats": choreo["beats"],
+                "done": True,
+            }
+            if state._active_stream_id == stream_id:
+                state._active_chat_cancel = None
+                state._active_stream_id = None
 
         send_json(
             handler,
             {
                 "status": "ok",
+                "stream_id": stream_id,
                 "user_message": user_msg,
                 "reply": clean_reply,
                 "emotion": emotion,

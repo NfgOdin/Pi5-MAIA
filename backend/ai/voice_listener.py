@@ -93,6 +93,16 @@ def normalize_wake_transcript(heard: str, wake_cfg: dict[str, Any] | None = None
     return heard, False
 
 
+def evaluate_barge_in_frame(rms: float, noise_rms: float, barge_hits: int, required_hits: int = 3) -> tuple[bool, int]:
+    """Cabin-safe sustained high-energy barge-in detector (>2.8x floor) rejecting speaker echo."""
+    trig = max(240.0, noise_rms * 2.8)
+    if rms >= trig:
+        barge_hits += 1
+    else:
+        barge_hits = max(0, barge_hits - 1)
+    return barge_hits >= required_hits, barge_hits
+
+
 def usb_mic_listener_loop(state: Any, base_dir: Path) -> None:
     """Run continuous zero-gap hardware USB microphone capture for persona wake-word and live conversation."""
     if not sys.platform.startswith("linux"):
@@ -212,6 +222,7 @@ def usb_mic_listener_loop(state: Any, base_dir: Path) -> None:
             speech_chunks = []
             in_speech = False
             silence_frames = 0
+            barge_hits = 0
             noise_rms = 95.0
 
             while state.running and proc.poll() is None:
@@ -219,28 +230,40 @@ def usb_mic_listener_loop(state: Any, base_dir: Path) -> None:
                 if not chunk or len(chunk) < 3200:
                     break
 
+                samples = struct.unpack("<1600h", chunk)
+                rms = math.sqrt(sum(s * s for s in samples) / 1600)
+                peak = max(abs(s) for s in samples)
+
                 if getattr(state.audio, "is_speaking", False):
+                    pre_roll.append(chunk)
+                    barge_triggered, barge_hits = evaluate_barge_in_frame(rms, noise_rms, barge_hits)
+                    if barge_triggered and (state.live_convo_mode or state.wake_word_enabled):
+                        barge_hits = 0
+                        if hasattr(state, "interrupt_ai_turn"):
+                            state.interrupt_ai_turn("VOICE_BARGE_IN")
+                        in_speech = True
+                        silence_frames = 0
+                        speech_chunks = list(pre_roll)
+                        last_spoke_end = 0.0
+                        state.is_mic_listening = True
+                        continue
                     last_spoke_end = time.time()
                     in_speech = False
                     speech_chunks.clear()
-                    pre_roll.clear()
                     state.is_mic_listening = False
                     continue
 
-                if (time.time() - last_spoke_end) < 0.40:
+                barge_hits = 0
+                if (time.time() - last_spoke_end) < 0.30:
+                    pre_roll.append(chunk)
                     in_speech = False
                     speech_chunks.clear()
-                    pre_roll.clear()
                     continue
 
                 is_convo = state.live_convo_mode or state.listen_once_requested
                 if not is_convo and not state.wake_word_enabled:
                     state.is_mic_listening = False
                     continue
-
-                samples = struct.unpack("<1600h", chunk)
-                rms = math.sqrt(sum(s * s for s in samples) / 1600)
-                peak = max(abs(s) for s in samples)
 
                 if not in_speech:
                     if rms < 900.0:

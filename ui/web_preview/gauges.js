@@ -739,8 +739,15 @@ function connectTelemetryStream() {
     if (data.is_speaking !== undefined) {
       isHardwareSpeaking = data.is_speaking;
     }
+    if (data.speech_interrupt_seq !== undefined && data.speech_interrupt_seq > (window._lastSpeechInterruptSeq || 0)) {
+      window._lastSpeechInterruptSeq = data.speech_interrupt_seq;
+      if (typeof abortLocalSpeechOutput === 'function') abortLocalSpeechOutput();
+    }
     if (data.speech_viseme && typeof vrmVisemeCtrl !== 'undefined' && vrmVisemeCtrl) {
       vrmVisemeCtrl.setSseTimeline(data.speech_viseme);
+    }
+    if (data.ai_stream && typeof applyAiStreamChunk === 'function') {
+      applyAiStreamChunk(data.ai_stream);
     }
     if (data.speech_seq !== undefined && typeof handleRemoteSpeechSeq === 'function') {
       handleRemoteSpeechSeq(data.speech_seq);

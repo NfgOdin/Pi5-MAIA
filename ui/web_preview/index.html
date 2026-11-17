@@ -1395,6 +1395,19 @@
             </div>
           </div>
         </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px;">
+          <div>
+            <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px;">&gt;950MS THINKING FILLER CUES:</div>
+            <div style="display:flex; gap:6px;">
+              <button class="cluster-action-btn" id="btnFillerON" onclick="setThinkingFillersEnabled(true)" style="min-height:48px; flex:1; font-size:11px; font-weight:800; border-color:var(--accent-green); color:#fff;">💬 FILLERS ON</button>
+              <button class="cluster-action-btn" id="btnFillerOFF" onclick="setThinkingFillersEnabled(false)" style="min-height:48px; flex:1; font-size:11px; font-weight:800;">🤫 SILENT THINK</button>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px;">VOICE BARGE-IN &amp; INTERRUPT:</div>
+            <button class="cluster-action-btn" id="btnTestInterruptNow" onclick="interruptAiTurn('SETTINGS_BTN')" style="min-height:48px; width:100%; font-size:11px; font-weight:800; border-color:rgba(239,68,68,0.5); color:#fca5a5;">🛑 STOP CURRENT SPEECH</button>
+          </div>
+        </div>
       </div>
 
       <!-- TELEMETRY DATA SOURCE: TEST MODE VS REAL VEHICLE (OBD-II / CAN) -->

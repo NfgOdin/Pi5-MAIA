@@ -188,5 +188,8 @@
     "remap": {},
     "clip_overrides": {},
     "intensity": 1.0
-  }
+  },
+  "thinking_fillers": [
+    "Hmm, one moment!"
+  ]
 }
