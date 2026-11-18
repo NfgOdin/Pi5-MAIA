@@ -1,8 +1,13 @@
 """
-web_search.py - Zero-Key Live Web Search & Learned-Knowledge Trigger Engine for CarPi5
+web_search.py - Zero-Key Live Web Search & Weather/News Grounding Engine for CarPi5
 
-Uses DuckDuckGo Instant Answer, Wikipedia Search, and DuckDuckGo HTML fallback over
-whichever uplink Pi 5 has active (Wi-Fi or Pi 3 Android USB Tether).
+Uses clean public JSON/RSS APIs over whichever uplink Pi 5 has active (Wi-Fi or
+Pi 3 Android USB Tether):
+- Open-Meteo Geocoding & Forecast JSON (live weather/temperature/forecasts)
+- DuckDuckGo Instant Answer JSON (quick facts & definitions)
+- Wikipedia Search & Extract JSON API (with progressive keyword relaxation)
+- Google News RSS XML (current events / latest news)
+
 Never fabricates search results when offline.
 """
 
@@ -12,15 +17,19 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple
 
 _EXPLICIT_WEB_PATTERNS = (
     r"\b(?:look\s+up|search(?:\s+for|\s+the\s+web|\s+online)?|google|find\s+out|check\s+online|web\s+search|search\s+internet)\b",
 )
 
-_LIVE_REALTIME_PATTERNS = (
-    r"\b(?:weather|forecast|rain|temperature\s+(?:outside|in)|humidity|uv\s+index)\b",
-    r"\b(?:latest\s+news|news\s+about|current\s+price|stock\s+price|score\s+of|who\s+won|exchange\s+rate)\b",
+_WEATHER_PATTERNS = (
+    r"\b(?:weather|forecast|temperature\s+(?:outside|in)|humidity|uv\s+index|rain(?:ing)?\s+in)\b",
+)
+
+_NEWS_PATTERNS = (
+    r"\b(?:latest\s+news|news\s+about|headlines|current\s+news|what\s+happened\s+with)\b",
 )
 
 _OPEN_FACTUAL_STARTS = (
@@ -53,8 +62,9 @@ _LOCAL_DOMAIN_BLOCKLIST = (
 )
 
 _EPHEMERAL_TOKENS = (
-    "weather", "forecast", "rain", "temperature outside", "today's", "right now",
-    "latest news", "current price", "stock price", "score", "traffic", "time is it",
+    "weather", "forecast", "rain", "temperature outside", "temperature in",
+    "today's", "right now", "latest news", "headlines", "current price",
+    "stock price", "score", "traffic", "time is it",
 )
 
 
@@ -95,11 +105,10 @@ def should_search_web(user_message: str, lore_injection: str = "", rag_hits: int
     if any(tok in ql for tok in _LOCAL_DOMAIN_BLOCKLIST):
         return False, ""
 
-    for pat in _LIVE_REALTIME_PATTERNS:
+    for pat in (*_WEATHER_PATTERNS, *_NEWS_PATTERNS):
         if re.search(pat, ql):
             return True, _clean_search_query(msg)
 
-    # Open general-knowledge questions when local lorebooks & RAG didn't already answer
     if not (lore_injection or "").strip() and rag_hits == 0:
         stripped = _clean_search_query(msg).lower()
         if any(ql.startswith(p) or stripped.startswith(p) for p in _OPEN_FACTUAL_STARTS):
@@ -108,12 +117,12 @@ def should_search_web(user_message: str, lore_injection: str = "", rag_hits: int
     return False, ""
 
 
-def _http_get_text(url: str, timeout: float = 4.0) -> str:
+def _http_get_text(url: str, timeout: float = 3.0) -> str:
     req = urllib.request.Request(
         url,
         headers={
-            "User-Agent": "CarPi5-RUM/1.0 (+https://github.com/NfgOdin/Pi5-MAIA)",
-            "Accept": "application/json,text/html;q=0.9,*/*;q=0.8",
+            "User-Agent": "CarPi5-RUM/1.0 (https://github.com/NfgOdin/Pi5-MAIA)",
+            "Accept": "application/json,application/xml,text/xml;q=0.9,*/*;q=0.8",
         },
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -126,16 +135,69 @@ def _strip_html(raw: str) -> str:
     return re.sub(r"\s+", " ", txt).strip()
 
 
-def _query_ddg_instant(query: str, timeout: float = 3.5) -> Tuple[List[Dict[str, str]], bool]:
-    """Query DuckDuckGo Instant Answer API. Returns (sources, network_ok)."""
+def _extract_location_for_weather(query: str) -> str:
+    m = re.search(r"\b(?:in|for|at)\s+([A-Za-z0-9 ,.-]{2,45})", query, flags=re.IGNORECASE)
+    loc = m.group(1) if m else query
+    loc = re.sub(r"\b(?:right now|today|tonight|tomorrow|weather|forecast|temperature)\b", "", loc, flags=re.IGNORECASE)
+    return re.sub(r"[, ]+$", "", loc).strip() or "Phoenix, AZ"
+
+
+def _query_open_meteo_weather(query: str, timeout: float = 3.0) -> List[Dict[str, str]]:
+    """Query Open-Meteo geocoding + forecast APIs for exact real-time weather without API keys."""
+    loc = _extract_location_for_weather(query)
+    loc_city = loc.split(",")[0].strip()
+    geo_url = "https://geocoding-api.open-meteo.com/v1/search?" + urllib.parse.urlencode({
+        "name": loc_city,
+        "count": "3",
+        "language": "en",
+        "format": "json",
+    })
+    geo = json.loads(_http_get_text(geo_url, timeout=timeout))
+    results = geo.get("results") or []
+    if not results:
+        return []
+    # Prefer US / AZ if mentioned
+    chosen = results[0]
+    if "az" in loc.lower() or "arizona" in loc.lower():
+        for r in results:
+            if "arizona" in str(r.get("admin1", "")).lower():
+                chosen = r
+                break
+
+    lat, lon = chosen["latitude"], chosen["longitude"]
+    place_label = f"{chosen.get('name', loc_city)}, {chosen.get('admin1', '')}".strip(", ")
+    fc_url = "https://api.open-meteo.com/v1/forecast?" + urllib.parse.urlencode({
+        "latitude": lat,
+        "longitude": lon,
+        "current": "temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code",
+        "daily": "temperature_2m_max,temperature_2m_min",
+        "temperature_unit": "fahrenheit",
+        "wind_speed_unit": "mph",
+        "timezone": "auto",
+        "forecast_days": "1",
+    })
+    fc = json.loads(_http_get_text(fc_url, timeout=timeout))
+    cur = fc.get("current") or {}
+    daily = fc.get("daily") or {}
+    temp = cur.get("temperature_2m")
+    hum = cur.get("relative_humidity_2m")
+    wind = cur.get("wind_speed_10m")
+    hi = (daily.get("temperature_2m_max") or [None])[0]
+    lo = (daily.get("temperature_2m_min") or [None])[0]
+    snip = f"Current temperature in {place_label}: {temp}°F, humidity {hum}%, wind {wind} mph."
+    if hi is not None and lo is not None:
+        snip += f" Today's high {hi}°F / low {lo}°F."
+    return [{"title": f"Weather — {place_label}", "snippet": snip, "url": "https://open-meteo.com"}]
+
+
+def _query_ddg_instant(query: str, timeout: float = 2.5) -> List[Dict[str, str]]:
     url = "https://api.duckduckgo.com/?" + urllib.parse.urlencode({
         "q": query,
         "format": "json",
         "no_html": "1",
         "skip_disambig": "1",
     })
-    raw = _http_get_text(url, timeout=timeout)
-    data = json.loads(raw)
+    data = json.loads(_http_get_text(url, timeout=timeout))
     sources: List[Dict[str, str]] = []
     answer = (data.get("Answer") or "").strip()
     abstract = (data.get("AbstractText") or "").strip()
@@ -146,23 +208,21 @@ def _query_ddg_instant(query: str, timeout: float = 3.5) -> Tuple[List[Dict[str,
         sources.append({"title": heading, "snippet": answer, "url": abs_url})
     if abstract:
         sources.append({"title": heading, "snippet": abstract, "url": abs_url})
-
-    for topic in (data.get("RelatedTopics") or [])[:4]:
+    for topic in (data.get("RelatedTopics") or [])[:3]:
         if isinstance(topic, dict) and topic.get("Text"):
             sources.append({
                 "title": topic.get("FirstURL", "").rsplit("/", 1)[-1].replace("_", " ") or heading,
                 "snippet": str(topic["Text"]).strip(),
                 "url": str(topic.get("FirstURL") or ""),
             })
-    return sources, True
+    return sources
 
 
-def _query_wikipedia(query: str, timeout: float = 3.5) -> List[Dict[str, str]]:
-    """Fallback factual summary search via Wikipedia API."""
+def _wiki_search_once(search_q: str, timeout: float = 3.0) -> List[Dict[str, str]]:
     search_url = "https://en.wikipedia.org/w/api.php?" + urllib.parse.urlencode({
         "action": "query",
         "list": "search",
-        "srsearch": query,
+        "srsearch": search_q,
         "srlimit": "2",
         "format": "json",
     })
@@ -174,7 +234,6 @@ def _query_wikipedia(query: str, timeout: float = 3.5) -> List[Dict[str, str]]:
         snippet = _strip_html(h.get("snippet") or "")
         if not title:
             continue
-        # Fetch crisp 2-sentence extract for top hit
         if not sources:
             try:
                 ext_url = "https://en.wikipedia.org/w/api.php?" + urllib.parse.urlencode({
@@ -204,52 +263,65 @@ def _query_wikipedia(query: str, timeout: float = 3.5) -> List[Dict[str, str]]:
     return sources
 
 
-def _query_ddg_html(query: str, timeout: float = 4.5, max_results: int = 3) -> List[Dict[str, str]]:
-    """HTML snippet search via DuckDuckGo lite endpoint for live/current queries."""
-    url = "https://html.duckduckgo.com/html/?" + urllib.parse.urlencode({"q": query})
-    body = _http_get_text(url, timeout=timeout)
-    snippets = re.findall(r'class="result__snippet"[^>]*>(.*?)</(?:a|div|span)>', body, flags=re.IGNORECASE | re.DOTALL)
-    titles = re.findall(r'class="result__a"[^>]*>(.*?)</a>', body, flags=re.IGNORECASE | re.DOTALL)
+def _query_wikipedia(query: str, timeout: float = 3.0) -> List[Dict[str, str]]:
+    hits = _wiki_search_once(query, timeout=timeout)
+    if hits:
+        return hits
+    # Progressive keyword relaxation for specific alphanumeric part codes
+    words = [w for w in re.findall(r"[A-Za-z0-9-]+", query) if len(w) >= 3]
+    if len(words) > 2:
+        # Prefer alphabetic entity + core noun words
+        alpha = [w for w in words if not any(c.isdigit() for c in w)]
+        relaxed = " ".join(alpha[:3]) if alpha else " ".join(words[:2])
+        if relaxed and relaxed.lower() != query.lower():
+            return _wiki_search_once(relaxed, timeout=timeout)
+    return []
+
+
+def _query_google_news_rss(query: str, timeout: float = 3.0, max_results: int = 3) -> List[Dict[str, str]]:
+    url = "https://news.google.com/rss/search?" + urllib.parse.urlencode({
+        "q": query,
+        "hl": "en-US",
+        "gl": "US",
+        "ceid": "US:en",
+    })
+    xml_raw = _http_get_text(url, timeout=timeout)
+    root = ET.fromstring(xml_raw)
     out: List[Dict[str, str]] = []
-    for idx, snip_raw in enumerate(snippets[:max_results]):
-        snip = _strip_html(snip_raw)
-        title = _strip_html(titles[idx]) if idx < len(titles) else query
-        if snip:
-            out.append({"title": title, "snippet": snip, "url": ""})
+    for item in root.findall("./channel/item")[:max_results]:
+        title = _strip_html(item.findtext("title") or "")
+        link = (item.findtext("link") or "").strip()
+        if title:
+            out.append({"title": "News", "snippet": title, "url": link})
     return out
 
 
-def search_web_snippets(query: str, timeout: float = 4.5, max_results: int = 3) -> Dict[str, Any]:
-    """Execute live multi-engine web search cleanly, returning offline/empty states honestly."""
+def search_web_snippets(query: str, timeout: float = 4.0, max_results: int = 3) -> Dict[str, Any]:
+    """Execute live multi-API web search cleanly, returning offline/empty states honestly."""
     clean_q = _clean_search_query(query) or (query or "").strip()
     if not clean_q:
         return {"status": "empty", "query": "", "summary": "", "sources": [], "error": None}
 
+    ql = clean_q.lower()
     sources: List[Dict[str, str]] = []
     net_error: Optional[str] = None
 
     try:
-        sources, _ = _query_ddg_instant(clean_q, timeout=min(3.5, timeout))
+        if any(re.search(p, ql) for p in _WEATHER_PATTERNS):
+            sources = _query_open_meteo_weather(clean_q, timeout=min(3.0, timeout))
+        elif any(re.search(p, ql) for p in _NEWS_PATTERNS):
+            sources = _query_google_news_rss(clean_q, timeout=min(3.5, timeout), max_results=max_results)
+
+        if not sources:
+            sources = _query_ddg_instant(clean_q, timeout=min(2.5, timeout))
+        if not sources:
+            sources = _query_wikipedia(clean_q, timeout=min(3.0, timeout))
+        if not sources:
+            sources = _query_google_news_rss(clean_q, timeout=min(3.0, timeout), max_results=max_results)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         net_error = str(exc)
     except Exception:
         pass
-
-    if not sources and net_error is None:
-        try:
-            sources = _query_ddg_html(clean_q, timeout=timeout, max_results=max_results)
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            net_error = str(exc)
-        except Exception:
-            pass
-
-    if not sources and net_error is None:
-        try:
-            sources = _query_wikipedia(clean_q, timeout=min(3.5, timeout))
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            net_error = str(exc)
-        except Exception:
-            pass
 
     if not sources:
         return {

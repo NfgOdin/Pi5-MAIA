@@ -1646,7 +1646,9 @@ class ModularRouteDispatchTest(unittest.TestCase):
 
             # 4. End-to-end mocked web search + learned_web_knowledge save + delete route
             from ai.llm_client import LLMClient
-            llm = LLMClient(config_file=str(tmp / "ai_settings.json"))
+            ai_cfg = tmp / "ai_settings.json"
+            ai_cfg.write_text('{"mode": "BUILTIN"}', encoding="utf-8")
+            llm = LLMClient(config_file=str(ai_cfg))
             learned_tmp = tmp / "learned_web_knowledge.json"
             learned_tmp.write_text('{"version": "1.0", "learned_facts": []}', encoding="utf-8")
             llm.set_rag_engine(rag)

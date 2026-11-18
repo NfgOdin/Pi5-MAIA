@@ -1628,7 +1628,7 @@ class LLMClient:
             try:
                 curr_spd = float(live_telemetry.get("speed_mph", 0.0)) if live_telemetry else 0.0
                 rag_hits = len(self.rag_memory.search(user_message, top_k=3, threshold=0.28))
-                living_memory_block = self.rag_memory.retrieve_unified_living_memory(user_message, current_speed=curr_spd, max_tokens=400)
+                living_memory_block = self.rag_memory.retrieve_unified_living_memory(user_message, current_speed=curr_spd, max_tokens=260)
                 if living_memory_block:
                     system_prompt += f"\n[RECALLED LIVING COGNITIVE MEMORIES & RAG:\n{living_memory_block}]"
             except Exception as e:
@@ -1743,7 +1743,7 @@ class LLMClient:
                         + f"<|im_start|>assistant\n"
                     )
 
-                    max_gen = 135 if turn_meta.get("web_searched") or rag_hits > 0 else 95
+                    max_gen = 110 if turn_meta.get("web_searched") or rag_hits > 0 else 85
 
                     if on_clause is not None:
                         full_reply = ""
