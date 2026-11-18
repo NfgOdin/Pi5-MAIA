@@ -15,14 +15,32 @@ import re
 import shlex
 import shutil
 import subprocess
+import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 DEFAULT_PHONE_ROOT = "/sdcard"
+_ADB_LOCK = threading.Lock()
+_STATUS_LOCK = threading.Lock()
+_STATUS_CACHE: Dict[str, Any] = {
+    "status": "ok",
+    "bridge_version": "1.0",
+    "adb_installed": False,
+    "adb_connected": False,
+    "adb_error": None,
+    "phone_model": None,
+    "tether_active": False,
+    "tether_iface": None,
+    "tether_ip": None,
+    "battery_pct": None,
+    "call_state": "IDLE",
+    "incoming_number": "",
+}
 
 
-def _run_cmd(args: List[str], timeout: float = 4.0) -> Tuple[int, str, str]:
+def _run_cmd(args: List[str], timeout: float = 8.0) -> Tuple[int, str, str]:
     try:
         proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
         return proc.returncode, (proc.stdout or "").strip(), (proc.stderr or "").strip()
@@ -30,10 +48,15 @@ def _run_cmd(args: List[str], timeout: float = 4.0) -> Tuple[int, str, str]:
         return 1, "", str(e)
 
 
-def _run_adb(adb_args: List[str], timeout: float = 5.0) -> Tuple[int, str, str]:
+def _run_adb(adb_args: List[str], timeout: float = 10.0) -> Tuple[int, str, str]:
     if not shutil.which("adb"):
         return 127, "", "adb binary not installed on Pi 3"
-    return _run_cmd(["adb", *adb_args], timeout=timeout)
+    with _ADB_LOCK:
+        rc, out, err = _run_cmd(["adb", *adb_args], timeout=timeout)
+        if rc != 0 and any(tok in (out + err).lower() for tok in ("protocol fault", "daemon not running", "connection reset")):
+            _run_cmd(["adb", "start-server"], timeout=5.0)
+            rc, out, err = _run_cmd(["adb", *adb_args], timeout=timeout)
+        return rc, out, err
 
 
 def _normalize_phone_path(raw_path: str) -> str:
@@ -94,18 +117,18 @@ def get_android_status() -> Dict[str, Any]:
     incoming_number = ""
 
     if adb_connected:
-        rc_b, out_b, _ = _run_adb(["shell", "dumpsys", "battery"], timeout=3.0)
-        if rc_b == 0:
-            bm = re.search(r"level:\s*(\d+)", out_b)
+        rc_dt, out_dt, _ = _run_adb(
+            ["shell", "dumpsys battery | grep -m1 level; dumpsys telephony.registry | grep -m2 -E 'mCallState|mCallIncomingNumber'"],
+            timeout=6.0,
+        )
+        if rc_dt == 0:
+            bm = re.search(r"level:\s*(\d+)", out_dt)
             if bm:
                 battery_pct = int(bm.group(1))
-        rc_t, out_t, _ = _run_adb(["shell", "dumpsys", "telephony.registry"], timeout=3.0)
-        if rc_t == 0:
-            cm = re.search(r"mCallState=(\d+)", out_t)
+            cm = re.search(r"mCallState=(\d+)", out_dt)
             if cm:
-                st = cm.group(1)
-                call_state = {"0": "IDLE", "1": "RINGING_INBOUND", "2": "ACTIVE"}.get(st, "IDLE")
-            nm = re.search(r"mCallIncomingNumber=([^\s,]+)", out_t)
+                call_state = {"0": "IDLE", "1": "RINGING_INBOUND", "2": "ACTIVE"}.get(cm.group(1), "IDLE")
+            nm = re.search(r"mCallIncomingNumber=([^\s,]+)", out_dt)
             if nm and nm.group(1) not in ("", "null", "0"):
                 incoming_number = nm.group(1)
 
@@ -316,7 +339,9 @@ class Pi3BridgeHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
         if parsed.path == "/status":
-            self._send_json(get_android_status())
+            with _STATUS_LOCK:
+                snap = dict(_STATUS_CACHE)
+            self._send_json(snap)
         elif parsed.path == "/sms/list":
             self._send_json(list_sms())
         elif parsed.path == "/contacts":
@@ -347,11 +372,31 @@ class Pi3BridgeHandler(BaseHTTPRequestHandler):
             self._send_json({"status": "error", "error": "Not found"}, status=404)
 
 
+def _status_monitor_loop() -> None:
+    if shutil.which("adb"):
+        _run_adb(["start-server"], timeout=6.0)
+    while True:
+        try:
+            fresh = get_android_status()
+            with _STATUS_LOCK:
+                _STATUS_CACHE.clear()
+                _STATUS_CACHE.update(fresh)
+        except Exception:
+            pass
+        time.sleep(3.5)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="CarPi3 Android USB/ADB & Filesystem Bridge")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8002)
     args = parser.parse_args()
+    try:
+        with _STATUS_LOCK:
+            _STATUS_CACHE.update(get_android_status())
+    except Exception:
+        pass
+    threading.Thread(target=_status_monitor_loop, daemon=True).start()
     srv = ThreadingHTTPServer((args.host, args.port), Pi3BridgeHandler)
     print(f"[PI3-BRIDGE] Android USB/ADB Bridge listening on {args.host}:{args.port}", flush=True)
     srv.serve_forever()

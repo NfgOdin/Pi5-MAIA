@@ -101,7 +101,7 @@ class Pi3AndroidBridgeClient:
         for u in urls:
             if not u:
                 continue
-            res = self._http_json(f"{u.rstrip('/')}/status", method="GET", timeout=0.45)
+            res = self._http_json(f"{u.rstrip('/')}/status", method="GET", timeout=1.2)
             if isinstance(res, dict) and res.get("status") == "ok":
                 found_url = u.rstrip("/")
                 status_data = res
@@ -138,6 +138,8 @@ class Pi3AndroidBridgeClient:
 
     def _call(self, path: str, method: str = "GET", payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         st = self.probe_status(force=(self.active_url is None))
+        if not st.get("online"):
+            st = self.probe_status(force=True)
         if not st.get("online") or not st.get("url"):
             return {"status": "offline", "error": "Pi 3 Android USB bridge offline (10.0.0.2:8002 unreachable)"}
         res = self._http_json(f"{st['url']}{path}", method=method, payload=payload, timeout=5.0)
