@@ -145,6 +145,7 @@ class LLMClient:
 
     def __init__(self, config_file: Optional[str] = None):
 
+        self._explicit_config = (config_file is not None)
         self.config_file = config_file or os.path.join(os.path.dirname(__file__), "ai_settings.json")
 
         self.settings = self.load_settings()
@@ -685,31 +686,33 @@ class LLMClient:
 
 
 
-        # Also load from ai_config.json if user edited that file directly
+        # Also load from ai_config.json if user edited that file directly (skip for isolated explicit configs)
 
-        alt_config = os.path.join(os.path.dirname(__file__), "ai_config.json")
+        if not getattr(self, "_explicit_config", False):
 
-        if os.path.exists(alt_config):
+            alt_config = os.path.join(os.path.dirname(__file__), "ai_config.json")
 
-            try:
+            if os.path.exists(alt_config):
 
-                with open(alt_config, "r") as f:
+                try:
 
-                    alt_data = json.load(f)
+                    with open(alt_config, "r") as f:
 
-                    default_settings.update(alt_data)
+                        alt_data = json.load(f)
 
-            except Exception:
+                        default_settings.update(alt_data)
 
-                pass
+                except Exception:
 
-        # Always prefer LOCAL_GGUF if model is present and not explicitly set otherwise
+                    pass
 
-        if local_gguf and default_settings.get("mode") == "BUILTIN":
+            # Always prefer LOCAL_GGUF if model is present and not explicitly set otherwise
 
-            default_settings["mode"] = "LOCAL_GGUF"
+            if local_gguf and default_settings.get("mode") == "BUILTIN":
 
-            default_settings["gguf_model_path"] = local_gguf
+                default_settings["mode"] = "LOCAL_GGUF"
+
+                default_settings["gguf_model_path"] = local_gguf
 
         return default_settings
 

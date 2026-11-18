@@ -142,13 +142,38 @@ def _extract_location_for_weather(query: str) -> str:
     return re.sub(r"[, ]+$", "", loc).strip() or "Phoenix, AZ"
 
 
+_US_STATE_NAMES = {
+    "al": "alabama", "ak": "alaska", "az": "arizona", "ar": "arkansas", "ca": "california",
+    "co": "colorado", "ct": "connecticut", "de": "delaware", "fl": "florida", "ga": "georgia",
+    "hi": "hawaii", "id": "idaho", "il": "illinois", "in": "indiana", "ia": "iowa",
+    "ks": "kansas", "ky": "kentucky", "la": "louisiana", "me": "maine", "md": "maryland",
+    "ma": "massachusetts", "mi": "michigan", "mn": "minnesota", "ms": "mississippi",
+    "mo": "missouri", "mt": "montana", "ne": "nebraska", "nv": "nevada", "nh": "new hampshire",
+    "nj": "new jersey", "nm": "new mexico", "ny": "new york", "nc": "north carolina",
+    "nd": "north dakota", "oh": "ohio", "ok": "oklahoma", "or": "oregon", "pa": "pennsylvania",
+    "ri": "rhode island", "sc": "south carolina", "sd": "south dakota", "tn": "tennessee",
+    "tx": "texas", "ut": "utah", "vt": "vermont", "va": "virginia", "wa": "washington",
+    "wv": "west virginia", "wi": "wisconsin", "wy": "wyoming", "dc": "district of columbia",
+}
+
+
 def _query_open_meteo_weather(query: str, timeout: float = 3.0) -> List[Dict[str, str]]:
     """Query Open-Meteo geocoding + forecast APIs for exact real-time weather without API keys."""
     loc = _extract_location_for_weather(query)
-    loc_city = loc.split(",")[0].strip()
+    state_hint = ""
+    loc_city = loc.strip()
+    m_state = re.match(r"^(.*?)[,\s]+([A-Za-z]{2})$", loc_city)
+    if m_state and m_state.group(2).lower() in _US_STATE_NAMES:
+        loc_city = m_state.group(1).strip().rstrip(",")
+        state_hint = _US_STATE_NAMES[m_state.group(2).lower()]
+    elif "," in loc_city:
+        parts = [p.strip() for p in loc_city.split(",") if p.strip()]
+        loc_city = parts[0]
+        if len(parts) > 1:
+            state_hint = parts[1].lower()
     geo_url = "https://geocoding-api.open-meteo.com/v1/search?" + urllib.parse.urlencode({
         "name": loc_city,
-        "count": "3",
+        "count": "8" if state_hint else "3",
         "language": "en",
         "format": "json",
     })
@@ -156,11 +181,13 @@ def _query_open_meteo_weather(query: str, timeout: float = 3.0) -> List[Dict[str
     results = geo.get("results") or []
     if not results:
         return []
-    # Prefer US / AZ if mentioned
+    # Prefer matching state/region when supplied (e.g. "Payson AZ" -> Payson, Arizona)
     chosen = results[0]
-    if "az" in loc.lower() or "arizona" in loc.lower():
+    if state_hint:
         for r in results:
-            if "arizona" in str(r.get("admin1", "")).lower():
+            admin1 = str(r.get("admin1", "")).lower()
+            country = str(r.get("country_code", "")).lower()
+            if state_hint in admin1 or (country == "us" and state_hint == admin1):
                 chosen = r
                 break
 
