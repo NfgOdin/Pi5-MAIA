@@ -265,10 +265,11 @@ class NavigationRouter:
         goal_nid: int,
         goal_lat: float,
         goal_lon: float,
-        max_expansions: int = 120000,
+        max_expansions: int = 220000,
     ) -> Optional[List[Dict[str, Any]]]:
         node_cache: Dict[int, Tuple[float, float]] = {}
-        edge_cache: Dict[int, List[Dict[str, Any]]] = {}
+        edge_cache: Dict[int, List[Tuple[int, int, str, str, int, float, float]]] = {}
+        loaded_cells: set = set()
 
         def _get_node(nid: int) -> Tuple[float, float]:
             if nid not in node_cache:
@@ -276,43 +277,80 @@ class NavigationRouter:
                 node_cache[nid] = (float(row[0]), float(row[1])) if row else (goal_lat, goal_lon)
             return node_cache[nid]
 
-        def _prefetch_edges(seed_ids: List[int]) -> None:
-            missing = [nid for nid in seed_ids if nid not in edge_cache]
-            if not missing:
+        def _fast_dist_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+            dx = (lon2 - lon1) * 92800.0
+            dy = (lat2 - lat1) * 111320.0
+            return math.hypot(dx, dy)
+
+        def _prefetch_cell_for(nid: int) -> None:
+            if nid in edge_cache:
                 return
-            for i in range(0, len(missing), 64):
-                batch = missing[i:i + 64]
-                for nid in batch:
-                    edge_cache[nid] = []
-                placeholders = ",".join("?" for _ in batch)
-                rows = conn.execute(
+            lat, lon = _get_node(nid)
+            cy = int(math.floor(lat * 100.0))
+            cx = int(math.floor(lon * 100.0))
+            cells_needed = [
+                f"{cy + dy}:{cx + dx}"
+                for dy in (-1, 0, 1)
+                for dx in (-1, 0, 1)
+                if f"{cy + dy}:{cx + dx}" not in loaded_cells
+            ]
+            if not cells_needed:
+                edge_cache.setdefault(nid, [])
+                return
+            loaded_cells.update(cells_needed)
+            placeholders = ",".join("?" for _ in cells_needed)
+            n_rows = conn.execute(
+                f"SELECT id, lat, lon FROM nav_nodes WHERE cell_key IN ({placeholders})",
+                cells_needed,
+            ).fetchall()
+            seed_ids = []
+            for r_id, r_lat, r_lon in n_rows:
+                ri = int(r_id)
+                node_cache[ri] = (float(r_lat), float(r_lon))
+                if ri not in edge_cache:
+                    edge_cache[ri] = []
+                    seed_ids.append(ri)
+            for i in range(0, len(seed_ids), 400):
+                batch = seed_ids[i:i + 400]
+                bp = ",".join("?" for _ in batch)
+                e_rows = conn.execute(
                     f"""
-                    SELECT e.u, e.v, e.name, e.highway, e.maxspeed_mph, e.length_m, e.cost_sec, e.geom_json,
-                           n.lat, n.lon
+                    SELECT e.id, e.u, e.v, e.name, e.highway, e.maxspeed_mph, e.length_m, e.cost_sec, n.lat, n.lon
                     FROM nav_edges e
                     JOIN nav_nodes n ON n.id = e.v
-                    WHERE e.u IN ({placeholders})
+                    WHERE e.u IN ({bp})
                     """,
                     batch,
                 ).fetchall()
-                for u, v, name, hw, spd, length_m, cost_sec, geom_json, v_lat, v_lon in rows:
-                    node_cache[int(v)] = (float(v_lat), float(v_lon))
-                    edge_cache[int(u)].append({
-                        "u": int(u),
-                        "v": int(v),
-                        "name": name,
-                        "highway": hw,
-                        "maxspeed_mph": int(spd),
-                        "length_m": float(length_m),
-                        "cost_sec": float(cost_sec),
-                        "geom": json.loads(geom_json),
-                    })
+                for eid, u, v, name, hw, spd, length_m, cost_sec, v_lat, v_lon in e_rows:
+                    vi = int(v)
+                    node_cache[vi] = (float(v_lat), float(v_lon))
+                    edge_cache[int(u)].append((int(eid), vi, name, hw, int(spd), float(length_m), float(cost_sec)))
+            edge_cache.setdefault(nid, [])
 
         s_lat, s_lon = _get_node(start_nid)
+        mid_route_dist = _fast_dist_m(s_lat, s_lon, goal_lat, goal_lon)
+        long_trip = mid_route_dist > 12000.0
+        hw_penalty_map = {
+            "motorway": 1.0,
+            "motorway_link": 1.05,
+            "trunk": 1.0,
+            "trunk_link": 1.05,
+            "primary": 1.05,
+            "primary_link": 1.1,
+            "secondary": 1.25,
+            "secondary_link": 1.3,
+            "tertiary": 1.85,
+            "tertiary_link": 1.9,
+            "unclassified": 3.2,
+            "residential": 4.5,
+            "living_street": 6.0,
+            "service": 6.5,
+        }
+
         g_score: Dict[int, float] = {start_nid: 0.0}
-        came_from: Dict[int, Tuple[int, Dict[str, Any]]] = {}
-        # Heuristic: 36 m/s (~80 mph) ensures admissibility across Arizona interstates
-        pq: List[Tuple[float, float, int]] = [(haversine_m(s_lat, s_lon, goal_lat, goal_lon) / 36.0, 0.0, start_nid)]
+        came_from: Dict[int, Tuple[int, int]] = {}
+        pq: List[Tuple[float, float, int]] = [((mid_route_dist / 30.0) * 1.35, 0.0, start_nid)]
         closed: set = set()
         expansions = 0
 
@@ -321,29 +359,54 @@ class NavigationRouter:
             if cur in closed:
                 continue
             if cur == goal_nid:
-                path_edges: List[Dict[str, Any]] = []
+                win_eids: List[int] = []
                 walker = goal_nid
                 while walker in came_from:
-                    prev_u, edge_obj = came_from[walker]
-                    path_edges.append(edge_obj)
+                    prev_u, win_eid = came_from[walker]
+                    win_eids.append(win_eid)
                     walker = prev_u
-                path_edges.reverse()
-                return path_edges
+                win_eids.reverse()
+                if not win_eids:
+                    return []
+                eid_map: Dict[int, Dict[str, Any]] = {}
+                for i in range(0, len(win_eids), 400):
+                    batch = win_eids[i:i + 400]
+                    ep = ",".join("?" for _ in batch)
+                    for row in conn.execute(
+                        f"SELECT id, u, v, name, highway, maxspeed_mph, length_m, cost_sec, geom_json FROM nav_edges WHERE id IN ({ep})",
+                        batch,
+                    ).fetchall():
+                        eid_map[int(row[0])] = {
+                            "u": int(row[1]),
+                            "v": int(row[2]),
+                            "name": row[3],
+                            "highway": row[4],
+                            "maxspeed_mph": int(row[5]),
+                            "length_m": float(row[6]),
+                            "cost_sec": float(row[7]),
+                            "geom": json.loads(row[8]),
+                        }
+                return [eid_map[eid] for eid in win_eids if eid in eid_map]
+
             closed.add(cur)
             expansions += 1
 
             if cur not in edge_cache:
-                _prefetch_edges([cur])
-            for edge in edge_cache.get(cur, []):
-                nxt = edge["v"]
+                _prefetch_cell_for(cur)
+
+            clat, clon = node_cache.get(cur, (goal_lat, goal_lon))
+            use_hier = long_trip and _fast_dist_m(clat, clon, s_lat, s_lon) > 3500.0 and _fast_dist_m(clat, clon, goal_lat, goal_lon) > 3500.0
+
+            for eid, nxt, _name, hw, _spd, _lm, cost_sec in edge_cache.get(cur, ()):
                 if nxt in closed:
                     continue
-                tentative_g = cur_g + edge["cost_sec"]
+                step_cost = cost_sec * hw_penalty_map.get(hw, 2.5) if use_hier else cost_sec
+                tentative_g = cur_g + step_cost
                 if tentative_g < g_score.get(nxt, float("inf")):
                     g_score[nxt] = tentative_g
-                    came_from[nxt] = (cur, edge)
+                    came_from[nxt] = (cur, eid)
                     nlat, nlon = _get_node(nxt)
-                    h = haversine_m(nlat, nlon, goal_lat, goal_lon) / 36.0
+                    h = (_fast_dist_m(nlat, nlon, goal_lat, goal_lon) / 30.0) * 1.35
                     heapq.heappush(pq, (tentative_g + h, tentative_g, nxt))
 
         return None
