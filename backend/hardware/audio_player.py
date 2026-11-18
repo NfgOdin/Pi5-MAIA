@@ -560,6 +560,9 @@ class AudioPlayer:
 
 
         self.openai_voice = "nova"
+        self.acknowledgments_folder = ""
+        self.speech_speed = 1.00
+        self._ffmpeg_rubberband_ok = None
 
 
 
@@ -740,10 +743,10 @@ class AudioPlayer:
 
 
         if "kokoro_voice" in settings and settings["kokoro_voice"]:
-
-
-
             self.kokoro_voice = str(settings["kokoro_voice"])
+
+        if "acknowledgments_folder" in settings:
+            self.acknowledgments_folder = str(settings.get("acknowledgments_folder") or "").strip().lower()
 
 
 
@@ -767,6 +770,13 @@ class AudioPlayer:
 
 
 
+                pass
+
+        speed_val = settings.get("speech_speed")
+        if speed_val is not None:
+            try:
+                self.speech_speed = max(0.75, min(1.25, float(speed_val)))
+            except Exception:
                 pass
 
 
@@ -1560,82 +1570,92 @@ class AudioPlayer:
 
 
 
+    def _has_ffmpeg_rubberband(self) -> bool:
+        """Probe once whether FFmpeg supports librubberband formant-preserving pitch shifting."""
+        if self._ffmpeg_rubberband_ok is not None:
+            return bool(self._ffmpeg_rubberband_ok)
+        try:
+            proc = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-filters"],
+                capture_output=True,
+                text=True,
+                timeout=3.0,
+            )
+            self._ffmpeg_rubberband_ok = ("rubberband" in (proc.stdout or ""))
+        except Exception:
+            self._ffmpeg_rubberband_ok = False
+        return bool(self._ffmpeg_rubberband_ok)
+
+    @staticmethod
+    def resolve_kokoro_voice_arg(kokoro_inst: Any, voice_spec: str) -> Any:
+        """
+        Resolve a single Kokoro voice ID or weighted blend expression (e.g. 'af_sky:0.65+af_heart:0.35')
+        into either a voice name string or a normalized weighted numpy style vector.
+        """
+        spec = str(voice_spec or "").strip()
+        avail = []
+        try:
+            avail = list(kokoro_inst.get_voices() or [])
+        except Exception:
+            avail = []
+        fallback_voice = "af_bella" if (not avail or "af_bella" in avail) else avail[0]
+
+        if "+" not in spec and ":" not in spec:
+            return spec if (not avail or spec in avail) else fallback_voice
+
+        parts = [p.strip() for p in spec.split("+") if p.strip()]
+        weighted = []
+        for p in parts:
+            if ":" in p:
+                v_name, w_str = p.split(":", 1)
+                v_name = v_name.strip()
+                try:
+                    w = max(0.0, float(w_str.strip()))
+                except Exception:
+                    w = 0.5
+            else:
+                v_name, w = p, 0.5
+            if (not avail or v_name in avail) and w > 0:
+                weighted.append((v_name, w))
+
+        if not weighted:
+            return fallback_voice
+        if len(weighted) == 1:
+            return weighted[0][0]
+
+        total_w = sum(w for _, w in weighted)
+        if total_w <= 0:
+            return weighted[0][0]
+        if hasattr(kokoro_inst, "get_voice_style"):
+            blended = None
+            for v_name, w in weighted:
+                vec = kokoro_inst.get_voice_style(v_name) * (w / total_w)
+                blended = vec if blended is None else (blended + vec)
+            return blended
+        return weighted[0][0]
+
     def _synthesize_local_kokoro(self, text: str, out_wav_path: str) -> bool:
-
-
-
         """Synthesizes warm, human-like speech locally on Pi 5 CPU via Kokoro-82M ONNX."""
-
-
-
         if not self._kokoro_instance:
-
-
-
             self._init_kokoro()
-
-
-
         if not self._kokoro_instance:
-
-
-
             return False
 
-
-
         try:
-
-
-
             import soundfile as sf
 
-
-
-            voice_name = self.kokoro_voice if self.kokoro_voice in self._kokoro_instance.get_voices() else "af_bella"
-
-
-
+            voice_arg = self.resolve_kokoro_voice_arg(self._kokoro_instance, self.kokoro_voice)
+            spd = max(0.75, min(1.25, float(getattr(self, "speech_speed", 1.00) or 1.00)))
             samples, sample_rate = self._kokoro_instance.create(
-
-
-
                 text,
-
-
-
-                voice=voice_name,
-
-
-
-                speed=1.06,
-
-
-
-                lang="en-us"
-
-
-
+                voice=voice_arg,
+                speed=spd,
+                lang="en-us",
             )
-
-
-
             sf.write(out_wav_path, samples, sample_rate, subtype="PCM_16")
-
-
-
             return os.path.exists(out_wav_path) and os.path.getsize(out_wav_path) > 1000
-
-
-
         except Exception as e:
-
-
-
             print(f"[AUDIO] Kokoro synthesis note (falling back to Piper): {e}")
-
-
-
             return False
 
 
@@ -1701,11 +1721,10 @@ class AudioPlayer:
 
 
     def _synthesize_clause_pipelined(self, text: str):
-
         """Synthesize a single clause using the selected engine, cache it, and push to playback queue."""
-
-        voice_id = self.kokoro_voice if self.tts_engine == "KOKORO" else self.tts_engine
-
+        base_voice = self.kokoro_voice if self.tts_engine == "KOKORO" else self.tts_engine
+        spd = max(0.75, min(1.25, float(getattr(self, "speech_speed", 1.00) or 1.00)))
+        voice_id = f"{base_voice}@s{spd:.2f}"
         pitch = self.pitch_factor
 
 
@@ -1800,38 +1819,22 @@ class AudioPlayer:
 
 
 
-            # Apply youthful pitch transform ONLY for local TTS (Kokoro/Piper) and only if pitch factor is notably different from 1.0
-
-            if used_engine not in ("ELEVENLABS", "OPENAI_TTS") and abs(self.pitch_factor - 1.0) > 0.05:
-
+            # Apply natural pitch transform ONLY for local TTS (Kokoro/Piper) and when noticeably != 1.0
+            if used_engine not in ("ELEVENLABS", "OPENAI_TTS") and abs(self.pitch_factor - 1.0) > 0.03:
                 try:
-
                     with wave.open(wav_path, "rb") as r:
-
                         sr = r.getframerate()
-
                     pf = self.pitch_factor
-
                     pitched_path = wav_path + ".pitched.wav"
-
-                    cmd = [
-
-                        "ffmpeg", "-y", "-threads", "2", "-i", wav_path,
-
-                        "-af", f"asetrate={int(sr * pf)},atempo={1.0 / pf:.6f},aresample={sr}",
-
-                        pitched_path
-
-                    ]
-
+                    if self._has_ffmpeg_rubberband():
+                        af_expr = f"rubberband=pitch={pf:.4f}:tempo=1.0:formant=preserved"
+                    else:
+                        af_expr = f"asetrate={int(sr * pf)},atempo={1.0 / pf:.6f},aresample={sr}"
+                    cmd = ["ffmpeg", "-y", "-threads", "2", "-i", wav_path, "-af", af_expr, pitched_path]
                     res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=4.0)
-
                     if res.returncode == 0 and os.path.exists(pitched_path) and os.path.getsize(pitched_path) > 1000:
-
                         os.replace(pitched_path, wav_path)
-
                 except Exception as p_err:
-
                     print(f"[AUDIO] Pitch shift note: {p_err}")
 
 
@@ -2140,15 +2143,13 @@ class AudioPlayer:
 
 
     def play_acknowledgment(self, persona: str = "DEFAULT") -> bool:
-
         """Plays a natural, instant (<15ms) voice acknowledgment when mic opens."""
-
         base = Path(__file__).parent.parent.parent
-
-        ack_dir = base / "assets" / "sounds" / "acknowledgments" / str(persona or "default").lower()
-
+        folder_name = (self.acknowledgments_folder or str(persona or "default")).strip().lower()
+        ack_dir = base / "assets" / "sounds" / "acknowledgments" / folder_name
+        if not ack_dir.exists() and str(persona or "").strip():
+            ack_dir = base / "assets" / "sounds" / "acknowledgments" / str(persona).strip().lower()
         if not ack_dir.exists():
-
             ack_dir = base / "assets" / "sounds" / "acknowledgments" / "default"
 
         if ack_dir.exists():

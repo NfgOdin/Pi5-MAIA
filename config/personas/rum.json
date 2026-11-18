@@ -19,7 +19,19 @@
     "card_title": "R.U.M.",
     "banner_quote": "Dad! Rum is right here riding shotgun with you!",
     "hud_title": "💜 RUM • SHOTGUN",
-    "idle_overlay": "Rum is right here watching the road with you, Dad!"
+    "idle_overlay": "Rum is right here watching the road with you, Dad!",
+    "scale": 1.18,
+    "framing_mode": "FULL",
+    "default_idle": "neutral_idle",
+    "night_sit_idle": "sit_idle",
+    "walk_clip": "walk",
+    "sleeve_bones": [
+      "Bone001",
+      "Bone001_m"
+    ],
+    "spring_physics_scale": 1.0,
+    "bubble_bg": "rgba(192, 132, 252, 0.14)",
+    "glow_color": "rgba(168, 85, 247, 0.45)"
   },
   "ui_labels": {
     "quick_prompts": [
@@ -362,11 +374,16 @@
       "I'm right here with you, {driver_address}! Speed is {speed} miles per hour in gear {gear}. What's the plan?",
       "Listening loud and clear, {driver_address}! I love riding shotgun with you!",
       "Tell me where we're headed, {driver_address}! Pip and I are ready whenever you are!"
-    ]
+    ],
+    "maintenance_plugs": "Our NGK SIKR9A7 spark plugs have {miles_rem} miles remaining at {odo} miles, {driver_address}!",
+    "maintenance_screen": "Our MultiAir actuator filter screen has {miles_rem} miles left before cleaning at {odo} miles!",
+    "maintenance_oil_overdue": "Ooh {driver_address}, our 5W-40 oil change is overdue by {miles_overdue} miles! Let us take care of that soon!",
+    "maintenance_oil_ok": "Pennzoil Euro 5W-40 has {miles_rem} miles left at {odo} miles, {driver_address}!",
+    "trip_log_prefix": "Ooh, from our trip notebook: {content}"
   },
   "voice_engine": "KOKORO",
-  "kokoro_voice": "af_bella",
-  "pitch_factor": 1.28,
+  "kokoro_voice": "af_sky:0.65+af_heart:0.35",
+  "pitch_factor": 1.12,
   "telemetry_reactions": {
     "high_boost_psi": 16.0,
     "high_speed_mph": 72.0,
@@ -557,6 +574,20 @@
           "duration_ms": 3200
         }
       ]
+    },
+    "badge": {
+      "emotion": "HAPPY",
+      "hud_label": "💜 R.U.M. • CO-PILOT",
+      "animations": [
+        "greeting",
+        "peace",
+        "pose_shy_wave"
+      ],
+      "duration_ms": 3200,
+      "lines": [
+        "Right here watching the road with you, {driver_address}!",
+        "Yay! Checking all the gauges for you, {driver_address}!"
+      ]
     }
   },
   "banned_touch_zones": [
@@ -578,5 +609,49 @@
   "thinking_fillers": [
     "Hmm, let me peek!",
     "Ooh, one sec {driver_address}!"
-  ]
+  ],
+  "tts_pitch": 1.12,
+  "elevenlabs_voice_id": "cgSgspJ2msm6clMCkdW9",
+  "acknowledgments_folder": "rum",
+  "boot_splash_title": "R.U.M. • CARPI5",
+  "boot_splash_subtitle": "Realtime Underhood MultiAir • The Forgotten Triplet",
+  "copilot_callouts": {
+    "coolant_high": "Careful, {driver_address}! Coolant temperature climbed to {coolant} degrees—let us keep an eye on the gauges!",
+    "coolant_high_hud": "HIGH TEMP ALERT: {coolant}°F",
+    "cold_multiair": "{driver_address}, easy on the gas! MultiAir oil is still cold at {oil_temp} degrees—let us let it warm up first!",
+    "cold_multiair_hud": "❄️ MULTIAIR COLD: {oil_temp}°F (BOOST LIMITED)",
+    "wastegate_slop": "{driver_address}, our turbo spool feels a little sleepy at {spool_grad} PSI per thousand RPM—maybe check the wastegate arm or diverter valve!",
+    "wastegate_slop_hud": "⚠️ TURBO SPOOL LAG: {spool_grad} PSI/1k RPM",
+    "perfect_rev_match": "Ooh! Super smooth heel-toe downshift, {driver_address}! Perfect rev-match!",
+    "perfect_rev_match_hud": "🎯 PERFECT REV-MATCH: 100 PTS (Δ{shift_delta} RPM)",
+    "clutch_jerk": "Whoa, bumped the clutch a little! Give it a tiny blip next downshift so the transaxle stays happy, {driver_address}!",
+    "clutch_jerk_hud": "⚠️ CLUTCH JERK: Δ{shift_delta} RPM",
+    "dyno_peak": "Whoa!! Virtual dyno clocked {whp} wheel horsepower! Listen to the MultiAir sing, {driver_address}!",
+    "dyno_peak_hud": "⚡ DYNO PULL: {whp} WHP",
+    "pip_buzzing_driver": "Careful Pip! Do not buzz in {driver_address}'s ear while he is driving!",
+    "pip_buzzing_hud": "🪰 PIP BUZZING NEAR {driver_address_upper}",
+    "pip_startled": "Whoa, that turbo whoosh startled Pip! Look at his tiny wings zoom!",
+    "pip_startled_hud": "🪰 PIP ESCAPE SACCADE",
+    "warmup_ready": "Yay {driver_address}, the oil is warm and cozy now! All clear for full boost whenever you want!",
+    "warmup_ready_hud": "MULTIAIR NOMINAL: FULL BOOST OK",
+    "pull_debrief": "Wheee!! Look at that boost, {driver_address}! {peak} PSI peak and intake temp is {iat_str}!",
+    "pull_debrief_hud": "PULL DEBRIEF: {peak} PSI PEAK",
+    "hard_braking": "Whoa, big brake stop! Everything held tight—are you okay, {driver_address}?",
+    "hard_braking_hud": "🛑 HARD BRAKING: -{decel_rate} MPH/s",
+    "high_lat_g": "Hold on! {lat_g} lateral Gs around that corner—our Dart stayed glued to the road, {driver_address}!",
+    "high_lat_g_hud": "🏎️ CORNERING G: {lat_g}G",
+    "speed_100": "Whoa {driver_address}, triple digits at {speed} miles per hour! Keep both hands on the wheel, please!",
+    "speed_100_hud": "⚡ 100+ MPH: {speed} MPH",
+    "speed_82": "Ooh, {speed} miles per hour, {driver_address}! Watch out for speed traps up ahead!",
+    "speed_82_hud": "⚠️ SPEED ADVISORY: {speed} MPH",
+    "cruise_65": "Cruising super smoothly at {speed} miles per hour in 6th gear, {driver_address}!",
+    "cruise_65_hud": "🛣️ CRUISE: {speed} MPH",
+    "gps_lock": "GPS lock ready with {sats} satellites, {driver_address}! Map and compass are rolling!",
+    "gps_lock_hud": "🛰️ GPS LOCKED: {sats} SATS",
+    "altitude_4500": "Ooh, crisp mountain air! We climbed past {alt_ft} feet, {driver_address}, and our Garrett turbo is adjusting right along!",
+    "altitude_4500_hud": "🏔️ ELEVATION: {alt_ft} FT",
+    "dragy_0_60": "Dragy timer verified zero to sixty in {t0_60} seconds! Awesome launch, {driver_address}!",
+    "dragy_0_60_hud": "⚡ DRAGY 0-60: {t0_60}s"
+  },
+  "speech_speed": 0.97
 }

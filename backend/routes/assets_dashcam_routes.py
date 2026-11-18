@@ -88,11 +88,27 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
     if path.startswith("/api/dashcam/") or path.startswith("/dashcam/"):
         return _proxy_dashcam(handler, parsed, state)
 
+    if path == "/api/assets/pics":
+        pics_dir = base_dir / "ui" / "web_preview" / "assets" / "pics"
+        pics = []
+        if pics_dir.exists():
+            for p in sorted(pics_dir.iterdir()):
+                if p.is_file() and p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"):
+                    pics.append(f"assets/pics/{p.name}")
+        videos_dir = base_dir / "ui" / "web_preview" / "assets" / "video"
+        videos = []
+        if videos_dir.exists():
+            for v in sorted(videos_dir.iterdir()):
+                if v.is_file() and v.suffix.lower() in (".mp4", ".webm"):
+                    videos.append(f"assets/video/{v.name}")
+        send_json(handler, {"status": "ok", "pics": pics, "videos": videos})
+        return True
+
     if path == "/api/models/avatars":
         avatar_dir = base_dir / "models" / "avatars"
         vrm_files = []
         if avatar_dir.exists():
-            for f in avatar_dir.glob("*.vrm"):
+            for f in sorted(avatar_dir.glob("*.vrm")):
                 vrm_files.append({
                     "name": f.name,
                     "size_mb": round(f.stat().st_size / (1024 * 1024), 2),
@@ -294,12 +310,71 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
     return False
 
 
+def _save_binary_asset_upload(handler: Any, parsed: Any, dest_dir: Path, allowed_exts: tuple[str, ...], max_bytes: int, prefix_rel: str) -> bool:
+    import re
+
+    raw_name = parse_qs(getattr(parsed, "query", "")).get("name", [""])[0]
+    if not raw_name:
+        raw_name = handler.headers.get("X-File-Name", "")
+    raw_name = urllib.parse.unquote(str(raw_name or "")).strip()
+    if not raw_name or "/" in raw_name or "\\" in raw_name or ".." in raw_name:
+        send_json(handler, {"status": "error", "message": "Invalid filename"}, status=400)
+        return True
+
+    safe_base = re.sub(r"[^a-zA-Z0-9._-]", "_", os.path.basename(raw_name)).lstrip(".")
+    ext = os.path.splitext(safe_base)[1].lower()
+    if not safe_base or ext not in allowed_exts:
+        send_json(handler, {"status": "error", "message": f"Unsupported file extension: {ext or 'none'}"}, status=400)
+        return True
+
+    try:
+        content_length = int(handler.headers.get("Content-Length", 0))
+    except Exception:
+        content_length = 0
+    if content_length <= 0 or content_length > max_bytes:
+        status_code = 413 if content_length > max_bytes else 400
+        send_json(handler, {"status": "error", "message": f"Invalid upload size ({content_length} bytes)"}, status=status_code)
+        return True
+
+    raw_bytes = handler.rfile.read(content_length)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    target = (dest_dir / safe_base).resolve()
+    if not target.is_relative_to(dest_dir.resolve()):
+        send_json(handler, {"status": "error", "message": "Invalid destination path"}, status=400)
+        return True
+    target.write_bytes(raw_bytes)
+    send_json(handler, {"status": "ok", "name": safe_base, "path": f"{prefix_rel}/{safe_base}" if prefix_rel else safe_base, "size_bytes": len(raw_bytes)})
+    return True
+
+
 def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
-    """Handle custom room layout POST updates."""
-    if parsed.path != "/api/models/room_layout":
+    """Handle custom room layout and avatar/image asset uploads."""
+    base_dir = _base_dir(state)
+    path = parsed.path
+
+    if path == "/api/models/avatars/upload":
+        return _save_binary_asset_upload(
+            handler,
+            parsed,
+            base_dir / "models" / "avatars",
+            (".vrm",),
+            64 * 1024 * 1024,
+            "",
+        )
+
+    if path == "/api/assets/pics/upload":
+        return _save_binary_asset_upload(
+            handler,
+            parsed,
+            base_dir / "ui" / "web_preview" / "assets" / "pics",
+            (".png", ".jpg", ".jpeg", ".webp"),
+            8 * 1024 * 1024,
+            "assets/pics",
+        )
+
+    if path != "/api/models/room_layout":
         return False
 
-    base_dir = _base_dir(state)
     cfg_path = base_dir / "config" / "custom_room_layout.json"
     try:
         new_layout = read_json_body(handler)

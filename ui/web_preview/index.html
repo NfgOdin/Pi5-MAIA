@@ -77,7 +77,7 @@
   <div id="bootSplashOverlay" class="boot-splash-overlay" onclick="dismissBootSplash()">
     <div class="boot-splash-media-wrapper">
       <video id="bootSplashVideo" class="boot-splash-video" playsinline muted autoplay style="display:none;"></video>
-      <img id="bootSplashImage" class="boot-splash-image" src="assets/pics/splash.png" alt="Boot Splash" onerror="this.src='assets/pics/maia_avatar.jpg'">
+      <img id="bootSplashImage" class="boot-splash-image" src="assets/pics/splash.png" alt="Boot Splash" onerror="this.style.display='none'">
     </div>
     <div class="boot-splash-scanlines"></div>
     <div class="boot-splash-vignette"></div>
@@ -192,7 +192,7 @@
           </div>
           <div>
             <div class="card-icon" id="homeAiCardIcon">
-              <img id="homeAiAvatarImg" src="assets/pics/splash.png" class="home-waifu-avatar" alt="Companion Avatar">
+              <img id="homeAiAvatarImg" src="assets/pics/splash.png" class="home-companion-avatar" alt="Companion Avatar">
             </div>
             <div class="card-title" id="homeAiCardTitle">AI COPILOT</div>
             <div class="card-subtitle" id="homeAiCardSub">Interactive 3D voice copilot, telemetry debriefs, and live chat.</div>
@@ -583,7 +583,7 @@
 
       <!-- Right Column: 100% Full-Height 3D Avatar Stage -->
       <div class="ai-sidebar-column">
-        <div class="waifu-floating-stage" id="waifuStage">
+        <div class="vrm-floating-stage" id="vrmStage">
           <!-- 3D VRM Full Body Container (Full Height 100%) -->
           <div class="vrm-stage-container" id="vrmStageContainer">
             <div class="vrm-controls-bar collapsed" id="vrmControlsBar">
@@ -612,11 +612,9 @@
               <span id="vrmLoadingText">⚡ LOADING 3D VRM AVATAR...</span>
             </div>
           </div>
-          <!-- 2D Procedural Anime Face (Fallback when 2D active) -->
-          <canvas id="waifuFaceCanvas" width="340" height="420" class="waifu-face-canvas" style="display:none;" onclick="triggerWaifuTouch()"></canvas>
           <div style="position:absolute; bottom:14px; right:16px; display:flex; gap:8px; z-index:15; pointer-events:auto;">
-            <div class="waifu-emotion-pill" id="waifuEmotionPill" onclick="triggerWaifuTouch()" style="position:static;">💜 R.U.M. (3D VRM) • DEVOTED & READY</div>
-            <div class="waifu-emotion-pill" id="pipConnectomePill" onclick="feedPipSugarWater()" style="position:static; cursor:pointer;" title="Tap to feed Pip sugar water from dropper">🪰 PIP: CX COMPASS • FLYING • 95%</div>
+            <div class="vrm-emotion-pill" id="vrmEmotionPill" onclick="triggerVrmTouch()" style="position:static;">💜 R.U.M. (3D VRM) • DEVOTED & READY</div>
+            <div class="vrm-emotion-pill" id="pipConnectomePill" onclick="feedPipSugarWater()" style="position:static; cursor:pointer;" title="Tap to feed Pip sugar water from dropper">🪰 PIP: CX COMPASS • FLYING • 95%</div>
           </div>
         </div>
       </div>
@@ -1318,7 +1316,7 @@
 
         <!-- Persona Info & Avatar Preview -->
         <div style="display:flex; align-items:center; gap:16px; background:#0c1219; border:1px solid #212b38; padding:12px; border-radius:8px; margin-bottom:14px;">
-          <img id="settingsAvatarPreview" src="assets/pics/splash.png" class="home-waifu-avatar" style="width:60px; height:60px;" alt="Avatar">
+          <img id="settingsAvatarPreview" src="assets/pics/splash.png" class="home-companion-avatar" style="width:60px; height:60px;" alt="Avatar">
           <div style="flex:1;">
             <div style="font-size:14px; font-weight:800; color:#fff;" id="settingsPersonaName">Loading active persona...</div>
             <div style="font-size:11px; color:var(--accent-pink); font-weight:700;" id="settingsPersonaArchetype">3D VRM AI Companion</div>
@@ -1335,12 +1333,10 @@
             </select>
           </div>
 
-          <!-- Avatar Mode / 3D VRM Selector -->
+          <!-- Active 3D Render Engine -->
           <div>
             <div style="font-size:11px; font-weight:800; color:#fff; margin-bottom:6px;">AVATAR RENDER ENGINE:</div>
-            <select id="cfgAvatarEngine" class="settings-input" style="width:100%;" onchange="switchAvatarEngine(this.value)">
-              <option value="3D_VRM" selected>3D VRM Companion Stage</option>
-            </select>
+            <div class="settings-input" style="width:100%; display:flex; align-items:center; opacity:0.88;">3D VRM Companion Stage</div>
           </div>
 
           <!-- Avatar Image Path -->
@@ -1364,8 +1360,12 @@
           </div>
         </div>
 
-        <div style="display:flex; justify-content:flex-end;">
-          <button class="cluster-action-btn" style="background:var(--accent-pink); color:#fff; font-weight:900; padding:8px 18px;" onclick="savePersonaMediaConfig()">💾 SAVE PERSONA & MEDIA CONFIG</button>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="cluster-action-btn pb-btn-48" id="btnOpenNewPersona" onclick="openPersonaBuilder('create')" style="border-color:var(--persona-accent, #c084fc); color:var(--persona-accent, #c084fc);">✨ + NEW PERSONA</button>
+            <button type="button" class="cluster-action-btn pb-btn-48" id="btnOpenEditPersona" onclick="openPersonaBuilder('edit', currentAiSettings.personality)" style="border-color:#38bdf8; color:#38bdf8;">✏️ EDIT ACTIVE PERSONA</button>
+          </div>
+          <button type="button" class="cluster-action-btn pb-btn-48" style="background:var(--accent-pink); color:#fff; font-weight:900; padding:8px 18px;" onclick="savePersonaMediaConfig()">💾 SAVE PERSONA & MEDIA CONFIG</button>
         </div>
       </div>
 
@@ -1616,18 +1616,56 @@
           </div>
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; align-items:center;">
             <div>
-              <div style="font-size:10px; font-weight:800; color:var(--text-secondary); margin-bottom:4px;">KOKORO VOICE TIMBRE:</div>
+              <div style="font-size:10px; font-weight:800; color:var(--text-secondary); margin-bottom:4px;">PRIMARY KOKORO VOICE:</div>
               <select id="cfgKokoroVoice" class="settings-input" style="width:100%;" onchange="saveTtsVoiceSettings()">
-                <option value="af_nicole" selected>af_nicole (Gentle & Whisper-Soft / ASMR)</option>
-                <option value="af_bella">af_bella (Sweet & Warm - Classic)</option>
-                <option value="af_heart">af_heart (Soft, Caring & Expressive)</option>
-                <option value="af_sky">af_sky (Bright, Cheerful & Airy)</option>
-                <option value="af_nova">af_nova (Energetic & Clear)</option>
+                <option value="af_sky">af_sky (Bright, Cheerful &amp; Youthful)</option>
+                <option value="af_heart">af_heart (Warm, Soft &amp; Expressive)</option>
+                <option value="af_bella" selected>af_bella (Sweet &amp; Warm - Classic)</option>
+                <option value="af_nicole">af_nicole (Gentle &amp; Whisper-Soft)</option>
+                <option value="af_nova">af_nova (Energetic &amp; Clear)</option>
+                <option value="am_adam">am_adam (Deep / Balanced)</option>
+                <option value="am_michael">am_michael (Warm Natural)</option>
+                <option value="bf_emma">bf_emma (British Crisp)</option>
+                <option value="bm_george">bm_george (British Refined)</option>
               </select>
             </div>
             <div>
-              <div style="font-size:10px; font-weight:800; color:var(--text-secondary); margin-bottom:4px;">VOICE PITCH (<span id="lblTtsPitch">1.18x</span> • RANGE 0.5x - 2.0x):</div>
-              <input type="range" id="cfgTtsPitch" min="0.50" max="2.00" step="0.05" value="1.18" style="width:100%; accent-color:var(--accent-pink);" oninput="onPitchSliderInput(this.value)" onchange="onPitchSliderChanged(this.value)">
+              <div style="font-size:10px; font-weight:800; color:var(--text-secondary); margin-bottom:4px;">VOICE PITCH (<span id="lblTtsPitch">1.12x</span> • 0.5x–2.0x):</div>
+              <input type="range" id="cfgTtsPitch" min="0.50" max="2.00" step="0.02" value="1.12" style="width:100%; accent-color:var(--accent-pink);" oninput="onPitchSliderInput(this.value)" onchange="onPitchSliderChanged(this.value)">
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; align-items:center; margin-top:10px;">
+            <div>
+              <label style="display:flex; align-items:center; gap:8px; font-size:11px; font-weight:800; color:#fff; cursor:pointer; min-height:40px;">
+                <input type="checkbox" id="cfgKokoroBlendToggle" onchange="onSettingsBlendChanged()">
+                <span>🎛️ Blend Two Kokoro Voices</span>
+              </label>
+            </div>
+            <div>
+              <div style="font-size:10px; font-weight:800; color:var(--text-secondary); margin-bottom:4px;">SPEECH SPEED (<span id="lblTtsSpeed">0.97x</span> • 0.75x–1.25x):</div>
+              <input type="range" id="cfgTtsSpeed" min="0.75" max="1.25" step="0.01" value="0.97" style="width:100%; accent-color:var(--accent-cyan);" oninput="onSpeedSliderInput(this.value)" onchange="onSpeedSliderChanged(this.value)">
+            </div>
+          </div>
+
+          <div id="cfgKokoroBlendRow" style="display:none; grid-template-columns:1fr 1fr; gap:10px; align-items:center; margin-top:8px; background:#090d14; border:1px solid #1f2b3d; padding:10px; border-radius:8px;">
+            <div>
+              <div style="font-size:10px; font-weight:800; color:var(--text-secondary); margin-bottom:4px;">SECONDARY VOICE B:</div>
+              <select id="cfgKokoroVoiceB" class="settings-input" style="width:100%;" onchange="saveTtsVoiceSettings()">
+                <option value="af_heart" selected>af_heart (Warm, Soft &amp; Expressive)</option>
+                <option value="af_sky">af_sky (Bright, Cheerful &amp; Youthful)</option>
+                <option value="af_bella">af_bella (Sweet &amp; Warm - Classic)</option>
+                <option value="af_nicole">af_nicole (Gentle &amp; Whisper-Soft)</option>
+                <option value="af_nova">af_nova (Energetic &amp; Clear)</option>
+                <option value="am_adam">am_adam (Deep / Balanced)</option>
+                <option value="am_michael">am_michael (Warm Natural)</option>
+                <option value="bf_emma">bf_emma (British Crisp)</option>
+                <option value="bm_george">bm_george (British Refined)</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:10px; font-weight:800; color:var(--text-secondary); margin-bottom:4px;">VOICE A / B MIX (<span id="lblKokoroBlendMix">65% / 35%</span>):</div>
+              <input type="range" id="cfgKokoroBlendMix" min="10" max="90" step="5" value="65" style="width:100%; accent-color:var(--persona-accent, #c084fc);" oninput="document.getElementById('lblKokoroBlendMix').innerText=this.value+'% / '+(100-parseInt(this.value,10))+'%'" onchange="saveTtsVoiceSettings()">
             </div>
           </div>
           <div id="elevenLabsKeyRow" style="display:none; margin-top:10px; gap:8px; align-items:center;">
@@ -4233,10 +4271,17 @@
           </div>
         </div>
 
-        <div style="background:#0c1219; border:1px solid #212b38; padding:10px 14px; border-radius:8px; margin-bottom:12px;">
+        <div style="background:#0c1219; border:1px solid #212b38; padding:10px 14px; border-radius:8px; margin-bottom:10px;">
           <div style="font-size:10px; color:var(--text-secondary); font-weight:800;">THROTTLING & VOLTAGE STATUS:</div>
           <div style="font-size:12px; font-weight:800; color:var(--accent-green); margin-top:2px;" id="modalSbcThrottleMsg">
             🟢 Thermal & Voltage Nominal
+          </div>
+        </div>
+
+        <div style="background:#0c1219; border:1px solid #212b38; padding:10px 14px; border-radius:8px; margin-bottom:12px;">
+          <div style="font-size:10px; color:var(--text-secondary); font-weight:800;">REAL-TIME CLOCK (RTC BATTERY / LIR2025):</div>
+          <div style="font-size:12px; font-weight:800; color:#94a3b8; margin-top:2px;" id="modalSbcRtcStatus">
+            Checking Pi 5 RTC sysfs...
           </div>
         </div>
 
@@ -4419,6 +4464,7 @@
   <script src="js/storage_trips.js"></script>
   <script src="js/diagnostics_dragy.js"></script>
   <script src="js/ai_voice.js"></script>
+  <script src="js/persona_builder.js"></script>
   <script src="js/media_dsp.js"></script>
   <script src="js/maintenance_memory.js"></script>
   <script src="js/vrm_living_rig.js"></script>
@@ -4436,7 +4482,7 @@
         <button class="vrm-hud-btn close" onclick="dismissFloatingHud()" title="Dismiss / Hide Companion">✕</button>
       </div>
     </div>
-    <div class="vrm-hud-body" id="vrmFloatingBody" onclick="triggerWaifuTouch()">
+    <div class="vrm-hud-body" id="vrmFloatingBody" onclick="triggerVrmTouch()">
       <div id="vrmHudBubble" class="vrm-hud-speech-bubble">Ready for full boost!</div>
       <!-- vrmCanvas moves here when floating! -->
     </div>
@@ -4931,6 +4977,347 @@
     </div>
   </div>
 
+
+  <!-- PERSONA BUILDER & EDITOR WIZARD MODAL -->
+  <div class="config-modal-overlay" id="personaBuilderModal" style="display:none;" onclick="if(event.target === this) closePersonaBuilder()">
+    <div class="config-modal-content pb-modal-card">
+      <div class="pb-header">
+        <div>
+          <h3 id="pbModalTitle" style="font-size:16px; font-weight:900; color:#fff; margin:0;">✨ CREATE NEW PERSONA</h3>
+          <div id="pbStatusMsg" style="font-size:11px; color:var(--persona-accent, #c084fc); font-weight:700; margin-top:2px;">Configure identity, 3D VRM, voice &amp; callouts</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div id="pbTemplateWrap" style="display:flex; align-items:center; gap:6px;">
+            <select id="pbTemplateSelect" class="settings-input" style="min-height:48px; min-width:165px;" onchange="applyBuilderTemplate(this.value)"></select>
+          </div>
+          <button type="button" class="cluster-action-btn pb-btn-48" onclick="closePersonaBuilder()" style="min-width:48px;">✕</button>
+        </div>
+      </div>
+
+      <div class="pb-tabs">
+        <button type="button" class="pb-tab-btn active" id="pbTabBtn_identity" onclick="switchPersonaBuilderTab('identity')">🪪 1. IDENTITY</button>
+        <button type="button" class="pb-tab-btn" id="pbTabBtn_vrm" onclick="switchPersonaBuilderTab('vrm')">🧍 2. 3D VRM</button>
+        <button type="button" class="pb-tab-btn" id="pbTabBtn_voice" onclick="switchPersonaBuilderTab('voice')">🎙️ 3. VOICE &amp; SAFETY</button>
+        <button type="button" class="pb-tab-btn" id="pbTabBtn_dialogue" onclick="switchPersonaBuilderTab('dialogue')">💬 4. DIALOGUE</button>
+      </div>
+
+      <div class="pb-scroll-body">
+        <!-- TAB 1: IDENTITY & PROMPT -->
+        <div id="pbTabPane_identity">
+          <div class="pb-grid-2">
+            <div>
+              <label class="pb-label" for="pbNameInput">DISPLAY NAME:</label>
+              <input type="text" id="pbNameInput" class="settings-input cockpit-modal-input" style="width:100%; min-height:46px;" placeholder="e.g. Lumi or R.U.M." oninput="onBuilderFormChanged()">
+            </div>
+            <div>
+              <label class="pb-label" for="pbIdInput">PERSONA ID (UNIQUE FILE KEY):</label>
+              <input type="text" id="pbIdInput" class="settings-input cockpit-modal-input" style="width:100%; min-height:46px;" placeholder="e.g. LUMI" oninput="this._userEdited=true; onBuilderFormChanged()">
+            </div>
+            <div>
+              <label class="pb-label" for="pbShortNameInput">SHORT BADGE / DOCK NAME:</label>
+              <input type="text" id="pbShortNameInput" class="settings-input cockpit-modal-input" style="width:100%; min-height:46px;" placeholder="e.g. LUMI" oninput="this._userEdited=true; onBuilderFormChanged()">
+            </div>
+            <div>
+              <label class="pb-label" for="pbDriverTitle">WHAT SHE CALLS DRIVER (DEFAULT):</label>
+              <input type="text" id="pbDriverTitle" class="settings-input cockpit-modal-input" style="width:100%; min-height:46px;" placeholder="Dad / Master / Commander" oninput="onBuilderFormChanged()">
+            </div>
+          </div>
+
+          <div class="pb-grid-2">
+            <div>
+              <label class="pb-label" for="pbIconInput">ICON EMOJI:</label>
+              <div style="display:flex; gap:6px; align-items:center;">
+                <input type="text" id="pbIconInput" class="settings-input cockpit-modal-input" style="width:70px; min-height:46px; text-align:center; font-size:18px;" value="✨" oninput="onBuilderFormChanged()">
+                <div class="pb-chip-row" style="margin-top:0;">
+                  <button type="button" class="pb-chip-btn" onclick="selectBuilderIcon('💜')">💜</button>
+                  <button type="button" class="pb-chip-btn" onclick="selectBuilderIcon('💖')">💖</button>
+                  <button type="button" class="pb-chip-btn" onclick="selectBuilderIcon('🛡️')">🛡️</button>
+                  <button type="button" class="pb-chip-btn" onclick="selectBuilderIcon('⚡')">⚡</button>
+                  <button type="button" class="pb-chip-btn" onclick="selectBuilderIcon('🏎️')">🏎️</button>
+                  <button type="button" class="pb-chip-btn" onclick="selectBuilderIcon('🌟')">🌟</button>
+                </div>
+              </div>
+            </div>
+            <div style="display:flex; flex-direction:column; justify-content:flex-end;">
+              <label class="pb-touch-chip" style="min-height:46px;">
+                <input type="checkbox" id="pbSetDefaultChk" onchange="onBuilderFormChanged()">
+                <span>⭐ Set as Boot Default Persona ("default": true)</span>
+              </label>
+            </div>
+          </div>
+
+          <div style="margin-bottom:10px;">
+            <label class="pb-label" for="pbSubtitle">SUBTITLE / ARCHETYPE TAGLINE:</label>
+            <input type="text" id="pbSubtitle" class="settings-input cockpit-modal-input" style="width:100%; min-height:46px;" placeholder="e.g. Curious Gearhead Co-Pilot" oninput="onBuilderFormChanged()">
+          </div>
+
+          <div style="margin-bottom:10px;">
+            <label class="pb-label" for="pbPrompt">SYSTEM PROMPT (PERSONALITY &amp; SPEAKING RULES):</label>
+            <textarea id="pbPrompt" class="settings-input cockpit-modal-input" rows="3" style="width:100%; padding:8px; resize:vertical;" placeholder="Describe voice, attitude, relationship to {driver_address}, and response style..." oninput="onBuilderFormChanged()"></textarea>
+          </div>
+
+          <div>
+            <label class="pb-label" for="pbBackstory">CHARACTER BACKSTORY:</label>
+            <textarea id="pbBackstory" class="settings-input cockpit-modal-input" rows="2" style="width:100%; padding:8px; resize:vertical;" placeholder="Optional origin story & memories..." oninput="onBuilderFormChanged()"></textarea>
+          </div>
+        </div>
+
+        <!-- TAB 2: 3D VRM & THEME -->
+        <div id="pbTabPane_vrm" style="display:none;">
+          <div class="pb-grid-2">
+            <div>
+              <label class="pb-label" for="pbVrmModel">3D VRM AVATAR MODEL:</label>
+              <div style="display:flex; gap:6px;">
+                <select id="pbVrmModel" class="settings-input" style="flex:1; min-height:48px;" onchange="detectVrmBoneHints(this.value, true); onBuilderFormChanged()"></select>
+                <input type="file" id="pbVrmUploadInput" accept=".vrm" style="display:none;" onchange="uploadPersonaAsset(this, 'vrm')">
+                <button type="button" class="cluster-action-btn pb-btn-48" onclick="document.getElementById('pbVrmUploadInput').click()" style="border-color:#c084fc; color:#c084fc;">⬆ UPLOAD .VRM</button>
+              </div>
+            </div>
+            <div>
+              <label class="pb-label" for="pbAvatarImg">PORTRAIT AVATAR IMAGE:</label>
+              <div style="display:flex; gap:6px;">
+                <select id="pbAvatarImg" class="settings-input" style="flex:1; min-height:48px;" onchange="onBuilderFormChanged()"></select>
+                <input type="file" id="pbPicUploadInput" accept=".png,.jpg,.jpeg,.webp" style="display:none;" onchange="uploadPersonaAsset(this, 'pic')">
+                <button type="button" class="cluster-action-btn pb-btn-48" onclick="document.getElementById('pbPicUploadInput').click()" style="border-color:#38bdf8; color:#38bdf8;">⬆ UPLOAD IMG</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="pb-grid-2">
+            <div>
+              <label class="pb-label">ACCENT THEME COLOR:</label>
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <input type="text" id="pbAccentColor" class="settings-input cockpit-modal-input" style="width:105px; min-height:44px;" value="#c084fc" oninput="onBuilderFormChanged()">
+                <button type="button" class="pb-swatch" style="background:#c084fc;" onclick="selectBuilderColor('#c084fc')" title="R.U.M. Violet"></button>
+                <button type="button" class="pb-swatch" style="background:#ec4899;" onclick="selectBuilderColor('#ec4899')" title="Rose Pink"></button>
+                <button type="button" class="pb-swatch" style="background:#38bdf8;" onclick="selectBuilderColor('#38bdf8')" title="Tactical Cyan"></button>
+                <button type="button" class="pb-swatch" style="background:#22c55e;" onclick="selectBuilderColor('#22c55e')" title="Emerald"></button>
+                <button type="button" class="pb-swatch" style="background:#f59e0b;" onclick="selectBuilderColor('#f59e0b')" title="Amber Boost"></button>
+              </div>
+            </div>
+            <div>
+              <label class="pb-label" for="pbFramingMode">CAMERA FRAMING MODE:</label>
+              <select id="pbFramingMode" class="settings-input" style="width:100%; min-height:46px;" onchange="onBuilderFormChanged()">
+                <option value="FULL_BODY">FULL_BODY (Full Stage)</option>
+                <option value="PORTRAIT">PORTRAIT (Upper Torso &amp; Face)</option>
+                <option value="ROOM">ROOM (Wide 3D Environment)</option>
+                <option value="AUTO">AUTO (Dynamic Speech Zoom)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="pb-grid-2">
+            <div>
+              <label class="pb-label">MODEL SCALE (<span id="pbVrmScaleLbl">1.18x</span>):</label>
+              <input type="range" id="pbVrmScale" min="0.80" max="1.60" step="0.02" value="1.18" style="width:100%; min-height:40px; accent-color:var(--persona-accent, #c084fc);" oninput="document.getElementById('pbVrmScaleLbl').innerText=parseFloat(this.value).toFixed(2)+'x'; onBuilderFormChanged()">
+            </div>
+            <div>
+              <label class="pb-label">SPRING PHYSICS INTENSITY (<span id="pbSpringScaleLbl">1.00x</span>):</label>
+              <input type="range" id="pbSpringScale" min="0.20" max="1.80" step="0.05" value="1.00" style="width:100%; min-height:40px; accent-color:var(--persona-accent, #c084fc);" oninput="document.getElementById('pbSpringScaleLbl').innerText=parseFloat(this.value).toFixed(2)+'x'; onBuilderFormChanged()">
+            </div>
+          </div>
+
+          <div class="pb-grid-2" style="grid-template-columns:1fr 1fr 1fr;">
+            <div>
+              <label class="pb-label" for="pbDefaultIdle">DEFAULT IDLE ANIMATION:</label>
+              <select id="pbDefaultIdle" class="settings-input" style="width:100%; min-height:46px;" onchange="onBuilderFormChanged()"></select>
+            </div>
+            <div>
+              <label class="pb-label" for="pbNightSitIdle">NIGHT / PARKED IDLE:</label>
+              <select id="pbNightSitIdle" class="settings-input" style="width:100%; min-height:46px;" onchange="onBuilderFormChanged()"></select>
+            </div>
+            <div>
+              <label class="pb-label" for="pbWalkClip">ROAM WALK CLIP:</label>
+              <select id="pbWalkClip" class="settings-input" style="width:100%; min-height:46px;" onchange="onBuilderFormChanged()"></select>
+            </div>
+          </div>
+
+          <div class="pb-grid-2">
+            <div>
+              <label class="pb-label" for="pbSplashImg">BOOT SPLASH IMAGE:</label>
+              <select id="pbSplashImg" class="settings-input" style="width:100%; min-height:46px;" onchange="onBuilderFormChanged()"></select>
+            </div>
+            <div>
+              <label class="pb-label" for="pbSplashTitle">BOOT SPLASH HEADLINE:</label>
+              <input type="text" id="pbSplashTitle" class="settings-input cockpit-modal-input" style="width:100%; min-height:46px;" oninput="onBuilderFormChanged()">
+            </div>
+          </div>
+
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; background:#0b111b; border:1px solid #212e42; border-radius:8px; padding:10px 12px;">
+            <label style="display:flex; align-items:center; gap:8px; font-size:12px; font-weight:800; color:#fff; cursor:pointer;">
+              <input type="checkbox" id="pbSleeveBonesChk" onchange="onBuilderFormChanged()">
+              <span>Enable Kimono Sleeve Gravity Drape (Bone001 / Bone001_m)</span>
+            </label>
+            <span id="pbSleeveHint" style="font-size:11px; color:var(--text-secondary);"></span>
+          </div>
+          <input type="hidden" id="pbSplashSub">
+        </div>
+
+        <!-- TAB 3: VOICE & SAFETY -->
+        <div id="pbTabPane_voice" style="display:none;">
+          <div class="pb-grid-2">
+            <div>
+              <label class="pb-label" for="pbVoiceEngine">SPEECH ENGINE:</label>
+              <select id="pbVoiceEngine" class="settings-input" style="width:100%; min-height:48px;" onchange="onBuilderFormChanged()">
+                <option value="KOKORO">KOKORO (Warm Offline Neural 82M)</option>
+                <option value="PIPER">PIPER (Ultra-Fast Offline)</option>
+                <option value="ELEVENLABS">ELEVENLABS (Cloud Custom Voice)</option>
+                <option value="OPENAI_TTS">OPENAI_TTS (Cloud Voice)</option>
+              </select>
+            </div>
+            <div>
+              <label class="pb-label" for="pbKokoroVoice">PRIMARY KOKORO VOICE:</label>
+              <select id="pbKokoroVoice" class="settings-input" style="width:100%; min-height:48px;" onchange="onBuilderFormChanged()"></select>
+            </div>
+          </div>
+
+          <div style="margin-bottom:10px;">
+            <label class="pb-touch-chip" style="min-height:46px;">
+              <input type="checkbox" id="pbBlendToggle" onchange="toggleBuilderVoiceBlend(this.checked)">
+              <span>🎛️ Blend Two Kokoro Voices Together (Realistic Custom Timbre)</span>
+            </label>
+          </div>
+
+          <div id="pbBlendRow" class="pb-grid-2" style="display:none; background:#0b111b; border:1px solid #223044; border-radius:8px; padding:10px;">
+            <div>
+              <label class="pb-label" for="pbKokoroVoiceB">SECONDARY KOKORO VOICE B:</label>
+              <select id="pbKokoroVoiceB" class="settings-input" style="width:100%; min-height:48px;" onchange="onBuilderFormChanged()"></select>
+            </div>
+            <div>
+              <label class="pb-label">BLEND MIX (<span id="pbBlendMixLbl">65% / 35%</span>):</label>
+              <input type="range" id="pbBlendMix" min="10" max="90" step="5" value="65" style="width:100%; min-height:42px; accent-color:var(--persona-accent, #c084fc);" oninput="document.getElementById('pbBlendMixLbl').innerText=this.value+'% / '+(100-parseInt(this.value,10))+'%'; onBuilderFormChanged()">
+            </div>
+          </div>
+
+          <div class="pb-grid-2" style="align-items:end;">
+            <div>
+              <label class="pb-label">VOICE PITCH (<span id="pbPitchLbl">1.12x</span>):</label>
+              <input type="range" id="pbPitchSlider" min="0.50" max="2.00" step="0.02" value="1.12" style="width:100%; min-height:42px; accent-color:var(--persona-accent, #c084fc);" oninput="document.getElementById('pbPitchLbl').innerText=parseFloat(this.value).toFixed(2)+'x'; onBuilderFormChanged()">
+            </div>
+            <div>
+              <label class="pb-label">SPEECH SPEED (<span id="pbSpeedLbl">0.97x</span>):</label>
+              <input type="range" id="pbSpeedSlider" min="0.75" max="1.25" step="0.01" value="0.97" style="width:100%; min-height:42px; accent-color:var(--accent-cyan);" oninput="document.getElementById('pbSpeedLbl').innerText=parseFloat(this.value).toFixed(2)+'x'; onBuilderFormChanged()">
+            </div>
+          </div>
+
+          <div style="margin-bottom:10px; display:flex; gap:8px;">
+            <button type="button" class="cluster-action-btn pb-btn-48" onclick="testBuilderVoice()" style="flex:1; border-color:var(--accent-green); color:var(--accent-green);">🔊 TEST DRAFT VOICE LIVE</button>
+          </div>
+
+          <div class="pb-grid-2">
+            <div>
+              <label class="pb-label" for="pbAckFolder">WAKE ACKNOWLEDGMENT FOLDER:</label>
+              <select id="pbAckFolder" class="settings-input" style="width:100%; min-height:46px;" onchange="onBuilderFormChanged()"></select>
+            </div>
+            <div>
+              <label class="pb-label" for="pbElevenVoiceId">ELEVENLABS VOICE ID (OPTIONAL):</label>
+              <input type="text" id="pbElevenVoiceId" class="settings-input cockpit-modal-input" style="width:100%; min-height:46px;" placeholder="cgSgspJ2msm6clMCkdW9" oninput="onBuilderFormChanged()">
+            </div>
+          </div>
+
+          <div style="background:#0b111b; border:1px solid #223044; border-radius:10px; padding:12px;">
+            <label class="pb-label">AGE &amp; TOUCH ZONE SAFETY PRESET:</label>
+            <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; margin-top:6px;">
+              <button type="button" class="pb-tab-btn" id="pbSafe_KID_SAFE" onclick="applyBuilderSafetyPreset('KID_SAFE')">👧 KID-SAFE CO-PILOT<br><span style="font-size:9px; opacity:0.8;">Locks adult zones</span></button>
+              <button type="button" class="pb-tab-btn" id="pbSafe_TACTICAL" onclick="applyBuilderSafetyPreset('TACTICAL')">🛡️ TACTICAL / NEUTRAL<br><span style="font-size:9px; opacity:0.8;">Locks adult zones</span></button>
+              <button type="button" class="pb-tab-btn" id="pbSafe_ADULT" onclick="applyBuilderSafetyPreset('ADULT')">💖 ADULT PARTNER<br><span style="font-size:9px; opacity:0.8;">All zones configurable</span></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 4: DIALOGUE, WAKE WORDS & CALLOUTS -->
+        <div id="pbTabPane_dialogue" style="display:none;">
+          <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
+            <button type="button" class="cluster-action-btn pb-btn-48" onclick="autofillBuilderDialogue(false)" style="border-color:#38bdf8; color:#38bdf8;">✨ GENERATE WAKE WORDS &amp; TEMPLATE CALLOUTS</button>
+            <button type="button" class="cluster-action-btn pb-btn-48" onclick="autofillBuilderDialogue(true)" style="border-color:var(--persona-accent, #c084fc); color:var(--persona-accent, #c084fc);">🧠 AUTO-FILL LINES WITH ACTIVE AI</button>
+          </div>
+
+          <div class="pb-grid-2">
+            <div>
+              <label class="pb-label" for="pbWakePrefix">WAKE WORD DISPLAY PHRASE:</label>
+              <input type="text" id="pbWakePrefix" class="settings-input cockpit-modal-input" style="width:100%; min-height:44px;" placeholder="Hey Lumi" oninput="onBuilderFormChanged()">
+            </div>
+            <div>
+              <label class="pb-label" for="pbWakeExactReply">EXACT WAKE REPLY:</label>
+              <input type="text" id="pbWakeExactReply" class="settings-input cockpit-modal-input" style="width:100%; min-height:44px;" placeholder="Right here, {driver_address}!" oninput="onBuilderFormChanged()">
+            </div>
+          </div>
+
+          <div style="margin-bottom:10px;">
+            <label class="pb-label" for="pbWakeList">WAKE WORD TRIGGERS (COMMA SEPARATED):</label>
+            <input type="text" id="pbWakeList" class="settings-input cockpit-modal-input" style="width:100%; min-height:44px;" placeholder="hey lumi, hi lumi, okay lumi" oninput="onBuilderFormChanged()">
+          </div>
+
+          <div class="pb-grid-2">
+            <div>
+              <label class="pb-label" for="pbFirstChatIntro">FIRST CHAT WELCOME MESSAGE:</label>
+              <input type="text" id="pbFirstChatIntro" class="settings-input cockpit-modal-input" style="width:100%; min-height:44px;" oninput="onBuilderFormChanged()">
+            </div>
+            <div>
+              <label class="pb-label" for="pbMorningGreeting">MORNING GREETING LINE:</label>
+              <input type="text" id="pbMorningGreeting" class="settings-input cockpit-modal-input" style="width:100%; min-height:44px;" oninput="onBuilderFormChanged()">
+            </div>
+          </div>
+
+          <div style="margin-bottom:10px;">
+            <label class="pb-label" for="pbThinkingFillers">THINKING FILLERS ("|" SEPARATED):</label>
+            <input type="text" id="pbThinkingFillers" class="settings-input cockpit-modal-input" style="width:100%; min-height:44px;" placeholder="Hmm, one sec! | Let me check, {driver_address}!" oninput="onBuilderFormChanged()">
+          </div>
+
+          <label class="pb-label">ENABLED 3D TOUCH ZONES:</label>
+          <div class="pb-touch-grid" id="pbTouchZonesGrid"></div>
+
+          <label class="pb-label">KEY TELEMETRY CALLOUTS ({driver_address}, {coolant}, {peak}, {speed}):</label>
+          <div class="pb-grid-2">
+            <div>
+              <label class="pb-label" for="pbCalloutCoolant">HIGH COOLANT ALERT:</label>
+              <input type="text" id="pbCalloutCoolant" class="settings-input cockpit-modal-input" style="width:100%; min-height:42px;" oninput="onBuilderFormChanged()">
+            </div>
+            <div>
+              <label class="pb-label" for="pbCalloutColdOil">COLD MULTIAIR OIL WARNING:</label>
+              <input type="text" id="pbCalloutColdOil" class="settings-input cockpit-modal-input" style="width:100%; min-height:42px;" oninput="onBuilderFormChanged()">
+            </div>
+            <div>
+              <label class="pb-label" for="pbCalloutPull">TURBO BOOST PULL DEBRIEF:</label>
+              <input type="text" id="pbCalloutPull" class="settings-input cockpit-modal-input" style="width:100%; min-height:42px;" oninput="onBuilderFormChanged()">
+            </div>
+            <div>
+              <label class="pb-label" for="pbCalloutShift">PERFECT REV-MATCH PRAISE:</label>
+              <input type="text" id="pbCalloutShift" class="settings-input cockpit-modal-input" style="width:100%; min-height:42px;" oninput="onBuilderFormChanged()">
+            </div>
+            <div>
+              <label class="pb-label" for="pbCalloutSpeed">100+ MPH WARNING:</label>
+              <input type="text" id="pbCalloutSpeed" class="settings-input cockpit-modal-input" style="width:100%; min-height:42px;" oninput="onBuilderFormChanged()">
+            </div>
+            <div>
+              <label class="pb-label" for="pbCalloutDragy">DRAGY 0-60 RESULT:</label>
+              <input type="text" id="pbCalloutDragy" class="settings-input cockpit-modal-input" style="width:100%; min-height:42px;" oninput="onBuilderFormChanged()">
+            </div>
+          </div>
+
+          <details id="pbRawJsonDetails" style="margin-top:8px; background:#080c12; border:1px solid #1e293b; border-radius:8px; padding:8px 10px;">
+            <summary style="cursor:pointer; font-size:11px; font-weight:800; color:#94a3b8; display:flex; justify-content:space-between;">
+              <span>🛠️ ADVANCED: RAW PERSONA JSON INSPECTOR &amp; EDITOR</span>
+              <span id="pbRawJsonStatus" style="color:var(--accent-green);">● VALID JSON</span>
+            </summary>
+            <textarea id="pbRawJsonArea" class="settings-input cockpit-modal-input" rows="8" style="width:100%; margin-top:8px; font-family:var(--font-mono); font-size:11px; padding:8px;" oninput="onRawJsonInput(this.value)"></textarea>
+          </details>
+        </div>
+      </div>
+
+      <div class="pb-footer">
+        <div style="display:flex; gap:8px;">
+          <button type="button" class="cluster-action-btn pb-btn-48" id="pbBtnDelete" onclick="deletePersonaFromBuilder()" style="border-color:#ef4444; color:#fca5a5;">🗑️ DELETE</button>
+          <button type="button" class="cluster-action-btn pb-btn-48" id="pbBtnDuplicate" onclick="duplicatePersonaInBuilder()">📋 DUPLICATE</button>
+          <button type="button" class="cluster-action-btn pb-btn-48" onclick="exportPersonaJson()">⬇️ EXPORT .JSON</button>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button type="button" class="cluster-action-btn pb-btn-48" onclick="savePersonaBuilder(false)" style="border-color:#38bdf8; color:#38bdf8;">💾 SAVE ONLY</button>
+          <button type="button" class="cluster-action-btn pb-btn-48" id="pbBtnSaveActivate" onclick="savePersonaBuilder(true)" style="background:var(--persona-accent, #c084fc); color:#090b10; border-color:transparent; font-weight:900;">🚀 SAVE &amp; ACTIVATE</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- BADASS TRIP TELEMETRY & BLACK BOX INSPECTOR MODAL -->
   <div class="config-modal-overlay" id="tripInspectorModal" style="display:none;" onclick="if(event.target === this) closeTripInspectorModal()">

@@ -153,6 +153,7 @@ class SystemMonitor:
         mins = (uptime_sec % 3600) // 60
 
         throttling = self.get_throttled_status()
+        rtc = self.get_rtc_status()
 
         return {
             "connected": bool(self.is_linux and temp_c > 0.0),
@@ -166,7 +167,57 @@ class SystemMonitor:
             "throttled": throttling["is_throttled"],
             "under_voltage": throttling["under_voltage"],
             "throttle_message": throttling["message"],
-            "brightness_pct": self.current_brightness
+            "brightness_pct": self.current_brightness,
+            "rtc": rtc,
+        }
+
+    def get_rtc_status(self, rtc_dir: Optional[str] = None) -> Dict[str, Any]:
+        """Read Raspberry Pi 5 hardware RTC battery & trickle-charge voltage from sysfs truthfully."""
+        candidates = [rtc_dir] if rtc_dir else [
+            "/sys/devices/platform/soc/soc:rpi_rtc/rtc/rtc0",
+            "/sys/class/rtc/rtc0",
+        ]
+        found_dir = next((d for d in candidates if d and os.path.exists(d)), None)
+        if not found_dir or (not self.is_linux and not rtc_dir):
+            return {
+                "present": False,
+                "battery_voltage_v": None,
+                "charging_voltage_v": None,
+                "charging_enabled": False,
+                "rtc_time": None,
+                "status": "unavailable",
+            }
+
+        def _read_uv(fname: str) -> Optional[float]:
+            fpath = os.path.join(found_dir, fname)
+            if not os.path.exists(fpath):
+                return None
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    raw = f.read().strip()
+                return round(float(raw) / 1_000_000.0, 2)
+            except Exception:
+                return None
+
+        bat_v = _read_uv("battery_voltage")
+        chg_v = _read_uv("charging_voltage")
+        rtc_time = None
+        tpath = os.path.join(found_dir, "time")
+        dpath = os.path.join(found_dir, "date")
+        if os.path.exists(dpath) and os.path.exists(tpath):
+            try:
+                with open(dpath, "r", encoding="utf-8") as df, open(tpath, "r", encoding="utf-8") as tf:
+                    rtc_time = f"{df.read().strip()} {tf.read().strip()} UTC"
+            except Exception:
+                rtc_time = None
+        charging_on = bool(chg_v is not None and chg_v > 0.0)
+        return {
+            "present": True,
+            "battery_voltage_v": bat_v,
+            "charging_voltage_v": chg_v,
+            "charging_enabled": charging_on,
+            "rtc_time": rtc_time,
+            "status": "charging_ready" if charging_on else ("battery_detected" if bat_v is not None else "rtc_online"),
         }
 
     def set_brightness(self, pct: int) -> bool:

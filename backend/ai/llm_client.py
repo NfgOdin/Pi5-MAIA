@@ -66,49 +66,39 @@ def load_personas_from_dir(persona_dir: Optional[str] = None) -> Dict[str, Dict[
 
 
     if os.path.exists(persona_dir):
-
-        for fname in os.listdir(persona_dir):
-
+        for fname in sorted(os.listdir(persona_dir)):
             if fname.endswith(".json") and not fname.endswith(".example"):
-
                 fpath = os.path.join(persona_dir, fname)
-
                 try:
-
                     with open(fpath, "r", encoding="utf-8") as f:
-
                         data = json.load(f)
-
                         p_id = data.get("id", os.path.splitext(fname)[0].upper())
-
                         p_dict = dict(data)
-
                         p_dict.setdefault("id", p_id)
-
                         p_dict.setdefault("name", p_id)
-
                         p_dict.setdefault("full_name", data.get("name", p_id))
-
                         p_dict.setdefault("description", "")
-
                         p_dict.setdefault("gender", "female")
-
-                        p_dict.setdefault("archetype", "Daughter Co-Pilot")
-
-                        p_dict.setdefault("avatar_image", "/assets/pics/splash.png")
-
-                        p_dict.setdefault("boot_splash_image", "")
-
+                        p_dict.setdefault("age_spirit", "")
+                        p_dict.setdefault("archetype", "Cockpit AI Companion")
+                        p_dict.setdefault("avatar_image", "assets/pics/splash.png")
+                        p_dict.setdefault("boot_splash_image", "assets/pics/splash.png")
                         p_dict.setdefault("boot_splash_video", "")
-
+                        p_dict.setdefault("boot_splash_title", f"{p_dict['name']} • CARPI5")
+                        p_dict.setdefault("boot_splash_subtitle", p_dict.get("subtitle") or p_dict["archetype"])
+                        p_dict.setdefault("acknowledgments_folder", str(p_id).lower())
+                        p_dict.setdefault("elevenlabs_voice_id", "")
+                        if p_dict.get("tts_pitch") is None and p_dict.get("pitch_factor") is not None:
+                            p_dict["tts_pitch"] = p_dict["pitch_factor"]
+                        p_dict.setdefault("speech_speed", 1.00)
+                        p_dict.setdefault("vrm_defaults", {})
+                        p_dict.setdefault("copilot_callouts", {})
+                        p_dict.setdefault("touch_interactions", {})
+                        p_dict.setdefault("banned_touch_zones", [])
                         p_dict.setdefault("prompt", "")
-
                         p_dict.setdefault("default", False)
-
                         personas[p_id] = p_dict
-
                 except Exception as e:
-
                     print(f"[PERSONA] Error loading {fname}: {e}")
 
 
@@ -523,9 +513,9 @@ class LLMClient:
 
 
     def reload_personas(self) -> Dict[str, Dict[str, Any]]:
-
-        self.personas = load_personas_from_dir()
-
+        global PERSONALITIES
+        self.personas = load_personas_from_dir(self._get_persona_dir())
+        PERSONALITIES = self.personas
         return self.personas
 
 
@@ -581,9 +571,11 @@ class LLMClient:
 
             "tts_engine": "KOKORO",
 
-            "kokoro_voice": "af_bella",
+            "kokoro_voice": "af_sky:0.65+af_heart:0.35",
 
-            "tts_pitch": 1.125,
+            "tts_pitch": 1.12,
+
+            "speech_speed": 0.97,
 
             "elevenlabs_api_key": "",
 
@@ -644,33 +636,35 @@ class LLMClient:
 
 
     def save_settings(self, new_settings: Dict[str, Any]):
-
+        prev_persona = self.settings.get("personality")
         self.settings.update(new_settings)
-
+        next_persona = self.settings.get("personality")
+        if "personality" in new_settings and next_persona and next_persona != prev_persona:
+            self.reload_personas()
+            pdata = self.personas.get(next_persona) or {}
+            persona_audio_map = {
+                "tts_engine": pdata.get("voice_engine"),
+                "kokoro_voice": pdata.get("kokoro_voice"),
+                "elevenlabs_voice_id": pdata.get("elevenlabs_voice_id"),
+                "tts_pitch": pdata.get("tts_pitch") if pdata.get("tts_pitch") is not None else pdata.get("pitch_factor"),
+                "pitch_factor": pdata.get("pitch_factor") if pdata.get("pitch_factor") is not None else pdata.get("tts_pitch"),
+                "speech_speed": pdata.get("speech_speed", 1.00),
+                "acknowledgments_folder": pdata.get("acknowledgments_folder") or str(next_persona).lower(),
+            }
+            for k, val in persona_audio_map.items():
+                if val not in (None, "") and k not in new_settings:
+                    self.settings[k] = val
         try:
-
             with open(self.config_file, "w") as f:
-
                 json.dump(self.settings, f, indent=2)
-
-            # Sync to ai_config.json as well
-
             alt_config = os.path.join(os.path.dirname(__file__), "ai_config.json")
-
             try:
-
                 with open(alt_config, "w") as f:
-
                     json.dump(self.settings, f, indent=2)
-
             except Exception:
-
                 pass
-
             print("[LLM] Saved updated AI settings.")
-
         except Exception as e:
-
             print(f"[LLM] Failed saving settings: {e}")
 
 
@@ -726,6 +720,288 @@ class LLMClient:
             choices.append("Dad")
 
         return random.choice(choices)
+
+    def _get_persona_dir(self, persona_dir: Optional[str] = None) -> str:
+        if persona_dir:
+            return persona_dir
+        override = getattr(self, "_persona_dir_override", None)
+        if override:
+            return override
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        return os.path.join(base_dir, "config", "personas")
+
+    @staticmethod
+    def _sanitize_persona_id(raw_id: Any, fallback_name: str = "CUSTOM") -> str:
+        import re
+        cand = re.sub(r"[^a-zA-Z0-9_-]", "", str(raw_id or fallback_name or "CUSTOM")).upper()
+        return cand[:32] or "CUSTOM"
+
+    @staticmethod
+    def _generate_wake_word_variants(name: str, short_name: str = "") -> Dict[str, Any]:
+        import re
+        base_raw = (short_name or name or "companion").strip()
+        clean = re.sub(r"[^a-zA-Z0-9\s]", "", base_raw).strip().lower() or "companion"
+        tokens = [clean]
+        if " " in clean:
+            tokens.append(clean.split()[0])
+        prefixes = []
+        for tok in dict.fromkeys(tokens):
+            for pfx in ("hey", "hi", "hello", "okay", "ok"):
+                prefixes.append(f"{pfx} {tok}")
+        if "." in base_raw:
+            prefixes.append(base_raw.lower())
+        return {
+            "canonical_prefix": f"Hey {base_raw}",
+            "exact_reply": f"Right here, {{driver_address}}! {base_raw} is listening.",
+            "prefixes": list(dict.fromkeys(prefixes)),
+            "standalone": list(dict.fromkeys(tokens + ([base_raw.lower()] if "." in base_raw else []))),
+        }
+
+    def save_persona(self, persona_data: Dict[str, Any], set_active: bool = False, persona_dir: Optional[str] = None) -> Dict[str, Any]:
+        """Create or update a persona JSON file atomically, enforce default uniqueness, and reload."""
+        if not isinstance(persona_data, dict):
+            return {"status": "error", "message": "Invalid persona payload"}
+        p_dir = self._get_persona_dir(persona_dir)
+        os.makedirs(p_dir, exist_ok=True)
+
+        p_id = self._sanitize_persona_id(persona_data.get("id"), str(persona_data.get("name") or "CUSTOM"))
+        target_path = None
+        for fname in sorted(os.listdir(p_dir)):
+            if fname.endswith(".json") and not fname.endswith(".example"):
+                cand_path = os.path.join(p_dir, fname)
+                try:
+                    with open(cand_path, "r", encoding="utf-8") as f:
+                        cur = json.load(f)
+                    if str(cur.get("id", "")).upper() == p_id:
+                        target_path = cand_path
+                        break
+                except Exception:
+                    pass
+        if not target_path:
+            target_path = os.path.join(p_dir, f"{p_id.lower()}.json")
+
+        existing: Dict[str, Any] = {}
+        if os.path.exists(target_path):
+            try:
+                with open(target_path, "r", encoding="utf-8") as f:
+                    existing = json.load(f)
+            except Exception:
+                existing = {}
+
+        merged = dict(existing)
+        merged.update(persona_data)
+        merged["id"] = p_id
+        merged["name"] = str(merged.get("name") or p_id).strip() or p_id
+        merged["display_short_name"] = str(merged.get("display_short_name") or merged["name"]).strip()
+        merged.setdefault("full_name", merged["name"])
+        merged.setdefault("icon", "✨")
+        merged.setdefault("gender", "female")
+        merged.setdefault("age_spirit", "8")
+        merged.setdefault("driver_address_default", "Dad")
+        merged.setdefault("archetype", "Cockpit AI Companion")
+        merged.setdefault("subtitle", merged.get("archetype", "Cockpit AI Companion"))
+        merged.setdefault("avatar_image", "assets/pics/splash.png")
+        merged.setdefault("boot_splash_image", "assets/pics/splash.png")
+        merged.setdefault("boot_splash_video", "")
+        merged.setdefault("boot_splash_title", f"{merged['name']} • CARPI5")
+        merged.setdefault("boot_splash_subtitle", merged["subtitle"])
+        merged.setdefault("voice_engine", "KOKORO")
+        merged.setdefault("kokoro_voice", "af_bella")
+        pitch = merged.get("tts_pitch") if merged.get("tts_pitch") is not None else merged.get("pitch_factor", 1.12)
+        merged["pitch_factor"] = float(pitch)
+        merged["tts_pitch"] = float(pitch)
+        merged["speech_speed"] = max(0.75, min(1.25, float(merged.get("speech_speed", 1.00) or 1.00)))
+        merged.setdefault("elevenlabs_voice_id", "cgSgspJ2msm6clMCkdW9")
+        merged.setdefault("acknowledgments_folder", p_id.lower())
+        merged.setdefault("vrm_defaults", {})
+        merged.setdefault("copilot_callouts", {})
+        merged.setdefault("touch_interactions", {})
+        merged.setdefault("description", merged.get("archetype", "Cockpit AI Companion"))
+        merged.setdefault("prompt", f"You are {merged['name']}, a helpful Dodge Dart AI co-pilot for {{driver_address}}.")
+
+        banned = [str(z).lower().strip() for z in (merged.get("banned_touch_zones") or []) if str(z).strip()]
+        if str(merged.get("age_spirit", "")).lower().strip() != "adult":
+            for req_ban in ("butt", "groin"):
+                if req_ban not in banned:
+                    banned.append(req_ban)
+            ti = merged.get("touch_interactions")
+            if isinstance(ti, dict):
+                ti.pop("butt", None)
+                ti.pop("groin", None)
+        merged["banned_touch_zones"] = banned
+
+        is_default = bool(merged.get("default", False))
+        if is_default:
+            for fname in sorted(os.listdir(p_dir)):
+                if fname.endswith(".json") and not fname.endswith(".example"):
+                    sib_path = os.path.join(p_dir, fname)
+                    if os.path.abspath(sib_path) == os.path.abspath(target_path):
+                        continue
+                    try:
+                        with open(sib_path, "r", encoding="utf-8") as f:
+                            sib = json.load(f)
+                        if sib.get("default"):
+                            sib["default"] = False
+                            with open(sib_path, "w", encoding="utf-8", newline="\n") as f:
+                                json.dump(sib, f, indent=2, ensure_ascii=False)
+                                f.write("\n")
+                    except Exception:
+                        pass
+
+        with open(target_path, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(merged, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+
+        self.personas = load_personas_from_dir(p_dir)
+        global PERSONALITIES
+        PERSONALITIES = self.personas
+        if set_active or self.settings.get("personality") == p_id:
+            # Force re-sync of audio fields if currently editing or activating this persona
+            self.settings["personality"] = p_id
+            for skey, pkey in (
+                ("tts_engine", "voice_engine"),
+                ("kokoro_voice", "kokoro_voice"),
+                ("elevenlabs_voice_id", "elevenlabs_voice_id"),
+                ("tts_pitch", "tts_pitch"),
+                ("pitch_factor", "pitch_factor"),
+                ("speech_speed", "speech_speed"),
+                ("acknowledgments_folder", "acknowledgments_folder"),
+            ):
+                if merged.get(pkey) not in (None, ""):
+                    self.settings[skey] = merged[pkey]
+            self.save_settings({"personality": p_id})
+
+        return {"status": "ok", "persona": self.personas.get(p_id, merged), "settings": self.settings}
+
+    def delete_persona(self, persona_id: str, persona_dir: Optional[str] = None) -> Dict[str, Any]:
+        """Safely delete a persona JSON file (blocking deletion of the last persona)."""
+        p_dir = self._get_persona_dir(persona_dir)
+        p_id = self._sanitize_persona_id(persona_id)
+        current_pool = load_personas_from_dir(p_dir)
+        if p_id not in current_pool:
+            return {"status": "error", "message": f"Persona '{p_id}' not found."}
+        if len(current_pool) <= 1:
+            return {"status": "error", "message": "Cannot delete the last remaining persona."}
+
+        deleted = False
+        for fname in sorted(os.listdir(p_dir)):
+            if fname.endswith(".json") and not fname.endswith(".example"):
+                cand = os.path.join(p_dir, fname)
+                try:
+                    with open(cand, "r", encoding="utf-8") as f:
+                        d = json.load(f)
+                    if str(d.get("id", os.path.splitext(fname)[0])).upper() == p_id:
+                        os.remove(cand)
+                        deleted = True
+                        break
+                except Exception:
+                    pass
+        if not deleted:
+            return {"status": "error", "message": f"Persona file for '{p_id}' not found on disk."}
+
+        self.personas = load_personas_from_dir(p_dir)
+        global PERSONALITIES
+        PERSONALITIES = self.personas
+        if not any(bool(v.get("default")) for v in self.personas.values()):
+            first_k = next(iter(self.personas))
+            self.personas[first_k]["default"] = True
+            self.save_persona(self.personas[first_k], set_active=False, persona_dir=p_dir)
+
+        active_now = self.settings.get("personality")
+        if active_now == p_id or active_now not in self.personas:
+            fallback_id = self.get_default_persona_id()
+            self.save_settings({"personality": fallback_id})
+
+        return {"status": "ok", "deleted": p_id, "active_persona": self.settings.get("personality"), "settings": self.settings}
+
+    def autofill_persona_fields(self, seed: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate wake words, greetings, fillers, touch lines, and cockpit callouts from template + optional LLM."""
+        import copy
+
+        name = str(seed.get("name") or "Lumi").strip()
+        short_name = str(seed.get("display_short_name") or name).strip()
+        template_id = str(seed.get("template_id") or "").upper().strip()
+        age = str(seed.get("age_spirit") or "8").lower().strip()
+        if not template_id or template_id not in self.personas:
+            if age == "adult" and "MAIA" in self.personas:
+                template_id = "MAIA"
+            elif age == "tactical" and "ODIN" in self.personas:
+                template_id = "ODIN"
+            else:
+                template_id = self.get_default_persona_id()
+
+        base = copy.deepcopy(self.personas.get(template_id) or {})
+        base_name = str(base.get("name") or "")
+        base_short = str(base.get("display_short_name") or "")
+
+        def _retarget(obj: Any) -> Any:
+            if isinstance(obj, str):
+                out = obj
+                if base_name:
+                    out = out.replace(base_name, name)
+                if base_short:
+                    out = out.replace(base_short, short_name).replace(base_short.capitalize(), short_name)
+                return out
+            if isinstance(obj, list):
+                return [_retarget(x) for x in obj]
+            if isinstance(obj, dict):
+                return {k: _retarget(v) for k, v in obj.items()}
+            return obj
+
+        result: Dict[str, Any] = {
+            "wake_words": self._generate_wake_word_variants(name, short_name),
+            "greetings": _retarget(base.get("greetings") or {
+                "first_chat_intro": f"Hey {{driver_address}}, {name} is online and riding shotgun in the Dart!",
+                "instant": {"morning": [f"Good morning, {{driver_address}}! {name} is ready for boost!"]},
+            }),
+            "thinking_fillers": _retarget(base.get("thinking_fillers") or ["One sec, {driver_address}!", "Checking right now..."]),
+            "copilot_callouts": _retarget(base.get("copilot_callouts") or {}),
+            "touch_interactions": _retarget(base.get("touch_interactions") or {}),
+            "fallback_dialogue": _retarget(base.get("fallback_dialogue") or {}),
+            "ui_labels": _retarget(base.get("ui_labels") or {}),
+            "boot_splash_title": f"{name.upper()} • CARPI5",
+            "boot_splash_subtitle": str(seed.get("subtitle") or f"{name} • Cockpit AI Companion"),
+            "ai_generated": False,
+        }
+        if age != "adult" and isinstance(result["touch_interactions"], dict):
+            result["touch_interactions"].pop("butt", None)
+            result["touch_interactions"].pop("groin", None)
+
+        # Optional quick AI enhancement if caller requested and a fast local/cloud backend is ready
+        if seed.get("use_llm") and self.settings.get("mode", "BUILTIN") != "BUILTIN":
+            try:
+                sys_p = (
+                    f"Generate short, crisp in-car dialogue JSON for a Dodge Dart 1.4L Turbo cockpit AI named '{name}'. "
+                    f"Personality prompt: {seed.get('prompt', '')}. Safety mode: {age}. "
+                    "Return ONLY valid JSON with keys: first_chat_intro (str), morning (str), filler (str), coolant_high (str), pull_debrief (str)."
+                )
+                raw = ""
+                if self._llama_model is not None and self.settings.get("mode") == "LOCAL_GGUF":
+                    with self._llama_lock:
+                        out = self._llama_model.create_chat_completion(
+                            messages=[{"role": "system", "content": sys_p}, {"role": "user", "content": "Generate JSON."}],
+                            max_tokens=220,
+                            temperature=0.75,
+                        )
+                    raw = ((out.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+                if raw and "{" in raw and "}" in raw:
+                    snippet = json.loads(raw[raw.find("{"):raw.rfind("}") + 1])
+                    if isinstance(snippet, dict):
+                        if snippet.get("first_chat_intro"):
+                            result["greetings"]["first_chat_intro"] = str(snippet["first_chat_intro"])
+                        if snippet.get("morning"):
+                            result["greetings"].setdefault("instant", {})["morning"] = [str(snippet["morning"])]
+                        if snippet.get("filler"):
+                            result["thinking_fillers"] = [str(snippet["filler"]), "Just a moment, {driver_address}!"]
+                        if snippet.get("coolant_high"):
+                            result["copilot_callouts"]["coolant_high"] = str(snippet["coolant_high"])
+                        if snippet.get("pull_debrief"):
+                            result["copilot_callouts"]["pull_debrief"] = str(snippet["pull_debrief"])
+                        result["ai_generated"] = True
+            except Exception as e:
+                print(f"[PERSONA] Optional AI autofill note: {e}")
+
+        return result
 
 
 
@@ -1838,25 +2114,49 @@ class LLMClient:
                 if "plug" in msg_l:
                     plug_item = next((i for i in maint["items"] if i["item_key"] == "SPARK_PLUGS"), None)
                     if plug_item:
-                        return f"Our NGK SIKR9A7 laser iridium spark plugs (0.026 inch gap) have {plug_item['miles_remaining']:,} miles remaining at {odo:,} miles."
+                        rem = f"{plug_item['miles_remaining']:,}"
+                        return _fb(
+                            "maintenance_plugs",
+                            f"NGK SIKR9A7 spark plugs have {rem} miles remaining at {odo:,} miles.",
+                            miles_rem=rem,
+                            odo=f"{odo:,}",
+                        )
                 elif "screen" in msg_l or "actuator" in msg_l:
                     scr_item = next((i for i in maint["items"] if i["item_key"] == "MULTIAIR_SCREEN"), None)
                     if scr_item:
-                        return f"The MultiAir solenoid actuator screen (Mopar 55238665) has {scr_item['miles_remaining']:,} miles remaining before cleaning."
+                        rem = f"{scr_item['miles_remaining']:,}"
+                        return _fb(
+                            "maintenance_screen",
+                            f"The MultiAir solenoid actuator screen (Mopar 55238665) has {rem} miles remaining before cleaning.",
+                            miles_rem=rem,
+                            odo=f"{odo:,}",
+                        )
                 else:
                     oil_item = next((i for i in maint["items"] if i["item_key"] == "ENGINE_OIL"), None)
                     if oil_item:
                         rem = oil_item["miles_remaining"]
                         if rem <= 0:
-                            return f"{address}, 5W-40 full synthetic oil is overdue by {abs(rem):,} miles!"
-                        return f"Pennzoil Euro 5W-40 has {rem:,} miles remaining at {odo:,} miles, {address}."
+                            over = f"{abs(rem):,}"
+                            return _fb(
+                                "maintenance_oil_overdue",
+                                f"{address}, 5W-40 full synthetic oil is overdue by {over} miles!",
+                                miles_overdue=over,
+                                odo=f"{odo:,}",
+                            )
+                        rem_s = f"{rem:,}"
+                        return _fb(
+                            "maintenance_oil_ok",
+                            f"Pennzoil Euro 5W-40 has {rem_s} miles remaining at {odo:,} miles, {address}.",
+                            miles_rem=rem_s,
+                            odo=f"{odo:,}",
+                        )
 
         # --- INTENT: Trip History / Past Drives ---
         if any(w in msg_l for w in ["trip", "drive yesterday", "past drive", "trips", "how far"]):
             if hasattr(self, "rag_memory") and self.rag_memory:
                 matches = self.rag_memory.search(msg, top_k=1, threshold=0.30)
                 if matches and matches[0]["category"] == "TRIP_LOG":
-                    return f"From our flight logs: {matches[0]['content']}"
+                    return _fb("trip_log_prefix", f"From our trip logs: {matches[0]['content']}", content=matches[0]["content"])
 
         # --- INTENT: 0-60 Time ---
         if any(w in msg_l for w in ["0-60", "zero to sixty", "acceleration", "launch time"]):

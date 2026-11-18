@@ -50,6 +50,19 @@ function fetchSystemHealth() {
         mThrottle.innerText = data.throttle_message;
         mThrottle.style.color = data.throttled ? "var(--accent-red)" : (data.under_voltage ? "var(--accent-yellow)" : "var(--accent-green)");
       }
+      const mRtc = document.getElementById('modalSbcRtcStatus');
+      if (mRtc) {
+        const rtc = data.rtc || {};
+        if (!rtc.present) {
+          mRtc.innerText = "Offline / Not running on Pi 5 RTC sysfs";
+          mRtc.style.color = "var(--text-secondary)";
+        } else {
+          const vStr = (rtc.battery_voltage_v !== null && rtc.battery_voltage_v !== undefined) ? `${rtc.battery_voltage_v}V` : "--";
+          const chgStr = rtc.charging_enabled ? `Trickle Charge ON (${rtc.charging_voltage_v}V)` : "Trickle Charge OFF (Run scripts/setup_pi5_rtc.sh)";
+          mRtc.innerText = `Battery: ${vStr} • ${chgStr}${rtc.rtc_time ? ' • ' + rtc.rtc_time : ''}`;
+          mRtc.style.color = rtc.charging_enabled ? "var(--accent-green)" : "var(--accent-yellow)";
+        }
+      }
       // Pi 5 hardware metrics updated successfully
     })
     .catch(err => console.warn("[SBC] Health fetch error:", err));

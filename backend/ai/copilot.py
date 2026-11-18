@@ -76,13 +76,23 @@ class AICopilot:
 
     def _fmt(self, text: str, **extra: Any) -> str:
         p = self._persona_dict()
-        ctx = {"driver_address": self.driver_name, "persona_name": p.get("name", "Companion")}
+        ctx = {
+            "driver_address": self.driver_name,
+            "driver_address_upper": str(self.driver_name or "DRIVER").upper(),
+            "persona_name": p.get("name", "Companion"),
+        }
         ctx.update(extra)
         try:
             return text.format(**ctx)
         except Exception:
             return text
-        print("[AI COPILOT] RagMemoryEngine linked for proactive living reminiscence.")
+
+    def _callout(self, key: str, default_speech: str, default_hud: str, **extra: Any) -> tuple[str, str]:
+        """Resolve cockpit telemetry speech + HUD message from active persona copilot_callouts."""
+        callouts = self._persona_dict().get("copilot_callouts") or {}
+        speech_tpl = callouts.get(key) or default_speech
+        hud_tpl = callouts.get(f"{key}_hud") or default_hud
+        return self._fmt(str(speech_tpl), **extra), self._fmt(str(hud_tpl), **extra)
 
     @staticmethod
     def _get_val(frame: Any, attr: str, default: Any = None) -> Any:
@@ -306,13 +316,14 @@ class AICopilot:
         # 1. CRITICAL: Coolant Overheat Alert (> 220°F) - Always fires in ALERTS_ONLY and COPILOT
         if coolant_temp is not None and float(coolant_temp) >= 220.0 and time_since_speech > 30.0:
             self.last_spoken_time = now
-            return {
-                "type": "CRITICAL",
-                "priority": 0,
-                "emotion": "CONCERNED",
-                "speech": f"Warning! Engine coolant is elevated at {int(float(coolant_temp))} degrees. Check temperatures, {self.driver_name}!",
-                "hud_message": f"HIGH TEMP ALERT: {int(float(coolant_temp))}°F"
-            }
+            ct = int(float(coolant_temp))
+            sp, hm = self._callout(
+                "coolant_high",
+                "Warning! Engine coolant is elevated at {coolant} degrees. Check temperatures, {driver_address}!",
+                "HIGH TEMP ALERT: {coolant}°F",
+                coolant=ct,
+            )
+            return {"type": "CRITICAL", "priority": 0, "emotion": "CONCERNED", "speech": sp, "hud_message": hm}
 
         # 2. DIAGNOSTICS: Check Engine Light Code Announcement (fires in ALERTS_ONLY and COPILOT)
         if active_dtcs:
@@ -342,13 +353,13 @@ class AICopilot:
             if not self.cold_warning_spoken and time_since_speech > 6.0:
                 self.cold_warning_spoken = True
                 self.last_spoken_time = now
-                return {
-                    "type": "WARNING",
-                    "priority": 2,
-                    "emotion": "CONCERNED",
-                    "speech": f"{self.driver_name}, easy on the throttle! Our MultiAir brick oil is still cold at {int(oil_temp)} degrees. Let's let the 5W-40 warm up before sending full boost, okay?",
-                    "hud_message": f"❄️ MULTIAIR COLD: {int(oil_temp)}°F (BOOST LIMITED)"
-                }
+                sp, hm = self._callout(
+                    "cold_multiair",
+                    "{driver_address}, MultiAir oil is still cold at {oil_temp} degrees. Let oil warm up before full boost.",
+                    "❄️ MULTIAIR COLD: {oil_temp}°F (BOOST LIMITED)",
+                    oil_temp=int(oil_temp),
+                )
+                return {"type": "WARNING", "priority": 2, "emotion": "CONCERNED", "speech": sp, "hud_message": hm}
 
         # 4. Garrett GT1446 Wastegate & Diverter Valve Slop Warning
         wastegate_health = self._get_float(frame, 'wastegate_spool_health', 100.0)
@@ -356,13 +367,13 @@ class AICopilot:
         if wastegate_health < 70.0 and (now - self.last_spool_warning_time > 300.0) and time_since_speech > 8.0:
             self.last_spool_warning_time = now
             self.last_spoken_time = now
-            return {
-                "type": "WARNING",
-                "priority": 2,
-                "emotion": "THOUGHTFUL",
-                "speech": f"{self.driver_name}, our turbo boost spool rate is sluggish at {spool_grad} PSI per thousand RPM. The wastegate actuator arm might have slop, or our diverter valve has a split diaphragm!",
-                "hud_message": f"⚠️ TURBO SPOOL LAG: {spool_grad} PSI/1k RPM"
-            }
+            sp, hm = self._callout(
+                "wastegate_slop",
+                "{driver_address}, turbo boost spool rate is sluggish at {spool_grad} PSI per thousand RPM. Inspect wastegate or diverter valve.",
+                "⚠️ TURBO SPOOL LAG: {spool_grad} PSI/1k RPM",
+                spool_grad=spool_grad,
+            )
+            return {"type": "WARNING", "priority": 2, "emotion": "THOUGHTFUL", "speech": sp, "hud_message": hm}
 
         # 5. C635 Manual Rev-Match & Downshift Quality Feedback
         shift_score = self._get_val(frame, 'last_shift_score', None)
@@ -372,36 +383,36 @@ class AICopilot:
             if shift_type == "PERFECT_REV_MATCH" and (now - self.last_shift_praise_time > 60.0) and time_since_speech > 6.0:
                 self.last_shift_praise_time = now
                 self.last_spoken_time = now
-                return {
-                    "type": "PERFORMANCE",
-                    "priority": 3,
-                    "emotion": "HAPPY_PROUD",
-                    "speech": f"Butter smooth heel-toe downshift, {self.driver_name}! Perfect rev-match!",
-                    "hud_message": f"🎯 PERFECT REV-MATCH: 100 PTS (Δ{int(shift_delta)} RPM)"
-                }
+                sp, hm = self._callout(
+                    "perfect_rev_match",
+                    "Smooth heel-toe downshift, {driver_address}. Clean rev-match.",
+                    "🎯 PERFECT REV-MATCH: 100 PTS (Δ{shift_delta} RPM)",
+                    shift_delta=int(shift_delta),
+                )
+                return {"type": "PERFORMANCE", "priority": 3, "emotion": "HAPPY_PROUD", "speech": sp, "hud_message": hm}
             elif shift_type == "CLUTCH_JERK" and shift_delta > 550 and (now - self.last_shift_praise_time > 75.0) and time_since_speech > 6.0:
                 self.last_shift_praise_time = now
                 self.last_spoken_time = now
-                return {
-                    "type": "WARNING",
-                    "priority": 3,
-                    "emotion": "CONCERNED",
-                    "speech": f"Oof, clutch jerk! Give the throttle a tiny blip on that downshift so we don't shock the transaxle, {self.driver_name}!",
-                    "hud_message": f"⚠️ CLUTCH JERK: Δ{int(shift_delta)} RPM"
-                }
+                sp, hm = self._callout(
+                    "clutch_jerk",
+                    "Clutch engagement jerk detected. Blip throttle on downshift, {driver_address}.",
+                    "⚠️ CLUTCH JERK: Δ{shift_delta} RPM",
+                    shift_delta=int(shift_delta),
+                )
+                return {"type": "WARNING", "priority": 3, "emotion": "CONCERNED", "speech": sp, "hud_message": hm}
 
         # 6. Virtual Dyno Peak Pull Celebration
         whp_val = self._get_float(frame, 'virtual_whp', 0.0)
         if whp_val >= 165.0 and (now - self.last_dyno_praise_time > 120.0) and time_since_speech > 8.0:
             self.last_dyno_praise_time = now
             self.last_spoken_time = now
-            return {
-                "type": "PERFORMANCE",
-                "priority": 2,
-                "emotion": "EXCITED",
-                "speech": f"Hold on! Our virtual dyno just clocked {int(whp_val)} wheel horsepower! The MultiAir is singing, {self.driver_name}!",
-                "hud_message": f"⚡ DYNO PULL: {int(whp_val)} WHP"
-            }
+            sp, hm = self._callout(
+                "dyno_peak",
+                "Virtual dyno recorded {whp} wheel horsepower, {driver_address}.",
+                "⚡ DYNO PULL: {whp} WHP",
+                whp=int(whp_val),
+            )
+            return {"type": "PERFORMANCE", "priority": 2, "emotion": "EXCITED", "speech": sp, "hud_message": hm}
 
         # 7. Pip Biological Connectome Dual-Life Interaction
         p_event = pip_state.get("avatar_interaction") if pip_state else None
@@ -421,38 +432,33 @@ class AICopilot:
             elif p_event in ("BUZZING_NEAR_DRIVER", "BUZZING_NEAR_DAD") and (now - self.last_pip_praise_time > 75.0):
                 self.last_pip_praise_time = now
                 self.last_spoken_time = now
-                return {
-                    "type": "PIP_INTERACTION",
-                    "priority": 3,
-                    "emotion": "HAPPY",
-                    "action": "action_wave.bvh",
-                    "speech": f"Careful Pip! Don't buzz in {self.driver_name}'s ear while driving!",
-                    "hud_message": f"🪰 PIP BUZZING NEAR {self.driver_name.upper()}"
-                }
+                sp, hm = self._callout(
+                    "pip_buzzing_driver",
+                    "Careful Pip, stay clear of {driver_address} while driving.",
+                    "🪰 PIP BUZZING NEAR {driver_address_upper}",
+                )
+                return {"type": "PIP_INTERACTION", "priority": 3, "emotion": "HAPPY", "action": "action_wave.bvh", "speech": sp, "hud_message": hm}
             elif p_event == "STARTLED_BY_TURBO" and (now - self.last_pip_praise_time > 50.0):
                 self.last_pip_praise_time = now
                 self.last_spoken_time = now
-                return {
-                    "type": "PIP_INTERACTION",
-                    "priority": 3,
-                    "emotion": "EXCITED",
-                    "action": "action_nod.bvh",
-                    "speech": f"Whoa, our turbo boost startled Pip! Look at his giant fiber reflex zoom!",
-                    "hud_message": "🪰 PIP ESCAPE SACCADE"
-                }
+                sp, hm = self._callout(
+                    "pip_startled",
+                    "Turbo boost startled Pip in the cabin.",
+                    "🪰 PIP ESCAPE SACCADE",
+                )
+                return {"type": "PIP_INTERACTION", "priority": 3, "emotion": "EXCITED", "action": "action_nod.bvh", "speech": sp, "hud_message": hm}
 
         # 8. MultiAir Warmup Ready (ONCE PER TRIP)
         if multiair_ready and not self.warmup_ready_spoken and self.cold_warning_spoken:
             self.warmup_ready_spoken = True
             if time_since_speech > 8.0:
                 self.last_spoken_time = now
-                return {
-                    "type": "INFO",
-                    "priority": 3,
-                    "emotion": "HAPPY_PROUD",
-                    "speech": f"{self.driver_name}, the engine oil is all warmed up and happy! Clear for full boost whenever you want!",
-                    "hud_message": "MULTIAIR NOMINAL: FULL BOOST OK"
-                }
+                sp, hm = self._callout(
+                    "warmup_ready",
+                    "{driver_address}, engine oil is warmed up and cleared for full boost.",
+                    "MULTIAIR NOMINAL: FULL BOOST OK",
+                )
+                return {"type": "INFO", "priority": 3, "emotion": "HAPPY_PROUD", "speech": sp, "hud_message": hm}
 
         # 9. Hard Pull Detector & Debrief (Only on high-boost pulls >= 15 PSI)
         if boost_val > 12.0 and throttle_pct > 80.0:
@@ -464,18 +470,18 @@ class AICopilot:
             self.is_in_pull = False
             peak = round(self.max_pull_boost, 1)
             self.max_pull_boost = 0.0
-            
-            # Cooldown of at least 25 seconds between pull debriefs so it doesn't talk on every shift!
+
             if peak >= 15.0 and time_since_speech > 25.0:
                 self.last_spoken_time = now
                 iat_str = f"{int(float(intake_temp))} degrees" if intake_temp is not None else "nominal"
-                return {
-                    "type": "PERFORMANCE",
-                    "priority": 2,
-                    "emotion": "EXCITED",
-                    "speech": f"Wheee! Look at that boost, {self.driver_name}! {peak} PSI peak and intake temp is {iat_str}! Go go go!",
-                    "hud_message": f"PULL DEBRIEF: {peak} PSI PEAK"
-                }
+                sp, hm = self._callout(
+                    "pull_debrief",
+                    "Peak boost logged at {peak} PSI, intake temperature {iat_str}, {driver_address}.",
+                    "PULL DEBRIEF: {peak} PSI PEAK",
+                    peak=peak,
+                    iat_str=iat_str,
+                )
+                return {"type": "PERFORMANCE", "priority": 2, "emotion": "EXCITED", "speech": sp, "hud_message": hm}
 
         # 10. Hard Braking & Rapid Deceleration Alert (>18 MPH/s or G < -0.55G)
         long_g = self._get_float(gps_data.get("g_forces", {}) if gps_data else {}, "longitudinal", 0.0)
@@ -483,13 +489,13 @@ class AICopilot:
             if time_since_speech > 10.0 and (now - self.last_hard_braking_time > 45.0):
                 self.last_hard_braking_time = now
                 self.last_spoken_time = now
-                return {
-                    "type": "WARNING",
-                    "priority": 1,
-                    "emotion": "CONCERNED",
-                    "speech": f"Whoa, heavy braking! ABS and pads held firm, you okay {self.driver_name}?",
-                    "hud_message": f"🛑 HARD BRAKING: -{int(decel_rate)} MPH/s"
-                }
+                sp, hm = self._callout(
+                    "hard_braking",
+                    "Hard braking event detected. Confirm everything is okay, {driver_address}.",
+                    "🛑 HARD BRAKING: -{decel_rate} MPH/s",
+                    decel_rate=int(decel_rate),
+                )
+                return {"type": "WARNING", "priority": 1, "emotion": "CONCERNED", "speech": sp, "hud_message": hm}
 
         # 11. High Lateral G Cornering Praise (|Gx| >= 0.60G)
         lat_g = abs(self._get_float(gps_data.get("g_forces", {}) if gps_data else {}, "lateral", 0.0))
@@ -498,45 +504,45 @@ class AICopilot:
         if lat_g >= 0.60 and speed >= 25.0 and time_since_speech > 12.0 and (now - self.last_high_latg_time > 60.0):
             self.last_high_latg_time = now
             self.last_spoken_time = now
-            return {
-                "type": "PERFORMANCE",
-                "priority": 2,
-                "emotion": "EXCITED",
-                "speech": f"Hold on! That was {lat_g:.2f} lateral Gs through that apex! Dart's chassis is glued to the asphalt, nice line {self.driver_name}!",
-                "hud_message": f"🏎️ CORNERING G: {lat_g:.2f}G"
-            }
+            sp, hm = self._callout(
+                "high_lat_g",
+                "Cornering peak measured {lat_g} lateral Gs, {driver_address}.",
+                "🏎️ CORNERING G: {lat_g}G",
+                lat_g=f"{lat_g:.2f}",
+            )
+            return {"type": "PERFORMANCE", "priority": 2, "emotion": "EXCITED", "speech": sp, "hud_message": hm}
 
         # 12. Speed Awareness Milestones
         if speed >= 100.0 and time_since_speech > 8.0 and (now - self.last_triple_digit_warn > 300.0):
             self.last_triple_digit_warn = now
             self.last_spoken_time = now
-            return {
-                "type": "WARNING",
-                "priority": 1,
-                "emotion": "EXCITED",
-                "speech": f"{self.driver_name}! Triple digits—{int(speed)} miles per hour! Keep both hands on the wheel, our Dart is flying!",
-                "hud_message": f"⚡ 100+ MPH: {int(speed)} MPH"
-            }
+            sp, hm = self._callout(
+                "speed_100",
+                "{driver_address}, velocity reached {speed} miles per hour. Keep both hands on the wheel.",
+                "⚡ 100+ MPH: {speed} MPH",
+                speed=int(speed),
+            )
+            return {"type": "WARNING", "priority": 1, "emotion": "EXCITED", "speech": sp, "hud_message": hm}
         elif speed >= 82.0 and time_since_speech > 15.0 and (now - self.last_spirited_speed_warn > 480.0):
             self.last_spirited_speed_warn = now
             self.last_spoken_time = now
-            return {
-                "type": "INFO",
-                "priority": 3,
-                "emotion": "CONCERNED",
-                "speech": f"Whoa {self.driver_name}, {int(speed)} miles per hour! Highway patrol loves radar traps on this stretch, watch your mirrors!",
-                "hud_message": f"⚠️ SPEED ADVISORY: {int(speed)} MPH"
-            }
+            sp, hm = self._callout(
+                "speed_82",
+                "Speed advisory: {speed} miles per hour, {driver_address}. Watch for radar.",
+                "⚠️ SPEED ADVISORY: {speed} MPH",
+                speed=int(speed),
+            )
+            return {"type": "INFO", "priority": 3, "emotion": "CONCERNED", "speech": sp, "hud_message": hm}
         elif speed >= 65.0 and throttle_pct < 35.0 and boost_val < 2.0 and time_since_speech > 30.0 and (now - self.last_cruising_speed_praise > 720.0):
             self.last_cruising_speed_praise = now
             self.last_spoken_time = now
-            return {
-                "type": "INFO",
-                "priority": 3,
-                "emotion": "HAPPY_PROUD",
-                "speech": f"Cruising at {int(speed)} miles per hour, {self.driver_name}! 6th gear engaged, boost at resting vacuum. Safe travels!",
-                "hud_message": f"🛣️ CRUISE: {int(speed)} MPH"
-            }
+            sp, hm = self._callout(
+                "cruise_65",
+                "Cruising steady at {speed} miles per hour in 6th gear, {driver_address}.",
+                "🛣️ CRUISE: {speed} MPH",
+                speed=int(speed),
+            )
+            return {"type": "INFO", "priority": 3, "emotion": "HAPPY_PROUD", "speech": sp, "hud_message": hm}
 
         # 13. GPS 3D Fix Acquisition Announcement (Once per trip)
         if gps_data and gps_data.get("fix") and not self.gps_fix_announced:
@@ -544,26 +550,26 @@ class AICopilot:
             if time_since_speech > 8.0:
                 sats = gps_data.get("sats", 0)
                 self.last_spoken_time = now
-                return {
-                    "type": "INFO",
-                    "priority": 3,
-                    "emotion": "HAPPY_PROUD",
-                    "speech": f"GPS satellite lock acquired with {sats} satellites, {self.driver_name}! Cockpit navigation and offline Arizona map are tracking our coordinates.",
-                    "hud_message": f"🛰️ GPS LOCKED: {sats} SATS"
-                }
+                sp, hm = self._callout(
+                    "gps_lock",
+                    "GPS satellite lock acquired with {sats} satellites, {driver_address}.",
+                    "🛰️ GPS LOCKED: {sats} SATS",
+                    sats=sats,
+                )
+                return {"type": "INFO", "priority": 3, "emotion": "HAPPY_PROUD", "speech": sp, "hud_message": hm}
 
         # 14. Mountain Elevation Ascent Milestone (>4,500 ft)
         alt_ft = self._get_float(gps_data, "altitude_ft", 0.0) if gps_data else 0.0
         if alt_ft >= 4500.0 and not self.high_altitude_announced and time_since_speech > 20.0:
             self.high_altitude_announced = True
             self.last_spoken_time = now
-            return {
-                "type": "INFO",
-                "priority": 3,
-                "emotion": "THOUGHTFUL",
-                "speech": f"Notice that crisp mountain air, {self.driver_name}? We just climbed past {int(alt_ft)} feet! Our Garrett turbocharger automatically compensates for thin air.",
-                "hud_message": f"🏔️ ELEVATION: {int(alt_ft)} FT"
-            }
+            sp, hm = self._callout(
+                "altitude_4500",
+                "Climbed past {alt_ft} feet elevation, {driver_address}. Turbo altitude compensation active.",
+                "🏔️ ELEVATION: {alt_ft} FT",
+                alt_ft=int(alt_ft),
+            )
+            return {"type": "INFO", "priority": 3, "emotion": "THOUGHTFUL", "speech": sp, "hud_message": hm}
 
         # 15. Dragy Launch Run Spoken Announcement
         dragy = gps_data.get("dragy") if gps_data else None
@@ -572,13 +578,13 @@ class AICopilot:
             if t0_60 > 0.0 and t0_60 != self.last_announced_0_60 and time_since_speech > 5.0:
                 self.last_announced_0_60 = t0_60
                 self.last_spoken_time = now
-                return {
-                    "type": "PERFORMANCE",
-                    "priority": 1,
-                    "emotion": "EXCITED",
-                    "speech": f"Dragy launch verified! Zero to sixty in {t0_60:.2f} seconds! Great launch, {self.driver_name}!",
-                    "hud_message": f"⚡ DRAGY 0-60: {t0_60:.2f}s"
-                }
+                sp, hm = self._callout(
+                    "dragy_0_60",
+                    "Dragy launch verified: zero to sixty in {t0_60} seconds, {driver_address}.",
+                    "⚡ DRAGY 0-60: {t0_60}s",
+                    t0_60=f"{t0_60:.2f}",
+                )
+                return {"type": "PERFORMANCE", "priority": 1, "emotion": "EXCITED", "speech": sp, "hud_message": hm}
 
         # 16. Spontaneous Highway Cruising Living Reminiscence (Every 18-28 minutes)
         is_cruising = (speed >= 45.0 and 8.0 <= throttle_pct <= 38.0 and -14.0 <= boost_val <= -0.5)

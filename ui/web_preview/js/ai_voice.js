@@ -39,11 +39,24 @@ function formatPersonaText(template, extra = {}) {
   return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (m, k) => (ctx[k] !== undefined ? String(ctx[k]) : m));
 }
 
+function applyPersonaTheme(pData) {
+  const vrmDef = (pData && pData.vrm_defaults) || {};
+  const root = document.documentElement;
+  if (!root || !root.style) return;
+  const accent = vrmDef.accent_color || '#c084fc';
+  const bubbleBg = vrmDef.bubble_bg || 'rgba(192, 132, 252, 0.14)';
+  const glow = vrmDef.glow_color || 'rgba(168, 85, 247, 0.45)';
+  root.style.setProperty('--persona-accent', accent);
+  root.style.setProperty('--persona-bubble-bg', bubbleBg);
+  root.style.setProperty('--persona-glow', glow);
+}
+
 function updatePersonaUI(personaKey) {
   if (!personaKey) personaKey = currentAiSettings.personality || getDefaultPersonaId();
   currentAiSettings.personality = personaKey;
 
   const pData = (window.allPersonas && window.allPersonas[personaKey]) ? window.allPersonas[personaKey] : {};
+  applyPersonaTheme(pData);
   const vrmDef = pData.vrm_defaults || {};
   const uiLbl = pData.ui_labels || {};
   const wakeCfg = pData.wake_words || {};
@@ -122,7 +135,7 @@ function updatePersonaUI(personaKey) {
     if (avatarEl) {
       avatarEl.src = avatarPath;
     } else {
-      homeCardIcon.innerHTML = `<img id="homeAiAvatarImg" src="${avatarPath}" class="home-waifu-avatar" alt="Avatar">`;
+      homeCardIcon.innerHTML = `<img id="homeAiAvatarImg" src="${avatarPath}" class="home-companion-avatar" alt="Avatar">`;
     }
   }
 
@@ -163,6 +176,9 @@ function updatePersonaUI(personaKey) {
   if (cfgSplashImg) cfgSplashImg.value = splashImg;
   const cfgSplashVid = document.getElementById('cfgBootSplashVideo');
   if (cfgSplashVid) cfgSplashVid.value = splashVid;
+  if (typeof setVrmEmotion === 'function') {
+    setVrmEmotion((typeof currentVrmEmotion !== 'undefined' && currentVrmEmotion) ? currentVrmEmotion : 'DEVOTED');
+  }
 }
 
 // --- PERSONA BOOT SPLASH & AI ACTION CONTROLLER ---
@@ -180,12 +196,11 @@ function initBootSplash() {
   const titleEl = document.getElementById('bootSplashPersonaName');
   const subEl = document.getElementById('bootSplashSubtitle');
 
-  const pKey = currentAiSettings.personality || 'RUM';
-  const pName = getPersonaDisplayName(pKey);
-  if (titleEl) titleEl.innerText = `${pName} v1.0.0`;
-  if (subEl) subEl.innerText = `${pName} • MultiAir In-Dash System Initializing`;
-
+  const pKey = currentAiSettings.personality || getDefaultPersonaId();
   const pData = (window.allPersonas && window.allPersonas[pKey]) ? window.allPersonas[pKey] : null;
+  const pName = getPersonaDisplayName(pKey);
+  if (titleEl) titleEl.innerText = (pData && pData.boot_splash_title) ? pData.boot_splash_title : `${pName} • CARPI5`;
+  if (subEl) subEl.innerText = (pData && pData.boot_splash_subtitle) ? pData.boot_splash_subtitle : `${pName} • Cockpit AI Companion`;
   if (pData) {
     if (pData.boot_splash_video && videoEl) {
       videoEl.src = pData.boot_splash_video;
@@ -262,14 +277,24 @@ function savePersonaMediaConfig() {
   const splashVid = document.getElementById('cfgBootSplashVideo')?.value || '';
 
   if (window.allPersonas && window.allPersonas[pKey]) {
-
     window.allPersonas[pKey].avatar_image = avatar;
-
     window.allPersonas[pKey].boot_splash_image = splashImg;
-
     window.allPersonas[pKey].boot_splash_video = splashVid;
   }
   updatePersonaUI(pKey);
+  fetch('/api/ai/personas/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      set_active: false,
+      persona: {
+        id: pKey,
+        avatar_image: avatar,
+        boot_splash_image: splashImg,
+        boot_splash_video: splashVid
+      }
+    })
+  }).catch(() => {});
   showToastNotification(`Persona ${pKey} Media Saved!`);
 }
 
@@ -310,7 +335,7 @@ function handleAiAction(action) {
 
   if (action.type === 'PIP_INTERACTION' || action.type === 'PIP_FEED') {
     showAiSpeechToast(action.speech);
-    setWaifuEmotion(action.emotion || 'HAPPY_PROUD');
+    setVrmEmotion(action.emotion || 'HAPPY_PROUD');
     if (action.action && typeof playVrmAction === 'function') {
       playVrmAction(action.action, 4500, true);
     }
@@ -324,12 +349,12 @@ function handleAiAction(action) {
   }
   if (action.type === 'SHOWER_THOUGHT') {
     showAiSpeechToast(action.speech);
-    setWaifuEmotion('THOUGHTFUL');
+    setVrmEmotion('THOUGHTFUL');
     return;
   }
   if (action.type === 'MORNING_DREAM') {
     showAiSpeechToast(action.speech);
-    setWaifuEmotion('HAPPY_PROUD');
+    setVrmEmotion('HAPPY_PROUD');
     if (typeof playVrmAction === 'function') {
       playVrmAction('action_standup.bvh', 5000, true);
     }
@@ -554,9 +579,9 @@ function abortLocalSpeechOutput() {
   }
   _pcSpeechQueue = [];
   _pcSpeechPlaying = false;
-  isWaifuSpeaking = false;
+  isVrmSpeaking = false;
   isHardwareSpeaking = false;
-  waifuSpeechEndTime = 0;
+  vrmSpeechEndTime = 0;
   if (typeof vrmEmoteBeatTimers !== 'undefined' && Array.isArray(vrmEmoteBeatTimers)) {
     vrmEmoteBeatTimers.forEach((tid) => clearTimeout(tid));
     vrmEmoteBeatTimers = [];
@@ -564,7 +589,7 @@ function abortLocalSpeechOutput() {
   if (typeof vrmVisemeCtrl !== 'undefined' && vrmVisemeCtrl && typeof vrmVisemeCtrl.clearSseTimeline === 'function') {
     vrmVisemeCtrl.clearSseTimeline();
   }
-  const stage = document.getElementById('waifuStage');
+  const stage = document.getElementById('vrmStage');
   if (stage) stage.classList.remove('speaking');
   const vrmPill = document.getElementById('vrmMinHudPill');
   if (vrmPill) vrmPill.classList.remove('speaking');
@@ -644,7 +669,7 @@ window.applyAiStreamChunk = applyAiStreamChunk;
 window.setThinkingFillersEnabled = setThinkingFillersEnabled;
 
 function sendChatMessage(userText, isVoice = false) {
-  if (isWaifuSpeaking || isHardwareSpeaking || _pcSpeechPlaying) {
+  if (isVrmSpeaking || isHardwareSpeaking || _pcSpeechPlaying) {
     abortLocalSpeechOutput();
   }
   const container = document.getElementById('aiChatMessages');
@@ -741,7 +766,7 @@ function sendChatMessage(userText, isVoice = false) {
 
       // Update emotion & HUD
       if (data.emotion) {
-        setWaifuEmotion(data.emotion);
+        setVrmEmotion(data.emotion);
       }
 
       // Add to speech log
@@ -782,19 +807,87 @@ function clearChatHistory() {
   }
 }
 
+function parseVoiceBlendSpec(spec) {
+  const s = String(spec || '').trim();
+  if (!s.includes('+') && !s.includes(':')) {
+    return { blend: false, voiceA: s || 'af_bella', voiceB: 'af_heart', mixPct: 65 };
+  }
+  const parts = s.split('+').map(p => p.trim()).filter(Boolean);
+  const parsePart = (p, defName, defW) => {
+    const idx = p.indexOf(':');
+    if (idx === -1) return { name: p || defName, w: defW };
+    const name = p.slice(0, idx).trim() || defName;
+    const w = Math.max(0.05, Math.min(0.95, parseFloat(p.slice(idx + 1).trim()) || defW));
+    return { name, w };
+  };
+  const a = parsePart(parts[0] || '', 'af_sky', 0.65);
+  const b = parsePart(parts[1] || '', 'af_heart', 1.0 - a.w);
+  const sum = a.w + b.w || 1;
+  const pct = Math.max(10, Math.min(90, Math.round((a.w / sum) * 100 / 5) * 5));
+  return { blend: parts.length >= 2, voiceA: a.name, voiceB: b.name, mixPct: pct };
+}
+
+function formatVoiceBlendSpec(voiceA, blendOn, voiceB, mixPct) {
+  const vA = String(voiceA || 'af_bella').trim();
+  if (!blendOn || !voiceB || voiceB === vA) return vA;
+  const pct = Math.max(10, Math.min(90, parseInt(mixPct, 10) || 65));
+  const wA = (pct / 100).toFixed(2);
+  const wB = ((100 - pct) / 100).toFixed(2);
+  return `${vA}:${wA}+${voiceB}:${wB}`;
+}
+
+window.parseVoiceBlendSpec = parseVoiceBlendSpec;
+window.formatVoiceBlendSpec = formatVoiceBlendSpec;
+
 function changePersona(personaKey) {
-  updatePersonaUI(personaKey);
   const pData = getActivePersonaData(personaKey);
-  const targetModel = pData && pData.vrm_defaults && pData.vrm_defaults.model_file;
-  if (targetModel && typeof loadVrmModel === 'function' && targetModel !== window.currentVrmModelName) {
-    loadVrmModel(targetModel);
+  if (pData) {
+    if (pData.voice_engine) currentAiSettings.tts_engine = String(pData.voice_engine).toUpperCase();
+    if (pData.kokoro_voice) currentAiSettings.kokoro_voice = pData.kokoro_voice;
+    const pPitch = (pData.tts_pitch !== undefined) ? pData.tts_pitch : pData.pitch_factor;
+    if (pPitch !== undefined && pPitch !== null) {
+      currentAiSettings.tts_pitch = parseFloat(pPitch);
+      currentAiSettings.pitch_factor = parseFloat(pPitch);
+    }
+    if (pData.speech_speed !== undefined && pData.speech_speed !== null) {
+      currentAiSettings.speech_speed = parseFloat(pData.speech_speed);
+    }
+    if (pData.elevenlabs_voice_id) currentAiSettings.elevenlabs_voice_id = pData.elevenlabs_voice_id;
+    if (pData.acknowledgments_folder) currentAiSettings.acknowledgments_folder = pData.acknowledgments_folder;
+  }
+  updatePersonaUI(personaKey);
+  syncSettingsUI();
+
+  const vrmDef = (pData && pData.vrm_defaults) || {};
+  if (vrmDef.framing_mode) {
+    const rawF = String(vrmDef.framing_mode).toUpperCase();
+    const normF = (rawF === 'FULL') ? 'FULL_BODY' : rawF;
+    if (typeof vrmFramingMode !== 'undefined') vrmFramingMode = normF;
+    try { localStorage.setItem('vrmFramingMode', normF); } catch (e) {}
+    if (typeof updateFramingButtonLabel === 'function') updateFramingButtonLabel();
+  }
+  const targetModel = vrmDef.model_file;
+  if (targetModel) {
+    try { localStorage.setItem('vrmCurrentAvatar', targetModel); } catch (e) {}
+    if (typeof loadVrmModel === 'function' && targetModel !== window.currentVrmModelName) {
+      loadVrmModel(targetModel);
+    }
   }
 
   fetch('/api/ai/settings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ personality: personaKey })
-  }).then(() => fetchAiHistory());
+  })
+    .then(r => r.json())
+    .then(res => {
+      if (res && res.settings) {
+        currentAiSettings = res.settings;
+        syncSettingsUI();
+      }
+      return fetchAiHistory();
+    })
+    .catch(() => fetchAiHistory());
 }
 
 function cycleVoiceMode() {
@@ -921,7 +1014,7 @@ function speakUtterance(text, emotion, source = 'COMPANION') {
   }
 
   if (emotion) {
-    setWaifuEmotion(emotion);
+    setVrmEmotion(emotion);
   }
 
   // Fallback timer only if SSE stream is disconnected
@@ -933,19 +1026,19 @@ function speakUtterance(text, emotion, source = 'COMPANION') {
     vrmGazeRetentionUntil = Math.max(vrmGazeRetentionUntil, Date.now() + estimatedDurationMs + 9000);
   }
   if (!eventSource || eventSource.readyState !== 1) {
-    waifuSpeechEndTime = Date.now() + estimatedDurationMs;
+    vrmSpeechEndTime = Date.now() + estimatedDurationMs;
     setTimeout(() => { if (!isHardwareSpeaking) setMediaDuckState(false); }, estimatedDurationMs);
   }
   if (typeof setVrmSpeaking === 'function') setVrmSpeaking(estimatedDurationMs, cleanSpeech, false);
-  const stage = document.getElementById('waifuStage');
+  const stage = document.getElementById('vrmStage');
 
   if (!eventSource || eventSource.readyState !== 1) {
-    isWaifuSpeaking = true;
+    isVrmSpeaking = true;
     if (stage) stage.classList.add('speaking');
     setTimeout(() => {
       if (stage) stage.classList.remove('speaking');
-      setWaifuEmotion("DEVOTED");
-      isWaifuSpeaking = false;
+      setVrmEmotion("DEVOTED");
+      isVrmSpeaking = false;
       scheduleShotgunAutoDismiss(2500);
     }, estimatedDurationMs);
   }
@@ -955,9 +1048,9 @@ function speakUtterance(text, emotion, source = 'COMPANION') {
     document.getElementById('chatAssistantAvatar'),
     document.getElementById('homeAiAvatarImg')
   ];
-  avatarEls.forEach(el => el && el.classList.add('waifu-speaking'));
+  avatarEls.forEach(el => el && el.classList.add('companion-speaking'));
   setTimeout(() => {
-    avatarEls.forEach(el => el && el.classList.remove('waifu-speaking'));
+    avatarEls.forEach(el => el && el.classList.remove('companion-speaking'));
   }, estimatedDurationMs);
 
   // 3. Fallback browser SpeechSynthesis ONLY for offline desktop browser preview (not on live Pi backend)
@@ -1308,7 +1401,7 @@ function syncVoiceButtonState(convoActive, micCapturing, wakeEnabled) {
 }
 
 async function toggleLiveConversationMode() {
-  if (isWaifuSpeaking || isHardwareSpeaking || _pcSpeechPlaying) {
+  if (isVrmSpeaking || isHardwareSpeaking || _pcSpeechPlaying) {
     await interruptAiTurn('MIC_TAP_BARGE_IN');
   }
   if (isPcAudioMode) {
@@ -2054,20 +2147,54 @@ function onPitchSliderChanged(val) {
   }, 250);
 }
 
+function onSpeedSliderInput(val) {
+  const s = parseFloat(val) || 1.0;
+  const lbl = document.getElementById('lblTtsSpeed');
+  if (lbl) lbl.innerText = s.toFixed(2) + 'x';
+}
+
+function onSpeedSliderChanged(val) {
+  onSpeedSliderInput(val);
+  saveTtsVoiceSettings();
+  if (pitchDebounceTimer) clearTimeout(pitchDebounceTimer);
+  pitchDebounceTimer = setTimeout(() => {
+    testTtsVoiceSample();
+  }, 250);
+}
+
+function onSettingsBlendChanged() {
+  const chk = document.getElementById('cfgKokoroBlendToggle');
+  const row = document.getElementById('cfgKokoroBlendRow');
+  if (row) row.style.display = (chk && chk.checked) ? 'grid' : 'none';
+  saveTtsVoiceSettings();
+}
+
 function saveTtsVoiceSettings() {
   const kVoiceEl = document.getElementById('cfgKokoroVoice');
+  const kVoiceBEl = document.getElementById('cfgKokoroVoiceB');
+  const blendChk = document.getElementById('cfgKokoroBlendToggle');
+  const mixEl = document.getElementById('cfgKokoroBlendMix');
   const pitchEl = document.getElementById('cfgTtsPitch');
+  const speedEl = document.getElementById('cfgTtsSpeed');
   const elKey = document.getElementById('cfgElevenLabsKey');
   const elVid = document.getElementById('cfgElevenLabsVoiceId');
-  const pitchVal = pitchEl ? parseFloat(pitchEl.value) : 1.18;
+  const pitchVal = pitchEl ? parseFloat(pitchEl.value) : 1.12;
+  const speedVal = speedEl ? parseFloat(speedEl.value) : 1.00;
+  const voiceSpec = formatVoiceBlendSpec(
+    kVoiceEl ? kVoiceEl.value : 'af_sky',
+    Boolean(blendChk && blendChk.checked),
+    kVoiceBEl ? kVoiceBEl.value : 'af_heart',
+    mixEl ? mixEl.value : 65
+  );
 
   const payload = {
     tts_engine: currentAiSettings.tts_engine || 'KOKORO',
-    kokoro_voice: kVoiceEl ? kVoiceEl.value : 'af_nicole',
+    kokoro_voice: voiceSpec,
     tts_pitch: pitchVal,
     pitch_factor: pitchVal,
+    speech_speed: speedVal,
     elevenlabs_api_key: elKey ? elKey.value.trim() : (currentAiSettings.elevenlabs_api_key || ''),
-    elevenlabs_voice_id: elVid ? elVid.value.trim() : (currentAiSettings.elevenlabs_voice_id || 'jBpfuIE2acCO8z3wKNLl')
+    elevenlabs_voice_id: elVid ? elVid.value.trim() : (currentAiSettings.elevenlabs_voice_id || 'cgSgspJ2msm6clMCkdW9')
   };
   Object.assign(currentAiSettings, payload);
 

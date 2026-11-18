@@ -909,6 +909,304 @@ class ModularRouteDispatchTest(unittest.TestCase):
             for tok in forbidden:
                 self.assertNotIn(tok, txt, f"Found stale persona token {tok} in {fp}")
 
+    def test_persona_schema_and_hot_discovery(self):
+        from ai.llm_client import load_personas_from_dir, LLMClient
+
+        personas = load_personas_from_dir()
+        for pid in ("RUM", "MAIA", "ODIN"):
+            self.assertIn(pid, personas)
+            p = personas[pid]
+            for req_key in ("voice_engine", "kokoro_voice", "pitch_factor", "tts_pitch", "acknowledgments_folder", "boot_splash_title", "boot_splash_subtitle"):
+                self.assertIn(req_key, p, f"{pid} missing {req_key}")
+            vd = p.get("vrm_defaults", {})
+            for vkey in ("model_file", "scale", "framing_mode", "default_idle", "night_sit_idle", "walk_clip", "sleeve_bones", "spring_physics_scale", "accent_color", "bubble_bg", "glow_color"):
+                self.assertIn(vkey, vd, f"{pid}.vrm_defaults missing {vkey}")
+            self.assertIn("coolant_high", p.get("copilot_callouts", {}), f"{pid} missing copilot_callouts")
+            self.assertIn("head_top", p.get("touch_interactions", {}), f"{pid} missing touch_interactions")
+
+        # R.U.M. & O.D.I.N. ban butt/groin; M.A.I.A. explicitly keeps adult touch zones
+        self.assertIn("butt", personas["RUM"].get("banned_touch_zones", []))
+        self.assertIn("butt", personas["ODIN"].get("banned_touch_zones", []))
+        self.assertIn("butt", personas["MAIA"].get("touch_interactions", {}))
+
+        # Hot-discovery: dropping a temporary JSON picks up via load_personas_from_dir without daemon restart
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            custom_path = Path(tmpdir) / "testbot.json"
+            custom_path.write_text(json.dumps({
+                "id": "TESTBOT",
+                "name": "TestBot",
+                "full_name": "Test Companion",
+                "vrm_defaults": {"model_file": "Rum.vrm", "accent_color": "#22c55e"},
+            }), encoding="utf-8")
+            loaded = load_personas_from_dir(tmpdir)
+            self.assertIn("TESTBOT", loaded)
+            self.assertEqual(loaded["TESTBOT"]["acknowledgments_folder"], "testbot")
+
+    def test_persona_switch_audio_autosync(self):
+        from ai.llm_client import LLMClient, load_personas_from_dir
+        from hardware.audio_player import AudioPlayer
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            cfg_path = Path(tmpdir) / "ai_settings.json"
+            llm = LLMClient.__new__(LLMClient)
+            llm.config_file = str(cfg_path)
+            llm.personas = load_personas_from_dir()
+            llm.settings = {
+                "personality": "RUM",
+                "tts_engine": "KOKORO",
+                "kokoro_voice": "af_bella",
+                "tts_pitch": 1.28,
+                "pitch_factor": 1.28,
+                "acknowledgments_folder": "rum",
+            }
+            # Switching to ODIN auto-applies ODIN audio profile
+            llm.save_settings({"personality": "ODIN"})
+            self.assertEqual(llm.settings["personality"], "ODIN")
+            self.assertEqual(llm.settings["tts_engine"], "PIPER")
+            self.assertEqual(llm.settings["kokoro_voice"], "am_adam")
+            self.assertAlmostEqual(float(llm.settings["tts_pitch"]), 0.94, places=2)
+            self.assertEqual(llm.settings["acknowledgments_folder"], "odin")
+
+            ap = AudioPlayer.__new__(AudioPlayer)
+            ap.tts_engine = "KOKORO"
+            ap.kokoro_voice = "af_nicole"
+            ap.pitch_factor = 1.18
+            ap.elevenlabs_api_key = ""
+            ap.elevenlabs_voice_id = "cgSgspJ2msm6clMCkdW9"
+            ap.acknowledgments_folder = ""
+            ap.configure_tts(llm.settings)
+            self.assertEqual(ap.tts_engine, "PIPER")
+            self.assertEqual(ap.acknowledgments_folder, "odin")
+
+            # Manual tweak afterwards sticks without reverting
+            llm.save_settings({"kokoro_voice": "af_heart", "tts_pitch": 1.07})
+            self.assertEqual(llm.settings["kokoro_voice"], "af_heart")
+            self.assertAlmostEqual(float(llm.settings["tts_pitch"]), 1.07, places=2)
+
+    def test_copilot_uses_persona_callouts(self):
+        from ai.copilot import AICopilot
+
+        engine = AICopilot(driver_name="Commander")
+        engine.last_spoken_time = 0.0
+
+        class StubLLM:
+            def __init__(self, p):
+                self._p = p
+            def get_active_persona(self):
+                return self._p
+
+        engine.set_llm_client(StubLLM({
+            "id": "ODIN",
+            "name": "O.D.I.N.",
+            "copilot_callouts": {
+                "coolant_high": "Tactical alert {coolant}F for {driver_address}!",
+                "coolant_high_hud": "ODIN TEMP {coolant}F",
+            },
+        }))
+        ev = engine.evaluate_frame({"coolant_temp_f": 225.0, "connected": True}, dt=0.04)
+        self.assertIsNotNone(ev)
+        self.assertEqual(ev["speech"], "Tactical alert 225F for Commander!")
+        self.assertEqual(ev["hud_message"], "ODIN TEMP 225F")
+
+    def test_legacy_2d_and_waifu_purge(self):
+        ui_root = BACKEND_DIR.parent / "ui" / "web_preview"
+        forbidden = [
+            "initWaifuTalkingHead",
+            "waifuFaceCanvas",
+            "renderMiniDtcWaifu",
+            "waifuStage",
+            "waifuEmotionPill",
+            "setWaifuEmotion",
+            "triggerWaifuTouch",
+            "toggleAvatar2d3d",
+            "switchAvatarEngine",
+            ".chat-bubble.maia",
+            "maia_avatar.jpg",
+        ]
+        for path in list(ui_root.glob("*.html")) + list(ui_root.glob("*.css")) + list(ui_root.glob("*.js")) + list((ui_root / "js").glob("*.js")):
+            txt = path.read_text(encoding="utf-8", errors="replace")
+            for tok in forbidden:
+                self.assertNotIn(tok, txt, f"Found legacy 2D/waifu symbol {tok} in {path}")
+
+    def test_persona_builder_crud_and_default_uniqueness(self):
+        from ai.llm_client import LLMClient, load_personas_from_dir
+        import ai.llm_client as llm_mod
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            p_dir = Path(tmpdir) / "personas"
+            p_dir.mkdir(parents=True, exist_ok=True)
+            cfg_path = Path(tmpdir) / "ai_settings.json"
+            # Seed 1 default persona in temp dir
+            (p_dir / "rum.json").write_text(json.dumps({
+                "id": "RUM",
+                "name": "R.U.M.",
+                "voice_engine": "KOKORO",
+                "kokoro_voice": "af_bella",
+                "pitch_factor": 1.28,
+                "default": True,
+                "vrm_defaults": {"model_file": "Rum.vrm"},
+            }), encoding="utf-8")
+
+            llm = LLMClient.__new__(LLMClient)
+            llm.config_file = str(cfg_path)
+            llm._persona_dir_override = str(p_dir)
+            llm.personas = load_personas_from_dir(str(p_dir))
+            llm.settings = {"personality": "RUM", "driver_title": "Dad", "driver_name": ""}
+
+            orig_global = dict(llm_mod.PERSONALITIES)
+            try:
+                # Create & set default + active on new kid-safe persona LUMI (trying adult zones gets stripped)
+                res_save = llm.save_persona({
+                    "id": "lumi!",
+                    "name": "Lumi",
+                    "age_spirit": "8",
+                    "default": True,
+                    "voice_engine": "KOKORO",
+                    "kokoro_voice": "af_sky",
+                    "pitch_factor": 1.22,
+                    "touch_interactions": {"butt": {"lines": ["nope"]}, "head_top": {"lines": ["Yay!"]}},
+                    "vrm_defaults": {"model_file": "Rem.vrm", "accent_color": "#22c55e"},
+                }, set_active=True)
+                self.assertEqual(res_save["status"], "ok")
+                self.assertEqual(res_save["persona"]["id"], "LUMI")
+                self.assertIn("butt", res_save["persona"]["banned_touch_zones"])
+                self.assertNotIn("butt", res_save["persona"]["touch_interactions"])
+                self.assertEqual(llm.settings["personality"], "LUMI")
+                self.assertEqual(llm.settings["kokoro_voice"], "af_sky")
+
+                # RUM should have had default cleared when LUMI set default=True
+                rum_disk = json.loads((p_dir / "rum.json").read_text(encoding="utf-8"))
+                self.assertFalse(rum_disk["default"])
+
+                # Autofill returns wake words & greetings for a custom persona
+                auto_fields = llm.autofill_persona_fields({"name": "Nova", "age_spirit": "tactical"})
+                self.assertIn("hey nova", auto_fields["wake_words"]["prefixes"])
+
+                # Delete LUMI -> auto-falls back to RUM; cannot delete last remaining RUM
+                res_del = llm.delete_persona("LUMI")
+                self.assertEqual(res_del["status"], "ok")
+                self.assertEqual(res_del["active_persona"], "RUM")
+                res_last = llm.delete_persona("RUM")
+                self.assertEqual(res_last["status"], "error")
+            finally:
+                llm_mod.PERSONALITIES = orig_global
+
+    def test_asset_pic_and_vrm_upload_validation(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            orig_base = getattr(self.state, "base_dir", None)
+            self.state.base_dir = tmpdir
+            try:
+                # Reject traversal / bad extension
+                h_bad = DummyHandler()
+                h_bad.rfile = io.BytesIO(b"evil")
+                h_bad.headers = {"Content-Length": "4"}
+                dispatch_post(h_bad, urlparse("/api/models/avatars/upload?name=../../evil.exe"), self.state)
+                self.assertEqual(h_bad.status, 400)
+
+                # Accept valid .vrm upload
+                h_vrm = DummyHandler()
+                h_vrm.rfile = io.BytesIO(b"glTF_VRM_DATA")
+                h_vrm.headers = {"Content-Length": "13"}
+                dispatch_post(h_vrm, urlparse("/api/models/avatars/upload?name=CustomGirl.vrm"), self.state)
+                self.assertEqual(h_vrm.status, 200)
+                self.assertTrue((Path(tmpdir) / "models" / "avatars" / "CustomGirl.vrm").exists())
+
+                # Accept valid .png upload and list via /api/assets/pics
+                h_pic = DummyHandler()
+                h_pic.rfile = io.BytesIO(b"\x89PNG\r\n\x1a\n")
+                h_pic.headers = {"Content-Length": "8"}
+                dispatch_post(h_pic, urlparse("/api/assets/pics/upload?name=lumi.png"), self.state)
+                self.assertEqual(h_pic.status, 200)
+
+                h_list = DummyHandler()
+                self.assertTrue(dispatch_get(h_list, urlparse("/api/assets/pics"), self.state))
+                self.assertIn("assets/pics/lumi.png", h_list.json_body()["pics"])
+            finally:
+                self.state.base_dir = orig_base
+
+    def test_speak_temporary_voice_preview_and_voices_route(self):
+        configured_calls = []
+        self.state.audio.tts_engine = "KOKORO"
+        self.state.audio.kokoro_voice = "af_bella"
+        self.state.audio.pitch_factor = 1.28
+        self.state.audio.configure_tts = lambda cfg: configured_calls.append(dict(cfg))
+
+        h_voices = DummyHandler()
+        self.assertTrue(dispatch_get(h_voices, urlparse("/api/ai/voices"), self.state))
+        self.assertIn("af_nicole", h_voices.json_body()["kokoro_voices"])
+
+        h_spk = DummyHandler({
+            "text": "Voice preview check!",
+            "tts_engine": "PIPER",
+            "kokoro_voice": "am_adam",
+            "tts_pitch": 0.94,
+        })
+        self.assertTrue(dispatch_post(h_spk, urlparse("/api/ai/speak"), self.state))
+        self.assertEqual(len(configured_calls), 2)
+        self.assertEqual(configured_calls[0]["kokoro_voice"], "am_adam")
+        self.assertEqual(configured_calls[1]["kokoro_voice"], "af_bella")
+
+    def test_kokoro_voice_blend_parsing_and_speed(self):
+        from hardware.audio_player import AudioPlayer
+
+        class FakeKokoro:
+            def get_voices(self):
+                return ["af_sky", "af_heart", "af_bella"]
+
+            def get_voice_style(self, name):
+                return {"af_sky": 10.0, "af_heart": 20.0, "af_bella": 30.0}[name]
+
+        fk = FakeKokoro()
+        self.assertEqual(AudioPlayer.resolve_kokoro_voice_arg(fk, "af_heart"), "af_heart")
+        self.assertEqual(AudioPlayer.resolve_kokoro_voice_arg(fk, "unknown_voice"), "af_bella")
+        blended = AudioPlayer.resolve_kokoro_voice_arg(fk, "af_sky:0.65+af_heart:0.35")
+        self.assertAlmostEqual(blended, 13.5, places=4)
+
+        player = AudioPlayer()
+        player.configure_tts({
+            "kokoro_voice": "af_sky:0.65+af_heart:0.35",
+            "speech_speed": 0.97,
+            "tts_pitch": 1.12,
+        })
+        self.assertEqual(player.kokoro_voice, "af_sky:0.65+af_heart:0.35")
+        self.assertAlmostEqual(player.speech_speed, 0.97, places=2)
+        self.assertAlmostEqual(player.pitch_factor, 1.12, places=2)
+
+        player.configure_tts({"speech_speed": 2.5})
+        self.assertAlmostEqual(player.speech_speed, 1.25, places=2)
+        player.configure_tts({"speech_speed": 0.2})
+        self.assertAlmostEqual(player.speech_speed, 0.75, places=2)
+
+        rum_cfg = json.loads((BACKEND_DIR.parent / "config" / "personas" / "rum.json").read_text(encoding="utf-8"))
+        self.assertEqual(rum_cfg["kokoro_voice"], "af_sky:0.65+af_heart:0.35")
+        self.assertAlmostEqual(rum_cfg["speech_speed"], 0.97, places=2)
+        self.assertAlmostEqual(rum_cfg["pitch_factor"], 1.12, places=2)
+        self.assertAlmostEqual(rum_cfg["tts_pitch"], 1.12, places=2)
+
+    def test_system_monitor_rtc_status(self):
+        from hardware.system_monitor import SystemMonitor
+
+        mon = SystemMonitor()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p = Path(tmpdir)
+            (p / "battery_voltage").write_text("3650000\n", encoding="utf-8")
+            (p / "charging_voltage").write_text("3000000\n", encoding="utf-8")
+            (p / "date").write_text("2026-11-17\n", encoding="utf-8")
+            (p / "time").write_text("18:00:00\n", encoding="utf-8")
+
+            rtc = mon.get_rtc_status(rtc_dir=str(p))
+            self.assertTrue(rtc["present"])
+            self.assertAlmostEqual(rtc["battery_voltage_v"], 3.65, places=2)
+            self.assertAlmostEqual(rtc["charging_voltage_v"], 3.0, places=2)
+            self.assertTrue(rtc["charging_enabled"])
+            self.assertEqual(rtc["status"], "charging_ready")
+            self.assertEqual(rtc["rtc_time"], "2026-11-17 18:00:00 UTC")
+
+        missing = mon.get_rtc_status(rtc_dir=str(BACKEND_DIR / "nonexistent_rtc_dir"))
+        self.assertFalse(missing["present"])
+        self.assertEqual(missing["status"], "unavailable")
+        self.assertFalse(missing["charging_enabled"])
+
     def test_unmatched_routes_fall_through(self):
         import ast
         daemon_src = (BACKEND_DIR / "daemon.py").read_text(encoding="utf-8")

@@ -332,12 +332,13 @@ class VrmSpringBoneSolver {
     });
   }
 
-  step(delta, inertiaZ = 0, roll = 0) {
+  step(delta, inertiaZ = 0, roll = 0, springScale = 1.0) {
     if (!this.chains.length || typeof THREE === 'undefined') return;
+    const scale = Math.max(0.1, Math.min(2.5, Number(springScale) || 1.0));
     const dt = Math.min(0.033, Math.max(0.004, delta || 0.016));
-    const gravY = -9.8 * dt * dt * 0.18;
-    const accelX = -roll * 1.4 * dt * dt;
-    const accelZ = -inertiaZ * 1.8 * dt * dt;
+    const gravY = -9.8 * dt * dt * 0.18 * scale;
+    const accelX = -roll * 1.4 * dt * dt * scale;
+    const accelZ = -inertiaZ * 1.8 * dt * dt * scale;
 
     for (let i = 0; i < this.chains.length; i++) {
       const c = this.chains[i];

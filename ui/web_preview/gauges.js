@@ -651,7 +651,7 @@ function triggerStartupGreeting() {
                 });
               }
               showAiSpeechToast(neuralData.greeting);
-              if (neuralData.emotion) setWaifuEmotion(neuralData.emotion);
+              if (neuralData.emotion) setVrmEmotion(neuralData.emotion);
             }
           })
           .catch(e => console.warn("[OFFICIAL GREETING] Note:", e));
@@ -672,7 +672,7 @@ function triggerStartupGreeting() {
                 });
               }
               showAiSpeechToast(instData.greeting);
-              if (instData.emotion) setWaifuEmotion(instData.emotion);
+              if (instData.emotion) setVrmEmotion(instData.emotion);
             }
           })
           .catch(err => console.warn("[INSTANT GREETING] Note:", err));
@@ -725,8 +725,8 @@ function connectTelemetryStream() {
       latestMood = data.mood;
       if (data.mood && data.mood.emotion && data.mood.emotion !== window._lastStreamMoodEmotion) {
         window._lastStreamMoodEmotion = data.mood.emotion;
-        if (!isWaifuSpeaking && typeof setWaifuEmotion === 'function') {
-          setWaifuEmotion(data.mood.emotion);
+        if (!isVrmSpeaking && typeof setVrmEmotion === 'function') {
+          setVrmEmotion(data.mood.emotion);
         }
       }
     if (data.pip) {
@@ -1035,23 +1035,23 @@ function triggerShiftTone(rpm) {
     // Real-Time Hardware Speech Lip-Sync synchronization & Shotgun Auto-Popup
     if (typeof data.is_speaking === 'boolean') {
       const wasSpeaking = isHardwareSpeaking;
-      isWaifuSpeaking = data.is_speaking;
+      isVrmSpeaking = data.is_speaking;
       const shouldDuck = (data.audio_duck !== undefined) ? data.audio_duck : data.is_speaking;
       setMediaDuckState(shouldDuck);
       isHardwareSpeaking = data.is_speaking;
-      const stage = document.getElementById('waifuStage');
+      const stage = document.getElementById('vrmStage');
       if (stage) {
-        if (isWaifuSpeaking) stage.classList.add('speaking');
+        if (isVrmSpeaking) stage.classList.add('speaking');
         else stage.classList.remove('speaking');
       }
       const vrmPill = document.getElementById('vrmMinHudPill');
       if (vrmPill) {
-        if (isWaifuSpeaking) vrmPill.classList.add('speaking');
+        if (isVrmSpeaking) vrmPill.classList.add('speaking');
         else vrmPill.classList.remove('speaking');
       }
       const mini = document.getElementById('vrmMiniBubble');
       if (mini) {
-        if (isWaifuSpeaking) mini.classList.add('talking');
+        if (isVrmSpeaking) mini.classList.add('talking');
         else mini.classList.remove('talking');
       }
       if (data.is_speaking && currentScreen !== 'ai' && !window.isCompanionMinimizedByUser) {
@@ -1065,7 +1065,7 @@ function triggerShiftTone(rpm) {
     if (data.ai_event) {
       appendSpeechLogItem(data.ai_event);
       if (data.ai_event.emotion) {
-        setWaifuEmotion(data.ai_event.emotion);
+        setVrmEmotion(data.ai_event.emotion);
       }
       if (typeof triggerChoreographedEmote === 'function' && (data.ai_event.beats || data.ai_event.emote_clip || data.ai_event.facial_preset)) {
         const spLen = (data.ai_event.speech || '').length;
@@ -1675,8 +1675,8 @@ function confirmResetToDefaults() {
       currentTelemetryMode = "REAL";
       syncTelemetryModeUI({ mode: "REAL", test_mode: false, connected: false, status_message: "Direct OBD-II vehicle interface active (Resting / Disconnected)." });
 
-      // Reset Waifu Emotion & Spoken Toast
-      setWaifuEmotion("DEVOTED");
+      // Reset Companion Emotion & Spoken Toast
+      setVrmEmotion("DEVOTED");
       const msg = "Factory defaults restored! Cockpit ready, Master Creator.";
       showAiSpeechToast(msg);
       speakUtterance(msg, "DEVOTED");
@@ -1746,12 +1746,41 @@ function syncSettingsUI() {
   const ttsEng = (currentAiSettings.tts_engine || 'KOKORO').toUpperCase();
   selectTtsEngine(ttsEng, false);
   const kVoiceEl = document.getElementById('cfgKokoroVoice');
-  if (kVoiceEl && currentAiSettings.kokoro_voice) kVoiceEl.value = currentAiSettings.kokoro_voice;
+  const kVoiceBEl = document.getElementById('cfgKokoroVoiceB');
+  const blendChk = document.getElementById('cfgKokoroBlendToggle');
+  const blendRow = document.getElementById('cfgKokoroBlendRow');
+  const mixEl = document.getElementById('cfgKokoroBlendMix');
+  const mixLbl = document.getElementById('lblKokoroBlendMix');
+  const parsedVoice = (typeof parseVoiceBlendSpec === 'function')
+    ? parseVoiceBlendSpec(currentAiSettings.kokoro_voice)
+    : { blend: false, voiceA: currentAiSettings.kokoro_voice || 'af_bella', voiceB: 'af_heart', mixPct: 65 };
+  if (kVoiceEl) {
+    if (parsedVoice.voiceA && !Array.from(kVoiceEl.options).some(o => o.value === parsedVoice.voiceA)) {
+      const opt = document.createElement('option');
+      opt.value = parsedVoice.voiceA;
+      opt.text = parsedVoice.voiceA;
+      kVoiceEl.add(opt);
+    }
+    kVoiceEl.value = parsedVoice.voiceA;
+  }
+  if (kVoiceBEl) kVoiceBEl.value = parsedVoice.voiceB;
+  if (blendChk) blendChk.checked = parsedVoice.blend;
+  if (blendRow) blendRow.style.display = parsedVoice.blend ? 'grid' : 'none';
+  if (mixEl) mixEl.value = parsedVoice.mixPct;
+  if (mixLbl) mixLbl.innerText = `${parsedVoice.mixPct}% / ${100 - parsedVoice.mixPct}%`;
+
   const pitchEl = document.getElementById('cfgTtsPitch');
   const lblPitch = document.getElementById('lblTtsPitch');
   if (pitchEl && currentAiSettings.tts_pitch !== undefined) {
     pitchEl.value = currentAiSettings.tts_pitch;
-    if (lblPitch) lblPitch.innerText = currentAiSettings.tts_pitch + 'x';
+    if (lblPitch) lblPitch.innerText = parseFloat(currentAiSettings.tts_pitch).toFixed(2) + 'x';
+  }
+  const speedEl = document.getElementById('cfgTtsSpeed');
+  const lblSpeed = document.getElementById('lblTtsSpeed');
+  if (speedEl) {
+    const spVal = (currentAiSettings.speech_speed !== undefined) ? parseFloat(currentAiSettings.speech_speed) : 1.00;
+    speedEl.value = spVal;
+    if (lblSpeed) lblSpeed.innerText = spVal.toFixed(2) + 'x';
   }
   const elKey = document.getElementById('cfgElevenLabsKey');
   const elVid = document.getElementById('cfgElevenLabsVoiceId');
@@ -2072,7 +2101,7 @@ function applyOtaUpdate() {
 }
 
 function playCreatorTribute() {
-  setWaifuEmotion("DEVOTED");
+  setVrmEmotion("DEVOTED");
   const p = (typeof getActivePersonaData === 'function') ? getActivePersonaData() : {};
   const sysEv = p.system_events || {};
   const fallbackSpeech = "This cockpit was crafted with love to ride shotgun in the Dodge Dart 1.4L Turbo!";
@@ -2524,8 +2553,7 @@ fetchRelaysStatus();
 fetchRomsList();
 fetchTripLogs();
 
-// Initialize Talking Head, Kinetic Touch Scrolling, and Brightness
-// [OBSOLETE 2D FACE - DORMANT CODE] initWaifuTalkingHead();
+// Initialize Kinetic Touch Scrolling and Display Brightness
 const savedBrightness = localStorage.getItem('carpi5_brightness') || 100;
 updateBrightnessFromSlider(savedBrightness);
 const btnClock = document.getElementById('btnClockFormat');

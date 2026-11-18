@@ -222,11 +222,53 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
 
     if path == "/api/ai/personas":
         state.llm.reload_personas()
+        qs = parse_qs(parsed.query)
+        target_id = qs.get("id", [""])[0].strip().upper()
+        if target_id:
+            if target_id in state.llm.personas:
+                send_json(handler, {"status": "ok", "persona": state.llm.personas[target_id]})
+            else:
+                send_json(handler, {"status": "error", "message": f"Persona '{target_id}' not found"}, status=404)
+            return True
         send_json(handler, state.llm.personas)
+        return True
+
+    if path == "/api/ai/voices":
+        base_dir = getattr(state, "base_dir", os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        kokoro_voices = ["af_nicole", "af_bella", "af_heart", "af_sky", "af_nova", "am_adam", "am_michael", "bf_emma", "bm_george"]
+        kokoro_inst = getattr(state.audio, "_kokoro_instance", None) if getattr(state, "audio", None) else None
+        if kokoro_inst and hasattr(kokoro_inst, "get_voices"):
+            try:
+                live_voices = [str(v) for v in (kokoro_inst.get_voices() or []) if v]
+                for v in live_voices:
+                    if v not in kokoro_voices:
+                        kokoro_voices.append(v)
+            except Exception:
+                pass
+        piper_models = []
+        models_dir = os.path.join(str(base_dir), "models")
+        if os.path.exists(models_dir):
+            for fn in sorted(os.listdir(models_dir)):
+                if fn.endswith(".onnx") and "kokoro" not in fn.lower():
+                    piper_models.append(fn)
+        ack_folders = ["default"]
+        ack_root = os.path.join(str(base_dir), "assets", "sounds", "acknowledgments")
+        if os.path.exists(ack_root):
+            for entry in sorted(os.listdir(ack_root)):
+                if os.path.isdir(os.path.join(ack_root, entry)) and entry not in ack_folders:
+                    ack_folders.append(entry)
+        send_json(handler, {
+            "status": "ok",
+            "kokoro_voices": kokoro_voices,
+            "piper_models": piper_models,
+            "acknowledgments_folders": ack_folders,
+        })
         return True
 
     if path == "/api/ai/history":
         with state.lock:
+            if hasattr(state.llm, "reload_personas"):
+                state.llm.reload_personas()
             data = {
                 "chat_history": state.llm.chat_history,
                 "speech_log": state.llm.speech_log,
@@ -240,11 +282,21 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
                         "subtitle": v.get("subtitle", v.get("archetype", "Cockpit AI Companion")),
                         "full_name": v["full_name"],
                         "desc": v["description"],
+                        "age_spirit": v.get("age_spirit", ""),
                         "archetype": v.get("archetype", "Dedicated Cockpit AI"),
                         "driver_address_default": v.get("driver_address_default", "Driver"),
                         "avatar_image": v.get("avatar_image", "assets/pics/splash.png"),
                         "boot_splash_image": v.get("boot_splash_image", "assets/pics/splash.png"),
                         "boot_splash_video": v.get("boot_splash_video", ""),
+                        "boot_splash_title": v.get("boot_splash_title", f"{v.get('name', k)} • CARPI5"),
+                        "boot_splash_subtitle": v.get("boot_splash_subtitle", v.get("subtitle", v.get("archetype", "Cockpit AI Companion"))),
+                        "voice_engine": v.get("voice_engine", "KOKORO"),
+                        "kokoro_voice": v.get("kokoro_voice", "af_bella"),
+                        "pitch_factor": v.get("pitch_factor", 1.12),
+                        "tts_pitch": v.get("tts_pitch", v.get("pitch_factor", 1.12)),
+                        "speech_speed": v.get("speech_speed", 1.00),
+                        "elevenlabs_voice_id": v.get("elevenlabs_voice_id", ""),
+                        "acknowledgments_folder": v.get("acknowledgments_folder", str(k).lower()),
                         "vrm_defaults": v.get("vrm_defaults", {}),
                         "ui_labels": v.get("ui_labels", {}),
                         "wake_words": v.get("wake_words", {}),
@@ -253,6 +305,7 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
                         "animation_lines": v.get("animation_lines", {}),
                         "proactive_care": v.get("proactive_care", {}),
                         "pip_reactions": v.get("pip_reactions", {}),
+                        "emote_profile": v.get("emote_profile", {}),
                         "default": v.get("default", False),
                         "touch_interactions": v.get("touch_interactions", {}),
                         "banned_touch_zones": v.get("banned_touch_zones", []),
@@ -429,22 +482,86 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
         )
         return True
 
+    if path == "/api/ai/personas/save":
+        req_data = read_json_body(handler)
+        p_payload = req_data.get("persona") if isinstance(req_data.get("persona"), dict) else req_data
+        set_active = bool(req_data.get("set_active", False))
+        with state.lock:
+            res = state.llm.save_persona(p_payload, set_active=set_active)
+            if res.get("status") == "ok" and set_active:
+                state.audio.configure_tts(state.llm.settings)
+                if getattr(state, "copilot", None):
+                    state.copilot.driver_name = state.llm.get_driver_address()
+        send_json(handler, res, status=200 if res.get("status") == "ok" else 400)
+        return True
+
+    if path == "/api/ai/personas/delete":
+        req_data = read_json_body(handler)
+        p_id = str(req_data.get("id") or req_data.get("persona_id") or "").strip()
+        with state.lock:
+            res = state.llm.delete_persona(p_id)
+            if res.get("status") == "ok":
+                state.audio.configure_tts(state.llm.settings)
+        send_json(handler, res, status=200 if res.get("status") == "ok" else 400)
+        return True
+
+    if path == "/api/ai/personas/autofill":
+        req_data = read_json_body(handler)
+        res = state.llm.autofill_persona_fields(req_data)
+        send_json(handler, {"status": "ok", "fields": res})
+        return True
+
     if path == "/api/ai/speak":
         req_data = read_json_body(handler)
         text = str(req_data.get("text", "")).strip()
         source = str(req_data.get("source", "UI_SPEECH")).strip()
         emotion = req_data.get("emotion", "DEVOTED")
         client_id = req_data.get("client_id")
-        ev = None
-        if text:
-            ev = emit_ai_speech(
-                state,
-                text,
-                source=source,
-                emotion=emotion,
-                speak=True,
-                client_id=client_id,
+        preview_eng = req_data.get("tts_engine")
+        preview_voice = req_data.get("kokoro_voice")
+        preview_pitch = req_data.get("tts_pitch")
+        preview_speed = req_data.get("speech_speed")
+        has_preview = any(x not in (None, "") for x in (preview_eng, preview_voice, preview_pitch, preview_speed))
+        saved_audio = None
+        if has_preview and getattr(state, "audio", None):
+            saved_audio = (
+                state.audio.tts_engine,
+                state.audio.kokoro_voice,
+                state.audio.pitch_factor,
+                getattr(state.audio, "speech_speed", 1.00),
             )
+            state.audio.configure_tts({
+                "tts_engine": preview_eng or saved_audio[0],
+                "kokoro_voice": preview_voice or saved_audio[1],
+                "tts_pitch": preview_pitch if preview_pitch is not None else saved_audio[2],
+                "speech_speed": preview_speed if preview_speed is not None else saved_audio[3],
+            })
+        ev = None
+        try:
+            if text:
+                ev = emit_ai_speech(
+                    state,
+                    text,
+                    source=source,
+                    emotion=emotion,
+                    speak=True,
+                    client_id=client_id,
+                )
+        finally:
+            if saved_audio and getattr(state, "audio", None):
+                def _restore_audio(snap=saved_audio, delay=0.25):
+                    if delay > 0:
+                        time.sleep(delay)
+                    state.audio.configure_tts({
+                        "tts_engine": snap[0],
+                        "kokoro_voice": snap[1],
+                        "tts_pitch": snap[2],
+                        "speech_speed": snap[3],
+                    })
+                if getattr(state.audio, "synthesis_queue", None) is None:
+                    _restore_audio(saved_audio, 0.0)
+                else:
+                    threading.Thread(target=_restore_audio, args=(saved_audio, 0.25), daemon=True).start()
         send_json(
             handler,
             {

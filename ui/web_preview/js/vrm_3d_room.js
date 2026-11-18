@@ -46,686 +46,79 @@ function openRoomFloatingChat() {
   }
 }
 
-// --- 60 FPS PROCEDURAL ANIME WAIFU BUST ENGINE (NICK JR. "FACE" STYLE) ---
-let currentWaifuEmotion = "DEVOTED";
-let isWaifuSpeaking = false;
-let waifuSpeechEndTime = 0;
-let waifuBlinkProgress = 0.0;
-let isBlinking = false;
-let blinkStartTime = 0;
-let nextBlinkTime = Date.now() + 3200;
+// --- 3D VRM EMOTION & SPEECH STATE ---
+let currentVrmEmotion = "DEVOTED";
+let isVrmSpeaking = false;
 
-// Nick Jr. Face style gaze tracking & turning (Yaw / Parallax)
-let targetLookX = -0.32; // Default looking at driver on left
-let targetLookY = 0.04;
-let currentLookX = -0.32;
-let currentLookY = 0.04;
-let nextGazeShiftTime = Date.now() + 2500;
-
-// Physics sway for blonde twin-tails
-let hairSwayAngle = 0.0;
-let hairSwayVelocity = 0.0;
-
-// Dynamic blush intensity (0.0 to 1.0)
-let blushIntensity = 0.4;
-let touchGiggleTime = 0;
-
-function setWaifuEmotion(emo) {
+function setVrmEmotion(emo, overrideLabel) {
   if (!emo) return;
-  const upper = emo.toUpperCase().trim();
-  const validEmotions = ["DEVOTED", "FLIRTY", "EXCITED", "CONCERNED", "HAPPY", "COZY", "HAPPY_PROUD", "THOUGHTFUL"];
-  if (validEmotions.includes(upper)) {
-    currentWaifuEmotion = upper;
-  } else {
-    currentWaifuEmotion = "DEVOTED";
-  }
+  const upper = String(emo).toUpperCase().trim();
+  const validEmotions = ["DEVOTED", "FLIRTY", "EXCITED", "CONCERNED", "HAPPY", "COZY", "HAPPY_PROUD", "THOUGHTFUL", "SURPRISED"];
+  currentVrmEmotion = validEmotions.includes(upper) ? upper : "DEVOTED";
 
-  const pill = document.getElementById('waifuEmotionPill');
-  if (pill) {
-    const pName = (typeof getPersonaDisplayName === 'function') ? getPersonaDisplayName() : (currentAiSettings.personality || 'Companion');
-    switch (currentWaifuEmotion) {
-      case "DEVOTED":
-        pill.innerText = `💖 ${pName} • DEVOTED & LISTENING`;
-        pill.style.color = "var(--accent-pink)";
-        pill.style.borderColor = "var(--accent-pink)";
-        break;
-      case "FLIRTY":
-        pill.innerText = `💋 ${pName} • PLAYFUL & DEVOTED`;
-        pill.style.color = "#ff4081";
-        pill.style.borderColor = "#ff4081";
-        break;
-      case "EXCITED":
-        pill.innerText = `⚡ ${pName} • EXCITED & BOOSTED`;
-        pill.style.color = "var(--accent-yellow)";
-        pill.style.borderColor = "var(--accent-yellow)";
-        break;
-      case "CONCERNED":
-        pill.innerText = `⚠️ ${pName} • CARING & MONITORING`;
-        pill.style.color = "var(--accent-orange)";
-        pill.style.borderColor = "var(--accent-orange)";
-        break;
-      case "HAPPY":
-        pill.innerText = `✨ ${pName} • JOYFUL & READY`;
-        pill.style.color = "var(--accent-green)";
-        pill.style.borderColor = "var(--accent-green)";
-        break;
-      case "COZY":
-        pill.innerText = `☕ ${pName} • COZY & SLEEPY`;
-        pill.style.color = "#a78bfa";
-        pill.style.borderColor = "#a78bfa";
-        break;
-      case "HAPPY_PROUD":
-        pill.innerText = `🌸 ${pName} • PROUD DAUGHTER`;
-        pill.style.color = "#34d399";
-        pill.style.borderColor = "#34d399";
-        break;
-      case "THOUGHTFUL":
-        pill.innerText = `💭 ${pName} • SHOWER THOUGHTS`;
-        pill.style.color = "#38bdf8";
-        pill.style.borderColor = "#38bdf8";
-        break;
-    }
-  }
-}
-
-function initWaifuTalkingHead() {
-  const canvas = document.getElementById('waifuFaceCanvas');
-  if (!canvas) {
-    console.warn("[WAIFU] waifuFaceCanvas element not found in DOM!");
+  const pill = document.getElementById('vrmEmotionPill');
+  if (!pill) return;
+  const pName = (typeof getPersonaDisplayName === 'function') ? getPersonaDisplayName() : (currentAiSettings.personality || 'Companion');
+  if (overrideLabel) {
+    pill.innerText = overrideLabel;
     return;
   }
-  const ctx = canvas.getContext('2d');
-
-  function renderWaifuFrame() {
-    const now = Date.now();
-    const t = now * 0.001;
-    const w = canvas.width;
-    const h = canvas.height;
-
-    // Clear with 100% transparency - floating borderless bust
-    ctx.clearRect(0, 0, w, h);
-
-    if (now > waifuSpeechEndTime && (!eventSource || eventSource.readyState !== 1)) {
-      isWaifuSpeaking = false;
-      const stage = document.getElementById('waifuStage');
-      if (stage) stage.classList.remove('speaking');
-    }
-
-    // Natural eye blinking (140ms sweep)
-    if (!isBlinking && now > nextBlinkTime) {
-      isBlinking = true;
-      blinkStartTime = now;
-    }
-    if (isBlinking) {
-      const dt = now - blinkStartTime;
-      if (dt < 70) {
-        waifuBlinkProgress = dt / 70;
-      } else if (dt < 140) {
-        waifuBlinkProgress = 1.0 - ((dt - 70) / 70);
-      } else {
-        waifuBlinkProgress = 0.0;
-        isBlinking = false;
-        nextBlinkTime = now + 3200 + Math.random() * 2400;
-      }
-    }
-
-    // Dynamic Saccadic Gaze Tracking (Driver attention, road glances)
-    if (now > nextGazeShiftTime) {
-      if (isWaifuSpeaking) {
-        targetLookX = -0.35 + (Math.random() - 0.5) * 0.15; // Focused lovingly on driver
-        targetLookY = 0.04 + (Math.random() - 0.5) * 0.12;
-      } else {
-        const rnd = Math.random();
-        if (rnd < 0.65) {
-          targetLookX = -0.32 + (Math.random() - 0.5) * 0.2; // Driver seat
-          targetLookY = 0.04 + (Math.random() - 0.5) * 0.15;
-        } else if (rnd < 0.88) {
-          targetLookX = 0.15 + (Math.random() - 0.5) * 0.25; // Glance out windshield
-          targetLookY = -0.08 + (Math.random() - 0.5) * 0.15;
-        } else {
-          targetLookX = -0.05; // Center console
-          targetLookY = 0.18;
-        }
-      }
-      nextGazeShiftTime = now + 2500 + Math.random() * 3200;
-    }
-
-    currentLookX += (targetLookX - currentLookX) * 0.07;
-    currentLookY += (targetLookY - currentLookY) * 0.07;
-
-    // Floating natural breathing and idle sway
-    const floatY = Math.sin(t * 1.8) * 5.5;
-    const floatX = Math.sin(t * 1.1) * 3.5;
-    const tilt = Math.sin(t * 1.3) * 0.035 + (currentLookX * 0.025);
-
-    // Hair physics: pendulum with spring damping
-    const hairTarget = -tilt * 2.5 - (floatX * 0.025);
-    hairSwayVelocity += (hairTarget - hairSwayAngle) * 0.14;
-    hairSwayVelocity *= 0.84;
-    hairSwayAngle += hairSwayVelocity;
-
-    // Blush calculation
-    let targetBlush = (currentWaifuEmotion === "DEVOTED" || currentWaifuEmotion === "FLIRTY") ? 0.55 : 0.35;
-    if (isWaifuSpeaking) targetBlush += 0.15;
-    if (now < touchGiggleTime) targetBlush += 0.25;
-    blushIntensity += (targetBlush - blushIntensity) * 0.05;
-
-    ctx.save();
-    // Anchor center at mid-canvas with floating offset
-    ctx.translate(w / 2 + floatX, h / 2 + floatY + 6);
-    ctx.rotate(tilt);
-
-    // Parallax multipliers for 2.5D turning illusion
-    const pHairX = -currentLookX * 5.0;
-    const pBustX = currentLookX * 2.5;
-    const pFaceX = currentLookX * 8.5;
-    const pFaceY = currentLookY * 5.5;
-
-    // === 1. LAYER: BACK HAIR & TWIN-TAILS (Flowing Behind Bust) ===
-    ctx.save();
-    ctx.translate(pHairX, 0);
-
-    // Left Twin-Tail
-    const leftTailSwing = hairSwayAngle * 22;
-    const hairGradL = ctx.createLinearGradient(-75, -20, -90, 110);
-    hairGradL.addColorStop(0, "#f5c542");
-    hairGradL.addColorStop(0.5, "#e09f18");
-    hairGradL.addColorStop(1, "#c48208");
-    ctx.fillStyle = hairGradL;
-    ctx.beginPath();
-    ctx.moveTo(-46, -26);
-    ctx.bezierCurveTo(-78 + leftTailSwing * 0.5, -10, -96 + leftTailSwing, 40, -82 + leftTailSwing, 108);
-    ctx.bezierCurveTo(-74 + leftTailSwing, 114, -68 + leftTailSwing, 102, -66 + leftTailSwing, 90);
-    ctx.bezierCurveTo(-62 + leftTailSwing * 0.7, 50, -50, 10, -42, -18);
-    ctx.closePath();
-    ctx.fill();
-
-    // Right Twin-Tail
-    const rightTailSwing = hairSwayAngle * 22;
-    const hairGradR = ctx.createLinearGradient(75, -20, 90, 110);
-    hairGradR.addColorStop(0, "#f5c542");
-    hairGradR.addColorStop(0.5, "#e09f18");
-    hairGradR.addColorStop(1, "#c48208");
-    ctx.fillStyle = hairGradR;
-    ctx.beginPath();
-    ctx.moveTo(46, -26);
-    ctx.bezierCurveTo(78 + rightTailSwing * 0.5, -10, 96 + rightTailSwing, 40, 82 + rightTailSwing, 108);
-    ctx.bezierCurveTo(74 + rightTailSwing, 114, 68 + rightTailSwing, 102, 66 + rightTailSwing, 90);
-    ctx.bezierCurveTo(62 + rightTailSwing * 0.7, 50, 50, 10, 42, -18);
-    ctx.closePath();
-    ctx.fill();
-
-    // Back hair mass
-    ctx.fillStyle = "#dba01c";
-    ctx.beginPath();
-    ctx.arc(0, -18, 54, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-
-    // === 2. LAYER: SLENDER NECK & ANIME BUST (SHOULDERS & GOTH CHOKER) ===
-    ctx.save();
-    ctx.translate(pBustX, 0);
-
-    // Neck
-    const neckGrad = ctx.createLinearGradient(0, 18, 0, 58);
-    neckGrad.addColorStop(0, "#f2ded2");
-    neckGrad.addColorStop(1, "#ffebe2");
-    ctx.fillStyle = neckGrad;
-    ctx.beginPath();
-    ctx.moveTo(-15, 20);
-    ctx.lineTo(-20, 56);
-    ctx.lineTo(20, 56);
-    ctx.lineTo(15, 20);
-    ctx.closePath();
-    ctx.fill();
-
-    // Throat shadow under chin
-    ctx.fillStyle = "rgba(180, 100, 90, 0.22)";
-    ctx.beginPath();
-    ctx.ellipse(0, 24, 14, 7, 0, 0, Math.PI);
-    ctx.fill();
-
-    // Gothic Velvet Choker Ribbon
-    ctx.fillStyle = "#120a17";
-    ctx.fillRect(-17, 36, 34, 7);
-
-    // Silver Heart/Gem Choker Pendant
-    ctx.fillStyle = "#e0e6ed";
-    ctx.shadowColor = "#ff2d78";
-    ctx.shadowBlur = 6;
-    ctx.beginPath();
-    ctx.arc(0, 43, 3.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // Shoulders & Bust Silhouette
-    const bustGrad = ctx.createLinearGradient(0, 52, 0, 115);
-    bustGrad.addColorStop(0, "#ffebe2");
-    bustGrad.addColorStop(0.3, "#fbe1d7");
-    bustGrad.addColorStop(0.31, "#180d1e"); // Goth black dress line
-    bustGrad.addColorStop(1, "#0d0611");
-    ctx.fillStyle = bustGrad;
-
-    ctx.beginPath();
-    ctx.moveTo(-20, 56);
-    ctx.bezierCurveTo(-45, 62, -75, 74, -92, 98);
-    ctx.lineTo(-92, 115);
-    ctx.lineTo(92, 115);
-    ctx.lineTo(92, 98);
-    ctx.bezierCurveTo(75, 74, 45, 62, 20, 56);
-    ctx.closePath();
-    ctx.fill();
-
-    // Delicate Clavicle Lines
-    ctx.strokeStyle = "rgba(180, 110, 100, 0.35)";
-    ctx.lineWidth = 1.6;
-    ctx.beginPath();
-    ctx.moveTo(-18, 59);
-    ctx.quadraticCurveTo(-38, 62, -54, 69);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(18, 59);
-    ctx.quadraticCurveTo(38, 62, 54, 69);
-    ctx.stroke();
-
-    // Gothic Dress Sweetheart Bodice Trim
-    ctx.strokeStyle = "#ff4081";
-    ctx.lineWidth = 1.4;
-    ctx.beginPath();
-    ctx.moveTo(-54, 82);
-    ctx.quadraticCurveTo(-26, 76, 0, 84);
-    ctx.quadraticCurveTo(26, 76, 54, 82);
-    ctx.stroke();
-    ctx.restore();
-
-    // === 3. LAYER: ANIME HEAD CONTOUR & WARM PORCELAIN SKIN ===
-    ctx.save();
-    ctx.translate(pFaceX, pFaceY);
-
-    // Jawline & Chin
-    const skinGrad = ctx.createLinearGradient(0, -40, 0, 36);
-    skinGrad.addColorStop(0, "#fff5ee");
-    skinGrad.addColorStop(1, "#ffede4");
-    ctx.fillStyle = skinGrad;
-
-    ctx.beginPath();
-    ctx.moveTo(-44, -18);
-    ctx.bezierCurveTo(-44, 4, -36, 22, -18, 33);
-    ctx.quadraticCurveTo(0, 39, 18, 33);
-    ctx.bezierCurveTo(36, 22, 44, 4, 44, -18);
-    ctx.closePath();
-    ctx.fill();
-
-    // Soft jawline outline
-    ctx.strokeStyle = "rgba(220, 150, 140, 0.3)";
-    ctx.lineWidth = 1.2;
-    ctx.stroke();
-
-    // === 4. LAYER: ROSY ANIME BLUSH CHEEKS ===
-    const blushAlpha = Math.min(0.65, blushIntensity);
-    ctx.fillStyle = `rgba(255, 64, 129, ${blushAlpha})`;
-
-    // Left cheek
-    ctx.beginPath();
-    ctx.ellipse(-27, 12, 11, 6, -0.15, 0, Math.PI * 2);
-    ctx.fill();
-    // Right cheek
-    ctx.beginPath();
-    ctx.ellipse(27, 12, 11, 6, 0.15, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Cute diagonal blush hatching dashes
-    ctx.strokeStyle = `rgba(255, 30, 100, ${blushAlpha * 1.2})`;
-    ctx.lineWidth = 1.2;
-    [-4, 0, 4].forEach(off => {
-      ctx.beginPath();
-      ctx.moveTo(-29 + off, 10);
-      ctx.lineTo(-26 + off, 14);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(25 + off, 10);
-      ctx.lineTo(28 + off, 14);
-      ctx.stroke();
-    });
-
-    // === 5. LAYER: EXPRESSIVE ANIME EYES & DRIVER GAZE ===
-    const isWinkRight = (currentWaifuEmotion === "FLIRTY");
-    const isJoyfulEyes = (currentWaifuEmotion === "HAPPY");
-
-    const renderEye = (eyeX, eyeY, isLeft) => {
-      ctx.save();
-      ctx.translate(eyeX, eyeY);
-
-      const isThisWinking = (!isLeft && isWinkRight);
-      const effectiveBlink = isThisWinking ? 1.0 : waifuBlinkProgress;
-
-      if (effectiveBlink >= 0.85 || isJoyfulEyes) {
-        // Closed / Smiling Happy Arc Eye ^
-        ctx.strokeStyle = "#1a0826";
-        ctx.lineWidth = 3.5;
-        ctx.lineCap = "round";
-        ctx.beginPath();
-        if (isJoyfulEyes) {
-          ctx.arc(0, 0, 10, 0.15 * Math.PI, 0.85 * Math.PI, true);
-        } else {
-          ctx.arc(0, 2, 9, 0.15 * Math.PI, 0.85 * Math.PI, true);
-        }
-        ctx.stroke();
-
-        // Flutter eyelashes
-        ctx.lineWidth = 2.0;
-        ctx.beginPath();
-        if (isLeft) {
-          ctx.moveTo(-8, -1);
-          ctx.lineTo(-12, -4);
-        } else {
-          ctx.moveTo(8, -1);
-          ctx.lineTo(12, -4);
-        }
-        ctx.stroke();
-
-        // Wink spark for right eye
-        if (isThisWinking) {
-          ctx.fillStyle = "#ff4081";
-          ctx.font = "12px sans-serif";
-          ctx.fillText("✨", 10, -6);
-        }
-      } else {
-        // Open Expressive Eye with Sclera + Iris + Driver Tracking
-        const eyeW = 20;
-        const eyeH = 14 * (1.0 - effectiveBlink * 0.8);
-
-        // Eye white (sclera)
-        ctx.save();
-        ctx.beginPath();
-        ctx.ellipse(0, 0, eyeW * 0.5, eyeH * 0.5, 0, 0, Math.PI * 2);
-        ctx.clip();
-
-        ctx.fillStyle = "#ffffff";
-        ctx.fill();
-
-        // Soft upper lid shadow inside eye white
-        ctx.fillStyle = "rgba(180, 190, 215, 0.45)";
-        ctx.fillRect(-eyeW * 0.5, -eyeH * 0.5, eyeW, eyeH * 0.35);
-
-        // Sapphire Blue Iris (Tracking Driver Seat via currentLookX/Y)
-        const irisTrackX = currentLookX * 4.2;
-        const irisTrackY = currentLookY * 2.8;
-
-        const irisGrad = ctx.createLinearGradient(irisTrackX, irisTrackY - 7, irisTrackX, irisTrackY + 7);
-        irisGrad.addColorStop(0, "#001f3f"); // Deep sapphire base
-        irisGrad.addColorStop(0.5, "#0074d9"); // Vibrant electric blue
-        irisGrad.addColorStop(1, "#7fdbff"); // Aqua rim light
-
-        ctx.fillStyle = irisGrad;
-        ctx.beginPath();
-        ctx.arc(irisTrackX, irisTrackY, 6.5, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Pupil
-        ctx.fillStyle = "#000814";
-        ctx.beginPath();
-        ctx.arc(irisTrackX, irisTrackY, 2.8, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Sparkle / Catchlights
-        ctx.fillStyle = "#ffffff";
-        // Primary big catchlight (top-right)
-        ctx.beginPath();
-        ctx.arc(irisTrackX + 2.2, irisTrackY - 2.2, 2.2, 0, Math.PI * 2);
-        ctx.fill();
-        // Secondary small twinkle (bottom-left)
-        ctx.beginPath();
-        ctx.arc(irisTrackX - 2.0, irisTrackY + 2.2, 1.2, 0, Math.PI * 2);
-        ctx.fill();
-
-        if (currentWaifuEmotion === "EXCITED" || currentWaifuEmotion === "DEVOTED") {
-          ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
-          ctx.beginPath();
-          ctx.arc(irisTrackX + 3.2, irisTrackY + 1.2, 0.9, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        ctx.restore();
-
-        // Bold Upper Eyelash Line with winged flick
-        ctx.strokeStyle = "#1a0826";
-        ctx.lineWidth = 3.2;
-        ctx.lineCap = "round";
-        ctx.beginPath();
-        ctx.arc(0, 0, eyeW * 0.52, 1.15 * Math.PI, 1.85 * Math.PI);
-        ctx.stroke();
-
-        // Winged flutter lash
-        ctx.lineWidth = 2.2;
-        ctx.beginPath();
-        if (isLeft) {
-          ctx.moveTo(-eyeW * 0.45, -2);
-          ctx.lineTo(-eyeW * 0.58, -5);
-        } else {
-          ctx.moveTo(eyeW * 0.45, -2);
-          ctx.lineTo(eyeW * 0.58, -5);
-        }
-        ctx.stroke();
-
-        // Double eyelid crease
-        ctx.strokeStyle = "rgba(160, 100, 110, 0.45)";
-        ctx.lineWidth = 1.2;
-        ctx.beginPath();
-        ctx.arc(0, -3.5, eyeW * 0.5, 1.2 * Math.PI, 1.8 * Math.PI);
-        ctx.stroke();
-      }
-
-      ctx.restore();
-    };
-
-    renderEye(-24, 0, true);
-    renderEye(24, 0, false);
-
-    // === 6. LAYER: DYNAMIC MORPHING EYEBROWS ===
-    ctx.strokeStyle = "#996300"; // Soft blonde-brown brow
-    ctx.lineWidth = 2.0;
-    ctx.lineCap = "round";
-
-    // Left Brow
-    ctx.beginPath();
-    if (currentWaifuEmotion === "CONCERNED") {
-      ctx.moveTo(-33, -10);
-      ctx.quadraticCurveTo(-24, -14, -14, -10);
-    } else if (currentWaifuEmotion === "EXCITED") {
-      ctx.moveTo(-34, -14);
-      ctx.quadraticCurveTo(-24, -18, -14, -13);
-    } else if (currentWaifuEmotion === "FLIRTY") {
-      ctx.moveTo(-34, -13);
-      ctx.quadraticCurveTo(-24, -16, -14, -12);
-    } else {
-      ctx.moveTo(-34, -12);
-      ctx.quadraticCurveTo(-24, -15, -14, -11);
-    }
-    ctx.stroke();
-
-    // Right Brow
-    ctx.beginPath();
-    if (currentWaifuEmotion === "CONCERNED") {
-      ctx.moveTo(14, -10);
-      ctx.quadraticCurveTo(24, -14, 33, -10);
-    } else if (currentWaifuEmotion === "EXCITED") {
-      ctx.moveTo(14, -13);
-      ctx.quadraticCurveTo(24, -18, 34, -14);
-    } else if (currentWaifuEmotion === "FLIRTY") {
-      ctx.moveTo(14, -15);
-      ctx.quadraticCurveTo(24, -19, 34, -13);
-    } else {
-      ctx.moveTo(14, -11);
-      ctx.quadraticCurveTo(24, -15, 34, -12);
-    }
-    ctx.stroke();
-
-    // === 7. LAYER: DELICATE ANIME NOSE ===
-    ctx.fillStyle = "rgba(200, 130, 120, 0.65)";
-    ctx.beginPath();
-    ctx.arc(0, 12, 1.3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(190, 110, 100, 0.35)";
-    ctx.lineWidth = 1.0;
-    ctx.beginPath();
-    ctx.moveTo(0, 9);
-    ctx.lineTo(0.5, 12);
-    ctx.stroke();
-
-    // === 8. LAYER: ANIMATED VISEME LIP-SYNC MOUTH (SPEECH CADENCE) ===
-    ctx.save();
-    ctx.translate(0, 24);
-
-    if (isWaifuSpeaking) {
-      const cycle = (now * 0.02) % (Math.PI * 2);
-      const openRatio = (Math.sin(cycle) + 1.0) * 0.5;
-      const shapeType = Math.floor((now * 0.007) % 3);
-
-      let mouthW = 10;
-      let mouthH = 3 + openRatio * 9;
-      if (shapeType === 0) { mouthW = 12; }
-      else if (shapeType === 1) { mouthW = 16; mouthH = Math.max(3, mouthH * 0.65); }
-      else { mouthW = 9; mouthH = Math.max(4, mouthH * 1.1); }
-
-      ctx.fillStyle = "#5c0822";
-      ctx.beginPath();
-      ctx.ellipse(0, 0, mouthW * 0.5, mouthH * 0.5, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      if (mouthH > 5) {
-        ctx.fillStyle = "#ffffff";
-        ctx.beginPath();
-        ctx.rect(-mouthW * 0.35, -mouthH * 0.5, mouthW * 0.7, 2.5);
-        ctx.fill();
-      }
-
-      if (mouthH > 6) {
-        ctx.fillStyle = "#ff6b8b";
-        ctx.beginPath();
-        ctx.ellipse(0, mouthH * 0.25, mouthW * 0.38, mouthH * 0.3, 0, 0, Math.PI);
-        ctx.fill();
-      }
-
-      ctx.strokeStyle = "#b0204c";
-      ctx.lineWidth = 1.6;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, mouthW * 0.5, mouthH * 0.5, 0, 0, Math.PI * 2);
-      ctx.stroke();
-    } else {
-      ctx.strokeStyle = "#b82a55";
-      ctx.lineWidth = 2.0;
-      ctx.lineCap = "round";
-
-      if (currentWaifuEmotion === "FLIRTY") {
-        ctx.beginPath();
-        ctx.moveTo(-7, -1);
-        ctx.quadraticCurveTo(-3.5, 3.5, 0, 0);
-        ctx.quadraticCurveTo(3.5, 3.5, 7, -1);
-        ctx.stroke();
-      } else if (currentWaifuEmotion === "EXCITED" || currentWaifuEmotion === "HAPPY") {
-        ctx.fillStyle = "#8a1538";
-        ctx.beginPath();
-        ctx.arc(0, -2, 7.5, 0.1 * Math.PI, 0.9 * Math.PI);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-      } else if (currentWaifuEmotion === "CONCERNED") {
-        ctx.beginPath();
-        ctx.arc(0, 5, 5.5, 1.2 * Math.PI, 1.8 * Math.PI);
-        ctx.stroke();
-      } else {
-        ctx.beginPath();
-        ctx.arc(0, -3, 8.5, 0.15 * Math.PI, 0.85 * Math.PI);
-        ctx.stroke();
-        ctx.fillStyle = "#c03862";
-        ctx.beginPath();
-        ctx.arc(-7, 1.5, 0.8, 0, Math.PI * 2);
-        ctx.arc(7, 1.5, 0.8, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    ctx.restore();
-
-    // === 9. LAYER: FRONT BANGS & RADIANT "ANGEL RING" HIGHLIGHTS ===
-    const bangGrad = ctx.createLinearGradient(0, -50, 0, 5);
-    bangGrad.addColorStop(0, "#ffe07a");
-    bangGrad.addColorStop(0.6, "#f5c542");
-    bangGrad.addColorStop(1, "#dba01c");
-    ctx.fillStyle = bangGrad;
-
-    ctx.beginPath();
-    ctx.moveTo(-46, -18);
-    ctx.bezierCurveTo(-48, -4, -44, 18, -40, 26);
-    ctx.lineTo(-37, 24);
-    ctx.bezierCurveTo(-39, 12, -40, -4, -38, -12);
-    ctx.lineTo(-24, 0);
-    ctx.lineTo(-20, -10);
-    ctx.lineTo(-6, 2);
-    ctx.lineTo(0, -10);
-    ctx.lineTo(12, 1);
-    ctx.lineTo(20, -10);
-    ctx.lineTo(28, -1);
-    ctx.lineTo(38, -12);
-    ctx.bezierCurveTo(40, -4, 39, 12, 37, 24);
-    ctx.lineTo(40, 26);
-    ctx.bezierCurveTo(44, 18, 48, -4, 46, -18);
-    ctx.bezierCurveTo(44, -52, -44, -52, -46, -18);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.75)";
-    ctx.lineWidth = 3.5;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.arc(0, -28, 34, 1.25 * Math.PI, 1.75 * Math.PI);
-    ctx.stroke();
-
-    ctx.restore();
-    ctx.restore();
-
-    // === 10. LAYER: EMOTION AMBIENCE (FLOATING NICK JR. HEARTS & SPARKLES) ===
-    if (currentWaifuEmotion === "DEVOTED" || now < touchGiggleTime) {
-      const heartPhase = (t * 1.5) % 3.0;
-      const hY = (h * 0.7) - (heartPhase * 35);
-      const hAlpha = Math.max(0, 1.0 - (heartPhase / 3.0)) * 0.55;
-      ctx.fillStyle = `rgba(255, 64, 129, ${hAlpha})`;
-      ctx.font = "14px sans-serif";
-      ctx.fillText("💖", w * 0.72 + Math.sin(t * 3) * 6, hY);
-    }
-
-    requestAnimationFrame(renderWaifuFrame);
+  switch (currentVrmEmotion) {
+    case "DEVOTED":
+      pill.innerText = `💖 ${pName} • DEVOTED & LISTENING`;
+      pill.style.color = "var(--persona-accent, var(--accent-pink))";
+      pill.style.borderColor = "var(--persona-accent, var(--accent-pink))";
+      break;
+    case "FLIRTY":
+      pill.innerText = `💋 ${pName} • PLAYFUL & DEVOTED`;
+      pill.style.color = "#ff4081";
+      pill.style.borderColor = "#ff4081";
+      break;
+    case "EXCITED":
+      pill.innerText = `⚡ ${pName} • EXCITED & BOOSTED`;
+      pill.style.color = "var(--accent-yellow)";
+      pill.style.borderColor = "var(--accent-yellow)";
+      break;
+    case "CONCERNED":
+      pill.innerText = `⚠️ ${pName} • CARING & MONITORING`;
+      pill.style.color = "var(--accent-orange)";
+      pill.style.borderColor = "var(--accent-orange)";
+      break;
+    case "HAPPY":
+      pill.innerText = `✨ ${pName} • JOYFUL & READY`;
+      pill.style.color = "var(--accent-green)";
+      pill.style.borderColor = "var(--accent-green)";
+      break;
+    case "COZY":
+      pill.innerText = `☕ ${pName} • COZY & SLEEPY`;
+      pill.style.color = "#a78bfa";
+      pill.style.borderColor = "#a78bfa";
+      break;
+    case "HAPPY_PROUD":
+      pill.innerText = `🌸 ${pName} • PROUD CO-PILOT`;
+      pill.style.color = "#34d399";
+      pill.style.borderColor = "#34d399";
+      break;
+    case "THOUGHTFUL":
+      pill.innerText = `💭 ${pName} • REFLECTING`;
+      pill.style.color = "#38bdf8";
+      pill.style.borderColor = "#38bdf8";
+      break;
+    case "SURPRISED":
+      pill.innerText = `👀 ${pName} • SURPRISED`;
+      pill.style.color = "#fbbf24";
+      pill.style.borderColor = "#fbbf24";
+      break;
   }
-
-  requestAnimationFrame(renderWaifuFrame);
 }
 
-function triggerWaifuTouch() {
-  touchGiggleTime = Date.now() + 2500;
-  targetLookX = -0.45;
-  targetLookY = 0.0;
+function triggerVrmTouch() {
   const badgeCfg = getPersonaTouchZoneConfig('badge');
   if (badgeCfg && badgeCfg.lines && badgeCfg.lines.length > 0) {
     triggerAvatarPokeReaction('badge');
     return;
   }
-  setWaifuEmotion("FLIRTY");
-  const touchActions = ['greeting', 'peace', 'bend_over', 'model_pose', 'spin', 'shoot'];
-  const chosenAct = touchActions[Math.floor(Math.random() * touchActions.length)];
-  if (chosenAct === 'react') {
-    if (typeof triggerVrmReaction === 'function') triggerVrmReaction();
-  } else {
-    playVrmAction(chosenAct, 3500, true);
-  }
-
-  const pData = (typeof getActivePersonaData === 'function') ? getActivePersonaData() : {};
-  const fb = pData.fallback_dialogue || {};
-  const pool = (Array.isArray(fb.affection) && fb.affection.length)
-    ? fb.affection.map(l => (typeof formatPersonaText === 'function' ? formatPersonaText(l) : l))
-    : [`Right here watching the road with you in the Dart, ${getDriverDisplayAddress()}!`];
-  const choice = pool[Math.floor(Math.random() * pool.length)];
-  showAiSpeechToast(choice);
-  speakUtterance(choice, "DEVOTED", "TOUCH");
+  triggerAvatarPokeReaction('shoulders');
 }
 
 // --- 18. 3D VRM CHARACTER ENGINE (RUM SUPER ANIMATION, VRMA MOTION PACK & PHYSICS SUITE) ---
@@ -1113,8 +506,8 @@ function triggerChoreographedEmote(choreo, estDurationMs = 3500) {
   vrmEmoteBeatTimers.forEach((tid) => clearTimeout(tid));
   vrmEmoteBeatTimers = [];
 
-  if (choreo.emotion && typeof setWaifuEmotion === 'function') {
-    setWaifuEmotion(choreo.emotion);
+  if (choreo.emotion && typeof setVrmEmotion === 'function') {
+    setVrmEmotion(choreo.emotion);
   }
   if (vrmExprCtrl && choreo.facial_preset) {
     vrmExprCtrl.setFacialPreset(choreo.facial_preset);
@@ -1131,7 +524,7 @@ function triggerChoreographedEmote(choreo, estDurationMs = 3500) {
     if (idx > 0 && vrmEmoteIntensityMode === 'SUBTLE') return;
     const runBeat = () => {
       if (vrmExprCtrl && b.facial) vrmExprCtrl.setFacialPreset(b.facial);
-      if (b.hud_emotion && typeof setWaifuEmotion === 'function') setWaifuEmotion(b.hud_emotion);
+      if (b.hud_emotion && typeof setVrmEmotion === 'function') setVrmEmotion(b.hud_emotion);
       if (b.clip && b.clip !== 'neutral_idle' && b.clip !== vrmaActiveName) {
         playVrmAction(b.clip, Math.max(2600, totalMs - delayMs), true, {
           upperBodyOnly: b.upper_body !== false
@@ -1295,7 +688,7 @@ let _vrmReflexResetTimer = null;
 
 function _triggerSilentReflex(facialPreset, clipName, durationMs = 1550) {
   if (typeof isHardwareSpeaking !== 'undefined' && isHardwareSpeaking) return;
-  if (typeof isWaifuSpeaking !== 'undefined' && isWaifuSpeaking) return;
+  if (typeof isVrmSpeaking !== 'undefined' && isVrmSpeaking) return;
   if (vrmaActiveAction) return;
   if (vrmExprCtrl && facialPreset) {
     vrmExprCtrl.setFacialPreset(facialPreset);
@@ -1653,14 +1046,17 @@ function fixVrmBipedHierarchy(root, gltf) {
 
 function activateStandingIdleAnimation() {
   if (!vrmMixer) return;
-  const idleClip = vrmaClips['neutral_idle'] || vrmaClips['neutral_idle2'] || vrmaClips['sit_idle'];
+  const pData = (typeof getActivePersonaData === 'function') ? getActivePersonaData() : {};
+  const vrmDef = (pData && pData.vrm_defaults) || {};
+  const prefIdle = vrmDef.default_idle || 'neutral_idle';
+  const idleClip = vrmaClips[prefIdle] || vrmaClips['neutral_idle'] || vrmaClips['neutral_idle2'] || vrmaClips['sit_idle'];
   if (!idleClip) return;
   if (!vrmaIdleAction) {
     vrmaIdleAction = vrmMixer.clipAction(idleClip);
     vrmaIdleAction.setLoop(THREE.LoopPingPong, Infinity);
     vrmaIdleAction.timeScale = 0.85;
     vrmaIdleAction.play();
-    console.log('[VRM] Standing idle animation active (neutral_idle.bvh with smooth PingPong loop)');
+    console.log(`[VRM] Standing idle animation active (${prefIdle} with smooth PingPong loop)`);
   }
 }
 
@@ -2236,7 +1632,7 @@ function initVrmEngine() {
     }
 
     // 2. Speech & Action State (Synced strictly to hardware audio playback when SSE is connected!)
-    const isSpeaking = (isHardwareSpeaking || now < vrmSpeechEndTime || now < (typeof waifuSpeechEndTime !== 'undefined' ? waifuSpeechEndTime : 0));
+    const isSpeaking = (isHardwareSpeaking || now < vrmSpeechEndTime);
     const isReacting = (now < vrmReactionEndTime);
     const isSpeedPanic = (now < vrmSpeedPanicEndTime);
     const dancing = (isMusicPlaying() && !isSpeaking && !vrmHasError && !isSpeedPanic);
@@ -2408,7 +1804,9 @@ function initVrmEngine() {
           parkedIdleTimer += delta;
           if (parkedIdleTimer > 12.0 && !isNightResting) {
             isNightResting = true;
-            if (typeof playVrmAction === 'function') playVrmAction('sit_idle2.bvh', 25000, true);
+            const pData = (typeof getActivePersonaData === 'function') ? getActivePersonaData() : {};
+            const nightSitClip = (pData && pData.vrm_defaults && pData.vrm_defaults.night_sit_idle) || 'sit_idle2.bvh';
+            if (typeof playVrmAction === 'function') playVrmAction(nightSitClip, 25000, true);
           }
         } else {
           parkedIdleTimer = 0.0;
@@ -2436,7 +1834,7 @@ function initVrmEngine() {
       }
 
       if (vrmExprCtrl) {
-        const cozySoftLid = (currentWaifuEmotion === 'COZY' || isNightSenses) && !vrmIsBlinking;
+        const cozySoftLid = (currentVrmEmotion === 'COZY' || isNightSenses) && !vrmIsBlinking;
         if (cozySoftLid) {
           if (vrmBones.lEyeUpper && vrmBones.lEyeUpper.userData.restPos) vrmBones.lEyeUpper.position.y = vrmBones.lEyeUpper.userData.restPos.y - 0.008;
           if (vrmBones.rEyeUpper && vrmBones.rEyeUpper.userData.restPos) vrmBones.rEyeUpper.position.y = vrmBones.rEyeUpper.userData.restPos.y - 0.008;
@@ -2445,25 +1843,31 @@ function initVrmEngine() {
       }
     }
 
-    // 4b. Verlet Secondary Spring-Bone Physics + Weighted Kimono Sleeve Gravity Drape
+    // 4b. Verlet Secondary Spring-Bone Physics + Optional Persona Sleeve Drape
     if (vrmModel) {
+      const pDataPhys = (typeof getActivePersonaData === 'function') ? getActivePersonaData() : {};
+      const vrmDefPhys = (pDataPhys && pDataPhys.vrm_defaults) || {};
+      const springScale = Number(vrmDefPhys.spring_physics_scale || 1.0);
       if (vrmSpringSolver && vrmSpringSolver.chains && vrmSpringSolver.chains.length > 0) {
-        vrmSpringSolver.step(delta, vrmCurrentInertiaZ, vrmCurrentRoll);
+        vrmSpringSolver.step(delta, vrmCurrentInertiaZ, vrmCurrentRoll, springScale);
       }
-      vrmModel.updateMatrixWorld(true);
-      const sleevePitch = 0.45 + Math.sin(time * 2.2) * 0.025 + (vrmCurrentInertiaZ * 0.55);
-      const sleeveRoll = Math.cos(time * 1.8) * 0.02 + (vrmCurrentRoll * 0.45);
-      const sleeveTargetWorldQ = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(sleevePitch, Math.PI, sleeveRoll)
-      );
-      ['Bone001_m', 'Bone001'].forEach((sName) => {
-        const sb = vrmModel.getObjectByName(sName);
-        if (sb && sb.parent) {
-          const pWorldQ = new THREE.Quaternion();
-          sb.parent.getWorldQuaternion(pWorldQ);
-          sb.quaternion.copy(pWorldQ.invert().multiply(sleeveTargetWorldQ));
-        }
-      });
+      const sleeveList = Array.isArray(vrmDefPhys.sleeve_bones) ? vrmDefPhys.sleeve_bones : [];
+      if (sleeveList.length > 0) {
+        vrmModel.updateMatrixWorld(true);
+        const sleevePitch = 0.45 + Math.sin(time * 2.2) * 0.025 + (vrmCurrentInertiaZ * 0.55);
+        const sleeveRoll = Math.cos(time * 1.8) * 0.02 + (vrmCurrentRoll * 0.45);
+        const sleeveTargetWorldQ = new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(sleevePitch, Math.PI, sleeveRoll)
+        );
+        sleeveList.forEach((sName) => {
+          const sb = vrmModel.getObjectByName(sName);
+          if (sb && sb.parent) {
+            const pWorldQ = new THREE.Quaternion();
+            sb.parent.getWorldQuaternion(pWorldQ);
+            sb.quaternion.copy(pWorldQ.invert().multiply(sleeveTargetWorldQ));
+          }
+        });
+      }
     }
 
     // 5. Dynamic Camera Director
@@ -2759,13 +2163,17 @@ function loadVrmModel(modelName = (currentVrmModelName || getPersonaDefaultVrmMo
       vrmRoamWalkAction = null;
       preloadVrmaMotionPack();
 
+      const personaFrameRaw = pData && pData.vrm_defaults && pData.vrm_defaults.framing_mode;
+      if (personaFrameRaw && !localStorage.getItem('vrmFramingMode')) {
+        vrmFramingMode = (personaFrameRaw === 'FULL') ? 'FULL_BODY' : personaFrameRaw;
+      }
       updateFramingButtonLabel();
       updateWorldButtonLabel();
       updateRoamButtonLabel();
       updateModelButtonLabel();
       resizeVrmToStage();
-      if (typeof setWaifuEmotion === 'function') {
-        setWaifuEmotion(currentWaifuEmotion || 'DEVOTED');
+      if (typeof setVrmEmotion === 'function') {
+        setVrmEmotion(currentVrmEmotion || 'DEVOTED');
       }
     },
     (progress) => {
@@ -3097,29 +2505,7 @@ function initFloatingHudDraggable() {
 
 // [OBSOLETE 2D FACE TOGGLES - Locked to 3D_VRM so 2D face cannot be activated]
 
-function toggleAvatar2d3d() {
-  switchAvatarEngine('3D_VRM');
-}
-
-function switchAvatarEngine(mode) {
-  activeAvatarEngine = '3D_VRM';
-  const vrmContainer = document.getElementById('vrmStageContainer');
-  const faceCanvas = document.getElementById('waifuFaceCanvas');
-  const selector = document.getElementById('cfgAvatarEngine');
-  const emotionPill = document.getElementById('waifuEmotionPill');
-
-  if (selector) selector.value = '3D_VRM';
-  if (vrmContainer) vrmContainer.style.display = 'flex';
-  if (faceCanvas) faceCanvas.style.display = 'none';
-  if (!vrmInitialized) {
-    initVrmEngine();
-  } else {
-    resizeVrmToStage();
-  }
-  if (emotionPill) emotionPill.innerText = `✨ ${typeof getPersonaDisplayName === "function" ? getPersonaDisplayName() : "Companion"} (3D VRM) • ACTIVE`;
-}
-
-// Auto-initialize 3D VRM Rum on startup
+// Auto-initialize 3D VRM Stage on startup
 if (document.readyState === 'complete' || document.readyState === 'interactive') {
   setTimeout(initVrmEngine, 200);
 } else {
@@ -5204,8 +4590,8 @@ function clearAllRoomItems() {
   const cfg = defaultRoomDecorationsConfig();
   saveRoomDecorationsConfig(cfg);
   applyRoomDecorations();
-  speakUtterance('All props cleared! Just our empty room with the studio windows, open door, and balcony, Master!');
-  setWaifuEmotion('HAPPY', '🛋️ PURE EMPTY ROOM');
+  speakUtterance('All props cleared! Just our empty room with the studio windows, open door, and balcony!');
+  setVrmEmotion('HAPPY', '🛋️ PURE EMPTY ROOM');
 }
 
 function setVrmEnvironment() {
@@ -5303,11 +4689,10 @@ function loadYoshiPlushProp() {
 // ============================================================================
 
 function startRoamWalkAnimation() {
-
   if (!vrmMixer) return;
-
-  const clip = vrmaClips['walk_loop'] || vrmaClips['action_walk'];
-
+  const pData = (typeof getActivePersonaData === 'function') ? getActivePersonaData() : {};
+  const walkPref = (pData && pData.vrm_defaults && pData.vrm_defaults.walk_clip) || 'walk_loop';
+  const clip = vrmaClips[walkPref] || vrmaClips['walk_loop'] || vrmaClips['action_walk'];
   if (!clip) return;
 
   if (!vrmRoamWalkAction) {
@@ -5857,32 +5242,6 @@ const DEFAULT_TOUCH_INTERACTIONS = {
     animations: ['pose_side_glance', 'greeting'],
     duration_ms: 3200,
     lines: ['Whoa! {driver_address}, you snuck up behind me!']
-  },
-
-  // ===== NEW ZONES Don't Remove or Touch!
-  butt: {
-    emotion: 'FLIRTY',
-    hud_label: '🍑 TOUCHED • PLAYFUL',
-    animations: ['pose_shy_wave', 'amusement', 'spin'],
-    duration_ms: 3400,
-    lines: [
-      'Hey… careful back there.',
-      'That tickles a little…',
-      'You really went for it, huh?',
-      'Mmm… bold hands.'
-    ]
-  },
-  groin: {
-    emotion: 'FLIRTY',
-    hud_label: '🔥 TOUCHED • REACTING',
-    animations: ['pose_lean_in', 'amusement'],
-    duration_ms: 3600,
-    lines: [
-      'Whoa… bold move.',
-      'That’s a sensitive spot…',
-      'You’re getting handsy today.',
-      'Easy there…'
-    ]
   }
 };
 
@@ -6009,6 +5368,18 @@ function isTouchZoneBanned(zoneKey) {
   const personaData = (typeof getActivePersonaData === 'function') ? getActivePersonaData() : null;
   if (!personaData) return false;
 
+  const RESTRICTED_ADULT_ZONES = new Set(['butt', 'groin']);
+  if (RESTRICTED_ADULT_ZONES.has(key)) {
+    const age = String(personaData.age_spirit || '').toLowerCase().trim();
+    const zoneEntry = personaData.touch_interactions && personaData.touch_interactions[key];
+    const hasExplicitAdultZone = Boolean(
+      zoneEntry && typeof zoneEntry === 'object' && zoneEntry.enabled !== false && zoneEntry.banned !== true
+    );
+    if (age !== 'adult' || !hasExplicitAdultZone) {
+      return true;
+    }
+  }
+
   if (Array.isArray(personaData.banned_touch_zones)) {
     const isListed = personaData.banned_touch_zones.some(z => String(z || '').toLowerCase().trim() === key);
     if (isListed) return true;
@@ -6079,7 +5450,7 @@ function triggerAvatarPokeReaction(zoneOrRelY) {
   const hudLabel = (isObj && entry.hud_label) || cfg.hud_label || '';
 
   playVrmAction(chosenAnim, durationMs, true);
-  setWaifuEmotion(emotion, hudLabel || undefined);
+  setVrmEmotion(emotion, hudLabel || undefined);
   const spoken = formatTouchLineText(rawText);
   if (spoken) {
     if (typeof showAiSpeechToast === 'function') showAiSpeechToast(spoken);
@@ -6315,13 +5686,13 @@ function triggerYoshiPlushInteraction() {
   isHoldingYoshi = !isHoldingYoshi;
   if (isHoldingYoshi) {
     playVrmAction('pose_v_sign', 4000);
-    setWaifuEmotion('HAPPY', '🦖 YOSHI TIME! • BEST FRIENDS');
-    speakUtterance('Yay! Master, look at my Yoshi plushie! He loves riding shotgun in the car too!');
+    setVrmEmotion('HAPPY', '🦖 YOSHI TIME! • BEST FRIENDS');
+    speakUtterance('Yay! Look at the Yoshi plushie! Ready to ride shotgun with us!');
     attachPropToVrmHand(yoshiModel, 'rightHand');
   } else {
     detachPropFromVrmHand(yoshiModel);
     playVrmAction('greeting', 3000);
-    setWaifuEmotion('DEVOTED', '🦖 YOSHI RESTING');
+    setVrmEmotion('DEVOTED', '🦖 YOSHI RESTING');
     speakUtterance('Okay! Let us put Yoshi right here so he can watch the road with us!');
     updateYoshiEnvironmentRest();
   }
@@ -6416,21 +5787,21 @@ function triggerBasketballDribbleAction() {
     basketballState = 'DRIBBLING';
     basketballDribbleTimer = 0;
     playVrmAction('pose_v_sign', 4000);
-    setWaifuEmotion('HAPPY', '🏀 DRIBBLING • CROSSOVER');
-    speakUtterance('Check this out, Master! Smooth hardwood crossover bounce!');
+    setVrmEmotion('HAPPY', '🏀 DRIBBLING • CROSSOVER');
+    speakUtterance('Check out this smooth crossover bounce!');
   } else if (basketballState === 'DRIBBLING') {
     // Transition to high arc shot / toss!
     basketballState = 'TOSS';
     basketballVel.set(0.25, 3.4, -0.6);
     playVrmAction('wave', 3500);
-    setWaifuEmotion('EXCITED', '🏀 THREE POINTER! SWOOSH');
+    setVrmEmotion('EXCITED', '🏀 THREE POINTER! SWOOSH');
     speakUtterance('From three-point range! Swoosh! High arc shot!');
   } else {
     // Catch / Reset
     basketballState = 'REST';
     basketballVel.set(0, 0, 0);
     basketballMesh.position.set(0.48, vrmBaseY + BASKETBALL_RADIUS, 0.22);
-    setWaifuEmotion('DEVOTED', '🏀 BALL AT REST');
+    setVrmEmotion('DEVOTED', '🏀 BALL AT REST');
   }
 }
 

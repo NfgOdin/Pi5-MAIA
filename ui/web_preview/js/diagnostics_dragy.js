@@ -117,10 +117,7 @@ function showEmergencyDtcHud(dtcCode, customDesc) {
   if (badgeEl) badgeEl.innerText = (dtcCode === "OVERHEAT_WARNING" || dtcCode === "P0299" || dtcCode === "P0234") ? "CRITICAL ALERT" : "STORED FAULT";
 
   hud.style.display = "flex";
-  setWaifuEmotion("CONCERNED");
-
-  // Render mini waifu on DTC canvas
-  // [OBSOLETE 2D FACE - DORMANT CODE] renderMiniDtcWaifu();
+  setVrmEmotion("CONCERNED");
 
   // Voice alert throttle: max once every 30 seconds for same code
   const now = Date.now();
@@ -137,7 +134,7 @@ function showEmergencyDtcHud(dtcCode, customDesc) {
 function dismissDtcHud() {
   const hud = document.getElementById('emergencyDtcHud');
   if (hud) hud.style.display = "none";
-  setWaifuEmotion("DEVOTED");
+  setVrmEmotion("DEVOTED");
 }
 
 function explainActiveDtc() {
@@ -155,65 +152,6 @@ function triggerDtcHudVoice() {
   const explanation = descEl ? descEl.innerText : `Code ${activeEmergencyDtc} active.`;
   showAiSpeechToast(explanation);
   speakUtterance(explanation, "CONCERNED");
-}
-
-function renderMiniDtcWaifu() {
-  const canvas = document.getElementById('dtcHudCanvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const w = canvas.width;
-  const h = canvas.height;
-  ctx.clearRect(0, 0, w, h);
-
-  ctx.save();
-  ctx.translate(w / 2, h / 2);
-
-  // Blonde twintails
-  ctx.fillStyle = '#dba01c';
-  ctx.beginPath();
-  ctx.arc(-22, 10, 14, 0, Math.PI * 2);
-  ctx.arc(22, 10, 14, 0, Math.PI * 2);
-  ctx.arc(0, -6, 26, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Face
-  ctx.fillStyle = '#fff5ee';
-  ctx.beginPath();
-  ctx.arc(0, 2, 20, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Rosy blush
-  ctx.fillStyle = 'rgba(255, 64, 129, 0.45)';
-  ctx.beginPath();
-  ctx.arc(-11, 7, 5, 0, Math.PI * 2);
-  ctx.arc(11, 7, 5, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Worried eyes (slanted)
-  ctx.strokeStyle = '#1a0826';
-  ctx.lineWidth = 2.5;
-  ctx.beginPath();
-  ctx.moveTo(-15, -1);
-  ctx.lineTo(-7, 2);
-  ctx.moveTo(15, -1);
-  ctx.lineTo(7, 2);
-  ctx.stroke();
-
-  // Concerned mouth (small circle 'o')
-  ctx.fillStyle = '#8a1538';
-  ctx.beginPath();
-  ctx.arc(0, 12, 3.5, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Bangs
-  ctx.fillStyle = '#f5c542';
-  ctx.beginPath();
-  ctx.arc(0, -10, 21, 1.1 * Math.PI, 1.9 * Math.PI);
-  ctx.lineTo(0, -3);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.restore();
 }
 
 // ============================================================================
