@@ -23,7 +23,8 @@ if [ -e /dev/rtc0 ]; then
   sudo hwclock -w --verbose || true
 fi
 
-RTC_SYSFS="/sys/devices/platform/soc/soc:rpi_rtc/rtc/rtc0"
+RTC_SYSFS="/sys/class/rtc/rtc0"
+[ -d "$RTC_SYSFS" ] || RTC_SYSFS="/sys/devices/platform/soc/soc:rpi_rtc/rtc/rtc0"
 if [ -d "$RTC_SYSFS" ]; then
   echo "[RTC] Current battery_voltage: $(cat "$RTC_SYSFS/battery_voltage" 2>/dev/null || echo 'N/A') uV"
   echo "[RTC] Current charging_voltage: $(cat "$RTC_SYSFS/charging_voltage" 2>/dev/null || echo 'N/A') uV"

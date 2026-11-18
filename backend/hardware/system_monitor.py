@@ -174,8 +174,8 @@ class SystemMonitor:
     def get_rtc_status(self, rtc_dir: Optional[str] = None) -> Dict[str, Any]:
         """Read Raspberry Pi 5 hardware RTC battery & trickle-charge voltage from sysfs truthfully."""
         candidates = [rtc_dir] if rtc_dir else [
-            "/sys/devices/platform/soc/soc:rpi_rtc/rtc/rtc0",
             "/sys/class/rtc/rtc0",
+            "/sys/devices/platform/soc/soc:rpi_rtc/rtc/rtc0",
         ]
         found_dir = next((d for d in candidates if d and os.path.exists(d)), None)
         if not found_dir or (not self.is_linux and not rtc_dir):
