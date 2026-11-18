@@ -90,7 +90,12 @@ def is_ephemeral_query(query: str) -> bool:
     return any(tok in ql for tok in _EPHEMERAL_TOKENS)
 
 
-def should_search_web(user_message: str, lore_injection: str = "", rag_hits: int = 0) -> Tuple[bool, str]:
+def should_search_web(
+    user_message: str,
+    lore_injection: str = "",
+    rag_hits: int = 0,
+    best_manual_score: float = 0.0,
+) -> Tuple[bool, str]:
     """Decide whether a prompt benefits from a live web lookup and return normalized search terms."""
     msg = (user_message or "").strip()
     if len(msg) < 4:
@@ -108,6 +113,9 @@ def should_search_web(user_message: str, lore_injection: str = "", rag_hits: int
     for pat in (*_WEATHER_PATTERNS, *_NEWS_PATTERNS):
         if re.search(pat, ql):
             return True, _clean_search_query(msg)
+
+    if best_manual_score >= 0.48:
+        return False, ""
 
     if not (lore_injection or "").strip() and rag_hits == 0:
         stripped = _clean_search_query(msg).lower()

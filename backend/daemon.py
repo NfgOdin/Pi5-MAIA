@@ -172,6 +172,11 @@ class CarPi5ServerState:
             self.rag = RagMemoryEngine()
             if hasattr(self.llm, "set_rag_engine"):
                 self.llm.set_rag_engine(self.rag)
+            threading.Thread(
+                target=lambda: self.rag.ingest_manuals_directory(),
+                daemon=True,
+                name="rag_manual_sync",
+            ).start()
         except Exception as e:
             print(f"[DAEMON] RAG Memory init note: {e}")
             self.rag = None

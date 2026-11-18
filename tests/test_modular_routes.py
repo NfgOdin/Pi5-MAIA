@@ -1687,6 +1687,70 @@ class ModularRouteDispatchTest(unittest.TestCase):
             self.assertEqual(h_del.json_body()["status"], "ok")
             self.assertEqual(llm.get_learned_facts(), [])
 
+    def test_manual_pdf_ingestion_wipe_preservation_and_routes(self):
+        from unittest.mock import patch
+        from ai.rag_memory import RagMemoryEngine
+        from ai.web_search import should_search_web
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            rag = RagMemoryEngine(db_path=tmp / "rag_manuals.db")
+            mdir = tmp / "manuals"
+            mdir.mkdir()
+            (mdir / "CarPi5_Complete_System_Manual.md").write_text(
+                "# Audio System\n" + ("CarPi5 runs Kokoro-82M neural TTS and all-MiniLM-L6-v2 ONNX embeddings cleanly on Cortex-A76 cores.\n" * 4)
+                + "\n# OBD-II Telemetry\n" + ("Real Dodge Dart MultiAir 1.4T boost and coolant PIDs flow over native SocketCAN or ELM327 serial adapter.\n" * 4),
+                encoding="utf-8",
+            )
+            fake_pdf = mdir / "2013-Dodge-Dart-OM.pdf"
+            fake_pdf.write_bytes(b"%PDF-1.4 mock")
+
+            paged_pdf_text = (
+                "Table of Contents\nIntroduction ..... 1\n"
+                + "\f"
+                + "Fuses and Relays — Interior Junction Box\nFuse F94 controls the 12V console cigar lighter power outlet (20 Amp Yellow Mini).\n"
+                + ("Fuse F95 protects the front USB media hub and auxiliary audio jack circuit at 15 Amps.\n" * 3)
+            )
+            with patch.object(RagMemoryEngine, "_extract_manual_text", side_effect=lambda p: paged_pdf_text if p.suffix == ".pdf" else p.read_text(encoding="utf-8")):
+                res1 = rag.ingest_manuals_directory(manuals_dir=str(mdir))
+                self.assertEqual(res1["indexed_files"], 2)
+                self.assertGreaterEqual(res1["total_chunks"], 2)
+
+                # Idempotent cache check on second call (mtime/size unchanged)
+                res2 = rag.ingest_manuals_directory(manuals_dir=str(mdir))
+                self.assertEqual(res2["indexed_files"], 0)
+                self.assertEqual(res2["cached_files"], 2)
+
+                # Hybrid search surfaces page-labeled Dodge Dart Owner's Manual chunk
+                fuse_hits = rag.search("Which fuse controls the cigar lighter F94?", top_k=3, threshold=0.25)
+                self.assertGreaterEqual(len(fuse_hits), 1)
+                self.assertEqual(fuse_hits[0]["category"], "dodge_dart_manual")
+                self.assertIn("p.2", fuse_hits[0]["title"])
+
+                # High-confidence manual hit suppresses redundant web lookup, while explicit lookup still triggers web
+                self.assertFalse(should_search_web("What fuse is F94 cigar lighter?", best_manual_score=0.65)[0])
+                self.assertTrue(should_search_web("Look up Dodge Dart F94 fuse online", best_manual_score=0.65)[0])
+
+                # Privacy wipe erases personal facts/web notes while preserving indexed Dodge Dart & CarPi5 manuals
+                rag.set_driver_fact("preference", "coffee", "Black coffee")
+                rag.add_document("web_9", "LEARNED_WEB", "Web Entry", "Ephemeral learned web entry")
+                wiped = rag.wipe_ai_memory()
+                self.assertGreaterEqual(wiped["facts"], 1)
+                status_after = rag.get_manual_index_status()
+                self.assertEqual(status_after["file_count"], 2)
+                self.assertGreaterEqual(len(rag.search("F94 cigar lighter", top_k=2, threshold=0.20)), 1)
+
+                # Route dispatch checks: GET /api/ai/manuals/status & POST /api/ai/manuals/reindex
+                st_h = DummyHandler()
+                self.assertTrue(dispatch_get(st_h, urlparse("/api/ai/manuals/status"), SimpleNamespace(rag=rag)))
+                self.assertEqual(st_h.json_body()["file_count"], 2)
+
+                re_h = DummyHandler({"force": False})
+                with patch.object(rag, "ingest_manuals_directory", return_value={"status": "ok", "total_chunks": 4, "file_count": 2}) as m_ing:
+                    self.assertTrue(dispatch_post(re_h, urlparse("/api/ai/manuals/reindex"), SimpleNamespace(rag=rag)))
+                    m_ing.assert_called_once_with(force=False)
+                self.assertEqual(re_h.json_body()["status"], "ok")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -620,8 +620,13 @@ function _renderAiMetaBadgesHtml(meta) {
   if (Array.isArray(meta.memories_saved) && meta.memories_saved.length > 0) {
     badges.push('<span style="display:inline-block; margin-left:4px; padding:1px 6px; border-radius:4px; font-size:9px; font-weight:800; background:rgba(236,72,153,0.18); color:#f472b6; border:1px solid rgba(236,72,153,0.4);">💖 MEMORY</span>');
   }
+  if ((meta.manual_hits || 0) > 0) {
+    const srcTip = Array.isArray(meta.rag_sources) && meta.rag_sources.length ? ` title="${meta.rag_sources.join(' | ').replace(/"/g, '&quot;')}"` : '';
+    badges.push(`<span${srcTip} style="display:inline-block; margin-left:4px; padding:1px 6px; border-radius:4px; font-size:9px; font-weight:800; background:rgba(139,92,246,0.22); color:#ddd6fe; border:1px solid rgba(139,92,246,0.45);">📖 MANUAL×${meta.manual_hits}</span>`);
+  }
   if ((meta.rag_hits || 0) > 0) {
-    badges.push(`<span style="display:inline-block; margin-left:4px; padding:1px 6px; border-radius:4px; font-size:9px; font-weight:800; background:rgba(168,85,247,0.18); color:#c084fc; border:1px solid rgba(168,85,247,0.4);">📚 RAG×${meta.rag_hits}</span>`);
+    const srcTip = Array.isArray(meta.rag_sources) && meta.rag_sources.length ? ` title="${meta.rag_sources.join(' | ').replace(/"/g, '&quot;')}"` : '';
+    badges.push(`<span${srcTip} style="display:inline-block; margin-left:4px; padding:1px 6px; border-radius:4px; font-size:9px; font-weight:800; background:rgba(168,85,247,0.18); color:#c084fc; border:1px solid rgba(168,85,247,0.4);">📚 RAG×${meta.rag_hits}</span>`);
   }
   return badges.join('');
 }

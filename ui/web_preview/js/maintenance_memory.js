@@ -538,10 +538,60 @@ function loadLivingMindData() {
           `).join('');
         }
       }
+      // 5. Render Indexed Vehicle & System Manuals
+      const manualBadge = document.getElementById('manualIndexCountBadge');
+      const manualList = document.getElementById('manualIndexList');
+      const mIdx = data.manual_index || {};
+      if (manualBadge) {
+        manualBadge.innerText = `${mIdx.total_chunks || 0} CHUNKS`;
+      }
+      if (manualList) {
+        const mFiles = mIdx.files || [];
+        if (mFiles.length === 0) {
+          manualList.innerHTML = '<div style="text-align:center; padding:12px; color:#94a3b8; font-size:11px;">No manuals indexed yet. Tap RE-INDEX MANUALS to index storage/manuals/.</div>';
+        } else {
+          manualList.innerHTML = mFiles.map(m => `
+            <div class="maint-fact-card" style="border-color:rgba(168,85,247,0.28);">
+              <div style="flex:1; min-width:0;">
+                <div class="maint-fact-key" style="color:#e9d5ff;">📖 ${m.file_name}</div>
+                <div class="maint-fact-val" style="font-size:11px; color:#cbd5e1;">${m.category} • ${m.chunk_count} indexed chunks</div>
+              </div>
+            </div>
+          `).join('');
+        }
+      }
     })
     .catch(err => {
       console.error('[MAINT] Living mind summary error:', err);
     });
+}
+
+function reindexKnowledgeManuals() {
+  const btn = document.getElementById('btnReindexManuals');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = '⏳ INDEXING...';
+  }
+  if (window.showToast) window.showToast('Indexing storage/manuals/ into Hybrid RAG...');
+  fetch('/api/ai/manuals/reindex', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ force: true })
+  })
+  .then(r => r.json())
+  .then(data => {
+    loadLivingMindData();
+    if (window.showToast) window.showToast(`📚 Manuals indexed: ${data.total_chunks || 0} chunks across ${data.file_count || 0} files`);
+  })
+  .catch(() => {
+    if (window.showToast) window.showToast('Manual re-index failed');
+  })
+  .finally(() => {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = '🔄 RE-INDEX MANUALS';
+    }
+  });
 }
 
 function deleteLearnedWebFact(idx) {

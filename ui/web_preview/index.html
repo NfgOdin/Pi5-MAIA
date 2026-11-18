@@ -3174,6 +3174,21 @@
               <div style="text-align:center; padding:16px; color:#94a3b8; font-size:11px;">No web lookups saved yet. Ask R.U.M. to look something up!</div>
             </div>
           </div>
+
+          <!-- 4. Indexed Vehicle & CarPi5 Manuals (Protected from Privacy Wipe) -->
+          <div class="maint-panel" style="background:#0f172a; border:1px solid #1e293b; border-radius:10px; padding:12px; display:flex; flex-direction:column;">
+            <div class="maint-panel-header" style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:16px;">📚</span>
+                <span class="maint-panel-title" style="font-size:12px; font-weight:900; color:#fff;">INDEXED VEHICLE &amp; SYSTEM MANUALS</span>
+                <span id="manualIndexCountBadge" style="font-size:10px; padding:2px 8px; border-radius:6px; background:rgba(168,85,247,0.18); color:#c084fc; font-weight:800;">0 CHUNKS</span>
+              </div>
+              <button id="btnReindexManuals" onclick="reindexKnowledgeManuals()" style="min-height:44px; padding:0 14px; border-radius:8px; border:1px solid rgba(168,85,247,0.55); background:rgba(168,85,247,0.16); color:#e9d5ff; font-size:11px; font-weight:800; cursor:pointer;">🔄 RE-INDEX MANUALS</button>
+            </div>
+            <div id="manualIndexList" style="display:flex; flex-direction:column; gap:6px; max-height:160px; overflow-y:auto;">
+              <div style="text-align:center; padding:12px; color:#94a3b8; font-size:11px;">Checking storage/manuals index...</div>
+            </div>
+          </div>
         </div>
 
         <!-- Modal: Teach Companion New Memory Fact -->
@@ -4550,10 +4565,10 @@
   <script src="js/hardware_gpio.js"></script>
   <script src="js/storage_trips.js?v=2"></script>
   <script src="js/diagnostics_dragy.js"></script>
-  <script src="js/ai_voice.js?v=2"></script>
+  <script src="js/ai_voice.js?v=3"></script>
   <script src="js/persona_builder.js"></script>
   <script src="js/media_dsp.js"></script>
-  <script src="js/maintenance_memory.js?v=3"></script>
+  <script src="js/maintenance_memory.js?v=4"></script>
   <script src="js/vrm_living_rig.js"></script>
   <script src="js/vrm_3d_room.js"></script>
   <script src="gauges.js?v=30"></script>

@@ -116,6 +116,7 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
     if path == "/api/ai/memory/living_summary":
         if getattr(state, "rag", None):
             learned = state.llm.get_learned_facts() if hasattr(state.llm, "get_learned_facts") else []
+            manual_idx = state.rag.get_manual_index_status() if hasattr(state.rag, "get_manual_index_status") else {}
             payload = {
                 "status": "ok",
                 "bond": state.rag.get_relationship_bond(),
@@ -123,10 +124,16 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
                 "facts": state.rag.get_driver_facts(),
                 "episodes": state.rag.get_recent_episodic_memories(limit=10),
                 "learned_web": learned,
+                "manual_index": manual_idx,
             }
         else:
             payload = {"status": "error", "message": "rag_unavailable"}
         send_json(handler, payload)
+        return True
+
+    if path == "/api/ai/manuals/status":
+        status_obj = state.rag.get_manual_index_status() if (getattr(state, "rag", None) and hasattr(state.rag, "get_manual_index_status")) else {"status": "error", "files": [], "total_chunks": 0}
+        send_json(handler, status_obj)
         return True
 
     if path == "/api/ai/memory/learned":
@@ -447,6 +454,15 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
         else:
             res = {"status": "error"}
         send_json(handler, res)
+        return True
+
+    if path == "/api/ai/manuals/reindex":
+        req_data = read_json_body(handler)
+        if getattr(state, "rag", None) and hasattr(state.rag, "ingest_manuals_directory"):
+            res = state.rag.ingest_manuals_directory(force=bool(req_data.get("force", True)))
+        else:
+            res = {"status": "error", "message": "rag_unavailable"}
+        send_json(handler, res, status=200 if res.get("status") != "error" else 500)
         return True
 
     if path == "/api/ai/memory/remember":

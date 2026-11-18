@@ -13,8 +13,10 @@ import re
 import sys
 import time
 import json
-import sqlite3
 import math
+import shutil
+import sqlite3
+import subprocess
 import numpy as np
 from pathlib import Path
 from datetime import datetime
@@ -24,8 +26,19 @@ from typing import List, Dict, Any, Optional, Tuple
 BASE_DIR = Path(__file__).parent.parent.parent
 MODELS_DIR = BASE_DIR / "models" / "embeddings"
 STORAGE_DIR = BASE_DIR / "storage"
+MANUALS_DIR = STORAGE_DIR / "manuals"
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 RAG_DB_PATH = STORAGE_DIR / "rag_memory.db"
+
+PROTECTED_RAG_CATEGORIES = (
+    "manual",
+    "dodge_dart_manual",
+    "carpi5_manual",
+    "specs",
+    "factory_manual",
+    "SPECIFICATION",
+)
+_PROTECTED_CATS_SQL = ", ".join(f"'{c}'" for c in PROTECTED_RAG_CATEGORIES)
 
 
 import threading
@@ -64,7 +77,7 @@ class MiniLMEmbeddingEngine:
                 from tokenizers import Tokenizer
 
                 tokenizer = Tokenizer.from_file(str(self.tok_path))
-                tokenizer.enable_truncation(max_length=128)
+                tokenizer.enable_truncation(max_length=256)
                 tokenizer.no_padding()
 
                 sess_options = ort.SessionOptions()
@@ -150,6 +163,8 @@ class RagMemoryEngine:
         self.db_path = str(db_path or RAG_DB_PATH)
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self.embed_engine = MiniLMEmbeddingEngine()
+        self._vec_cache_lock = threading.Lock()
+        self._vec_cache: Optional[Dict[str, Any]] = None
         self._init_db()
         self._seed_factory_maintenance()
 
@@ -294,6 +309,17 @@ class RagMemoryEngine:
                     bond_tier TEXT DEFAULT 'Inseparable Daughter',
                     unlocked_milestones_json TEXT DEFAULT '[]',
                     updated_at TEXT NOT NULL
+                )
+            """)
+            # 9b. Indexed Manual Manifest (mtime/size change detection for idempotent sync)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS manual_index_manifest (
+                    file_name TEXT PRIMARY KEY NOT NULL,
+                    file_size INTEGER NOT NULL,
+                    mtime REAL NOT NULL,
+                    category TEXT NOT NULL,
+                    chunk_count INTEGER NOT NULL,
+                    indexed_at TEXT NOT NULL
                 )
             """)
             # Default odometer if not set
@@ -446,6 +472,50 @@ class RagMemoryEngine:
     # -------------------------------------------------------------
     # Document & Vector Ingestion
     # -------------------------------------------------------------
+    def _invalidate_vec_cache(self):
+        with self._vec_cache_lock:
+            self._vec_cache = None
+
+    def _load_vec_cache(self) -> Dict[str, Any]:
+        with self._vec_cache_lock:
+            if self._vec_cache is not None:
+                return self._vec_cache
+            docs: List[Dict[str, Any]] = []
+            vecs: List[np.ndarray] = []
+            dim = self.embed_engine.dimension
+            with self._get_connection() as conn:
+                c = conn.cursor()
+                c.execute("""
+                    SELECT d.doc_id, d.category, d.title, d.content, d.metadata_json, e.vector
+                    FROM rag_documents d
+                    JOIN rag_embeddings e ON d.doc_id = e.doc_id
+                """)
+                for doc_id, category, title, content, meta_json, vec_blob in c.fetchall():
+                    if vec_blob:
+                        arr = np.frombuffer(vec_blob, dtype=np.float32)
+                        vec = arr if arr.shape[0] == dim else np.zeros(dim, dtype=np.float32)
+                    else:
+                        vec = np.zeros(dim, dtype=np.float32)
+                    try:
+                        meta_obj = json.loads(meta_json) if meta_json else {}
+                        if not isinstance(meta_obj, dict):
+                            meta_obj = {}
+                    except Exception:
+                        meta_obj = {}
+                    docs.append({
+                        "doc_id": doc_id,
+                        "category": category,
+                        "title": title,
+                        "content": content,
+                        "metadata": meta_obj,
+                        "search_text": f"{title} {content}",
+                    })
+                    vecs.append(vec)
+            matrix = np.vstack(vecs).astype(np.float32) if vecs else np.zeros((0, dim), dtype=np.float32)
+            cache = {"docs": docs, "matrix": matrix}
+            self._vec_cache = cache
+            return cache
+
     def add_document(self, doc_id: str, category: str, title: str, content: str, metadata: Optional[Dict[str, Any]] = None):
         """Adds or updates a document and generates its 384-dim semantic embedding."""
         now = datetime.now().isoformat()
@@ -473,6 +543,223 @@ class RagMemoryEngine:
                 ON CONFLICT(doc_id) DO UPDATE SET vector=excluded.vector
             """, (doc_id, vec_blob))
             conn.commit()
+        self._invalidate_vec_cache()
+
+    @staticmethod
+    def _manual_label_and_category(file_name: str) -> Tuple[str, str]:
+        low = file_name.lower()
+        if "carpi" in low:
+            return "CarPi5 Manual", "carpi5_manual"
+        if "collision" in low or "body" in low:
+            return "Dart Body Manual", "dodge_dart_manual"
+        if "dart" in low or "2013" in low:
+            return "2013 Dart OM", "dodge_dart_manual"
+        stem = Path(file_name).stem.replace("_", " ").replace("-", " ").strip()
+        return (stem[:32] or "Manual"), "dodge_dart_manual"
+
+    @staticmethod
+    def _extract_manual_text(path: Path) -> str:
+        ext = path.suffix.lower()
+        if ext in (".md", ".txt", ".text"):
+            return path.read_text(encoding="utf-8", errors="replace")
+        if ext == ".pdf":
+            pdftotext = shutil.which("pdftotext")
+            if pdftotext:
+                res = subprocess.run(
+                    [pdftotext, "-enc", "UTF-8", str(path), "-"],
+                    capture_output=True, text=True, timeout=90, check=False,
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    return res.stdout
+            try:
+                import pypdf
+                reader = pypdf.PdfReader(str(path))
+                return "\f".join((p.extract_text() or "") for p in reader.pages)
+            except Exception:
+                pass
+        return ""
+
+    @staticmethod
+    def _chunk_manual_text(
+        raw_text: str,
+        file_name: str,
+        short_label: str,
+        category: str,
+        chunk_chars: int = 900,
+        overlap: int = 150,
+    ) -> List[Dict[str, Any]]:
+        """Split manual text into page/section-aware ~900-char overlapping chunks."""
+        if not raw_text or not raw_text.strip():
+            return []
+        slug = re.sub(r"[^a-z0-9]+", "_", Path(file_name).stem.lower()).strip("_")[:28] or "manual"
+        chunks: List[Dict[str, Any]] = []
+        is_paged = "\f" in raw_text
+        sections = raw_text.split("\f") if is_paged else re.split(r"(?=^#{1,3}\s+)", raw_text, flags=re.MULTILINE)
+
+        step = max(250, chunk_chars - overlap)
+        for sec_idx, sec_raw in enumerate(sections, start=1):
+            cleaned_lines = [re.sub(r"[ \t]{2,}", " ", ln).strip() for ln in sec_raw.splitlines()]
+            page_txt = "\n".join(ln for ln in cleaned_lines if ln and not re.fullmatch(r"[\d.\s-]+", ln))
+            page_txt = re.sub(r"\n{3,}", "\n\n", page_txt).strip()
+            # Filter pure TOC leader pages (lots of dot runs and very few normal words)
+            alnum_count = sum(1 for ch in page_txt if ch.isalnum())
+            if alnum_count < 60 or page_txt.count(".....") > 12:
+                continue
+
+            sec_heading = ""
+            if not is_paged:
+                first_ln = page_txt.splitlines()[0]
+                if first_ln.startswith("#"):
+                    sec_heading = first_ln.lstrip("# ").strip()[:40]
+
+            pos = 0
+            part = 0
+            plen = len(page_txt)
+            while pos < plen:
+                end = min(plen, pos + chunk_chars)
+                if end < plen:
+                    br = page_txt.rfind("\n", pos + int(chunk_chars * 0.65), end)
+                    if br <= pos:
+                        br = page_txt.rfind(" ", pos + int(chunk_chars * 0.65), end)
+                    if br > pos:
+                        end = br
+                piece = page_txt[pos:end].strip()
+                if sum(1 for ch in piece if ch.isalnum()) >= 50:
+                    part += 1
+                    loc = f"p.{sec_idx}" if is_paged else (f"§{sec_heading}" if sec_heading else f"s.{sec_idx}")
+                    suffix = f" ({part})" if (part > 1 or end < plen) else ""
+                    chunks.append({
+                        "doc_id": f"manual_{slug}_s{sec_idx}_c{part}",
+                        "category": category,
+                        "title": f"{short_label} {loc}{suffix}",
+                        "content": piece,
+                        "metadata": {
+                            "source_file": file_name,
+                            "page": sec_idx if is_paged else None,
+                            "section": sec_heading or None,
+                        },
+                    })
+                if end >= plen:
+                    break
+                pos = max(pos + 1, end - overlap)
+        return chunks
+
+    def ingest_manuals_directory(self, manuals_dir: Optional[str] = None, force: bool = False) -> Dict[str, Any]:
+        """Idempotently index PDF/MD/TXT manuals into Hybrid RAG using mtime/size manifest."""
+        mdir = Path(manuals_dir) if manuals_dir else MANUALS_DIR
+        if not mdir.exists():
+            return {"status": "missing_dir", "dir": str(mdir), "indexed_files": 0, "total_chunks": 0}
+
+        disk_files = {
+            p.name: p
+            for p in sorted(mdir.iterdir())
+            if p.is_file() and p.suffix.lower() in (".pdf", ".md", ".txt")
+        }
+        now_iso = datetime.now().isoformat()
+        indexed_now = 0
+        skipped_now = 0
+        removed_now = 0
+        details: List[Dict[str, Any]] = []
+
+        with self._get_connection() as conn:
+            c = conn.cursor()
+            manifest = {
+                row[0]: {"size": row[1], "mtime": row[2], "category": row[3], "chunks": row[4]}
+                for row in c.execute(
+                    "SELECT file_name, file_size, mtime, category, chunk_count FROM manual_index_manifest"
+                ).fetchall()
+            }
+
+            # Prune removed files cleanly
+            for stale_name in list(manifest.keys()):
+                if stale_name not in disk_files:
+                    slug = re.sub(r"[^a-z0-9]+", "_", Path(stale_name).stem.lower()).strip("_")[:28] or "manual"
+                    c.execute("DELETE FROM rag_embeddings WHERE doc_id LIKE ?", (f"manual_{slug}_%",))
+                    c.execute("DELETE FROM rag_documents WHERE doc_id LIKE ?", (f"manual_{slug}_%",))
+                    c.execute("DELETE FROM manual_index_manifest WHERE file_name = ?", (stale_name,))
+                    removed_now += 1
+
+            for fname, fpath in disk_files.items():
+                st = fpath.stat()
+                fsize = int(st.st_size)
+                fmtime = round(float(st.st_mtime), 2)
+                prev = manifest.get(fname)
+                if not force and prev and prev["size"] == fsize and abs(prev["mtime"] - fmtime) < 0.05:
+                    skipped_now += 1
+                    details.append({"file": fname, "chunks": int(prev["chunks"]), "status": "cached"})
+                    continue
+
+                raw_text = self._extract_manual_text(fpath)
+                short_label, cat = self._manual_label_and_category(fname)
+                chunks = self._chunk_manual_text(raw_text, fname, short_label, cat)
+                slug = re.sub(r"[^a-z0-9]+", "_", Path(fname).stem.lower()).strip("_")[:28] or "manual"
+                c.execute("DELETE FROM rag_embeddings WHERE doc_id LIKE ?", (f"manual_{slug}_%",))
+                c.execute("DELETE FROM rag_documents WHERE doc_id LIKE ?", (f"manual_{slug}_%",))
+
+                for ch in chunks:
+                    vec = self.embed_engine.embed_text(f"{ch['title']}. {ch['content']}")
+                    c.execute("""
+                        INSERT INTO rag_documents (doc_id, category, title, content, metadata_json, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(doc_id) DO UPDATE SET
+                            category=excluded.category,
+                            title=excluded.title,
+                            content=excluded.content,
+                            metadata_json=excluded.metadata_json,
+                            created_at=excluded.created_at
+                    """, (ch["doc_id"], ch["category"], ch["title"], ch["content"], json.dumps(ch["metadata"]), now_iso))
+                    c.execute("""
+                        INSERT INTO rag_embeddings (doc_id, vector)
+                        VALUES (?, ?)
+                        ON CONFLICT(doc_id) DO UPDATE SET vector=excluded.vector
+                    """, (ch["doc_id"], vec.tobytes()))
+
+                c.execute("""
+                    INSERT OR REPLACE INTO manual_index_manifest
+                    (file_name, file_size, mtime, category, chunk_count, indexed_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (fname, fsize, fmtime, cat, len(chunks), now_iso))
+                indexed_now += 1
+                details.append({"file": fname, "chunks": len(chunks), "status": "indexed"})
+                print(f"[RAG MANUAL] Indexed {fname} -> {len(chunks)} chunks ({cat})")
+            conn.commit()
+
+        if indexed_now or removed_now:
+            self._invalidate_vec_cache()
+        status_summary = self.get_manual_index_status()
+        status_summary.update({
+            "indexed_files": indexed_now,
+            "cached_files": skipped_now,
+            "removed_files": removed_now,
+            "details": details,
+        })
+        return status_summary
+
+    def get_manual_index_status(self) -> Dict[str, Any]:
+        """Return indexed counts per manual file in storage/manuals."""
+        try:
+            with self._get_connection() as conn:
+                rows = conn.execute(
+                    "SELECT file_name, file_size, category, chunk_count, indexed_at FROM manual_index_manifest ORDER BY file_name"
+                ).fetchall()
+            files = [
+                {
+                    "file_name": r[0],
+                    "file_size": int(r[1]),
+                    "category": r[2],
+                    "chunk_count": int(r[3]),
+                    "indexed_at": r[4],
+                }
+                for r in rows
+            ]
+            return {
+                "status": "ok",
+                "files": files,
+                "total_chunks": sum(f["chunk_count"] for f in files),
+                "file_count": len(files),
+            }
+        except Exception as e:
+            return {"status": "error", "files": [], "total_chunks": 0, "file_count": 0, "error": str(e)}
 
     # -------------------------------------------------------------
     # Hybrid Semantic + Keyword/BM25 Search & Retrieval
@@ -498,7 +785,7 @@ class RagMemoryEngine:
         return min(1.0, (0.75 * cov) + min(0.25, exact_code_bonus) + phrase_bonus)
 
     def search(self, query: str, top_k: int = 5, threshold: float = 0.28) -> List[Dict[str, Any]]:
-        """Retrieves top matching documents using hybrid Dense Cosine (0.70) + Keyword/BM25 (0.30) ranking."""
+        """Retrieves top matching documents using vectorized hybrid Dense Cosine (0.70) + Keyword/BM25 (0.30)."""
         if not query or not isinstance(query, str) or not query.strip():
             return []
         query_vec = self.embed_engine.embed_text(query)
@@ -509,47 +796,35 @@ class RagMemoryEngine:
 
         results = []
         try:
-            with self._get_connection() as conn:
-                c = conn.cursor()
-                c.execute("""
-                    SELECT d.doc_id, d.category, d.title, d.content, d.metadata_json, e.vector
-                    FROM rag_documents d
-                    JOIN rag_embeddings e ON d.doc_id = e.doc_id
-                """)
-                rows = c.fetchall()
+            cache = self._load_vec_cache()
+            docs = cache["docs"]
+            matrix = cache["matrix"]
+            if not docs:
+                return []
 
-                for doc_id, category, title, content, meta_json, vec_blob in rows:
-                    cosine = 0.0
-                    if has_vec and vec_blob:
-                        doc_vec = np.frombuffer(vec_blob, dtype=np.float32)
-                        if doc_vec.shape[0] == self.embed_engine.dimension:
-                            sim = float(np.dot(query_vec, doc_vec))
-                            if np.isfinite(sim):
-                                cosine = max(0.0, sim)
-                    kw = self._keyword_score(q_terms, query, f"{title} {content}")
-                    hybrid = (0.70 * cosine) + (0.30 * kw) if has_vec else kw
-                    # Ensure exact keyword hits can surface even if embeddings use sparse fallback
-                    effective = max(hybrid, 0.90 * cosine, 0.85 * kw if kw >= 0.45 else 0.0)
-                    if effective >= threshold:
-                        try:
-                            meta_obj = json.loads(meta_json) if meta_json else {}
-                            if not isinstance(meta_obj, dict):
-                                meta_obj = {}
-                        except Exception:
-                            meta_obj = {}
-                        results.append({
-                            "doc_id": doc_id,
-                            "category": category,
-                            "title": title,
-                            "content": content,
-                            "metadata": meta_obj,
-                            "similarity": round(effective, 4),
-                            "cosine": round(cosine, 4),
-                            "keyword_score": round(kw, 4),
-                        })
+            cosines = (matrix @ query_vec) if (has_vec and matrix.shape[0] > 0) else np.zeros(len(docs), dtype=np.float32)
+            for idx, d in enumerate(docs):
+                sim = float(cosines[idx]) if idx < len(cosines) else 0.0
+                cosine = max(0.0, sim) if (has_vec and np.isfinite(sim)) else 0.0
+                kw = self._keyword_score(q_terms, query, d["search_text"])
+                hybrid = (0.70 * cosine) + (0.30 * kw) if has_vec else kw
+                # Ensure exact keyword hits can surface even if embeddings use sparse fallback
+                effective = max(hybrid, 0.90 * cosine, 0.85 * kw if kw >= 0.45 else 0.0)
+                if effective >= threshold:
+                    results.append({
+                        "doc_id": d["doc_id"],
+                        "category": d["category"],
+                        "title": d["title"],
+                        "content": d["content"],
+                        "metadata": d["metadata"],
+                        "similarity": round(effective, 4),
+                        "cosine": round(cosine, 4),
+                        "keyword_score": round(kw, 4),
+                    })
         except sqlite3.OperationalError:
             try:
                 self._init_db()
+                self._invalidate_vec_cache()
             except Exception:
                 pass
             return []
@@ -561,14 +836,15 @@ class RagMemoryEngine:
         return results[:max(1, int(top_k))]
 
     def retrieve_context_for_prompt(self, query: str, top_k: int = 3, threshold: float = 0.28) -> Optional[str]:
-        """Formats high-confidence hybrid RAG matches into a concise snippet for LLM injection."""
+        """Formats high-confidence hybrid RAG matches into a snippet for LLM injection (440c table-safe for manuals)."""
         matches = self.search(query, top_k=top_k, threshold=threshold)
         if not matches:
             return None
 
         lines = []
         for m in matches:
-            snippet = m["content"][:220].rstrip() + "..." if len(m["content"]) > 220 else m["content"]
+            lim = 440 if m["category"] in ("dodge_dart_manual", "carpi5_manual", "SPECIFICATION") else 240
+            snippet = m["content"][:lim].rstrip() + "..." if len(m["content"]) > lim else m["content"]
             lines.append(f"• [{m['category']}] {m['title']}: {snippet}")
         return "\n".join(lines)
 
@@ -1200,39 +1476,47 @@ class RagMemoryEngine:
         max_tokens: int = 400
     ) -> str:
         """
-        Assembles a prioritized, token-budgeted memory block (~350-450 tokens) fusing:
-        Bond Tier, Top Semantically Ranked Driver Facts, Episodic Memories, Diary, and Hybrid RAG Docs.
+        Assembles a prioritized, token-budgeted memory block fusing:
+        Bond Tier, Top Semantically Ranked Driver Facts, Episodic Memories, Diary (reserved priority),
+        and Hybrid RAG Docs (440-char table-safe snippets for manuals/specs).
         """
-        lines: List[str] = []
-        char_budget = max(800, int(max_tokens) * 4)
+        personal_lines: List[str] = []
+        char_budget = max(900, int(max_tokens) * 4)
 
-        # 1. Bond Tier & Address
+        # 1. Bond Tier & Address (reserved priority)
         bond = self.get_relationship_bond()
-        lines.append(f"• Bond Tier: {bond['bond_tier']} ({bond['shared_miles']} shared miles, {bond['shared_drives']} drives).")
+        personal_lines.append(f"• Bond Tier: {bond['bond_tier']} ({bond['shared_miles']} shared miles, {bond['shared_drives']} drives).")
 
-        # 2. Semantically Ranked Driver Facts
+        # 2. Semantically Ranked Driver Facts (reserved priority)
         for f in self.get_relevant_driver_facts(query, top_k=3):
-            lines.append(f"• Fact ({f['entity'].replace('_', ' ')}): {f['value']}.")
+            personal_lines.append(f"• Fact ({f['entity'].replace('_', ' ')}): {f['value']}.")
 
-        # 3. Episodic Moments (Top ranked)
+        # 3. Episodic Moments (reserved priority)
         episodes = self.query_episodic_memories(query, top_k=2)
         for ep in episodes:
             if ep["score"] >= 0.35:
-                lines.append(f"• Memory: {ep['companion_summary']}")
+                personal_lines.append(f"• Memory: {ep['companion_summary']}")
 
-        # 4. Hybrid RAG Documents (Trips, Learned Web Knowledge, Custom Notes, Manuals)
-        for doc in self.search(query, top_k=3, threshold=0.28):
-            snip = doc["content"][:180].rstrip() + "..." if len(doc["content"]) > 180 else doc["content"]
-            lines.append(f"• [{doc['category']}] {doc['title']}: {snip}")
-
-        # 5. Latest Diary Reflection (if budget allows)
+        # 4. Latest Diary Reflection (reserved slot when space remains)
         recent_diaries = self.get_recent_diary_entries(limit=1)
-        if recent_diaries and sum(len(l) for l in lines) < char_budget - 160:
+        if recent_diaries and sum(len(l) for l in personal_lines) < char_budget - 200:
             d = recent_diaries[0]
             snippet = d["content"][:130].rstrip() + "..." if len(d["content"]) > 130 else d["content"]
-            lines.append(f"• Diary ({d['entry_date']}): \"{snippet}\"")
+            personal_lines.append(f"• Diary ({d['entry_date']}): \"{snippet}\"")
 
-        out = "\n".join(lines)
+        # 5. Hybrid RAG Documents (Manuals 440c table-safe, Learned Web & Logs 200c)
+        rag_lines: List[str] = []
+        used_chars = sum(len(l) + 1 for l in personal_lines)
+        for doc in self.search(query, top_k=3, threshold=0.28):
+            lim = 440 if doc["category"] in ("dodge_dart_manual", "carpi5_manual", "SPECIFICATION") else 200
+            snip = doc["content"][:lim].rstrip() + "..." if len(doc["content"]) > lim else doc["content"]
+            entry = f"• [{doc['category']}] {doc['title']}: {snip}"
+            if used_chars + len(entry) > char_budget and rag_lines:
+                break
+            rag_lines.append(entry)
+            used_chars += len(entry) + 1
+
+        out = "\n".join(personal_lines + rag_lines)
         return out[:char_budget]
 
     def extract_and_store_chat_memories(
@@ -1316,7 +1600,7 @@ class RagMemoryEngine:
             facts = c.execute("SELECT COUNT(*) FROM driver_facts").fetchone()[0]
             diary = c.execute("SELECT COUNT(*) FROM persona_diary").fetchone()[0]
             notes = c.execute(
-                "SELECT COUNT(*) FROM rag_documents WHERE category NOT IN ('manual', 'dodge_dart_manual', 'specs', 'factory_manual')"
+                f"SELECT COUNT(*) FROM rag_documents WHERE category NOT IN ({_PROTECTED_CATS_SQL})"
             ).fetchone()[0]
             return {
                 "episodic": int(ep),
@@ -1337,10 +1621,10 @@ class RagMemoryEngine:
             c.execute("DELETE FROM persona_diary")
             c.execute(
                 "DELETE FROM rag_embeddings WHERE doc_id IN ("
-                "SELECT doc_id FROM rag_documents WHERE category NOT IN ('manual', 'dodge_dart_manual', 'specs', 'factory_manual'))"
+                f"SELECT doc_id FROM rag_documents WHERE category NOT IN ({_PROTECTED_CATS_SQL}))"
             )
             c.execute(
-                "DELETE FROM rag_documents WHERE category NOT IN ('manual', 'dodge_dart_manual', 'specs', 'factory_manual')"
+                f"DELETE FROM rag_documents WHERE category NOT IN ({_PROTECTED_CATS_SQL})"
             )
             c.execute("""
                 INSERT OR REPLACE INTO relationship_bond (
@@ -1350,6 +1634,7 @@ class RagMemoryEngine:
             """, (now_iso,))
             c.execute("INSERT OR REPLACE INTO vehicle_state (key, value) VALUES ('ai_memory_wiped', '1')")
             conn.commit()
+        self._invalidate_vec_cache()
         return counts
 
 

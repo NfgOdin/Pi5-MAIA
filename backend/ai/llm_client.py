@@ -1626,12 +1626,27 @@ class LLMClient:
             system_prompt += f"\n[GROUNDED KNOWLEDGE INJECTION:\n{lore_injection}]"
 
         # Hybrid Vector + Keyword/BM25 Living Memory & RAG Retrieval
+        rag_matches: List[Dict[str, Any]] = []
         rag_hits = 0
+        manual_hits = 0
+        best_local_score = 0.0
         if hasattr(self, "rag_memory") and self.rag_memory:
             try:
                 curr_spd = float(live_telemetry.get("speed_mph", 0.0)) if live_telemetry else 0.0
-                rag_hits = len(self.rag_memory.search(user_message, top_k=3, threshold=0.28))
-                living_memory_block = self.rag_memory.retrieve_unified_living_memory(user_message, current_speed=curr_spd, max_tokens=260)
+                rag_matches = self.rag_memory.search(user_message, top_k=4, threshold=0.28)
+                rag_hits = len(rag_matches)
+                manual_cats = {"dodge_dart_manual", "carpi5_manual", "SPECIFICATION"}
+                manual_hits = sum(1 for m in rag_matches if m.get("category") in manual_cats)
+                local_scores = [
+                    float(m.get("similarity", 0.0) or 0.0)
+                    for m in rag_matches
+                    if m.get("category") in (manual_cats | {"LEARNED_WEB"})
+                ]
+                if local_scores:
+                    best_local_score = max(local_scores)
+                living_memory_block = self.rag_memory.retrieve_unified_living_memory(
+                    user_message, current_speed=curr_spd, max_tokens=360
+                )
                 if living_memory_block:
                     system_prompt += f"\n[RECALLED LIVING COGNITIVE MEMORIES & RAG:\n{living_memory_block}]"
             except Exception as e:
@@ -1648,9 +1663,16 @@ class LLMClient:
             "learned_saved": [],
             "memories_saved": [],
             "rag_hits": rag_hits,
+            "manual_hits": manual_hits,
+            "rag_sources": [m.get("title", "") for m in rag_matches[:3] if m.get("title")],
         }
         web_result: Optional[Dict[str, Any]] = None
-        need_web, web_q = should_search_web(user_message, lore_injection=lore_injection, rag_hits=rag_hits)
+        need_web, web_q = should_search_web(
+            user_message,
+            lore_injection=lore_injection,
+            rag_hits=rag_hits,
+            best_manual_score=best_local_score,
+        )
         if need_web and web_q:
             web_result = search_web_snippets(web_q, timeout=4.5, max_results=3)
             turn_meta["web_searched"] = True
