@@ -4,7 +4,8 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /home/pi/CarPi5/scripts/pi3_android_bridge.py --port 8002
+User=nfgodin
+ExecStart=/usr/bin/python3 /home/nfgodin/CarPi5/scripts/pi3_android_bridge.py --port 8002
 Restart=always
 RestartSec=3
 
