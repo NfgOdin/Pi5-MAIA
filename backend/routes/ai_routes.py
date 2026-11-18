@@ -115,16 +115,23 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
 
     if path == "/api/ai/memory/living_summary":
         if getattr(state, "rag", None):
+            learned = state.llm.get_learned_facts() if hasattr(state.llm, "get_learned_facts") else []
             payload = {
                 "status": "ok",
                 "bond": state.rag.get_relationship_bond(),
                 "diary": state.rag.get_recent_diary_entries(limit=10),
                 "facts": state.rag.get_driver_facts(),
                 "episodes": state.rag.get_recent_episodic_memories(limit=10),
+                "learned_web": learned,
             }
         else:
             payload = {"status": "error", "message": "rag_unavailable"}
         send_json(handler, payload)
+        return True
+
+    if path == "/api/ai/memory/learned":
+        learned = state.llm.get_learned_facts() if hasattr(state.llm, "get_learned_facts") else []
+        send_json(handler, {"status": "ok", "learned_facts": learned})
         return True
 
     if path == "/api/ai/memory/facts":
@@ -426,6 +433,13 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
         send_json(handler, {"status": "ok" if ok else "error"}, status=200 if ok else 400)
         return True
 
+    if path == "/api/ai/memory/learned/delete":
+        req_data = read_json_body(handler)
+        target_key = req_data.get("index") if req_data.get("index") is not None else req_data.get("keyword")
+        ok = state.llm.delete_learned_fact(target_key) if (hasattr(state.llm, "delete_learned_fact") and target_key is not None) else False
+        send_json(handler, {"status": "ok" if ok else "error"}, status=200 if ok else 400)
+        return True
+
     if path == "/api/ai/memory/consolidate":
         req_data = read_json_body(handler)
         if getattr(state, "hippocampus", None) and getattr(state, "rag", None):
@@ -699,6 +713,7 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
                 "facial_preset": choreo["facial_preset"],
                 "emote_clip": choreo["emote_clip"],
                 "beats": choreo["beats"],
+                "meta": res.get("meta") or {},
                 "done": True,
             }
             if state._active_stream_id == stream_id:
@@ -718,6 +733,7 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
                 "emote_clip": choreo["emote_clip"],
                 "beats": choreo["beats"],
                 "action": res.get("action"),
+                "meta": res.get("meta") or {},
                 "persona": res.get("persona", state.llm.settings.get("personality") or (state.llm.get_default_persona_id() if hasattr(state.llm, "get_default_persona_id") else "COMPANION")),
             },
         )

@@ -606,6 +606,26 @@ function interruptAiTurn(reason = 'UI_TAP') {
   }).then(r => r.json()).catch(() => ({ status: 'ok', local_only: true }));
 }
 
+function _renderAiMetaBadgesHtml(meta) {
+  if (!meta || typeof meta !== 'object') return '';
+  const badges = [];
+  if (meta.web_searched && meta.web_status === 'ok') {
+    badges.push('<span style="display:inline-block; margin-left:6px; padding:1px 6px; border-radius:4px; font-size:9px; font-weight:800; background:rgba(16,185,129,0.18); color:#34d399; border:1px solid rgba(16,185,129,0.4);">🌐 WEB</span>');
+  } else if (meta.web_searched && meta.web_status === 'offline') {
+    badges.push('<span style="display:inline-block; margin-left:6px; padding:1px 6px; border-radius:4px; font-size:9px; font-weight:800; background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.4);">🌐 OFFLINE</span>');
+  }
+  if (Array.isArray(meta.learned_saved) && meta.learned_saved.length > 0) {
+    badges.push('<span style="display:inline-block; margin-left:4px; padding:1px 6px; border-radius:4px; font-size:9px; font-weight:800; background:rgba(56,189,248,0.18); color:#38bdf8; border:1px solid rgba(56,189,248,0.4);">🧠 LEARNED</span>');
+  }
+  if (Array.isArray(meta.memories_saved) && meta.memories_saved.length > 0) {
+    badges.push('<span style="display:inline-block; margin-left:4px; padding:1px 6px; border-radius:4px; font-size:9px; font-weight:800; background:rgba(236,72,153,0.18); color:#f472b6; border:1px solid rgba(236,72,153,0.4);">💖 MEMORY</span>');
+  }
+  if ((meta.rag_hits || 0) > 0) {
+    badges.push(`<span style="display:inline-block; margin-left:4px; padding:1px 6px; border-radius:4px; font-size:9px; font-weight:800; background:rgba(168,85,247,0.18); color:#c084fc; border:1px solid rgba(168,85,247,0.4);">📚 RAG×${meta.rag_hits}</span>`);
+  }
+  return badges.join('');
+}
+
 function applyAiStreamChunk(pkt) {
   if (!pkt || !pkt.stream_id) return;
   if (pkt.interrupted) {
@@ -632,7 +652,9 @@ function applyAiStreamChunk(pkt) {
     const bodyEl = bubble.querySelector('.ai-stream-body');
     if (bodyEl) bodyEl.innerText = textSoFar;
     const tEl = bubble.querySelector('.chat-time');
-    if (tEl && pkt.done) tEl.innerText = 'Just now';
+    if (tEl && pkt.done) {
+      tEl.innerHTML = `Just now${_renderAiMetaBadgesHtml(pkt.meta)}`;
+    }
     scrollChatToBottom();
   }
   if (pkt.chunk_index === 0 && !pkt.done) {
@@ -724,19 +746,23 @@ function sendChatMessage(userText, isVoice = false) {
         ? container.querySelector(`[data-stream-id="${data.stream_id}"]`)
         : null;
       const didStreamAlready = Boolean(vrmBubble);
+      const metaHtml = _renderAiMetaBadgesHtml(data.meta);
       if (vrmBubble) {
         const bodyEl = vrmBubble.querySelector('.ai-stream-body');
         if (bodyEl) bodyEl.innerText = data.reply;
         const tEl = vrmBubble.querySelector('.chat-time');
-        if (tEl) tEl.innerText = 'Just now';
+        if (tEl) tEl.innerHTML = `Just now${metaHtml}`;
       } else {
         vrmBubble = document.createElement('div');
         vrmBubble.className = 'chat-bubble vrm-assistant';
         if (data.stream_id) vrmBubble.setAttribute('data-stream-id', data.stream_id);
-        vrmBubble.innerHTML = `<div><strong>${respName}:</strong> <span class="ai-stream-body">${data.reply}</span></div><div class="chat-time">Just now</div>`;
+        vrmBubble.innerHTML = `<div><strong>${respName}:</strong> <span class="ai-stream-body">${data.reply}</span></div><div class="chat-time">Just now${metaHtml}</div>`;
         if (container) {
           container.appendChild(vrmBubble);
         }
+      }
+      if (data.meta && ((data.meta.learned_saved && data.meta.learned_saved.length) || (data.meta.memories_saved && data.meta.memories_saved.length))) {
+        if (typeof loadLivingMindData === 'function') loadLivingMindData();
       }
       if (container) scrollChatToBottom();
 

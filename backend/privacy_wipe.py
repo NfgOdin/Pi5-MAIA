@@ -61,6 +61,7 @@ def get_privacy_inventory(state: Any) -> Dict[str, Any]:
     llm = getattr(state, "llm", None)
     speech_log_count = len(getattr(llm, "speech_log", []) or []) if llm else 0
     ai_notes_count = len((getattr(getattr(llm, "memory_mgr", None), "memory", {}) or {}).get("known_notes", []))
+    learned_count = len(llm.get_learned_facts()) if (llm and hasattr(llm, "get_learned_facts")) else 0
     ai_mem_file = base / "backend" / "ai" / "ai_memory.json"
     ai_bytes = ai_mem_file.stat().st_size if ai_mem_file.exists() else 0
 
@@ -114,9 +115,10 @@ def get_privacy_inventory(state: Any) -> Dict[str, Any]:
             "episodic": rag_counts["episodic"],
             "facts": rag_counts["facts"],
             "diary": rag_counts["diary"],
-            "notes": rag_counts["notes"] + ai_notes_count,
+            "notes": rag_counts["notes"] + ai_notes_count + learned_count,
+            "learned_web": learned_count,
             "speech_log": speech_log_count,
-            "total_items": rag_counts["total"] + ai_notes_count + speech_log_count,
+            "total_items": rag_counts["total"] + ai_notes_count + learned_count + speech_log_count,
             "bytes": ai_bytes,
             "mb": round(ai_bytes / (1024 * 1024), 2),
         },
@@ -164,10 +166,26 @@ def _wipe_ai_memory(state: Any, base: Path) -> Dict[str, Any]:
         if hasattr(llm, "speech_log") and isinstance(llm.speech_log, list):
             res["speech_log_cleared"] = len(llm.speech_log)
             llm.speech_log.clear()
+        if hasattr(llm, "chat_history") and isinstance(llm.chat_history, list):
+            llm.chat_history.clear()
     else:
         ai_mem = base / "backend" / "ai" / "ai_memory.json"
         if ai_mem.exists():
             ai_mem.write_text(json.dumps({"total_drives": 0, "all_time_stats": {}, "last_session_stats": {}, "recent_greeting_hashes": [], "known_notes": [], "wiped": True}, indent=2), encoding="utf-8")
+
+    learned_file = base / "config" / "lorebooks" / "learned_web_knowledge.json"
+    if learned_file.exists():
+        try:
+            learned_file.write_text(json.dumps({
+                "version": "1.0",
+                "description": "Verified knowledge discovered via web search and permanently learned by R.U.M.",
+                "learned_facts": [],
+            }, indent=2), encoding="utf-8")
+            if llm and hasattr(llm, "load_lorebooks"):
+                llm.load_lorebooks()
+            res["learned_web_cleared"] = True
+        except Exception:
+            pass
     return res
 
 

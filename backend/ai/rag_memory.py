@@ -9,6 +9,7 @@ Provides:
 """
 
 import os
+import re
 import sys
 import time
 import json
@@ -474,14 +475,36 @@ class RagMemoryEngine:
             conn.commit()
 
     # -------------------------------------------------------------
-    # Semantic Search & Cosine Retrieval
+    # Hybrid Semantic + Keyword/BM25 Search & Retrieval
     # -------------------------------------------------------------
-    def search(self, query: str, top_k: int = 5, threshold: float = 0.30) -> List[Dict[str, Any]]:
-        """Retrieves top matching documents via cosine similarity."""
+    @staticmethod
+    def _tokenize_terms(text: str) -> List[str]:
+        stop = {"the", "a", "an", "is", "are", "was", "were", "what", "who", "how", "when", "where", "why", "and", "or", "for", "of", "in", "on", "to", "my", "me", "you", "your", "do", "does", "did", "with", "that", "this", "about", "it", "can"}
+        tokens = re.findall(r"[a-z0-9][a-z0-9._-]{1,}", (text or "").lower())
+        return [t for t in tokens if t not in stop and len(t) >= 2]
+
+    def _keyword_score(self, q_terms: List[str], q_raw: str, doc_text: str) -> float:
+        if not q_terms or not doc_text:
+            return 0.0
+        dl = doc_text.lower()
+        hits = sum(1 for t in q_terms if t in dl)
+        cov = hits / float(len(q_terms))
+        # Exact rare-code / multi-char token boost (part numbers, DTC codes, oil specs)
+        exact_code_bonus = 0.0
+        for t in q_terms:
+            if (any(c.isdigit() for c in t) or len(t) >= 6) and re.search(rf"\b{re.escape(t)}\b", dl):
+                exact_code_bonus += 0.15
+        phrase_bonus = 0.15 if len(q_raw.strip()) >= 5 and q_raw.strip().lower() in dl else 0.0
+        return min(1.0, (0.75 * cov) + min(0.25, exact_code_bonus) + phrase_bonus)
+
+    def search(self, query: str, top_k: int = 5, threshold: float = 0.28) -> List[Dict[str, Any]]:
+        """Retrieves top matching documents using hybrid Dense Cosine (0.70) + Keyword/BM25 (0.30) ranking."""
         if not query or not isinstance(query, str) or not query.strip():
             return []
         query_vec = self.embed_engine.embed_text(query)
-        if np.all(query_vec == 0):
+        has_vec = not np.all(query_vec == 0)
+        q_terms = self._tokenize_terms(query)
+        if not has_vec and not q_terms:
             return []
 
         results = []
@@ -496,15 +519,18 @@ class RagMemoryEngine:
                 rows = c.fetchall()
 
                 for doc_id, category, title, content, meta_json, vec_blob in rows:
-                    if not vec_blob:
-                        continue
-                    doc_vec = np.frombuffer(vec_blob, dtype=np.float32)
-                    if doc_vec.shape[0] != self.embed_engine.dimension:
-                        continue
-                    sim = float(np.dot(query_vec, doc_vec))
-                    if not np.isfinite(sim):
-                        continue
-                    if sim >= threshold:
+                    cosine = 0.0
+                    if has_vec and vec_blob:
+                        doc_vec = np.frombuffer(vec_blob, dtype=np.float32)
+                        if doc_vec.shape[0] == self.embed_engine.dimension:
+                            sim = float(np.dot(query_vec, doc_vec))
+                            if np.isfinite(sim):
+                                cosine = max(0.0, sim)
+                    kw = self._keyword_score(q_terms, query, f"{title} {content}")
+                    hybrid = (0.70 * cosine) + (0.30 * kw) if has_vec else kw
+                    # Ensure exact keyword hits can surface even if embeddings use sparse fallback
+                    effective = max(hybrid, 0.90 * cosine, 0.85 * kw if kw >= 0.45 else 0.0)
+                    if effective >= threshold:
                         try:
                             meta_obj = json.loads(meta_json) if meta_json else {}
                             if not isinstance(meta_obj, dict):
@@ -517,7 +543,9 @@ class RagMemoryEngine:
                             "title": title,
                             "content": content,
                             "metadata": meta_obj,
-                            "similarity": round(sim, 4)
+                            "similarity": round(effective, 4),
+                            "cosine": round(cosine, 4),
+                            "keyword_score": round(kw, 4),
                         })
         except sqlite3.OperationalError:
             try:
@@ -532,15 +560,16 @@ class RagMemoryEngine:
         results.sort(key=lambda x: x["similarity"], reverse=True)
         return results[:max(1, int(top_k))]
 
-    def retrieve_context_for_prompt(self, query: str, top_k: int = 2, threshold: float = 0.35) -> Optional[str]:
-        """Formats high-confidence semantic matches into a concise snippet for LLM injection."""
+    def retrieve_context_for_prompt(self, query: str, top_k: int = 3, threshold: float = 0.28) -> Optional[str]:
+        """Formats high-confidence hybrid RAG matches into a concise snippet for LLM injection."""
         matches = self.search(query, top_k=top_k, threshold=threshold)
         if not matches:
             return None
 
         lines = []
         for m in matches:
-            lines.append(f"• [{m['category']}] {m['title']}: {m['content']}")
+            snippet = m["content"][:220].rstrip() + "..." if len(m["content"]) > 220 else m["content"]
+            lines.append(f"• [{m['category']}] {m['title']}: {snippet}")
         return "\n".join(lines)
 
 
@@ -1133,47 +1162,151 @@ class RagMemoryEngine:
     # -------------------------------------------------------------------------
     # Unified Token-Budgeted Context Compression
     # -------------------------------------------------------------------------
+    def get_relevant_driver_facts(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+        """Rank stored driver facts using semantic MiniLM similarity + keyword overlap."""
+        facts = self.get_driver_facts()
+        if not facts:
+            return []
+        q_terms = self._tokenize_terms(query)
+        q_vec = self.embed_engine.embed_text(query) if (query or "").strip() else None
+        cache = getattr(self, "_fact_vec_cache", None)
+        if cache is None:
+            cache = {}
+            self._fact_vec_cache = cache
+
+        scored: List[Tuple[float, Dict[str, Any]]] = []
+        for f in facts:
+            text_repr = f"{f['entity'].replace('_', ' ')} {f['attribute'].replace('_', ' ')}: {f['value']}"
+            kw = self._keyword_score(q_terms, query, text_repr)
+            cos = 0.0
+            if q_vec is not None and not np.all(q_vec == 0):
+                ckey = (f.get("id"), text_repr)
+                fvec = cache.get(ckey)
+                if fvec is None:
+                    fvec = self.embed_engine.embed_text(text_repr)
+                    cache[ckey] = fvec
+                sim = float(np.dot(q_vec, fvec))
+                if np.isfinite(sim):
+                    cos = max(0.0, sim)
+            score = (0.65 * cos) + (0.35 * kw) + (0.05 * float(f.get("confidence", 0.9)))
+            scored.append((score, f))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [item[1] for item in scored[:max(1, int(top_k))]]
+
     def retrieve_unified_living_memory(
         self,
         query: str,
         current_speed: float = 0.0,
-        max_tokens: int = 300
+        max_tokens: int = 400
     ) -> str:
         """
-        Assembles a prioritized, token-budgeted memory block (~300 tokens)
-        fusing Episodic Memories, Semantic Driver Facts, Recent Diary, and Bond Tier.
+        Assembles a prioritized, token-budgeted memory block (~350-450 tokens) fusing:
+        Bond Tier, Top Semantically Ranked Driver Facts, Episodic Memories, Diary, and Hybrid RAG Docs.
         """
-        lines = []
+        lines: List[str] = []
+        char_budget = max(800, int(max_tokens) * 4)
 
         # 1. Bond Tier & Address
         bond = self.get_relationship_bond()
-        lines.append(f"• Bond Tier: {bond['bond_tier']} ({bond['shared_miles']} shared miles with Dad, {bond['shared_drives']} drives).")
+        lines.append(f"• Bond Tier: {bond['bond_tier']} ({bond['shared_miles']} shared miles, {bond['shared_drives']} drives).")
 
-        # 2. Driver Facts (prioritize relevant facts or core 2-3 facts)
-        facts = self.get_driver_facts()
-        if facts:
-            q_lower = query.lower()
-            relevant_facts = [f for f in facts if f["entity"] in q_lower or f["attribute"] in q_lower or f["value"].lower() in q_lower]
-            if not relevant_facts:
-                relevant_facts = facts[:3]
-            for f in relevant_facts[:3]:
-                lines.append(f"• Fact: Dad's {f['entity'].replace('_', ' ')}: {f['value']}.")
+        # 2. Semantically Ranked Driver Facts
+        for f in self.get_relevant_driver_facts(query, top_k=3):
+            lines.append(f"• Fact ({f['entity'].replace('_', ' ')}): {f['value']}.")
 
         # 3. Episodic Moments (Top ranked)
         episodes = self.query_episodic_memories(query, top_k=2)
         for ep in episodes:
-            if ep["score"] >= 0.40:
-                lines.append(f"• Shared Memory: {ep['companion_summary']}")
+            if ep["score"] >= 0.35:
+                lines.append(f"• Memory: {ep['companion_summary']}")
 
-        # 4. Latest Diary Reflection
+        # 4. Hybrid RAG Documents (Trips, Learned Web Knowledge, Custom Notes, Manuals)
+        for doc in self.search(query, top_k=3, threshold=0.28):
+            snip = doc["content"][:180].rstrip() + "..." if len(doc["content"]) > 180 else doc["content"]
+            lines.append(f"• [{doc['category']}] {doc['title']}: {snip}")
+
+        # 5. Latest Diary Reflection (if budget allows)
         recent_diaries = self.get_recent_diary_entries(limit=1)
-        if recent_diaries:
+        if recent_diaries and sum(len(l) for l in lines) < char_budget - 160:
             d = recent_diaries[0]
-            # Truncate content to 140 chars for token budget
-            snippet = d["content"][:140].rstrip() + "..." if len(d["content"]) > 140 else d["content"]
-            lines.append(f"• Recent Diary Thought ({d['entry_date']}): \"{snippet}\"")
+            snippet = d["content"][:130].rstrip() + "..." if len(d["content"]) > 130 else d["content"]
+            lines.append(f"• Diary ({d['entry_date']}): \"{snippet}\"")
 
-        return "\n".join(lines)
+        out = "\n".join(lines)
+        return out[:char_budget]
+
+    def extract_and_store_chat_memories(
+        self,
+        user_message: str,
+        ai_reply: str = "",
+        telemetry: Optional[Dict[str, Any]] = None,
+    ) -> List[str]:
+        """
+        Fast (<5ms) zero-LLM conversational memory extractor.
+        Automatically captures explicit remember commands, driver preferences,
+        vehicle/maintenance notes, and memorable boost/drive moments.
+        """
+        msg = (user_message or "").strip()
+        if len(msg) < 6:
+            return []
+        ml = msg.lower()
+        saved: List[str] = []
+
+        # 1. Explicit "remember that ..." / "don't forget ..."
+        m_rem = re.search(r"\b(?:remember(?:\s+that)?|don'?t\s+forget(?:\s+that)?|keep\s+in\s+mind(?:\s+that)?)\s+(.+)$", msg, flags=re.IGNORECASE)
+        if m_rem:
+            fact_txt = m_rem.group(1).strip(" .!")
+            if len(fact_txt) >= 4:
+                attr = f"note_{abs(hash(fact_txt.lower())) % 10000}"
+                if self.set_driver_fact("remembered_note", attr, fact_txt, confidence=0.98, source="auto_chat"):
+                    saved.append(f"fact:{fact_txt[:40]}")
+                self.add_episodic_memory(
+                    companion_summary=f"Dad asked me to remember: {fact_txt}",
+                    driver_quote=msg[:140],
+                    emotion_tag="CARING",
+                    importance=8,
+                )
+                return saved
+
+        # 2. Personal preference extraction ("my favorite X is Y", "I prefer Y", "I love Y", "I hate Y")
+        m_fav = re.search(r"\bmy\s+favorite\s+([a-z0-9 _-]{2,24}?)\s+(?:is|are)\s+(.+)$", msg, flags=re.IGNORECASE)
+        if m_fav:
+            subj = re.sub(r"[^a-z0-9_]+", "_", m_fav.group(1).strip().lower()).strip("_") or "general"
+            val = m_fav.group(2).strip(" .!")
+            if val and self.set_driver_fact("preference", f"favorite_{subj}", val, confidence=0.92, source="auto_chat"):
+                saved.append(f"fav:{subj}={val[:32]}")
+
+        m_pref = re.search(r"\bi\s+(?:really\s+)?(love|hate|prefer|dislike|enjoy|drink|drive)\s+(.{3,80})$", ml)
+        if m_pref and not m_fav and not any(q in ml for q in ("?", "what ", "who ", "how ", "why ")):
+            verb = m_pref.group(1).strip()
+            obj = msg[m_pref.start(2):m_pref.end(2)].strip(" .!")
+            if obj and len(obj) >= 3 and not obj.lower().startswith(("you", "it when", "to ask")):
+                attr = f"{verb}_{abs(hash(obj.lower())) % 1000}"
+                if self.set_driver_fact("driver_preference", attr, f"I {verb} {obj}", confidence=0.88, source="auto_chat"):
+                    saved.append(f"pref:{verb}:{obj[:30]}")
+
+        # 3. Vehicle maintenance / modification log ("I changed my oil...", "installed...", "replaced...")
+        if any(w in ml for w in ("oil change", "changed the oil", "changed my oil", "replaced ", "installed ", "new tires", "spark plug", "torque")) and not ml.endswith("?"):
+            self.add_episodic_memory(
+                companion_summary=f"Vehicle service update from Dad: {msg[:150]}",
+                driver_quote=msg[:140],
+                emotion_tag="PRIDE",
+                importance=8,
+            )
+            saved.append("episodic:vehicle_note")
+
+        # 4. Spirited driving / emotional milestone telemetry capture
+        boost = float((telemetry or {}).get("boost_psi", 0.0) or 0.0)
+        if boost >= 15.0 and any(w in ml for w in ("pull", "boost", "fast", "turbo", "launch", "third", "3rd")):
+            self.add_episodic_memory(
+                companion_summary=f"Spirited turbo pull at +{boost:.1f} PSI! Dad said: \"{msg[:90]}\"",
+                driver_quote=msg[:120],
+                emotion_tag="EXCITEMENT",
+                importance=7,
+            )
+            saved.append("episodic:boost_moment")
+
+        return saved
 
     def get_ai_memory_counts(self) -> Dict[str, int]:
         """Return counts of stored user AI memories (excluding factory vehicle maintenance/manuals)."""

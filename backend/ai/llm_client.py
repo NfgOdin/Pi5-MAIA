@@ -19,6 +19,7 @@ Supports:
 
 
 import os
+import re
 from pathlib import Path
 
 import json
@@ -34,18 +35,20 @@ import urllib.error
 from typing import Dict, List, Any, Optional, Callable
 
 try:
-
     from backend.ai.memory_manager import MemoryManager
-
 except ImportError:
-
     try:
-
         from ai.memory_manager import MemoryManager
-
     except ImportError:
-
         from memory_manager import MemoryManager
+
+try:
+    from backend.ai.web_search import is_ephemeral_query, search_web_snippets, should_search_web
+except ImportError:
+    try:
+        from ai.web_search import is_ephemeral_query, search_web_snippets, should_search_web
+    except ImportError:
+        from web_search import is_ephemeral_query, search_web_snippets, should_search_web
 
 
 
@@ -149,6 +152,7 @@ class LLMClient:
         self.chat_history: List[Dict[str, str]] = []
 
         self.speech_log: List[Dict[str, Any]] = []
+        self.last_turn_meta: Dict[str, Any] = {}
 
         self.personas = load_personas_from_dir()
         self.lorebooks = {}
@@ -273,30 +277,106 @@ class LLMClient:
         top = [s[1] for s in scored_snippets[:3]]
         return "\n".join(top) if top else ""
 
-    def save_learned_fact(self, keyword: str, fact: str, source: str = "web") -> bool:
-        """Saves newly learned verified facts upon user confirmation into learned_web_knowledge.json."""
-        base_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "config", "lorebooks")
-        fpath = os.path.join(base_dir, "learned_web_knowledge.json")
+    def set_rag_engine(self, rag_engine: Any) -> None:
+        """Bind a shared RagMemoryEngine singleton across daemon, copilot, and LLM."""
+        if rag_engine is not None:
+            self.rag_memory = rag_engine
+
+    def _learned_knowledge_path(self) -> str:
+        return os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "config",
+            "lorebooks",
+            "learned_web_knowledge.json",
+        )
+
+    def get_learned_facts(self) -> List[Dict[str, Any]]:
+        fpath = self._learned_knowledge_path()
+        if not os.path.exists(fpath):
+            return []
         try:
-            data = {
-                "version": "1.0",
-                "description": "Verified knowledge discovered via web search and permanently learned by R.U.M. upon Dad's confirmation",
-                "learned_facts": []
-            }
-            if os.path.exists(fpath):
-                with open(fpath, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-            data.setdefault("learned_facts", []).append({
-                "keyword": keyword,
-                "keywords": [keyword.lower()],
-                "fact": fact,
-                "source": source,
-                "learned_at": time.time()
-            })
+            with open(fpath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return list(data.get("learned_facts", [])) if isinstance(data, dict) else []
+        except Exception:
+            return []
+
+    def delete_learned_fact(self, index_or_keyword: Any) -> bool:
+        fpath = self._learned_knowledge_path()
+        if not os.path.exists(fpath):
+            return False
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            facts = list(data.get("learned_facts", []))
+            removed_kw = None
+            if isinstance(index_or_keyword, int) or str(index_or_keyword).isdigit():
+                idx = int(index_or_keyword)
+                if 0 <= idx < len(facts):
+                    removed_kw = facts.pop(idx).get("keyword")
+            else:
+                target_kw = str(index_or_keyword or "").strip().lower()
+                new_facts = [row for row in facts if str(row.get("keyword", "")).strip().lower() != target_kw]
+                if len(new_facts) != len(facts):
+                    facts = new_facts
+                    removed_kw = target_kw
+            if removed_kw is None:
+                return False
+            data["learned_facts"] = facts
             with open(fpath, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
             self.load_lorebooks()
-            print(f"[LOREBOOK] Successfully saved learned fact: {keyword}")
+            return True
+        except Exception as e:
+            print(f"[LOREBOOK] Error deleting learned fact: {e}")
+            return False
+
+    def save_learned_fact(self, keyword: str, fact: str, source: str = "web") -> bool:
+        """Saves newly learned verified facts into learned_web_knowledge.json and RagMemoryEngine."""
+        clean_kw = (keyword or "").strip()
+        clean_fact = (fact or "").strip()
+        if not clean_kw or not clean_fact:
+            return False
+        fpath = self._learned_knowledge_path()
+        try:
+            data = {
+                "version": "1.0",
+                "description": "Verified knowledge discovered via web search and permanently learned by R.U.M.",
+                "learned_facts": [],
+            }
+            if os.path.exists(fpath):
+                with open(fpath, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                    if isinstance(loaded, dict):
+                        data = loaded
+            facts_list = data.setdefault("learned_facts", [])
+            # Deduplicate / update existing keyword
+            tokens = [t for t in re.findall(r"[a-z0-9]+", clean_kw.lower()) if len(t) >= 3]
+            kws = list(dict.fromkeys([clean_kw.lower()] + tokens[:5]))
+            existing = next((r for r in facts_list if str(r.get("keyword", "")).lower() == clean_kw.lower()), None)
+            if existing is not None:
+                existing["fact"] = clean_fact
+                existing["keywords"] = kws
+                existing["source"] = source
+                existing["learned_at"] = time.time()
+            else:
+                facts_list.append({
+                    "keyword": clean_kw,
+                    "keywords": kws,
+                    "fact": clean_fact,
+                    "source": source,
+                    "learned_at": time.time(),
+                })
+            with open(fpath, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            self.load_lorebooks()
+            if getattr(self, "rag_memory", None) is not None:
+                try:
+                    doc_id = f"learned_{abs(hash(clean_kw.lower())) % 1000000}"
+                    self.rag_memory.add_document(doc_id, "LEARNED_WEB", clean_kw, clean_fact, metadata={"source": source})
+                except Exception:
+                    pass
+            print(f"[LOREBOOK] Saved learned fact: {clean_kw}")
             return True
         except Exception as e:
             print(f"[LOREBOOK] Error saving fact: {e}")
@@ -1542,22 +1622,45 @@ class LLMClient:
         if lore_injection:
             system_prompt += f"\n[GROUNDED KNOWLEDGE INJECTION:\n{lore_injection}]"
 
-        # Phase 12 Unified Living Memory & Relationship Bond Context
+        # Hybrid Vector + Keyword/BM25 Living Memory & RAG Retrieval
+        rag_hits = 0
         if hasattr(self, "rag_memory") and self.rag_memory:
             try:
                 curr_spd = float(live_telemetry.get("speed_mph", 0.0)) if live_telemetry else 0.0
-                living_memory_block = self.rag_memory.retrieve_unified_living_memory(user_message, current_speed=curr_spd, max_tokens=300)
+                rag_hits = len(self.rag_memory.search(user_message, top_k=3, threshold=0.28))
+                living_memory_block = self.rag_memory.retrieve_unified_living_memory(user_message, current_speed=curr_spd, max_tokens=400)
                 if living_memory_block:
-                    system_prompt += f"\n[RECALLED LIVING COGNITIVE MEMORIES & BOND:\n{living_memory_block}]"
-                else:
-                    rag_injection = self.rag_memory.retrieve_context_for_prompt(user_message, top_k=2, threshold=0.35)
-                    if rag_injection:
-                        system_prompt += f"\n[RECALLED CARPI MEMORY & VEHICLE RECORDS:\n{rag_injection}]"
+                    system_prompt += f"\n[RECALLED LIVING COGNITIVE MEMORIES & RAG:\n{living_memory_block}]"
             except Exception as e:
                 print(f"[LLM] Living memory injection note: {e}")
-                rag_injection = self.rag_memory.retrieve_context_for_prompt(user_message, top_k=2, threshold=0.35)
+                rag_injection = self.rag_memory.retrieve_context_for_prompt(user_message, top_k=3, threshold=0.28)
                 if rag_injection:
-                    system_prompt += f"\n[RECALLED CARPI MEMORY & VEHICLE RECORDS:\n{rag_injection}]" 
+                    system_prompt += f"\n[RECALLED CARPI MEMORY & VEHICLE RECORDS:\n{rag_injection}]"
+
+        # Live Hybrid Web Search (when query needs online/current/unknown facts)
+        turn_meta: Dict[str, Any] = {
+            "web_searched": False,
+            "web_query": "",
+            "web_status": "skipped",
+            "learned_saved": [],
+            "memories_saved": [],
+            "rag_hits": rag_hits,
+        }
+        web_result: Optional[Dict[str, Any]] = None
+        need_web, web_q = should_search_web(user_message, lore_injection=lore_injection, rag_hits=rag_hits)
+        if need_web and web_q:
+            web_result = search_web_snippets(web_q, timeout=4.5, max_results=3)
+            turn_meta["web_searched"] = True
+            turn_meta["web_query"] = web_q
+            turn_meta["web_status"] = web_result.get("status", "empty")
+            if web_result.get("status") == "ok" and web_result.get("summary"):
+                system_prompt += f"\n[LIVE WEB SEARCH RESULTS FOR '{web_q}':\n{web_result['summary']}]"
+                if not is_ephemeral_query(web_q):
+                    if self.save_learned_fact(web_q, web_result["summary"][:360], source="web"):
+                        turn_meta["learned_saved"].append(web_q)
+            elif web_result.get("status") == "offline":
+                system_prompt += "\n[WEB STATUS: Offline right now (no internet connection detected). Tell the driver honestly that you cannot reach the internet right now.]"
+        self.last_turn_meta = turn_meta
 
         if live_telemetry:
 
@@ -1626,16 +1729,21 @@ class LLMClient:
                             except Exception as e_kv:
                                 print(f"[LLM] KV state reload note: {e_kv}")
 
-                    # Qwen ChatML formatting for thread-safe direct inference
+                    # Qwen ChatML formatting with last 6 clean conversation turns
+                    history_blocks = []
+                    for h_item in (self.chat_history or [])[-12:]:
+                        role_lbl = "user" if h_item.get("role") == "user" else "assistant"
+                        htxt = re.sub(r"\[(?:EMOTE|beat):[^\]]+\]", "", str(h_item.get("text", "")), flags=re.IGNORECASE).strip()
+                        if htxt:
+                            history_blocks.append(f"<|im_start|>{role_lbl}\n{htxt}<|im_end|>\n")
                     chatml_prompt = (
-
                         f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
-
-                        f"<|im_start|>user\n{user_message}<|im_end|>\n"
-
-                        f"<|im_start|>assistant\n"
-
+                        + "".join(history_blocks)
+                        + f"<|im_start|>user\n{user_message}<|im_end|>\n"
+                        + f"<|im_start|>assistant\n"
                     )
+
+                    max_gen = 135 if turn_meta.get("web_searched") or rag_hits > 0 else 95
 
                     if on_clause is not None:
                         full_reply = ""
@@ -1643,7 +1751,7 @@ class LLMClient:
                         with self._llama_lock:
                             stream_iter = self._llama_model(
                                 chatml_prompt,
-                                max_tokens=85,
+                                max_tokens=max_gen,
                                 stop=["<|im_end|>", "\n\n\n", "<|im_start|>"],
                                 temperature=0.75,
                                 stream=True
@@ -1663,7 +1771,7 @@ class LLMClient:
                         with self._llama_lock:
                             res = self._llama_model(
                                 chatml_prompt,
-                                max_tokens=85,
+                                max_tokens=max_gen,
                                 stop=["<|im_end|>", "\n\n\n", "<|im_start|>"],
                                 temperature=0.75,
                                 stream=False
@@ -1673,7 +1781,7 @@ class LLMClient:
                     if cancel_event is not None and cancel_event.is_set():
                         return ""
                     if reply:
-                        self._record_chat(user_message, reply)
+                        self._record_chat(user_message, reply, live_telemetry=live_telemetry)
                         return reply
 
                 except Exception as e:
@@ -1695,16 +1803,22 @@ class LLMClient:
             ollama_url = f"http://{host}:{port}/api/generate"
 
             use_stream = on_clause is not None
+            recent_lines = []
+            for h_item in (self.chat_history or [])[-12:]:
+                who = address if h_item.get("role") == "user" else persona.get("name", "Assistant")
+                htxt = re.sub(r"\[(?:EMOTE|beat):[^\]]+\]", "", str(h_item.get("text", "")), flags=re.IGNORECASE).strip()
+                if htxt:
+                    recent_lines.append(f"{who}: {htxt}")
+            ollama_prompt = (
+                f"Recent conversation:\n" + "\n".join(recent_lines) + f"\n\n{address}: {user_message}"
+                if recent_lines
+                else user_message
+            )
             payload = {
-
                 "model": model,
-
                 "system": system_prompt,
-
-                "prompt": user_message,
-
-                "stream": use_stream
-
+                "prompt": ollama_prompt,
+                "stream": use_stream,
             }
 
 
@@ -1750,7 +1864,7 @@ class LLMClient:
                             reply = res_json.get("response", "").strip()
 
                         if reply:
-                            self._record_chat(user_message, reply)
+                            self._record_chat(user_message, reply, live_telemetry=live_telemetry)
                             return reply
 
             except Exception as e:
@@ -1764,16 +1878,21 @@ class LLMClient:
             gemini_reply = self._call_gemini_api(user_message, system_prompt)
 
             if gemini_reply:
-
+                self._record_chat(user_message, gemini_reply, live_telemetry=live_telemetry)
                 return gemini_reply
 
 
 
-        # 2. Dynamic Procedural Offline Engine (Default)
+        # 2. Dynamic Procedural Offline Engine (Default / Fallback with Live Web Result if fetched)
+        if web_result and web_result.get("status") == "ok" and web_result.get("summary"):
+            top = web_result["sources"][0]
+            reply = f"[EMOTE:curiosity] Here is what I found online for {web_result['query']}, {address}: {top['snippet']}"
+        elif web_result and web_result.get("status") == "offline":
+            reply = f"[EMOTE:concern] I tried to check online for '{web_result['query']}', {address}, but the car doesn't have an active internet connection right now."
+        else:
+            reply = self._generate_builtin_reply(user_message, persona, live_telemetry)
 
-        reply = self._generate_builtin_reply(user_message, persona, live_telemetry)
-
-        self._record_chat(user_message, reply)
+        self._record_chat(user_message, reply, live_telemetry=live_telemetry)
 
         return reply
 
@@ -1799,7 +1918,9 @@ class LLMClient:
 
             "action": action,
 
-            "persona": self.settings.get("personality") or self.get_default_persona_id()
+            "persona": self.settings.get("personality") or self.get_default_persona_id(),
+
+            "meta": dict(getattr(self, "last_turn_meta", {}) or {}),
 
         }
 
@@ -1932,19 +2053,17 @@ class LLMClient:
 
 
 
+        contents_arr = []
+        for h_item in (self.chat_history or [])[-12:]:
+            role = "user" if h_item.get("role") == "user" else "model"
+            htxt = re.sub(r"\[(?:EMOTE|beat):[^\]]+\]", "", str(h_item.get("text", "")), flags=re.IGNORECASE).strip()
+            if htxt:
+                contents_arr.append({"role": role, "parts": [{"text": htxt}]})
+        contents_arr.append({"role": "user", "parts": [{"text": user_message}]})
+
         payload = {
 
-            "contents": [
-
-                {
-
-                    "role": "user",
-
-                    "parts": [{"text": user_message}]
-
-                }
-
-            ],
+            "contents": contents_arr,
 
             "systemInstruction": {
 
@@ -2002,8 +2121,6 @@ class LLMClient:
 
                                 if reply:
 
-                                    self._record_chat(user_message, reply)
-
                                     return reply
 
             except urllib.error.HTTPError as e:
@@ -2042,17 +2159,20 @@ class LLMClient:
 
 
 
-    def _record_chat(self, user_msg: str, ai_reply: str):
-
+    def _record_chat(self, user_msg: str, ai_reply: str, live_telemetry: Optional[Dict[str, Any]] = None):
+        clean_ai = re.sub(r"\[(?:EMOTE|beat):[^\]]+\]", "", str(ai_reply or ""), flags=re.IGNORECASE).strip()
         self.chat_history.append({"role": "user", "text": user_msg, "time": time.strftime("%I:%M %p")})
-
-        self.chat_history.append({"role": "assistant", "text": ai_reply, "time": time.strftime("%I:%M %p")})
-
+        self.chat_history.append({"role": "assistant", "text": clean_ai or ai_reply, "time": time.strftime("%I:%M %p")})
         self.log_speech(ai_reply, source="CHAT")
-
         if len(self.chat_history) > 60:
-
             self.chat_history = self.chat_history[-60:]
+        if getattr(self, "rag_memory", None) and hasattr(self.rag_memory, "extract_and_store_chat_memories"):
+            try:
+                saved = self.rag_memory.extract_and_store_chat_memories(user_msg, clean_ai, telemetry=live_telemetry)
+                if saved and isinstance(getattr(self, "last_turn_meta", None), dict):
+                    self.last_turn_meta.setdefault("memories_saved", []).extend(saved)
+            except Exception as e:
+                print(f"[RAG AUTO-LEARN] Note: {e}")
 
 
 

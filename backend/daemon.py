@@ -170,6 +170,8 @@ class CarPi5ServerState:
             from ai.rag_memory import RagMemoryEngine
 
             self.rag = RagMemoryEngine()
+            if hasattr(self.llm, "set_rag_engine"):
+                self.llm.set_rag_engine(self.rag)
         except Exception as e:
             print(f"[DAEMON] RAG Memory init note: {e}")
             self.rag = None

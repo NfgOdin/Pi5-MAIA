@@ -1604,6 +1604,87 @@ class ModularRouteDispatchTest(unittest.TestCase):
             PhoneManager._instance = orig_phone_inst
             SMSManager._instance = orig_sms_inst
 
+    def test_hybrid_rag_web_search_and_auto_memory(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        from ai.rag_memory import RagMemoryEngine
+        from ai.web_search import is_ephemeral_query, should_search_web
+
+        # 1. Trigger & ephemeral filtering
+        trig1, q1 = should_search_web("Look up Garrett GT1446 max turbocharger PSI")
+        self.assertTrue(trig1)
+        self.assertIn("Garrett GT1446", q1)
+        self.assertFalse(is_ephemeral_query(q1))
+
+        trig2, q2 = should_search_web("What is the weather in Payson AZ right now?")
+        self.assertTrue(trig2)
+        self.assertTrue(is_ephemeral_query(q2))
+
+        trig3, _ = should_search_web("What is my boost right now?")
+        self.assertFalse(trig3)
+
+        # 2. Hybrid RAG (BM25 + vector) + retrieve_unified_living_memory includes rag_documents
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            rag = RagMemoryEngine(db_path=tmp / "rag_test.db")
+            rag.add_document("trip_1", "TRIP_LOG", "Payson Canyon Run", "Cruised Highway 87 at 17.5 PSI boost cleanly.")
+            rag.add_document("part_1", "CUSTOM_NOTE", "MultiAir Solenoid Screen", "Mopar PN-998877-DART filter screen check.")
+            hits = rag.search("PN-998877-DART", top_k=2, threshold=0.20)
+            self.assertGreaterEqual(len(hits), 1)
+            self.assertEqual(hits[0]["doc_id"], "part_1")
+            factory_hits = rag.search("55238665", top_k=2, threshold=0.20)
+            self.assertTrue(any(h["doc_id"] == "spec_multiair_screen" for h in factory_hits))
+
+            unified = rag.retrieve_unified_living_memory("How was our Payson Highway 87 drive?", max_tokens=400)
+            self.assertIn("Payson Canyon Run", unified)
+
+            # 3. Conversational auto-memory extractor
+            saved = rag.extract_and_store_chat_memories("Remember that I only run ethanol-free 91 octane", "Got it!")
+            self.assertGreaterEqual(len(saved), 1)
+            facts = rag.get_driver_facts()
+            self.assertTrue(any("ethanol-free 91 octane" in f["value"] for f in facts))
+
+            # 4. End-to-end mocked web search + learned_web_knowledge save + delete route
+            from ai.llm_client import LLMClient
+            llm = LLMClient(config_file=str(tmp / "ai_settings.json"))
+            learned_tmp = tmp / "learned_web_knowledge.json"
+            learned_tmp.write_text('{"version": "1.0", "learned_facts": []}', encoding="utf-8")
+            llm.set_rag_engine(rag)
+            llm.settings["mode"] = "BUILTIN"
+            llm._learned_knowledge_path = lambda: str(learned_tmp)
+
+            def _mock_search(query, timeout=4.5, max_results=3):
+                return {
+                    "status": "ok",
+                    "query": query,
+                    "summary": "Garrett GT1446: Twin-scroll ball/journal turbocharger rated around 22 PSI peak.",
+                    "sources": [{"title": "Garrett GT1446", "snippet": "Rated around 22 PSI peak.", "url": "https://example.com"}],
+                    "error": None,
+                }
+
+            with patch("ai.llm_client.search_web_snippets", side_effect=_mock_search):
+                res = llm.chat_with_action("Look up Garrett GT1446 peak boost")
+            self.assertIn("22 PSI", res["reply"])
+            self.assertTrue(res["meta"]["web_searched"])
+            self.assertEqual(res["meta"]["web_status"], "ok")
+            self.assertEqual(len(res["meta"]["learned_saved"]), 1)
+
+            # Ephemeral weather should NOT be saved permanently
+            with patch("ai.llm_client.search_web_snippets", side_effect=lambda q, **kw: {
+                "status": "ok", "query": q, "summary": "Sunny 72F in Payson.", "sources": [{"title": "Weather", "snippet": "Sunny 72F in Payson.", "url": ""}], "error": None
+            }):
+                res_w = llm.chat_with_action("What is the weather in Payson?")
+            self.assertEqual(res_w["meta"]["learned_saved"], [])
+
+            h_get = DummyHandler()
+            self.assertTrue(dispatch_get(h_get, urlparse("/api/ai/memory/learned"), SimpleNamespace(llm=llm)))
+            self.assertEqual(len(h_get.json_body()["learned_facts"]), 1)
+
+            h_del = DummyHandler({"index": 0})
+            self.assertTrue(dispatch_post(h_del, urlparse("/api/ai/memory/learned/delete"), SimpleNamespace(llm=llm)))
+            self.assertEqual(h_del.json_body()["status"], "ok")
+            self.assertEqual(llm.get_learned_facts(), [])
+
 
 if __name__ == "__main__":
     unittest.main()

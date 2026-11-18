@@ -515,7 +515,25 @@ function loadLivingMindData() {
                 <div class="maint-fact-key">${f.entity.replace('_', ' ')} • ${f.attribute.replace('_', ' ')}</div>
                 <div class="maint-fact-val">${f.value}</div>
               </div>
-              <button onclick="deleteDriverFact(${f.id})" style="background:transparent; border:none; color:#ef4444; cursor:pointer; font-size:14px; padding:4px;" title="Forget this fact">🗑️</button>
+              <button onclick="deleteDriverFact(${f.id})" style="background:transparent; border:none; color:#ef4444; cursor:pointer; font-size:14px; min-width:44px; min-height:44px;" title="Forget this fact">🗑️</button>
+            </div>
+          `).join('');
+        }
+      }
+      // 4. Render Learned Web Knowledge
+      const webList = document.getElementById('learnedWebKnowledgeList');
+      if (webList) {
+        const learned = data.learned_web || [];
+        if (learned.length === 0) {
+          webList.innerHTML = '<div style="text-align:center; padding:16px; color:#94a3b8; font-size:11px;">No web lookups saved yet. Ask R.U.M. to look something up!</div>';
+        } else {
+          webList.innerHTML = learned.map((w, idx) => `
+            <div class="maint-fact-card" style="border-color:rgba(16,185,129,0.28);">
+              <div style="flex:1; min-width:0;">
+                <div class="maint-fact-key" style="color:#34d399;">🌐 ${w.keyword || 'Web Fact'}</div>
+                <div class="maint-fact-val" style="font-size:11px; color:#cbd5e1;">${w.fact || ''}</div>
+              </div>
+              <button onclick="deleteLearnedWebFact(${idx})" style="background:transparent; border:none; color:#ef4444; cursor:pointer; font-size:14px; min-width:44px; min-height:44px;" title="Delete learned web fact">🗑️</button>
             </div>
           `).join('');
         }
@@ -524,6 +542,21 @@ function loadLivingMindData() {
     .catch(err => {
       console.error('[MAINT] Living mind summary error:', err);
     });
+}
+
+function deleteLearnedWebFact(idx) {
+  fetch('/api/ai/memory/learned/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ index: idx })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.status === 'ok') {
+      loadLivingMindData();
+      if (window.showToast) window.showToast('Learned web fact deleted');
+    }
+  });
 }
 
 function deleteDiaryEntry(id) {
@@ -636,7 +669,7 @@ const WIPE_CATEGORY_ORDER = ['ai_memory', 'voice_clips', 'phone_accounts', 'trip
 function _formatWipeSummaryText(catKey, info) {
   if (!info) return 'Unavailable';
   if (catKey === 'ai_memory') {
-    return `${info.episodic || 0} memories • ${info.facts || 0} facts • ${info.diary || 0} diary • ${info.speech_log || 0} chat msgs`;
+    return `${info.episodic || 0} memories • ${info.facts || 0} facts • ${info.diary || 0} diary • ${info.learned_web || 0} web • ${info.speech_log || 0} chat`;
   }
   if (catKey === 'voice_clips') {
     return `${info.cached_phrases || 0} cached clips (${info.mb || 0} MB) • ${info.ring_clips || 0} RAM clips${info.has_last_speech ? ' + last_speech.wav' : ''}`;
