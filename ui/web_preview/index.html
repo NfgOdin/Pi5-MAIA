@@ -2141,29 +2141,32 @@
             <div style="font-size:11px; font-weight:800; color:#ff7700; display:flex; align-items:center; gap:6px;">
               <span>⚡</span> PEDAL COMMANDER (DRIVE-BY-WIRE THROTTLE CONTROLLER)
             </div>
-            <span class="pill" id="pdlCommanderStatusBadge" style="background:rgba(0,230,118,0.15); color:#00e676; font-size:9.5px;">● CONNECTED (BLE UART 18:62:E4:46:73:8B)</span>
+            <span class="pill" id="pdlCommanderStatusBadge" style="background:rgba(148,163,184,0.15); color:#94a3b8; font-size:9.5px;">○ OFFLINE (BLE STANDBY)</span>
           </div>
           <p style="font-size:11px; color:var(--text-secondary); margin-bottom:10px;">
             Adjusts electronic throttle curve and removes Dodge Dart MultiAir pedal lag via Bluetooth Low Energy.
           </p>
           <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-            <button class="cluster-action-btn" id="btnPdlEco" onclick="setPdlMode('ECO')" style="font-size:10px; padding:6px 14px; color:#00e676; border-color:#00e676;">ECO</button>
-            <button class="cluster-action-btn" id="btnPdlCity" onclick="setPdlMode('CITY')" style="font-size:10px; padding:6px 14px; color:#00b0ff; border-color:#00b0ff;">CITY</button>
-            <button class="cluster-action-btn active" id="btnPdlSport" onclick="setPdlMode('SPORT')" style="font-size:10px; padding:6px 14px; color:#ff9800; border-color:#ff9800; font-weight:900;">SPORT</button>
-            <button class="cluster-action-btn" id="btnPdlSportPlus" onclick="setPdlMode('SPORT_PLUS')" style="font-size:10px; padding:6px 14px; color:#ff1744; border-color:#ff1744; font-weight:900;">SPORT+</button>
+            <button class="cluster-action-btn" id="btnPdlEco" onclick="setPdlMode('ECO')" style="font-size:10px; padding:6px 14px; min-height:44px; color:#00e676; border-color:#00e676;">ECO</button>
+            <button class="cluster-action-btn" id="btnPdlCity" onclick="setPdlMode('CITY')" style="font-size:10px; padding:6px 14px; min-height:44px; color:#00b0ff; border-color:#00b0ff;">CITY</button>
+            <button class="cluster-action-btn active" id="btnPdlSport" onclick="setPdlMode('SPORT')" style="font-size:10px; padding:6px 14px; min-height:44px; color:#ff9800; border-color:#ff9800; font-weight:900;">SPORT</button>
+            <button class="cluster-action-btn" id="btnPdlSportPlus" onclick="setPdlMode('SPORT_PLUS')" style="font-size:10px; padding:6px 14px; min-height:44px; color:#ff1744; border-color:#ff1744; font-weight:900;">SPORT+</button>
             <div style="display:flex; align-items:center; gap:6px; margin-left:auto;">
               <span style="font-size:10px; color:var(--text-secondary);">SENSITIVITY:</span>
-              <button class="cluster-action-btn" onclick="adjustPdlLevel(-1)" style="font-size:11px; padding:4px 10px;">-</button>
+              <button class="cluster-action-btn" onclick="adjustPdlLevel(-1)" style="font-size:12px; min-width:44px; min-height:44px; padding:4px 10px;">-</button>
               <span id="pdlLevelDisplay" style="font-size:12px; font-weight:900; color:#ff7700; width:34px; text-align:center;">+2</span>
-              <button class="cluster-action-btn" onclick="adjustPdlLevel(1)" style="font-size:11px; padding:4px 10px;">+</button>
+              <button class="cluster-action-btn" onclick="adjustPdlLevel(1)" style="font-size:12px; min-width:44px; min-height:44px; padding:4px 10px;">+</button>
             </div>
           </div>
-          <!-- Pedal Commander 6-Digit S/N Auth & Live Status Row -->
+          <!-- Pedal Commander BLE MAC / 6-Digit S/N & Live Status Row -->
           <div style="display:flex; align-items:center; gap:8px; margin-top:10px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.06); flex-wrap:wrap;">
+            <span style="font-size:9.5px; color:var(--text-secondary); white-space:nowrap;">BLE MAC:</span>
+            <input type="text" id="pdlMacInput" class="cockpit-modal-input" placeholder="18:62:E4:46:73:8B" maxlength="17" style="background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.12); border-radius:6px; color:#fff; font-size:10.5px; padding:4px 8px; min-height:44px; width:145px; font-family:var(--font-mono);">
             <span style="font-size:9.5px; color:var(--text-secondary); white-space:nowrap;">6-DIGIT S/N:</span>
-            <input type="text" id="pdlPinInput" placeholder="Sticker S/N on back" maxlength="8" style="background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.12); border-radius:6px; color:#fff; font-size:10.5px; padding:3px 8px; width:125px; font-family:var(--font-mono);">
-            <button class="cluster-action-btn" onclick="savePdlPin()" style="font-size:9.5px; padding:3px 10px; color:var(--accent-blue); border-color:var(--accent-blue);">SAVE S/N</button>
-            <span id="pdlLastAck" style="font-size:9.5px; color:var(--accent-green); margin-left:auto; font-family:var(--font-mono);">Standby</span>
+            <input type="text" id="pdlPinInput" class="cockpit-modal-input" placeholder="Sticker S/N" maxlength="8" style="background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.12); border-radius:6px; color:#fff; font-size:10.5px; padding:4px 8px; min-height:44px; width:105px; font-family:var(--font-mono);">
+            <button class="cluster-action-btn" onclick="savePdlPin()" style="font-size:10px; min-height:44px; padding:4px 12px; color:var(--accent-blue); border-color:var(--accent-blue);">SAVE</button>
+            <button class="cluster-action-btn" onclick="scanPedalCommanderBle()" style="font-size:10px; min-height:44px; padding:4px 12px; color:#ff9800; border-color:#ff9800;">📡 SCAN BLE</button>
+            <span id="pdlLastAck" style="font-size:9.5px; color:#94a3b8; margin-left:auto; font-family:var(--font-mono);">Offline (Standby)</span>
           </div>
         </div>
 
@@ -3648,9 +3651,10 @@
             </div>
           </div>
           <div style="display:flex; align-items:center; gap:10px;">
-            <div id="phoneConnectionBadge" style="font-size:10px; font-weight:800; background:#1e293b; color:#94a3b8; padding:5px 12px; border-radius:6px; border:1px solid #334155;">
-              📱 BLUETOOTH HFP: STANDBY
+            <div id="phoneConnectionBadge" style="font-size:10px; font-weight:800; background:#1e293b; color:#94a3b8; padding:5px 12px; border-radius:6px; border:1px solid #334155; white-space:nowrap;">
+              📱 OFFLINE (BT / PI3 USB)
             </div>
+            <button type="button" class="cluster-action-btn" id="btnSyncPi3Phone" onclick="syncPhoneFromBridge()" style="min-height:44px; padding:6px 12px; font-size:11px; border-color:#38bdf8; color:#38bdf8;">🔄 SYNC</button>
             <button class="cockpit-home-btn" onclick="navigateTo('home')" style="margin:0; padding:6px 14px; font-size:12px;" title="Back to Cockpit Home">🏠 HOME</button>
           </div>
         </div>

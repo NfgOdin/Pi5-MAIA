@@ -24,12 +24,16 @@ function loadPhoneStatus() {
 function updatePhoneUI(phone) {
   const badge = document.getElementById('phoneConnectionBadge');
   if (badge) {
+    const parts = [];
+    if (phone.bt_hfp_connected) parts.push('BT HFP');
+    if (phone.android_usb_connected) parts.push('PI3 USB');
     if (phone.connected) {
-      badge.innerText = `📱 ${phone.device_name || 'PHONE CONNECTED'}`;
+      const tag = parts.length ? parts.join(' + ') : 'LINKED';
+      badge.innerText = `📱 ${phone.device_name || 'PHONE'} (${tag})`;
       badge.style.color = '#38bdf8';
       badge.style.borderColor = '#0284c7';
     } else {
-      badge.innerText = '📱 BLUETOOTH HFP: STANDBY';
+      badge.innerText = '📱 OFFLINE (BT / PI3 USB)';
       badge.style.color = '#94a3b8';
       badge.style.borderColor = '#334155';
     }
@@ -132,14 +136,39 @@ function phoneDial(number) {
     body: JSON.stringify({ number })
   })
     .then(r => r.json())
-    .then(() => loadPhoneStatus())
+    .then(d => {
+      if (d && !d.dialed && typeof showAiSpeechToast === 'function') {
+        showAiSpeechToast(`⚠️ ${d.error || 'No Bluetooth HFP or Pi 3 USB phone connected.'}`);
+      }
+      loadPhoneStatus();
+    })
     .catch(e => console.error('[PHONE] Dial error:', e));
 }
 
 function phoneAnswerCall() {
   fetch('/api/phone/answer', { method: 'POST' })
     .then(r => r.json())
-    .then(() => loadPhoneStatus());
+    .then(d => {
+      if (d && !d.answered && typeof showAiSpeechToast === 'function') {
+        showAiSpeechToast(`⚠️ ${d.error || 'Cannot answer: no phone call transport connected.'}`);
+      }
+      loadPhoneStatus();
+    });
+}
+
+function syncPhoneFromBridge() {
+  fetch('/api/phone/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+    .then(r => r.json())
+    .then(d => {
+      loadPhoneContacts();
+      loadSmsThreads();
+      const added = d?.contacts_sync?.added || 0;
+      const syncedSms = d?.sms_sync?.synced || 0;
+      if (typeof showAiSpeechToast === 'function') {
+        showAiSpeechToast(`📱 Phone sync: +${added} contacts, +${syncedSms} messages.`);
+      }
+    })
+    .catch(() => {});
 }
 
 function phoneHangupCall() {
@@ -318,8 +347,11 @@ function submitSendSms() {
     body: JSON.stringify({ recipient: activeSmsThreadNumber, text })
   })
     .then(r => r.json())
-    .then(() => {
+    .then(d => {
       if (input) input.value = '';
+      if (d && d.message && d.message.sent === false && typeof showAiSpeechToast === 'function') {
+        showAiSpeechToast(`⚠️ SMS not sent (${d.message.error || 'Pi 3 USB phone offline'}).`);
+      }
       selectSmsThread(activeSmsThreadNumber);
     });
 }

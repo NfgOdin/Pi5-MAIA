@@ -732,57 +732,104 @@ function sendPdlCommand() {
   })
   .then(r => r.json())
   .then(data => {
-    updatePdlBadge(data.connected);
+    updatePdlBadge(Boolean(data.connected), data);
     const lastAck = document.getElementById('pdlLastAck');
     if (lastAck) {
-      lastAck.innerText = `Sent ${currentPdlMode} (${currentPdlLevel >= 0 ? '+' : ''}${currentPdlLevel})`;
+      if (data.connected && data.sent) {
+        lastAck.innerText = `TX ${currentPdlMode} (${currentPdlLevel >= 0 ? '+' : ''}${currentPdlLevel})`;
+        lastAck.style.color = 'var(--accent-green)';
+      } else {
+        lastAck.innerText = `Offline (${currentPdlMode} ${currentPdlLevel >= 0 ? '+' : ''}${currentPdlLevel} queued)`;
+        lastAck.style.color = '#ffab00';
+      }
     }
-    showAiSpeechToast(`⚡ Pedal Commander: ${currentPdlMode} (${currentPdlLevel >= 0 ? '+' : ''}${currentPdlLevel}) Transmitted!`);
+    if (data.connected && data.sent) {
+      showAiSpeechToast(`⚡ Pedal Commander: ${currentPdlMode} (${currentPdlLevel >= 0 ? '+' : ''}${currentPdlLevel}) transmitted!`);
+    } else {
+      showAiSpeechToast(`⚠️ ${data.message || 'Pedal Commander BLE offline; target saved locally.'}`);
+    }
   })
   .catch(err => {
     console.warn('Pedal commander send err:', err);
   });
 }
 
-function updatePdlBadge(isConnected) {
+function updatePdlBadge(isConnected, statusObj) {
   const badge = document.getElementById('pdlCommanderStatusBadge');
+  const mac = (statusObj && statusObj.mac) ? statusObj.mac : '18:62:E4:46:73:8B';
+  const transport = (statusObj && statusObj.transport) ? statusObj.transport.toUpperCase() : 'BLE';
   if (badge) {
     if (isConnected) {
-      badge.innerText = '● CONNECTED (BLE UART 18:62:E4:46:73:8B)';
+      badge.innerText = `● CONNECTED (${transport} ${mac})`;
       badge.style.background = 'rgba(0,230,118,0.18)';
       badge.style.color = '#00e676';
       badge.style.borderColor = 'rgba(0,230,118,0.4)';
     } else {
-      badge.innerText = '○ CONNECTING (STANDBY)';
-      badge.style.background = 'rgba(255,171,0,0.18)';
-      badge.style.color = '#ffab00';
-      badge.style.borderColor = 'rgba(255,171,0,0.4)';
+      badge.innerText = `○ OFFLINE (BLE STANDBY • ${mac})`;
+      badge.style.background = 'rgba(148,163,184,0.15)';
+      badge.style.color = '#94a3b8';
+      badge.style.borderColor = 'rgba(148,163,184,0.35)';
     }
   }
 }
 
 function savePdlPin() {
-  const input = document.getElementById('pdlPinInput');
-  if (!input) return;
-  const pin = input.value.trim();
+  const pinEl = document.getElementById('pdlPinInput');
+  const macEl = document.getElementById('pdlMacInput');
+  const pin = pinEl ? pinEl.value.trim() : '';
+  const mac = macEl ? macEl.value.trim() : '';
   localStorage.setItem('carpi5_pdl_pin', pin);
-  fetch('/api/pedal_commander/pin', {
+  fetch('/api/pedal_commander/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pin: pin })
+    body: JSON.stringify({ mac: mac || undefined, pin: pin })
   })
   .then(r => r.json())
   .then(data => {
-    showAiSpeechToast(`Pedal Commander S/N ${pin} Saved & Authenticated!`);
-    sendPdlCommand();
-  });
+    updatePdlBadge(Boolean(data.connected), data);
+    if (data.connected) {
+      showAiSpeechToast(`Pedal Commander config synced (${data.mac}).`);
+      sendPdlCommand();
+    } else {
+      showAiSpeechToast(`Pedal Commander config saved (${data.mac}); BLE currently offline.`);
+    }
+  })
+  .catch(() => {});
+}
+
+function scanPedalCommanderBle() {
+  const lastAck = document.getElementById('pdlLastAck');
+  if (lastAck) { lastAck.innerText = 'Scanning BLE...'; lastAck.style.color = '#38bdf8'; }
+  fetch('/api/pedal_commander/scan')
+    .then(r => r.json())
+    .then(data => {
+      const devs = (data && Array.isArray(data.devices)) ? data.devices : [];
+      if (devs.length === 0) {
+        if (lastAck) { lastAck.innerText = data.message || 'No BLE devices found'; lastAck.style.color = '#ffab00'; }
+        showAiSpeechToast(data.message || 'No BLE Pedal Commander units detected.');
+        return;
+      }
+      const best = devs[0];
+      const macEl = document.getElementById('pdlMacInput');
+      if (macEl) macEl.value = best.mac;
+      if (lastAck) { lastAck.innerText = `Found ${best.name} (${best.mac})`; lastAck.style.color = '#00e676'; }
+      showAiSpeechToast(`Found BLE: ${best.name} (${best.mac}). Tap SAVE to bind.`);
+    })
+    .catch(() => {});
 }
 
 function pollPedalCommanderStatus() {
   fetch('/api/pedal_commander/status')
     .then(r => r.json())
     .then(data => {
-      updatePdlBadge(data.connected);
+      updatePdlBadge(Boolean(data.connected), data);
+      const macEl = document.getElementById('pdlMacInput');
+      if (macEl && !macEl.value && data.mac) macEl.value = data.mac;
+      const lastAck = document.getElementById('pdlLastAck');
+      if (lastAck && data.last_ack) {
+        lastAck.innerText = data.last_ack;
+        lastAck.style.color = data.connected ? 'var(--accent-green)' : '#94a3b8';
+      }
       if (data.mode && data.mode !== currentPdlMode) {
         currentPdlMode = data.mode;
         updatePdlUI();

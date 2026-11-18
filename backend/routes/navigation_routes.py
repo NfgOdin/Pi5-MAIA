@@ -95,6 +95,22 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
         send_json(handler, {"status": "ok", "bookmarks": bms})
         return True
 
+    if path == "/api/nav/search":
+        q = parse_qs(parsed.query)
+        query_text = q.get("q", [""])[0]
+        try:
+            near_lat = float(q["lat"][0]) if "lat" in q else None
+            near_lon = float(q["lon"][0]) if "lon" in q else None
+        except Exception:
+            near_lat, near_lon = None, None
+        router = getattr(state, "router", None)
+        if router and hasattr(router, "search_places"):
+            res = router.search_places(query_text, near_lat=near_lat, near_lon=near_lon, limit=10)
+        else:
+            res = {"status": "error", "graph_ready": False, "results": []}
+        send_json(handler, res)
+        return True
+
     if path == "/api/nav/speed_limit":
         q = parse_qs(parsed.query)
         try:

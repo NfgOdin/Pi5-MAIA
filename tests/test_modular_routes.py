@@ -1207,6 +1207,250 @@ class ModularRouteDispatchTest(unittest.TestCase):
         self.assertEqual(missing["status"], "unavailable")
         self.assertFalse(missing["charging_enabled"])
 
+    def test_offline_osm_routing_and_speed_limits(self):
+        tools_dir = str(BACKEND_DIR.parent / "tools")
+        if tools_dir not in sys.path:
+            sys.path.insert(0, tools_dir)
+        from build_az_nav_db import build_graph_from_ways
+        from navigation.router import NavigationRouter
+
+        # Missing DB truthfully reports offline_graph_missing & no fake curves
+        missing_router = NavigationRouter(db_path=BACKEND_DIR / "nonexistent_az_nav.db")
+        no_route = missing_router.calculate_route(33.3942, -110.7865, 33.4010, -110.7920, "Test")
+        self.assertFalse(no_route["is_navigating"])
+        self.assertFalse(no_route["graph_ready"])
+        self.assertEqual(no_route["error"], "offline_graph_missing")
+        self.assertEqual(no_route["polyline"], [])
+        snap_missing = missing_router.speed_engine.snap_to_road(33.3942, -110.7865)
+        self.assertFalse(snap_missing["snapped"])
+        self.assertIsNone(snap_missing["speed_limit_mph"])
+
+        # Compile realistic miniature Globe AZ graph: Broad St -> (right) Russell Rd -> (left) US-60 E
+        nodes = {
+            1: (33.3940, -110.7900),
+            2: (33.3940, -110.7860),
+            3: (33.3940, -110.7820),  # Broad St E intersection
+            4: (33.3900, -110.7820),  # South along Russell Rd
+            5: (33.3860, -110.7820),  # Russell Rd South intersection
+            6: (33.3860, -110.7750),  # East on US-60
+        }
+        ways = [
+            {"id": 10, "tags": {"highway": "primary", "name": "Broad St", "maxspeed": "25 mph"}, "refs": [1, 2, 3]},
+            {"id": 11, "tags": {"highway": "secondary", "name": "Russell Rd", "maxspeed": "35 mph"}, "refs": [3, 4, 5]},
+            {"id": 12, "tags": {"highway": "trunk", "name": "US-60 E", "maxspeed": "55 mph"}, "refs": [5, 6]},
+        ]
+        places = [
+            {"name": "Copper Hills Diner", "kind": "poi", "category": "amenity:restaurant", "lat": 33.3862, "lon": -110.7752, "subtitle": "Globe Dining"}
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_file = Path(tmpdir) / "test_az.db"
+            stats = build_graph_from_ways(nodes, ways, places, db_file)
+            self.assertGreaterEqual(stats["nodes"], 4)
+            self.assertGreaterEqual(stats["edges"], 6)
+
+            router = NavigationRouter(db_path=db_file)
+            orig_router = getattr(self.state, "router", None)
+            self.state.router = router
+            try:
+                snap_us60 = router.speed_engine.snap_to_road(33.3860, -110.7785)
+                self.assertTrue(snap_us60["snapped"])
+                self.assertEqual(snap_us60["road_name"], "US-60 E")
+                self.assertEqual(snap_us60["speed_limit_mph"], 55)
+                self.assertEqual(snap_us60["maxspeed_source"], "osm_tag")
+
+                route = router.calculate_route(33.3940, -110.7899, 33.3860, -110.7751, "Copper Hills Diner")
+                self.assertEqual(route["status"], "ok")
+                self.assertTrue(route["is_navigating"])
+                self.assertGreaterEqual(len(route["polyline"]), 5)
+                m_types = [m["type"] for m in route["maneuvers"]]
+                self.assertEqual(m_types[0], "depart")
+                self.assertIn("turn-right", m_types)
+                self.assertIn("turn-left", m_types)
+                self.assertEqual(m_types[-1], "arrive")
+
+                h_search = DummyHandler()
+                self.assertTrue(dispatch_get(h_search, urlparse("/api/nav/search?q=Copper&lat=33.394&lon=-110.786"), self.state))
+                self.assertEqual(h_search.status, 200)
+                self.assertEqual(h_search.json_body()["results"][0]["name"], "Copper Hills Diner")
+            finally:
+                self.state.router = orig_router
+
+    def test_pedal_commander_ble_protocol_and_offline_truth(self):
+        from hardware.pedal_commander import PedalCommanderController, decode_rx_packet
+
+        # Verify binary & ASCII RX frame decoding
+        chk = (0xAA + 3 + 7) & 0xFF  # SPORT+ (3), +3 (sens=7)
+        dec = decode_rx_packet(bytes([0xAA, 3, 7, chk, 0x55]))
+        self.assertTrue(dec["valid"])
+        self.assertEqual(dec["mode"], "SPORT+")
+        self.assertEqual(dec["level"], 3)
+
+        orig_inst = PedalCommanderController._instance
+        orig_pc = getattr(self.state, "pedal_commander", None)
+        try:
+            PedalCommanderController._instance = None
+            with tempfile.TemporaryDirectory() as tmpdir:
+                cfg_p = Path(tmpdir) / "pc.json"
+                ctrl = PedalCommanderController(config_path=cfg_p, auto_start_worker=False)
+                self.state.pedal_commander = ctrl
+
+                res_off = ctrl.set_curve("CITY", -1)
+                self.assertFalse(res_off["connected"])
+                self.assertFalse(res_off["sent"])
+                self.assertEqual(res_off["status"], "offline")
+
+                ctrl._on_ble_rx(bytes([0xAA, 2, 6, (0xAA + 2 + 6) & 0xFF, 0x55]))
+                self.assertTrue(ctrl.ack_verified)
+                self.assertEqual(ctrl.current_mode, "SPORT")
+                self.assertEqual(ctrl.current_level, 2)
+
+                h_cfg = DummyHandler({"mac": "AA:BB:CC:11:22:33", "pin": "654321"})
+                self.assertTrue(dispatch_post(h_cfg, urlparse("/api/pedal_commander/config"), self.state))
+                self.assertEqual(h_cfg.json_body()["mac"], "AA:BB:CC:11:22:33")
+                saved = json.loads(cfg_p.read_text(encoding="utf-8"))
+                self.assertEqual(saved["pin"], "654321")
+
+                h_scan = DummyHandler()
+                self.assertTrue(dispatch_get(h_scan, urlparse("/api/pedal_commander/scan"), self.state))
+                self.assertEqual(h_scan.status, 200)
+                self.assertEqual(h_scan.json_body()["devices"], [])
+        finally:
+            PedalCommanderController._instance = orig_inst
+            self.state.pedal_commander = orig_pc
+
+    def test_dual_pi_telephony_sms_and_fs_bridge(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        import fs_manager
+        from telephony.phone_manager import PhoneManager, Pi3AndroidBridgeClient
+        from telephony.sms_manager import SMSManager
+
+        bridge_calls = {"dial": [], "sms": []}
+
+        class MockPi3Bridge(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                return
+
+            def _send(self, obj):
+                raw = json.dumps(obj).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def do_GET(self):
+                p = urlparse(self.path)
+                if p.path == "/status":
+                    self._send({
+                        "status": "ok",
+                        "adb_connected": True,
+                        "tether_active": True,
+                        "phone_model": "Pixel_8",
+                        "battery_pct": 88,
+                        "call_state": "IDLE",
+                    })
+                elif p.path == "/sms/list":
+                    self._send({
+                        "status": "ok",
+                        "messages": [{"id": "m101", "address": "5559990000", "body": "Drive safe Dad!", "date_ms": 1700000000000, "direction": "INBOUND", "read": True}],
+                    })
+                elif p.path == "/contacts":
+                    self._send({"status": "ok", "contacts": [{"name": "Uncle Steven", "phone": "5559990000"}]})
+                elif p.path == "/fs/list":
+                    self._send({
+                        "status": "ok",
+                        "path": "pi3://sdcard/Download",
+                        "items": [{"name": "notes.txt", "path": "pi3://sdcard/Download/notes.txt", "is_dir": False, "type": "text", "size_bytes": 12}],
+                    })
+                elif p.path == "/fs/read":
+                    self._send({"status": "ok", "path": "pi3://sdcard/Download/notes.txt", "name": "notes.txt", "content": "Tune rev2"})
+
+            def do_POST(self):
+                ln = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(ln).decode("utf-8")) if ln else {}
+                p = urlparse(self.path)
+                if p.path == "/call/dial":
+                    bridge_calls["dial"].append(body.get("number"))
+                    self._send({"status": "ok", "dialed": True})
+                elif p.path == "/sms/send":
+                    bridge_calls["sms"].append(body)
+                    self._send({"status": "ok", "sent": True, "transport": "kdeconnect"})
+                else:
+                    self._send({"status": "ok", "answered": True, "ended": True})
+
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), MockPi3Bridge)
+        port = srv.server_address[1]
+        t = threading.Thread(target=srv.serve_forever, daemon=True)
+        t.start()
+
+        orig_shared = Pi3AndroidBridgeClient._shared_instance
+        orig_phone_inst = PhoneManager._instance
+        orig_sms_inst = SMSManager._instance
+        orig_state_phone = getattr(self.state, "phone", None)
+        orig_state_sms = getattr(self.state, "sms", None)
+        try:
+            # Verify offline failure truthfulness when bridge unreachable
+            offline_client = Pi3AndroidBridgeClient(base_url="http://127.0.0.1:9")
+            PhoneManager._instance = None
+            SMSManager._instance = None
+            Pi3AndroidBridgeClient._shared_instance = offline_client
+            with tempfile.TemporaryDirectory() as tmpdir:
+                pm_off = PhoneManager(
+                    bridge_client=offline_client,
+                    kinship_file=Path(tmpdir) / "kinship_off.json",
+                    history_file=Path(tmpdir) / "history_off.json",
+                )
+                self.assertFalse(pm_off.dial("5551112222"))
+
+                # Connect to mock Pi 3 ADB bridge
+                live_client = Pi3AndroidBridgeClient(base_url=f"http://127.0.0.1:{port}")
+                Pi3AndroidBridgeClient._shared_instance = live_client
+                PhoneManager._instance = None
+                SMSManager._instance = None
+                pm = PhoneManager(
+                    bridge_client=live_client,
+                    kinship_file=Path(tmpdir) / "kinship.json",
+                    history_file=Path(tmpdir) / "history.json",
+                )
+                sm = SMSManager(bridge_client=live_client, storage_file=Path(tmpdir) / "sms.json")
+                sm.set_dependencies(None, None, pm.kinship)
+                self.state.phone = pm
+                self.state.sms = sm
+
+                st = pm.get_status()
+                self.assertTrue(st["connected"])
+                self.assertTrue(st["android_usb_connected"])
+                self.assertEqual(st["device_name"], "Pixel_8")
+
+                h_sync = DummyHandler({})
+                self.assertTrue(dispatch_post(h_sync, urlparse("/api/phone/sync"), self.state))
+                self.assertGreaterEqual(h_sync.json_body()["sms_sync"]["synced"], 1)
+
+                h_dial = DummyHandler({"number": "5559990000"})
+                self.assertTrue(dispatch_post(h_dial, urlparse("/api/phone/dial"), self.state))
+                self.assertTrue(h_dial.json_body()["dialed"])
+                self.assertIn("5559990000", bridge_calls["dial"])
+
+                h_sms = DummyHandler({"recipient": "5559990000", "text": "On my way"})
+                self.assertTrue(dispatch_post(h_sms, urlparse("/api/sms/send"), self.state))
+                self.assertEqual(h_sms.json_body()["message"]["delivery_status"], "sent")
+
+                devs = fs_manager.detect_usb_drives()
+                self.assertTrue(any(d.get("path") == "pi3://sdcard" for d in devs))
+                listing = fs_manager.list_directory("pi3://sdcard/Download")
+                self.assertEqual(listing["items"][0]["name"], "notes.txt")
+                txt = fs_manager.read_text_file("pi3://sdcard/Download/notes.txt")
+                self.assertEqual(txt["content"], "Tune rev2")
+        finally:
+            srv.shutdown()
+            srv.server_close()
+            Pi3AndroidBridgeClient._shared_instance = orig_shared
+            PhoneManager._instance = orig_phone_inst
+            SMSManager._instance = orig_sms_inst
+            self.state.phone = orig_state_phone
+            self.state.sms = orig_state_sms
+
     def test_unmatched_routes_fall_through(self):
         import ast
         daemon_src = (BACKEND_DIR / "daemon.py").read_text(encoding="utf-8")

@@ -166,7 +166,32 @@ def detect_usb_drives() -> List[Dict[str, Any]]:
                 except Exception:
                     pass
 
-    # 7. System Root (/)
+    # 7. Pi 3 Android USB Bridge (/sdcard via 10.0.0.2:8002)
+    try:
+        try:
+            from telephony.phone_manager import Pi3AndroidBridgeClient
+        except ImportError:
+            from backend.telephony.phone_manager import Pi3AndroidBridgeClient
+        bridge = Pi3AndroidBridgeClient.get_shared()
+        bst = bridge.probe_status(force=False)
+        if bst.get("online") and bst.get("adb_connected"):
+            model = bst.get("phone_model") or "Android Phone"
+            locations.append({
+                "id": "loc_android_pi3",
+                "name": f"Android USB ({model} via Pi 3)",
+                "label": "ANDROID (PI3 USB)",
+                "path": "pi3://sdcard",
+                "mount_point": "pi3://sdcard",
+                "icon": "📱",
+                "free_gb": None,
+                "total_gb": None,
+                "is_removable": True,
+                "status": "MOUNTED",
+            })
+    except Exception:
+        pass
+
+    # 8. System Root (/)
     root_path = Path("/" if sys.platform != "win32" else "C:\\")
     if root_path.exists():
         try:
@@ -221,6 +246,28 @@ def list_directory(target_path: str) -> Dict[str, Any]:
     List contents of any valid directory with detailed metadata,
     permission safety, sorting, and breadcrumb path hierarchy.
     """
+    if str(target_path or "").strip().startswith("pi3://"):
+        try:
+            try:
+                from telephony.phone_manager import Pi3AndroidBridgeClient
+            except ImportError:
+                from backend.telephony.phone_manager import Pi3AndroidBridgeClient
+            posix_sub = "/" + str(target_path).strip()[len("pi3://"):].lstrip("/")
+            res = Pi3AndroidBridgeClient.get_shared().list_files(posix_sub)
+            cur = res.get("path", f"pi3://{posix_sub.lstrip('/')}")
+            parts = [{"name": "📱 Phone (/sdcard)", "path": "pi3://sdcard"}]
+            rel = cur.replace("pi3://sdcard", "").strip("/")
+            if rel:
+                acc = "pi3://sdcard"
+                for seg in rel.split("/"):
+                    acc = f"{acc}/{seg}"
+                    parts.append({"name": seg, "path": acc})
+            res.setdefault("breadcrumbs", parts)
+            res.setdefault("count", len(res.get("items", [])))
+            return res
+        except Exception as e:
+            return {"status": "error", "error": str(e), "path": str(target_path), "items": [], "count": 0, "breadcrumbs": []}
+
     if not target_path or not str(target_path).strip() or target_path in ("~", "home"):
         p = Path.home()
     elif target_path in ("carpi5", "project"):
@@ -301,6 +348,17 @@ def list_directory(target_path: str) -> Dict[str, Any]:
 
 def read_text_file(filepath: str) -> Dict[str, Any]:
     """Read file content as text (up to 500 KB)."""
+    if str(filepath or "").strip().startswith("pi3://"):
+        try:
+            try:
+                from telephony.phone_manager import Pi3AndroidBridgeClient
+            except ImportError:
+                from backend.telephony.phone_manager import Pi3AndroidBridgeClient
+            posix_sub = "/" + str(filepath).strip()[len("pi3://"):].lstrip("/")
+            return Pi3AndroidBridgeClient.get_shared().read_file(posix_sub)
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
     p = Path(filepath)
     if not p.exists() or p.is_dir():
         return {"status": "error", "message": "File not found"}

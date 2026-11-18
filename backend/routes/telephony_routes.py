@@ -58,6 +58,7 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
         "/api/phone/screening_transcript",
         "/api/phone/contacts",
         "/api/phone/contacts/delete",
+        "/api/phone/sync",
         "/api/sms/send",
         "/api/sms/incoming",
     }
@@ -69,15 +70,26 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
 
     if path == "/api/phone/dial":
         num = req_data.get("number", "").strip()
-        res_payload["dialed"] = phone.dial(num) if phone else False
+        dialed = phone.dial(num) if phone else False
+        res_payload["dialed"] = dialed
+        if not dialed and phone:
+            res_payload["error"] = getattr(phone, "last_error", "Phone transport offline")
     elif path == "/api/phone/answer":
-        res_payload["answered"] = phone.answer_call() if phone else False
+        answered = phone.answer_call() if phone else False
+        res_payload["answered"] = answered
+        if not answered and phone:
+            res_payload["error"] = getattr(phone, "last_error", "Phone transport offline")
     elif path == "/api/phone/hangup":
         res_payload["ended"] = phone.end_call() if phone else False
     elif path == "/api/phone/screen":
         res_payload["screening"] = phone.start_call_screening() if phone else False
     elif path == "/api/phone/mute":
         res_payload["is_muted"] = phone.toggle_mute() if phone else False
+    elif path == "/api/phone/sync":
+        c_sync = phone.sync_contacts_from_bridge() if (phone and hasattr(phone, "sync_contacts_from_bridge")) else {"status": "offline", "added": 0}
+        s_sync = sms.sync_from_bridge() if (sms and hasattr(sms, "sync_from_bridge")) else {"status": "offline", "synced": 0}
+        res_payload["contacts_sync"] = c_sync
+        res_payload["sms_sync"] = s_sync
     elif path == "/api/phone/incoming":
         num = req_data.get("number", "Unknown").strip()
         if phone:

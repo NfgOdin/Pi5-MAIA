@@ -1,162 +1,210 @@
 """
-speed_limits.py - OSM Vector Road-Snapping & Live Speed Limit Engine for CarPi5
-Calibrated for:
-- Globe, Miami, Gila County, and Arizona highway corridors (US-60, AZ-77, AZ-188, I-10).
-- High-frequency GPS coordinates snapping (<15ms evaluation).
-- Accurate posted speed limit retrieval and speeding delta detection.
-- R.U.M. speech warning triggers when vehicle exceeds limit by >12 MPH.
+speed_limits.py - Offline OSM Road-Snapping & Live Posted Speed Limit Engine for CarPi5
+
+Uses compiled SQLite OSM road graph (`storage/map_tiles/arizona_nav_graph.db` built by
+`tools/build_az_nav_db.py`) with 3x3 spatial grid lookup and perpendicular segment projection.
+When no offline graph database is built (and no explicit road list is supplied), faithfully
+reports `graph_ready: False` / `snapped: False` with `speed_limit_mph: None` instead of fabricating.
 """
 
+import contextlib
+import json
 import math
+import sqlite3
 import time
-from typing import Dict, Any, List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+DEFAULT_NAV_DB_PATH = BASE_DIR / "storage" / "map_tiles" / "arizona_nav_graph.db"
+
 
 def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Calculates great-circle distance between two points in meters."""
-    R = 6371000.0  # Earth radius in meters
+    """Calculates great-circle distance between two WGS84 points in meters."""
+    r = 6371000.0
     phi1 = math.radians(lat1)
     phi2 = math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlam = math.radians(lon2 - lon1)
-    a = math.sin(dphi / 2.0)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2.0)**2
-    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
-    return R * c
+    a = math.sin(dphi / 2.0) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2.0) ** 2
+    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+    return r * c
 
-# Curated high-resolution road segments for regional Arizona corridors with posted limits
-ROAD_NETWORK = [
-    # US-60 Globe to Miami Corridor
-    {
-        "name": "US-60 W / Globe-Miami Highway",
-        "type": "trunk",
-        "speed_limit_mph": 65,
-        "coords": [(33.3980, -110.7850), (33.4020, -110.8200), (33.3995, -110.8700)]
-    },
-    # US-60 Downtown Globe (Ash St / Broad St)
-    {
-        "name": "US-60 / Broad St (Historic Globe)",
-        "type": "primary",
-        "speed_limit_mph": 25,
-        "coords": [(33.3940, -110.7850), (33.3955, -110.7875), (33.3970, -110.7900)]
-    },
-    # US-60 East towards Salt River Canyon & Show Low
-    {
-        "name": "US-60 E / Salt River Canyon Pass",
-        "type": "trunk",
-        "speed_limit_mph": 55,
-        "coords": [(33.4100, -110.7500), (33.4500, -110.6500), (33.6000, -110.5000)]
-    },
-    # AZ-77 South towards Tucson
-    {
-        "name": "AZ-77 S / Copper Corridor",
-        "type": "primary",
-        "speed_limit_mph": 60,
-        "coords": [(33.3850, -110.7800), (33.3000, -110.7700), (33.1500, -110.7500)]
-    },
-    # AZ-188 North towards Roosevelt Lake
-    {
-        "name": "AZ-188 N / Apache Trail Highway",
-        "type": "primary",
-        "speed_limit_mph": 55,
-        "coords": [(33.4050, -110.8250), (33.5000, -110.9500), (33.6500, -111.1000)]
-    },
-    # Russell Rd (Globe East)
-    {
-        "name": "Russell Rd",
-        "type": "secondary",
-        "speed_limit_mph": 35,
-        "coords": [(33.3920, -110.7600), (33.3980, -110.7620), (33.4050, -110.7650)]
-    },
-    # Icehouse Canyon Rd (South Mountain)
-    {
-        "name": "Icehouse Canyon Rd",
-        "type": "secondary",
-        "speed_limit_mph": 35,
-        "coords": [(33.3800, -110.7900), (33.3500, -110.8100), (33.3200, -110.8300)]
-    },
-    # Pinal Mountain Scenic Byway
-    {
-        "name": "Pinal Mountain Forest Rd",
-        "type": "tertiary",
-        "speed_limit_mph": 25,
-        "coords": [(33.3200, -110.8300), (33.3000, -110.8500), (33.2800, -110.8800)]
-    },
-    # Phoenix Metro Highway - US-60 Superstition Freeway
-    {
-        "name": "US-60 W / Superstition Freeway",
-        "type": "motorway",
-        "speed_limit_mph": 65,
-        "coords": [(33.3850, -111.7500), (33.3860, -111.8500), (33.3880, -111.9500)]
-    },
-    # Interstate 10 Corridor
-    {
-        "name": "I-10 / Pearl Harbor Memorial Highway",
-        "type": "motorway",
-        "speed_limit_mph": 75,
-        "coords": [(33.4000, -111.9700), (33.4100, -112.1000), (33.4200, -112.2500)]
-    }
-]
+
+def point_to_segment_distance_m(
+    lat: float,
+    lon: float,
+    a_lat: float,
+    a_lon: float,
+    b_lat: float,
+    b_lon: float,
+) -> float:
+    """Equirectangular local tangent projection distance in meters from `(lat, lon)` to segment AB."""
+    lat_scale = 111320.0
+    lon_scale = max(1000.0, 111320.0 * math.cos(math.radians(lat)))
+    px, py = (lon - a_lon) * lon_scale, (lat - a_lat) * lat_scale
+    bx, by = (b_lon - a_lon) * lon_scale, (b_lat - a_lat) * lat_scale
+    denom = bx * bx + by * by
+    if denom <= 1e-6:
+        return math.hypot(px, py)
+    t = max(0.0, min(1.0, (px * bx + py * by) / denom))
+    dx = px - t * bx
+    dy = py - t * by
+    return math.hypot(dx, dy)
+
+
+def _neighbor_cells(lat: float, lon: float) -> List[str]:
+    cy = int(math.floor(lat * 100.0))
+    cx = int(math.floor(lon * 100.0))
+    return [f"{cy + dy}:{cx + dx}" for dy in (-1, 0, 1) for dx in (-1, 0, 1)]
+
 
 class SpeedLimitEngine:
-    """Road snapping and live speed limit detector."""
-    def __init__(self, roads: Optional[List[Dict[str, Any]]] = None):
-        self.roads = roads or ROAD_NETWORK
+    """Offline OSM spatial road-snapping and posted speed-limit engine."""
+
+    def __init__(self, roads: Optional[List[Dict[str, Any]]] = None, db_path: Optional[Path] = None):
+        self.roads = roads
+        self.db_path = Path(db_path) if db_path else DEFAULT_NAV_DB_PATH
         self.last_warning_time = 0.0
 
-    def snap_to_road(self, lat: float, lon: float, max_dist_m: float = 350.0) -> Dict[str, Any]:
-        """Finds closest road segment and returns posted speed limit, road name, and distance."""
-        best_road = None
-        min_dist = float('inf')
+    def is_graph_ready(self) -> bool:
+        if self.roads is not None:
+            return len(self.roads) > 0
+        return self.db_path.exists() and self.db_path.is_file() and self.db_path.stat().st_size > 4096
 
-        for road in self.roads:
-            pts = road["coords"]
-            for pt in pts:
-                d = haversine_m(lat, lon, pt[0], pt[1])
+    def snap_to_road(self, lat: float, lon: float, max_dist_m: float = 250.0) -> Dict[str, Any]:
+        """Find closest real road segment and return its OSM road name, posted limit, and source."""
+        if not lat and not lon:
+            return {
+                "snapped": False,
+                "graph_ready": self.is_graph_ready(),
+                "road_name": "GPS Fix Pending",
+                "speed_limit_mph": None,
+                "maxspeed_source": None,
+                "road_type": None,
+                "distance_to_road_m": None,
+            }
+
+        best_road: Optional[Dict[str, Any]] = None
+        min_dist = float("inf")
+
+        if self.roads is not None:
+            for road in self.roads:
+                pts = road["coords"]
+                for i in range(len(pts) - 1):
+                    d = point_to_segment_distance_m(lat, lon, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1])
+                    if d < min_dist:
+                        min_dist = d
+                        best_road = road
+            if best_road and min_dist <= max_dist_m:
+                return {
+                    "snapped": True,
+                    "graph_ready": True,
+                    "road_name": best_road["name"],
+                    "speed_limit_mph": best_road["speed_limit_mph"],
+                    "maxspeed_source": best_road.get("maxspeed_source", "osm_tag"),
+                    "road_type": best_road.get("type", "road"),
+                    "distance_to_road_m": round(min_dist, 1),
+                }
+            return {
+                "snapped": False,
+                "graph_ready": True,
+                "road_name": "Off-Road / Unmapped",
+                "speed_limit_mph": None,
+                "maxspeed_source": None,
+                "road_type": None,
+                "distance_to_road_m": round(min_dist, 1) if min_dist != float("inf") else None,
+            }
+
+        if not self.is_graph_ready():
+            return {
+                "snapped": False,
+                "graph_ready": False,
+                "road_name": "Offline Nav DB Not Built",
+                "speed_limit_mph": None,
+                "maxspeed_source": None,
+                "road_type": None,
+                "distance_to_road_m": None,
+            }
+
+        cells = _neighbor_cells(lat, lon)
+        placeholders = ",".join("?" for _ in cells)
+        try:
+            with contextlib.closing(sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True, timeout=1.5)) as conn:
+                rows = conn.execute(
+                    f"""
+                    SELECT DISTINCT e.id, e.name, e.highway, e.maxspeed_mph, e.maxspeed_source, e.geom_json
+                    FROM nav_edge_cells c
+                    JOIN nav_edges e ON e.id = c.edge_id
+                    WHERE c.cell_key IN ({placeholders})
+                    """,
+                    cells,
+                ).fetchall()
+        except Exception as e:
+            return {
+                "snapped": False,
+                "graph_ready": False,
+                "road_name": f"Nav DB Read Error ({e})",
+                "speed_limit_mph": None,
+                "maxspeed_source": None,
+                "road_type": None,
+                "distance_to_road_m": None,
+            }
+
+        for _eid, name, hw, spd_mph, spd_src, geom_json in rows:
+            try:
+                pts = json.loads(geom_json)
+            except Exception:
+                continue
+            for i in range(len(pts) - 1):
+                d = point_to_segment_distance_m(lat, lon, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1])
                 if d < min_dist:
                     min_dist = d
-                    best_road = road
-            for i in range(len(pts) - 1):
-                p1 = pts[i]
-                p2 = pts[i + 1]
-                # Check midpoint of segment
-                mid_lat = (p1[0] + p2[0]) / 2.0
-                mid_lon = (p1[1] + p2[1]) / 2.0
-                d_mid = haversine_m(lat, lon, mid_lat, mid_lon)
-                if d_mid < min_dist:
-                    min_dist = d_mid
-                    best_road = road
+                    best_road = {
+                        "name": name,
+                        "speed_limit_mph": int(spd_mph),
+                        "maxspeed_source": spd_src,
+                        "type": hw,
+                    }
 
         if best_road and min_dist <= max_dist_m:
             return {
                 "snapped": True,
+                "graph_ready": True,
                 "road_name": best_road["name"],
                 "speed_limit_mph": best_road["speed_limit_mph"],
+                "maxspeed_source": best_road["maxspeed_source"],
                 "road_type": best_road["type"],
-                "distance_to_road_m": round(min_dist, 1)
+                "distance_to_road_m": round(min_dist, 1),
             }
 
-        # Fallback heuristic by latitude/longitude zone if off-grid
-        # Default Arizona rural / residential limits
         return {
             "snapped": False,
-            "road_name": "Local Road",
-            "speed_limit_mph": 35,
-            "road_type": "residential",
-            "distance_to_road_m": round(min_dist, 1) if min_dist != float('inf') else 999.0
+            "graph_ready": True,
+            "road_name": "Off-Road / Unmapped",
+            "speed_limit_mph": None,
+            "maxspeed_source": None,
+            "road_type": None,
+            "distance_to_road_m": round(min_dist, 1) if min_dist != float("inf") else None,
         }
 
     def evaluate_speeding(self, current_speed_mph: float, lat: float, lon: float) -> Tuple[bool, Optional[str]]:
         """
-        Evaluates whether vehicle is significantly exceeding posted limit (>12 MPH).
-        Returns (is_speeding, speech_warning_text).
-        Spoken warnings are throttled to once every 120 seconds.
+        Evaluates whether vehicle exceeds real posted limit by >=12 MPH.
+        Skips cleanly when no real road speed limit is available (`speed_limit_mph is None`).
         """
         info = self.snap_to_road(lat, lon)
-        limit = info["speed_limit_mph"]
-        delta = current_speed_mph - limit
+        limit = info.get("speed_limit_mph")
+        if not info.get("snapped") or limit is None:
+            return False, None
 
+        delta = float(current_speed_mph) - float(limit)
         now = time.time()
         if delta >= 12.0 and (now - self.last_warning_time > 120.0):
             self.last_warning_time = now
-            speech = f"Heads up Dad, speed limit is {limit} here on {info['road_name']}, and we're doing {int(current_speed_mph)}!"
+            speech = (
+                f"Heads up, speed limit is {limit} here on {info['road_name']}, "
+                f"and we're doing {int(current_speed_mph)}."
+            )
             return True, speech
         return False, None

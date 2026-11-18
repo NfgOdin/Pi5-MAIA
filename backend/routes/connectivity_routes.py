@@ -32,6 +32,9 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
     if path == "/api/pedal_commander/status":
         send_json(handler, state.pedal_commander.get_status())
         return True
+    if path == "/api/pedal_commander/scan":
+        send_json(handler, state.pedal_commander.scan_ble_devices())
+        return True
 
     return False
 
@@ -50,6 +53,7 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
         "/api/bluetooth/discoverable",
         "/api/pedal_commander/set",
         "/api/pedal_commander/pin",
+        "/api/pedal_commander/config",
     }
     if path not in handled_paths:
         return False
@@ -82,14 +86,26 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
             req_data.get("level", 0),
             pin=req_data.get("pin"),
         )
+    elif path == "/api/pedal_commander/config":
+        res = state.pedal_commander.update_config(
+            mac=req_data.get("mac"),
+            pin=req_data.get("pin"),
+            char_uuid=req_data.get("char_uuid"),
+        )
     else:  # /api/pedal_commander/pin
         pin = req_data.get("pin", "")
         if getattr(state, "pedal_commander", None):
             state.pedal_commander.set_pin(pin)
+        st = state.pedal_commander.get_status() if getattr(state, "pedal_commander", None) else {}
         res = {
             "status": "ok",
             "pin": pin,
-            "message": "Authentication PIN transmitted to Pedal Commander",
+            "connected": bool(st.get("connected", False)),
+            "message": (
+                "Authentication PIN transmitted to Pedal Commander"
+                if st.get("connected")
+                else "PIN saved locally (Pedal Commander BLE currently offline)"
+            ),
         }
 
     send_json(handler, res)

@@ -21,7 +21,8 @@ function routeToBookmark(bookmarkId) {
 
 function submitStartRoute() {
   const input = document.getElementById('navDestinationInput');
-  const query = input ? input.value.trim().toLowerCase() : '';
+  const rawQuery = input ? input.value.trim() : '';
+  const query = rawQuery.toLowerCase();
   if (!query) return;
 
   let matched = null;
@@ -34,11 +35,27 @@ function submitStartRoute() {
 
   if (matched) {
     calculateAndRenderRoute(matched.lat, matched.lon, matched.name);
-  } else {
-    const baseLat = (currentGpsData && currentGpsData.lat) || 33.3942;
-    const baseLon = (currentGpsData && currentGpsData.lon) || -110.7865;
-    calculateAndRenderRoute(baseLat + 0.032, baseLon - 0.028, input.value.trim());
+    return;
   }
+
+  const baseLat = (currentGpsData && currentGpsData.lat) || 33.3942;
+  const baseLon = (currentGpsData && currentGpsData.lon) || -110.7865;
+  fetch(`/api/nav/search?q=${encodeURIComponent(rawQuery)}&lat=${encodeURIComponent(baseLat)}&lon=${encodeURIComponent(baseLon)}`)
+    .then(r => r.json())
+    .then(data => {
+      const results = (data && Array.isArray(data.results)) ? data.results : [];
+      if (results.length > 0) {
+        const hit = results[0];
+        calculateAndRenderRoute(hit.lat, hit.lon, hit.name);
+      } else if (data && data.error === 'offline_graph_missing') {
+        if (typeof showAiSpeechToast === 'function') {
+          showAiSpeechToast('⚠️ Offline Arizona map database not built yet (tools/build_az_nav_db.py).');
+        }
+      } else if (typeof showAiSpeechToast === 'function') {
+        showAiSpeechToast(`⚠️ No offline destination found for "${rawQuery}". Try a bookmark or tap map.`);
+      }
+    })
+    .catch(e => console.error('[NAV] Offline place search error:', e));
 }
 
 function calculateAndRenderRoute(destLat, destLon, destName) {
@@ -59,6 +76,13 @@ function calculateAndRenderRoute(destLat, destLon, destName) {
     .then(r => r.json())
     .then(d => {
       const nav = d.route || {};
+      if (nav.status === 'error' || nav.error || !nav.is_navigating) {
+        isNavigatingActive = false;
+        if (typeof showAiSpeechToast === 'function') {
+          showAiSpeechToast(`⚠️ ${nav.message || 'Offline route unavailable.'}`);
+        }
+        return;
+      }
       renderActiveRoute(nav, destLat, destLon, destName);
     })
     .catch(e => console.error('[NAV] Route calculation error:', e));
@@ -131,9 +155,9 @@ function updateTurnByTurnHud(nav, destName) {
   }
 
   if (destNameEl) destNameEl.innerText = destName || nav.destination_name || 'Destination';
-  if (remDistEl) remDistEl.innerText = nav.remaining_distance_miles || '1.0';
-  if (etaEl) etaEl.innerText = nav.estimated_minutes || '2';
-  if (speedLimitEl) speedLimitEl.innerText = nav.speed_limit_mph || 45;
+  if (remDistEl) remDistEl.innerText = (nav.remaining_distance_miles !== undefined && nav.remaining_distance_miles !== null) ? nav.remaining_distance_miles : '--';
+  if (etaEl) etaEl.innerText = (nav.estimated_minutes !== undefined && nav.estimated_minutes !== null) ? nav.estimated_minutes : '--';
+  if (speedLimitEl) speedLimitEl.innerText = (nav.speed_limit_mph !== undefined && nav.speed_limit_mph !== null) ? nav.speed_limit_mph : '--';
 }
 
 function updateNavigationProgress(lat, lon, speed) {
