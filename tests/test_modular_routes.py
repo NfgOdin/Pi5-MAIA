@@ -949,6 +949,7 @@ class ModularRouteDispatchTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             cfg_path = Path(tmpdir) / "ai_settings.json"
             llm = LLMClient.__new__(LLMClient)
+            llm._explicit_config = True
             llm.config_file = str(cfg_path)
             llm.personas = load_personas_from_dir()
             llm.settings = {
@@ -1048,6 +1049,7 @@ class ModularRouteDispatchTest(unittest.TestCase):
             }), encoding="utf-8")
 
             llm = LLMClient.__new__(LLMClient)
+            llm._explicit_config = True
             llm.config_file = str(cfg_path)
             llm._persona_dir_override = str(p_dir)
             llm.personas = load_personas_from_dir(str(p_dir))

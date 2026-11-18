@@ -740,7 +740,9 @@ class LLMClient:
         try:
             with open(self.config_file, "w") as f:
                 json.dump(self.settings, f, indent=2)
-            if not getattr(self, "_explicit_config", False):
+            if (not getattr(self, "_explicit_config", False)) and (
+                os.path.abspath(self.config_file) == os.path.abspath(os.path.join(os.path.dirname(__file__), "ai_settings.json"))
+            ):
                 alt_config = os.path.join(os.path.dirname(__file__), "ai_config.json")
                 try:
                     with open(alt_config, "w") as f:
