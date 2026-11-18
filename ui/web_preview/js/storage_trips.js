@@ -14,6 +14,11 @@ function checkUsbDevices() {
       detectedDevices = devices || [];
       updateUsbIndicatorUI();
       renderHomeDrivesShelf();
+      renderExplorerSidebarDrives();
+      const screenExp = document.getElementById('screenExplorer');
+      if (screenExp && screenExp.classList.contains('active') && currentExplorerPath === 'thispc') {
+        renderWin11ThisPcView();
+      }
     })
     .catch(err => console.warn("[FS] USB poll error:", err));
 }
@@ -23,28 +28,51 @@ function updateUsbIndicatorUI() {
   const text = document.getElementById('headerUsbText');
   const badge = document.getElementById('homeUsbBadge');
 
-  if (!pill) return;
+  const realUsbDrives = detectedDevices.filter(d => d.is_removable && !d.is_phone);
+  const firstUsb = realUsbDrives[0];
 
-  const removable = detectedDevices.find(d => d.is_removable);
-  if (removable) {
-    pill.style.display = 'flex';
-    const shortLabel = removable.label || removable.name.split(' ')[0] || 'USB';
-    const driveLetter = removable.mount_point || 'USB';
-    if (text) text.innerText = `💾 ${shortLabel} (${driveLetter})`;
-    pill.onclick = () => openFileExplorer(removable.mount_point);
-    if (badge) {
-      badge.innerText = `💾 USB: ${detectedDevices.length} READY`;
+  if (badge) {
+    if (realUsbDrives.length > 0) {
+      badge.innerText = `💾 USB: ${realUsbDrives.length} MOUNTED`;
       badge.style.color = "var(--accent-green)";
       badge.style.borderColor = "var(--accent-green)";
-    }
-  } else {
-    pill.style.display = 'none';
-    if (badge) {
-      badge.innerText = `💾 USB: STANDBY`;
+    } else {
+      badge.innerText = `💾 USB: NONE • ${detectedDevices.length} DRIVES`;
       badge.style.color = "var(--text-secondary)";
       badge.style.borderColor = "var(--panel-border)";
     }
   }
+
+  if (!pill) return;
+  if (firstUsb) {
+    pill.style.display = 'flex';
+    const shortLabel = firstUsb.label || firstUsb.name.split(' ')[0] || 'USB';
+    const driveLetter = firstUsb.mount_point || 'USB';
+    if (text) text.innerText = `${shortLabel} (${driveLetter})`;
+    pill.onclick = () => openFileExplorer(firstUsb.mount_point);
+  } else {
+    pill.style.display = 'none';
+  }
+}
+
+function renderExplorerSidebarDrives() {
+  const nav = document.getElementById('win11DrivesNav');
+  if (!nav) return;
+  if (!detectedDevices || detectedDevices.length === 0) {
+    nav.innerHTML = '<div style="font-size:10px; color:var(--text-secondary); padding:6px 10px;">Scanning real hardware...</div>';
+    return;
+  }
+  nav.innerHTML = detectedDevices.map(dev => {
+    const icon = dev.icon || (dev.is_phone ? '📱' : (dev.is_removable ? '💾' : '📁'));
+    const cleanPath = String(dev.path || '').replace(/\\/g, '/').replace(/'/g, "\\'");
+    const label = dev.label || dev.name || dev.path;
+    return `
+      <button class="win11-nav-item" data-path="${cleanPath}" onclick="loadExplorerDirectory('${cleanPath}')" title="${dev.name} (${dev.path})">
+        <span class="win11-nav-icon">${icon}</span>
+        <span class="win11-nav-label">${label}</span>
+      </button>
+    `;
+  }).join('');
 }
 
 function renderHomeDrivesShelf() {
@@ -63,41 +91,19 @@ function renderHomeDrivesShelf() {
   if (countLabel) countLabel.innerText = `${detectedDevices.length} Storage Device${detectedDevices.length > 1 ? 's' : ''} Connected`;
 
   list.innerHTML = detectedDevices.map(dev => {
-    const isUsb = dev.is_removable;
-    const icon = isUsb ? '💾' : '💽';
-    const cleanPath = dev.path.replace(/\\/g, '/');
+    const icon = dev.icon || (dev.is_removable ? '💾' : '💽');
+    const cleanPath = String(dev.path || '').replace(/\\/g, '/').replace(/'/g, "\\'");
+    const capText = (typeof dev.free_gb === 'number' && typeof dev.total_gb === 'number')
+      ? `${dev.free_gb.toFixed(1)} GB Free of ${dev.total_gb.toFixed(1)} GB`
+      : (dev.is_phone ? 'ADB Bridge Storage' : 'Live Storage');
     return `
-
-
-
       <div class="drive-card-mini" onclick="openFileExplorer('${cleanPath}')" title="Click to browse ${dev.name}">
-
-
-
         <span class="drive-icon">${icon}</span>
-
-
-
         <div class="drive-details">
-
-
-
           <span class="drive-label">${dev.name}</span>
-
-
-
-          <span class="drive-space">${dev.free_gb.toFixed(1)} GB Free of ${dev.total_gb.toFixed(1)} GB</span>
-
-
-
+          <span class="drive-space">${capText}</span>
         </div>
-
-
-
       </div>
-
-
-
     `;
   }).join('');
 }
@@ -1368,33 +1374,33 @@ function renderWin11ThisPcView() {
     breadcrumbContainer.innerHTML = '<span class="breadcrumb-segment active" style="font-weight:900; color:#fff;">🖥️ This PC</span>';
   }
   if (footerStatus) {
-    footerStatus.innerText = 'Devices and Drives (7 items)';
+    footerStatus.innerText = `Devices and Drives (${detectedDevices ? detectedDevices.length : 0} items)`;
   }
+  renderExplorerSidebarDrives();
   if (!fileList) return;
-  let drives = [];
-  if (detectedDevices && detectedDevices.length > 0) {
-    drives = detectedDevices.map(d => {
-      const usedPct = d.total_gb ? Math.round(((d.total_gb - d.free_gb) / d.total_gb) * 100) : 30;
-      return {
-        icon: d.icon || '💾',
-        name: d.name || d.label,
-        path: d.path,
-        sub: d.is_removable ? 'Removable USB Automotive Storage' : (d.mount_point || d.path),
-        usedPct: Math.max(0, Math.min(100, usedPct)),
-        freeText: `${d.free_gb} GB free of ${d.total_gb} GB`
-      };
-    });
-  } else {
-    drives = [
-      { icon: '💽', name: 'OS System Drive (Root /)', path: '/', sub: 'MicroSD / NVMe Storage', usedPct: 50, freeText: 'System Drive' },
-      { icon: '💼', name: 'CarPi5 Workspace', path: 'carpi5', sub: 'Backend, 3D Engine & Telemetry', usedPct: 35, freeText: 'Active Workspace' },
-      { icon: '🏠', name: 'User Home (~)', path: '~', sub: 'User Profile & Configurations', usedPct: 38, freeText: 'User Home' },
-      { icon: '💾', name: 'USB External Media', path: 'usb', sub: 'Removable Storage', usedPct: 20, freeText: 'Automotive Media' },
-      { icon: '📹', name: 'Dashcam Storage', path: 'dashcam', sub: 'Video Replays & Dashcam Cache', usedPct: 45, freeText: 'Dashcam Network Storage' },
-      { icon: '🎮', name: 'Retro ROMs', path: 'roms', sub: 'Emulation Library', usedPct: 40, freeText: 'Game ROMs' },
-      { icon: '🎵', name: 'Music Library', path: 'music', sub: 'Audio Library', usedPct: 30, freeText: 'Local Audio Tracks' }
-    ];
+  if (!detectedDevices || detectedDevices.length === 0) {
+    fileList.innerHTML = '<div style="text-align:center; padding:32px; color:var(--text-secondary);">Scanning connected Pi 5, Pi 3, and USB storage devices...</div>';
+    checkUsbDevices();
+    return;
   }
+  const drives = detectedDevices.map(d => {
+    const hasCap = typeof d.total_gb === 'number' && d.total_gb > 0 && typeof d.free_gb === 'number';
+    const usedPct = hasCap ? Math.round(((d.total_gb - d.free_gb) / d.total_gb) * 100) : 0;
+    const freeText = hasCap
+      ? `${d.free_gb.toFixed(1)} GB free of ${d.total_gb.toFixed(1)} GB`
+      : (d.is_phone ? 'Connected Android MTP / ADB Storage' : 'Mounted');
+    const subLabel = d.host === 'pi3'
+      ? (d.is_phone ? 'Phone via Pi 3 USB Bridge' : (d.is_removable ? 'USB Drive Connected to Pi 3' : 'Raspberry Pi 3 Storage'))
+      : (d.is_removable ? 'Removable USB Drive (Pi 5)' : (d.mount_point || d.path));
+    return {
+      icon: d.icon || '💾',
+      name: d.name || d.label,
+      path: d.path,
+      sub: subLabel,
+      usedPct: Math.max(0, Math.min(100, usedPct)),
+      freeText: freeText
+    };
+  });
   fileList.innerHTML = `
 
     <div class="win11-drives-grid">

@@ -202,3 +202,13 @@ class SMSManager:
     def get_thread(self, contact_or_number: str) -> List[Dict[str, Any]]:
         with self.lock:
             return list(self.threads.get(contact_or_number, []))
+
+    def clear_all_threads(self) -> Dict[str, int]:
+        """Erase all cached SMS threads and message history cleanly."""
+        with self.lock:
+            thread_count = len(self.threads)
+            msg_count = sum(len(v) for v in self.threads.values())
+            self.threads = {}
+            self._seen_bridge_ids.clear()
+        self._save()
+        return {"threads_cleared": thread_count, "messages_cleared": msg_count}

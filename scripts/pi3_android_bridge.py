@@ -9,7 +9,9 @@ browse `/sdcard` phone storage over the direct Ethernet link (`10.0.0.1` <-> `10
 
 import argparse
 import base64
+import getpass
 import json
+import os
 import posixpath
 import re
 import shlex
@@ -18,6 +20,7 @@ import subprocess
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
@@ -312,6 +315,201 @@ def read_phone_file(raw_path: str, max_bytes: int = 500000) -> Dict[str, Any]:
         return {"status": "error", "message": str(e)}
 
 
+def _to_pi3_fs_uri(real_path: Path) -> str:
+    resolved = str(real_path.resolve()).replace("\\", "/")
+    home_str = str(Path.home().resolve()).replace("\\", "/")
+    if resolved == home_str:
+        return "pi3-fs://home"
+    if resolved == "/":
+        return "pi3-fs://root"
+    return f"pi3-fs://root/{resolved.lstrip('/')}"
+
+
+def _resolve_pi3_fs_path(raw_uri: str) -> Path:
+    s = str(raw_uri or "pi3-fs://home").strip().replace("\\", "/")
+    if s in ("pi3-fs://home", "pi3-fs://home/", "home", "~", ""):
+        return Path.home().resolve()
+    if s in ("pi3-fs://root", "pi3-fs://root/", "/"):
+        return Path("/")
+    if s.startswith("pi3-fs://home/"):
+        rel = s[len("pi3-fs://home/"):].lstrip("/")
+        return (Path.home() / rel).resolve()
+    if s.startswith("pi3-fs://root/"):
+        rel = s[len("pi3-fs://root/"):].lstrip("/")
+        return Path("/" + rel).resolve()
+    if s.startswith("pi3-fs://"):
+        rel = s[len("pi3-fs://"):].lstrip("/")
+        return Path("/" + rel).resolve()
+    return Path(os.path.expanduser(s)).resolve()
+
+
+def _format_size_bytes(size_bytes: int) -> str:
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    if size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    if size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+    return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+
+
+def _guess_file_type(name: str, is_dir: bool) -> str:
+    if is_dir:
+        return "folder"
+    ext = os.path.splitext(name)[1].lower()
+    if ext in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"):
+        return "image"
+    if ext in (".mp3", ".flac", ".wav", ".m4a", ".ogg", ".aac"):
+        return "music"
+    if ext in (".mp4", ".mkv", ".avi", ".mov", ".webm"):
+        return "video"
+    if ext in (".txt", ".json", ".py", ".log", ".ini", ".cfg", ".sh", ".md", ".conf", ".service"):
+        return "text"
+    return "file"
+
+
+def get_host_devices() -> List[Dict[str, Any]]:
+    devices: List[Dict[str, Any]] = []
+    home_dir = Path.home().resolve()
+    try:
+        total_b, _used_b, free_b = shutil.disk_usage(home_dir)
+        devices.append({
+            "id": "loc_pi3_home",
+            "name": "Pi 3 Home (~)",
+            "label": "PI 3 HOME",
+            "path": "pi3-fs://home",
+            "mount_point": "pi3-fs://home",
+            "icon": "🥧",
+            "free_gb": round(free_b / (1024**3), 1),
+            "total_gb": round(total_b / (1024**3), 1),
+            "is_removable": False,
+            "host": "pi3",
+            "status": "READY",
+        })
+    except Exception:
+        pass
+
+    try:
+        current_user = getpass.getuser()
+        search_dirs = [Path("/media"), Path("/mnt")]
+        if (Path("/media") / current_user).is_dir():
+            search_dirs.append(Path("/media") / current_user)
+        seen = set()
+        for parent in search_dirs:
+            if not parent.exists():
+                continue
+            for entry in parent.iterdir():
+                if not entry.is_dir() or entry.name in ("pi", "root", current_user):
+                    continue
+                res = str(entry.resolve())
+                if res in seen:
+                    continue
+                seen.add(res)
+                try:
+                    total_b, _used_b, free_b = shutil.disk_usage(entry)
+                    uri = f"pi3-fs://root/{res.lstrip('/')}"
+                    devices.append({
+                        "id": f"pi3_usb_{entry.name}",
+                        "name": f"Pi 3 USB ({entry.name})",
+                        "label": f"PI3 USB ({entry.name.upper()})",
+                        "path": uri,
+                        "mount_point": uri,
+                        "icon": "💾",
+                        "free_gb": round(free_b / (1024**3), 1),
+                        "total_gb": round(total_b / (1024**3), 1),
+                        "is_removable": True,
+                        "host": "pi3",
+                        "status": "MOUNTED",
+                    })
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    try:
+        total_b, _used_b, free_b = shutil.disk_usage(Path("/"))
+        devices.append({
+            "id": "loc_pi3_root",
+            "name": "Pi 3 System Root (/)",
+            "label": "PI 3 ROOT (/)",
+            "path": "pi3-fs://root",
+            "mount_point": "pi3-fs://root",
+            "icon": "⚙️",
+            "free_gb": round(free_b / (1024**3), 1),
+            "total_gb": round(total_b / (1024**3), 1),
+            "is_removable": False,
+            "host": "pi3",
+            "status": "SYSTEM",
+        })
+    except Exception:
+        pass
+
+    return devices
+
+
+def list_host_dir(raw_uri: str) -> Dict[str, Any]:
+    target = _resolve_pi3_fs_path(raw_uri)
+    if not target.exists() or not target.is_dir():
+        target = Path.home().resolve()
+    items: List[Dict[str, Any]] = []
+    error_msg = None
+    try:
+        entries = list(target.iterdir())
+        for entry in sorted(entries, key=lambda e: (not e.is_dir(), e.name.lower())):
+            try:
+                is_dir = entry.is_dir()
+                st = entry.stat()
+                size = st.st_size if not is_dir else 0
+                mtime = st.st_mtime
+                items.append({
+                    "name": entry.name,
+                    "path": f"pi3-fs://root/{str(entry.resolve()).lstrip('/')}",
+                    "is_dir": is_dir,
+                    "ext": entry.suffix.lower() if not is_dir else "",
+                    "size_bytes": size,
+                    "size_str": _format_size_bytes(size) if not is_dir else "",
+                    "type": _guess_file_type(entry.name, is_dir),
+                    "modified": time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime)) if mtime else "",
+                    "timestamp": mtime,
+                })
+            except Exception:
+                continue
+    except Exception as exc:
+        error_msg = str(exc)
+
+    cur_uri = _to_pi3_fs_uri(target)
+    parent_uri = _to_pi3_fs_uri(target.parent) if target.parent != target else None
+    crumbs = [{"name": "🥧 Pi 3 (/)", "path": "pi3-fs://root"}]
+    rel_segs = [seg for seg in str(target.resolve()).split("/") if seg]
+    acc = ""
+    for seg in rel_segs:
+        acc += "/" + seg
+        crumbs.append({"name": seg, "path": f"pi3-fs://root/{acc.lstrip('/')}"})
+
+    return {
+        "status": "ok" if not error_msg else "error",
+        "error": error_msg,
+        "path": cur_uri,
+        "current_path": cur_uri,
+        "parent_path": parent_uri,
+        "breadcrumbs": crumbs,
+        "items": items,
+        "count": len(items),
+    }
+
+
+def read_host_file(raw_uri: str, max_bytes: int = 500000) -> Dict[str, Any]:
+    target = _resolve_pi3_fs_path(raw_uri)
+    if not target.exists() or target.is_dir():
+        return {"status": "error", "message": "File not found on Pi 3"}
+    try:
+        with open(target, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read(max_bytes)
+        return {"status": "ok", "path": _to_pi3_fs_uri(target), "name": target.name, "content": content}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
 class Pi3BridgeHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -350,6 +548,12 @@ class Pi3BridgeHandler(BaseHTTPRequestHandler):
             self._send_json(list_phone_dir(qs.get("path", [DEFAULT_PHONE_ROOT])[0]))
         elif parsed.path == "/fs/read":
             self._send_json(read_phone_file(qs.get("path", [DEFAULT_PHONE_ROOT])[0]))
+        elif parsed.path == "/host/devices":
+            self._send_json({"status": "ok", "devices": get_host_devices()})
+        elif parsed.path == "/host/list":
+            self._send_json(list_host_dir(qs.get("path", ["pi3-fs://home"])[0]))
+        elif parsed.path == "/host/read":
+            self._send_json(read_host_file(qs.get("path", ["pi3-fs://home"])[0]))
         else:
             self._send_json({"status": "error", "error": "Not found"}, status=404)
 

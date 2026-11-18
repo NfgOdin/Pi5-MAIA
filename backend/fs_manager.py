@@ -14,14 +14,6 @@ from typing import Dict, List, Any, Optional
 
 BASE_DIR = Path(__file__).parent.parent
 STORAGE_DIR = BASE_DIR / "storage"
-SAMPLE_USB_DIR = STORAGE_DIR / "usb_drive"
-
-# Ensure storage directories exist
-SAMPLE_USB_DIR.mkdir(parents=True, exist_ok=True)
-(SAMPLE_USB_DIR / "snes_roms").mkdir(exist_ok=True)
-(SAMPLE_USB_DIR / "music").mkdir(exist_ok=True)
-(SAMPLE_USB_DIR / "videos").mkdir(exist_ok=True)
-(SAMPLE_USB_DIR / "tuning_configs").mkdir(exist_ok=True)
 
 def detect_usb_drives() -> List[Dict[str, Any]]:
     """
@@ -166,7 +158,7 @@ def detect_usb_drives() -> List[Dict[str, Any]]:
                 except Exception:
                     pass
 
-    # 7. Pi 3 Android USB Bridge (/sdcard via 10.0.0.2:8002)
+    # 7. Pi 3 Host Storage, Pi 3 USB Drives & Connected Android Phone (via 10.0.0.2:8002)
     try:
         try:
             from telephony.phone_manager import Pi3AndroidBridgeClient
@@ -174,18 +166,24 @@ def detect_usb_drives() -> List[Dict[str, Any]]:
             from backend.telephony.phone_manager import Pi3AndroidBridgeClient
         bridge = Pi3AndroidBridgeClient.get_shared()
         bst = bridge.probe_status(force=False)
+        if bst.get("online"):
+            for hdev in bridge.get_host_devices():
+                if isinstance(hdev, dict) and hdev.get("path"):
+                    locations.append(hdev)
         if bst.get("online") and bst.get("adb_connected"):
             model = bst.get("phone_model") or "Android Phone"
             locations.append({
                 "id": "loc_android_pi3",
-                "name": f"Android USB ({model} via Pi 3)",
-                "label": "ANDROID (PI3 USB)",
+                "name": f"Android Phone ({model} via Pi 3)",
+                "label": "PHONE (/sdcard)",
                 "path": "pi3://sdcard",
                 "mount_point": "pi3://sdcard",
                 "icon": "📱",
                 "free_gb": None,
                 "total_gb": None,
-                "is_removable": True,
+                "is_removable": False,
+                "is_phone": True,
+                "host": "pi3",
                 "status": "MOUNTED",
             })
     except Exception:
@@ -246,13 +244,27 @@ def list_directory(target_path: str) -> Dict[str, Any]:
     List contents of any valid directory with detailed metadata,
     permission safety, sorting, and breadcrumb path hierarchy.
     """
-    if str(target_path or "").strip().startswith("pi3://"):
+    raw_str = str(target_path or "").strip()
+    if raw_str.startswith("pi3-fs://"):
         try:
             try:
                 from telephony.phone_manager import Pi3AndroidBridgeClient
             except ImportError:
                 from backend.telephony.phone_manager import Pi3AndroidBridgeClient
-            posix_sub = "/" + str(target_path).strip()[len("pi3://"):].lstrip("/")
+            res = Pi3AndroidBridgeClient.get_shared().list_host_files(raw_str)
+            res.setdefault("breadcrumbs", [{"name": "🥧 Pi 3", "path": "pi3-fs://home"}])
+            res.setdefault("count", len(res.get("items", [])))
+            return res
+        except Exception as e:
+            return {"status": "error", "error": str(e), "path": raw_str, "items": [], "count": 0, "breadcrumbs": []}
+
+    if raw_str.startswith("pi3://"):
+        try:
+            try:
+                from telephony.phone_manager import Pi3AndroidBridgeClient
+            except ImportError:
+                from backend.telephony.phone_manager import Pi3AndroidBridgeClient
+            posix_sub = "/" + raw_str[len("pi3://"):].lstrip("/")
             res = Pi3AndroidBridgeClient.get_shared().list_files(posix_sub)
             cur = res.get("path", f"pi3://{posix_sub.lstrip('/')}")
             parts = [{"name": "📱 Phone (/sdcard)", "path": "pi3://sdcard"}]
@@ -266,9 +278,9 @@ def list_directory(target_path: str) -> Dict[str, Any]:
             res.setdefault("count", len(res.get("items", [])))
             return res
         except Exception as e:
-            return {"status": "error", "error": str(e), "path": str(target_path), "items": [], "count": 0, "breadcrumbs": []}
+            return {"status": "error", "error": str(e), "path": raw_str, "items": [], "count": 0, "breadcrumbs": []}
 
-    if not target_path or not str(target_path).strip() or target_path in ("~", "home"):
+    if not raw_str or target_path in ("~", "home"):
         p = Path.home()
     elif target_path in ("carpi5", "project"):
         p = BASE_DIR
@@ -277,13 +289,20 @@ def list_directory(target_path: str) -> Dict[str, Any]:
     elif target_path == "roms":
         p = Path.home() / "RetroPie" / "roms" if (Path.home() / "RetroPie" / "roms").exists() else Path.home() / "Roms"
     elif target_path == "usb":
-        p = Path("/media") if Path("/media").exists() else Path.home()
+        rem = [d for d in detect_usb_drives() if d.get("is_removable")]
+        if rem:
+            first_path = rem[0]["path"]
+            if str(first_path).startswith(("pi3://", "pi3-fs://")):
+                return list_directory(first_path)
+            p = Path(first_path)
+        else:
+            return {"status": "error", "error": "No removable USB flash drive plugged into Pi 5 or Pi 3.", "path": "usb", "items": [], "count": 0, "breadcrumbs": []}
     elif target_path == "dashcam":
         p = BASE_DIR / "storage" / "dashcam_videos"
     else:
-        p = Path(os.path.expanduser(str(target_path).strip()))
+        p = Path(os.path.expanduser(raw_str))
         if not p.exists() or not p.is_dir():
-            p = Path.home()
+            return {"status": "error", "error": f"Directory not found: {raw_str}", "path": raw_str, "items": [], "count": 0, "breadcrumbs": []}
 
     items = []
     error_msg = None
@@ -348,13 +367,24 @@ def list_directory(target_path: str) -> Dict[str, Any]:
 
 def read_text_file(filepath: str) -> Dict[str, Any]:
     """Read file content as text (up to 500 KB)."""
-    if str(filepath or "").strip().startswith("pi3://"):
+    raw_str = str(filepath or "").strip()
+    if raw_str.startswith("pi3-fs://"):
         try:
             try:
                 from telephony.phone_manager import Pi3AndroidBridgeClient
             except ImportError:
                 from backend.telephony.phone_manager import Pi3AndroidBridgeClient
-            posix_sub = "/" + str(filepath).strip()[len("pi3://"):].lstrip("/")
+            return Pi3AndroidBridgeClient.get_shared().read_host_file(raw_str)
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    if raw_str.startswith("pi3://"):
+        try:
+            try:
+                from telephony.phone_manager import Pi3AndroidBridgeClient
+            except ImportError:
+                from backend.telephony.phone_manager import Pi3AndroidBridgeClient
+            posix_sub = "/" + raw_str[len("pi3://"):].lstrip("/")
             return Pi3AndroidBridgeClient.get_shared().read_file(posix_sub)
         except Exception as e:
             return {"status": "error", "message": str(e)}

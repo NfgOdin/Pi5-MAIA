@@ -52,11 +52,41 @@ class MemoryManager:
                     with open(self.memory_file, "r", encoding="utf-8") as f:
                         data = json.load(f)
                         if isinstance(data, dict):
+                            if data.get("wiped"):
+                                return {
+                                    "total_drives": int(data.get("total_drives", 0)),
+                                    "first_boot_date": data.get("first_boot_date") or datetime.now().isoformat(),
+                                    "last_boot_date": data.get("last_boot_date"),
+                                    "last_shutdown_date": data.get("last_shutdown_date"),
+                                    "all_time_stats": data.get("all_time_stats", {}),
+                                    "last_session_stats": data.get("last_session_stats", {}),
+                                    "recent_greeting_hashes": data.get("recent_greeting_hashes", []),
+                                    "known_notes": data.get("known_notes", []),
+                                    "wiped": True,
+                                }
                             default_memory.update(data)
                 except Exception as e:
                     print(f"[MEMORY] Error reading memory file: {e}")
 
         return default_memory
+
+    def wipe_memory(self) -> Dict[str, Any]:
+        """Clear all stored drive notes, stats, and greeting history cleanly without re-seeding placeholders."""
+        with self._lock:
+            prev_notes = len(self.memory.get("known_notes", []))
+            self.memory = {
+                "total_drives": 0,
+                "first_boot_date": datetime.now().isoformat(),
+                "last_boot_date": None,
+                "last_shutdown_date": None,
+                "all_time_stats": {},
+                "last_session_stats": {},
+                "recent_greeting_hashes": [],
+                "known_notes": [],
+                "wiped": True,
+            }
+            self.save_memory()
+            return {"notes_cleared": prev_notes}
 
     def save_memory(self):
         with self._lock:

@@ -173,6 +173,20 @@ class Pi3AndroidBridgeClient:
         q = urllib.parse.urlencode({"path": phone_path})
         return self._call(f"/fs/read?{q}", method="GET")
 
+    def get_host_devices(self) -> List[Dict[str, Any]]:
+        res = self._call("/host/devices", method="GET")
+        if isinstance(res, dict) and isinstance(res.get("devices"), list):
+            return res["devices"]
+        return []
+
+    def list_host_files(self, host_path: str = "pi3-fs://home") -> Dict[str, Any]:
+        q = urllib.parse.urlencode({"path": host_path})
+        return self._call(f"/host/list?{q}", method="GET")
+
+    def read_host_file(self, host_path: str) -> Dict[str, Any]:
+        q = urllib.parse.urlencode({"path": host_path})
+        return self._call(f"/host/read?{q}", method="GET")
+
 
 class KinshipManager:
     """Manages daughter-centric family kinship titles, contacts, and speech announcements."""
@@ -534,6 +548,19 @@ class PhoneManager:
             return {"status": "error", "added": 0, "error": res.get("error", "Pi 3 Android bridge unavailable")}
         added = self.kinship.merge_synced_contacts(res.get("contacts", []))
         return {"status": "ok", "added": added, "total": len(self.kinship.get_contacts())}
+
+    def clear_all_phone_data(self) -> Dict[str, int]:
+        """Erase call history, saved contacts, and live screening buffers cleanly."""
+        calls_cleared = len(self.history)
+        contacts_cleared = len(self.kinship.get_contacts())
+        self.history = []
+        self._save_history()
+        with self.kinship.lock:
+            self.kinship.data["contacts"] = []
+        self.kinship.save()
+        self.live_screening_transcript = ""
+        self.screening_notes = ""
+        return {"calls_cleared": calls_cleared, "contacts_cleared": contacts_cleared}
 
     def trigger_incoming_call(self, caller_number: str) -> None:
         contact = self.kinship.resolve_contact(caller_number)

@@ -1371,6 +1371,22 @@ class ModularRouteDispatchTest(unittest.TestCase):
                     })
                 elif p.path == "/fs/read":
                     self._send({"status": "ok", "path": "pi3://sdcard/Download/notes.txt", "name": "notes.txt", "content": "Tune rev2"})
+                elif p.path == "/host/devices":
+                    self._send({
+                        "status": "ok",
+                        "devices": [
+                            {"id": "loc_pi3_home", "name": "Pi 3 Home (~)", "label": "PI 3 HOME", "path": "pi3-fs://home", "mount_point": "pi3-fs://home", "icon": "🥧", "free_gb": 12.4, "total_gb": 29.0, "is_removable": False, "host": "pi3", "status": "READY"},
+                            {"id": "pi3_usb_THUMB", "name": "Pi 3 USB (THUMB)", "label": "PI3 USB (THUMB)", "path": "pi3-fs://root/media/nfgodin/THUMB", "mount_point": "pi3-fs://root/media/nfgodin/THUMB", "icon": "💾", "free_gb": 7.2, "total_gb": 16.0, "is_removable": True, "host": "pi3", "status": "MOUNTED"},
+                        ],
+                    })
+                elif p.path == "/host/list":
+                    self._send({
+                        "status": "ok",
+                        "path": "pi3-fs://home",
+                        "items": [{"name": "dashcam.mp4", "path": "pi3-fs://root/home/nfgodin/dashcam.mp4", "is_dir": False, "type": "video", "size_bytes": 2048}],
+                    })
+                elif p.path == "/host/read":
+                    self._send({"status": "ok", "path": "pi3-fs://root/home/nfgodin/readme.txt", "name": "readme.txt", "content": "Pi 3 storage online"})
 
             def do_POST(self):
                 ln = int(self.headers.get("Content-Length") or 0)
@@ -1443,11 +1459,17 @@ class ModularRouteDispatchTest(unittest.TestCase):
                 self.assertEqual(h_sms.json_body()["message"]["delivery_status"], "sent")
 
                 devs = fs_manager.detect_usb_drives()
-                self.assertTrue(any(d.get("path") == "pi3://sdcard" for d in devs))
+                self.assertTrue(any(d.get("path") == "pi3://sdcard" and d.get("is_phone") for d in devs))
+                self.assertTrue(any(d.get("path") == "pi3-fs://home" and d.get("host") == "pi3" for d in devs))
+                self.assertTrue(any(d.get("path") == "pi3-fs://root/media/nfgodin/THUMB" and d.get("is_removable") for d in devs))
                 listing = fs_manager.list_directory("pi3://sdcard/Download")
                 self.assertEqual(listing["items"][0]["name"], "notes.txt")
                 txt = fs_manager.read_text_file("pi3://sdcard/Download/notes.txt")
                 self.assertEqual(txt["content"], "Tune rev2")
+                h_list = fs_manager.list_directory("pi3-fs://home")
+                self.assertEqual(h_list["items"][0]["name"], "dashcam.mp4")
+                h_txt = fs_manager.read_text_file("pi3-fs://root/home/nfgodin/readme.txt")
+                self.assertEqual(h_txt["content"], "Pi 3 storage online")
         finally:
             srv.shutdown()
             srv.server_close()
@@ -1470,6 +1492,117 @@ class ModularRouteDispatchTest(unittest.TestCase):
         self.assertFalse(dispatch_get(h, urlparse("/index.html"), self.state))
         self.assertFalse(dispatch_get(h, urlparse("/api/nonexistent_route"), self.state))
         self.assertFalse(dispatch_post(h, urlparse("/api/nonexistent_route"), self.state))
+
+    def test_privacy_inventory_and_selective_wipe(self):
+        from types import SimpleNamespace
+        from ai.rag_memory import RagMemoryEngine
+        from ai.memory_manager import MemoryManager
+        from telephony.phone_manager import PhoneManager, Pi3AndroidBridgeClient
+        from telephony.sms_manager import SMSManager
+
+        orig_phone_inst = PhoneManager._instance
+        orig_sms_inst = SMSManager._instance
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmp = Path(tmpdir)
+                (tmp / "storage" / "tts_cache").mkdir(parents=True)
+                (tmp / "storage" / "tts_cache" / "phrase1.wav").write_bytes(b"RIFF0000")
+                (tmp / "storage" / "trip_archives").mkdir(parents=True)
+                (tmp / "storage" / "trip_archives" / "trip_1.zip").write_bytes(b"PK\x03\x04")
+                (tmp / "storage" / "logs").mkdir(parents=True)
+                (tmp / "storage" / "logs" / "app.log").write_text("log line\n", encoding="utf-8")
+                (tmp / "backend" / "ai").mkdir(parents=True)
+                (tmp / "backend" / "ai" / "google_oauth_tokens.json").write_text('{"token":"abc"}', encoding="utf-8")
+                (tmp / "backend" / "bluetooth_saved.json").write_text('{"mac":"AA:BB"}', encoding="utf-8")
+                (tmp / "ui" / "web_preview").mkdir(parents=True)
+                (tmp / "ui" / "web_preview" / "last_speech.wav").write_bytes(b"RIFF")
+
+                rag = RagMemoryEngine(db_path=tmp / "storage" / "rag_memory.db")
+                rag.add_document("factory_oil", "manual", "Dart Oil", "Pennzoil 5W-40 MS-12991")
+                rag.add_document("user_note_1", "custom_note", "My Note", "Remember tire torque")
+                mem = MemoryManager(memory_file=str(tmp / "backend" / "ai" / "ai_memory.json"))
+                PhoneManager._instance = None
+                SMSManager._instance = None
+                pm = PhoneManager(
+                    bridge_client=Pi3AndroidBridgeClient(base_url="http://127.0.0.1:9"),
+                    kinship_file=tmp / "config" / "family_kinship.json",
+                    history_file=tmp / "storage" / "call_history.json",
+                )
+                pm.kinship.add_or_update_contact({"id": "c_1", "name": "Mom", "kinship": "Nanny", "phone": "9285550101"})
+                sm = SMSManager(bridge_client=Pi3AndroidBridgeClient(base_url="http://127.0.0.1:9"), storage_file=tmp / "storage" / "sms.json")
+                sm.threads["9285550101"] = [{"id": "s1", "text": "Hi"}]
+                sm._save()
+
+                class DummyAudio:
+                    def __init__(self):
+                        self._speech_clips = {1: b"WAV"}
+                        self._speech_visemes = {1: {"rms": [0.5]}}
+                    def get_cache_stats(self):
+                        return {"cached_phrases": 1}
+                    def stop_speaking(self):
+                        return 1
+                    def clear_cache(self):
+                        for f in (tmp / "storage" / "tts_cache").glob("*"):
+                            f.unlink()
+                        return {"cleared": 1}
+                    def clear_voice_clips_and_ram(self):
+                        self._speech_clips.clear()
+                        self._speech_visemes.clear()
+                        return {"cache": self.clear_cache(), "ring_clips_cleared": 1}
+
+                class DummyTrips:
+                    def get_recent_trips(self, limit=10):
+                        return [{"id": 1}]
+                    def clear_all_trips(self):
+                        return True
+
+                fake_state = SimpleNamespace(
+                    base_dir=tmp,
+                    rag=rag,
+                    llm=SimpleNamespace(memory_mgr=mem, speech_log=[{"speech": "Hello"}]),
+                    audio=DummyAudio(),
+                    phone=pm,
+                    sms=sm,
+                    trip_logger=DummyTrips(),
+                )
+
+                h_inv = DummyHandler()
+                self.assertTrue(dispatch_get(h_inv, urlparse("/api/privacy/inventory"), fake_state))
+                inv = h_inv.json_body()["inventory"]
+                self.assertGreaterEqual(inv["ai_memory"]["facts"], 1)
+                self.assertEqual(inv["phone_accounts"]["contacts"], 1)
+                self.assertTrue(inv["phone_accounts"]["oauth_linked"])
+
+                # Wipe ONLY ai_memory + voice_clips first
+                h_wipe1 = DummyHandler({"categories": ["ai_memory", "voice_clips"]})
+                self.assertTrue(dispatch_post(h_wipe1, urlparse("/api/privacy/wipe"), fake_state))
+                self.assertEqual(h_wipe1.json_body()["status"], "ok")
+                self.assertEqual(rag.get_driver_facts(), [])
+                self.assertEqual(rag.get_recent_diary_entries(), [])
+                self.assertEqual(fake_state.llm.speech_log, [])
+                self.assertFalse((tmp / "ui" / "web_preview" / "last_speech.wav").exists())
+                # Phone & factory manuals/maintenance must remain intact!
+                self.assertEqual(len(pm.kinship.get_contacts()), 1)
+                self.assertGreaterEqual(len(rag.get_maintenance_status()["items"]), 1)
+                self.assertGreaterEqual(len(rag.search("Pennzoil", top_k=2, threshold=0.0)), 1)
+
+                # Re-opening RagMemoryEngine must NOT re-seed wiped facts/diary!
+                rag_reopened = RagMemoryEngine(db_path=tmp / "storage" / "rag_memory.db")
+                self.assertEqual(rag_reopened.get_driver_facts(), [])
+                self.assertEqual(rag_reopened.get_recent_diary_entries(), [])
+
+                # Now wipe phone_accounts + trips_logs
+                h_wipe2 = DummyHandler({"categories": ["phone_accounts", "trips_logs"]})
+                self.assertTrue(dispatch_post(h_wipe2, urlparse("/api/privacy/wipe"), fake_state))
+                inv_after = h_wipe2.json_body()["inventory"]
+                self.assertEqual(inv_after["phone_accounts"]["contacts"], 0)
+                self.assertEqual(inv_after["phone_accounts"]["sms_messages"], 0)
+                self.assertFalse(inv_after["phone_accounts"]["oauth_linked"])
+                self.assertEqual(inv_after["trips_logs"]["archive_files"], 0)
+                self.assertEqual(inv_after["trips_logs"]["log_files"], 0)
+        finally:
+            PhoneManager._instance = orig_phone_inst
+            SMSManager._instance = orig_sms_inst
 
 
 if __name__ == "__main__":

@@ -55,6 +55,29 @@ function updatePhoneUI(phone) {
     }
   }
 
+  // Keep Home launcher card & top header quick-launch icon in sync
+  const homeBadge = document.getElementById('homePhoneBadge');
+  if (homeBadge) {
+    if (phone.connected) {
+      const tag = phone.tether_active ? 'USB + TETHER' : (phone.bt_hfp_connected ? 'BT HFP' : 'PI3 USB');
+      const batt = (typeof phone.phone_battery_pct === 'number' && phone.phone_battery_pct >= 0) ? ` • ${phone.phone_battery_pct}%` : '';
+      homeBadge.innerText = `📱 ${phone.device_name || 'LINKED'} • ${tag}${batt}`;
+      homeBadge.style.color = phone.tether_active ? '#34d399' : '#38bdf8';
+      homeBadge.style.borderColor = phone.tether_active ? '#059669' : '#0284c7';
+      homeBadge.style.background = phone.tether_active ? 'rgba(52,211,153,0.16)' : 'rgba(56,189,248,0.16)';
+    } else {
+      homeBadge.innerText = '📱 STANDBY (BT / USB)';
+      homeBadge.style.color = '#94a3b8';
+      homeBadge.style.borderColor = '#334155';
+      homeBadge.style.background = 'rgba(148,163,184,0.12)';
+    }
+  }
+  const hdrPhone = document.getElementById('btnHeaderPhone');
+  if (hdrPhone) {
+    hdrPhone.style.color = phone.tether_active ? '#34d399' : (phone.connected ? '#38bdf8' : '');
+    hdrPhone.style.borderColor = phone.tether_active ? '#059669' : (phone.connected ? '#0284c7' : '');
+  }
+
   const hud = document.getElementById('floatingInCallHud');
   if (!hud) return;
 

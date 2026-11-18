@@ -107,12 +107,31 @@ def handle_get(handler: Any, parsed: Any, state: Any) -> bool:
             handler.wfile.write(f"<h3>Unable to load {target_url}</h3><p>{ex}</p>".encode("utf-8"))
         return True
 
+    if path == "/api/privacy/inventory":
+        try:
+            from privacy_wipe import get_privacy_inventory
+        except ImportError:
+            from backend.privacy_wipe import get_privacy_inventory
+        send_json(handler, {"status": "ok", "inventory": get_privacy_inventory(state)})
+        return True
+
     return False
 
 
 def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
     """Handle settings save/reset, Google OAuth, OTA update apply, and UI navigate POST endpoints."""
     path = parsed.path
+
+    if path == "/api/privacy/wipe":
+        req_data = read_json_body(handler)
+        try:
+            from privacy_wipe import execute_privacy_wipe
+        except ImportError:
+            from backend.privacy_wipe import execute_privacy_wipe
+        cats = req_data.get("categories")
+        res = execute_privacy_wipe(state, categories=cats)
+        send_json(handler, res, status=200 if res.get("status") == "ok" else 400)
+        return True
 
     if path == "/api/settings/reset":
         defaults = state.reset_settings()

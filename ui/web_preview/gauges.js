@@ -2347,6 +2347,10 @@ function switchSettingsCategory(catId) {
 
     if (c) c.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
+  } else if (catId === 'system') {
+
+    if (typeof loadPrivacyInventory === 'function') loadPrivacyInventory();
+
   }
 
 }

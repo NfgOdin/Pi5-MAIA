@@ -2195,10 +2195,43 @@ class AudioPlayer:
 
 
     def clear_cache(self) -> Dict[str, Any]:
-
         """Empties the speech cache."""
-
         return self.cache_mgr.clear()
+
+    def clear_voice_clips_and_ram(self) -> Dict[str, Any]:
+        """Stop playback, wipe TTS cache, last_speech.wav, RAM audio temps, and in-memory viseme ring buffer."""
+        try:
+            self.stop_speaking()
+        except Exception:
+            pass
+        cache_res = self.clear_cache()
+        ring_removed = 0
+        with self._speech_lock:
+            ring_removed = len(self._speech_clips)
+            self._speech_clips.clear()
+            self._speech_visemes.clear()
+        ram_removed = 0
+        try:
+            for p in Path(RAM_AUDIO_DIR).glob("*"):
+                if p.is_file():
+                    p.unlink(missing_ok=True)
+                    ram_removed += 1
+        except Exception:
+            pass
+        web_wav = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))) / "ui" / "web_preview" / "last_speech.wav"
+        last_removed = 0
+        try:
+            if web_wav.exists():
+                web_wav.unlink()
+                last_removed = 1
+        except Exception:
+            pass
+        return {
+            "cache": cache_res,
+            "ring_clips_cleared": ring_removed,
+            "ram_files_removed": ram_removed,
+            "last_speech_removed": last_removed,
+        }
 
     def set_system_volume(self, volume_pct: int) -> bool:
         """Sets master hardware volume (0-100%) via wpctl, pactl, or amixer with strict timeouts."""

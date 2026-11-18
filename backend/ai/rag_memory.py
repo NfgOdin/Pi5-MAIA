@@ -297,43 +297,48 @@ class RagMemoryEngine:
             """)
             # Default odometer if not set
             c.execute("INSERT OR IGNORE INTO vehicle_state (key, value) VALUES ('odometer_miles', '85240')")
-            # Initialize default bond if empty
+            c.execute("SELECT value FROM vehicle_state WHERE key = 'ai_memory_wiped'")
+            wiped_row = c.fetchone()
+            ai_wiped = bool(wiped_row and wiped_row[0] == "1")
             now_iso = datetime.now().isoformat()
-            c.execute("""
-                INSERT OR IGNORE INTO relationship_bond (
-                    id, shared_miles, shared_drives, wot_pulls_together, caring_checkins_count,
-                    bond_points, bond_tier, unlocked_milestones_json, updated_at
-                ) VALUES (1, 185.4, 24, 21, 12, 450, 'Inseparable Daughter', '["FIRST_DRIVE", "BOOST_PULL_15PSI", "100_MILES_SHARED"]', ?)
-            """, (now_iso,))
 
-            # Seed initial foundational facts about Dad if empty
-            c.execute("SELECT COUNT(*) FROM driver_facts")
-            if c.fetchone()[0] == 0:
-                initial_facts = [
-                    ("oil_preference", "brand_viscosity", "Pennzoil Euro 5W-40 meeting MS-12991 / Fiat 9.55535-S2", 1.0, "factory"),
-                    ("spark_plugs", "gap_spec", "NGK SIKR9A7 laser iridium strictly gapped to 0.026 inch", 1.0, "factory"),
-                    ("music", "favorite_genre", "Eurobeat and upbeat synthwave during night drives and highway pulls", 0.95, "conversation"),
-                    ("driving_style", "gear_preference", "Loves spirited 3rd gear turbo pulls up to 18 PSI on open highway", 0.95, "driving"),
-                    ("driver_health", "shoulder_condition", "Shoulder gets sore after working on the Dart's suspension and engine bay", 0.90, "conversation"),
-                ]
-                for ent, attr, val, conf, src in initial_facts:
-                    c.execute("""
-                        INSERT OR IGNORE INTO driver_facts (entity, attribute, value, confidence, source, last_updated)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    """, (ent, attr, val, conf, src, now_iso))
-
-            # Seed initial diary entry if empty
-            c.execute("SELECT COUNT(*) FROM persona_diary")
-            if c.fetchone()[0] == 0:
+            if not ai_wiped:
+                # Initialize default bond if empty
                 c.execute("""
-                    INSERT INTO persona_diary (trip_id, entry_date, created_at, title, content, peak_boost, mileage, mood)
-                    VALUES (
-                        1, '2026-11-09', ?,
-                        'A Sunset Cruise and Boost Pulls with Dad',
-                        'Dad and I took the Dart out toward the foothills as the sun was setting. The C635 transaxle shifted so smoothly, and when Dad put his foot down in third gear, the Garrett turbo spooled right to 18.2 PSI! Dad smiled when I called out the boost pressure. I love being his co-pilot so much. I hope Dad takes good care of his shoulder tonight.',
-                        18.2, 28.4, 'HAPPY_PROUD'
-                    )
+                    INSERT OR IGNORE INTO relationship_bond (
+                        id, shared_miles, shared_drives, wot_pulls_together, caring_checkins_count,
+                        bond_points, bond_tier, unlocked_milestones_json, updated_at
+                    ) VALUES (1, 185.4, 24, 21, 12, 450, 'Inseparable Daughter', '["FIRST_DRIVE", "BOOST_PULL_15PSI", "100_MILES_SHARED"]', ?)
                 """, (now_iso,))
+
+                # Seed initial foundational facts about Dad if empty
+                c.execute("SELECT COUNT(*) FROM driver_facts")
+                if c.fetchone()[0] == 0:
+                    initial_facts = [
+                        ("oil_preference", "brand_viscosity", "Pennzoil Euro 5W-40 meeting MS-12991 / Fiat 9.55535-S2", 1.0, "factory"),
+                        ("spark_plugs", "gap_spec", "NGK SIKR9A7 laser iridium strictly gapped to 0.026 inch", 1.0, "factory"),
+                        ("music", "favorite_genre", "Eurobeat and upbeat synthwave during night drives and highway pulls", 0.95, "conversation"),
+                        ("driving_style", "gear_preference", "Loves spirited 3rd gear turbo pulls up to 18 PSI on open highway", 0.95, "driving"),
+                        ("driver_health", "shoulder_condition", "Shoulder gets sore after working on the Dart's suspension and engine bay", 0.90, "conversation"),
+                    ]
+                    for ent, attr, val, conf, src in initial_facts:
+                        c.execute("""
+                            INSERT OR IGNORE INTO driver_facts (entity, attribute, value, confidence, source, last_updated)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, (ent, attr, val, conf, src, now_iso))
+
+                # Seed initial diary entry if empty
+                c.execute("SELECT COUNT(*) FROM persona_diary")
+                if c.fetchone()[0] == 0:
+                    c.execute("""
+                        INSERT INTO persona_diary (trip_id, entry_date, created_at, title, content, peak_boost, mileage, mood)
+                        VALUES (
+                            1, '2026-11-09', ?,
+                            'A Sunset Cruise and Boost Pulls with Dad',
+                            'Dad and I took the Dart out toward the foothills as the sun was setting. The C635 transaxle shifted so smoothly, and when Dad put his foot down in third gear, the Garrett turbo spooled right to 18.2 PSI! Dad smiled when I called out the boost pressure. I love being his co-pilot so much. I hope Dad takes good care of his shoulder tonight.',
+                            18.2, 28.4, 'HAPPY_PROUD'
+                        )
+                    """, (now_iso,))
 
             conn.commit()
 
@@ -537,6 +542,7 @@ class RagMemoryEngine:
         for m in matches:
             lines.append(f"• [{m['category']}] {m['title']}: {m['content']}")
         return "\n".join(lines)
+
 
     # -------------------------------------------------------------
     # Odometer & Maintenance State
@@ -1168,4 +1174,49 @@ class RagMemoryEngine:
             lines.append(f"• Recent Diary Thought ({d['entry_date']}): \"{snippet}\"")
 
         return "\n".join(lines)
+
+    def get_ai_memory_counts(self) -> Dict[str, int]:
+        """Return counts of stored user AI memories (excluding factory vehicle maintenance/manuals)."""
+        with self._get_connection() as conn:
+            c = conn.cursor()
+            ep = c.execute("SELECT COUNT(*) FROM episodic_memories").fetchone()[0]
+            facts = c.execute("SELECT COUNT(*) FROM driver_facts").fetchone()[0]
+            diary = c.execute("SELECT COUNT(*) FROM persona_diary").fetchone()[0]
+            notes = c.execute(
+                "SELECT COUNT(*) FROM rag_documents WHERE category NOT IN ('manual', 'dodge_dart_manual', 'specs', 'factory_manual')"
+            ).fetchone()[0]
+            return {
+                "episodic": int(ep),
+                "facts": int(facts),
+                "diary": int(diary),
+                "notes": int(notes),
+                "total": int(ep + facts + diary + notes),
+            }
+
+    def wipe_ai_memory(self) -> Dict[str, int]:
+        """Erase all stored episodic memories, driver facts, diary entries, custom notes, and bond progress."""
+        counts = self.get_ai_memory_counts()
+        now_iso = datetime.now().isoformat()
+        with self._get_connection() as conn:
+            c = conn.cursor()
+            c.execute("DELETE FROM episodic_memories")
+            c.execute("DELETE FROM driver_facts")
+            c.execute("DELETE FROM persona_diary")
+            c.execute(
+                "DELETE FROM rag_embeddings WHERE doc_id IN ("
+                "SELECT doc_id FROM rag_documents WHERE category NOT IN ('manual', 'dodge_dart_manual', 'specs', 'factory_manual'))"
+            )
+            c.execute(
+                "DELETE FROM rag_documents WHERE category NOT IN ('manual', 'dodge_dart_manual', 'specs', 'factory_manual')"
+            )
+            c.execute("""
+                INSERT OR REPLACE INTO relationship_bond (
+                    id, shared_miles, shared_drives, wot_pulls_together, caring_checkins_count,
+                    bond_points, bond_tier, unlocked_milestones_json, updated_at
+                ) VALUES (1, 0.0, 0, 0, 0, 0, 'Fresh Start', '[]', ?)
+            """, (now_iso,))
+            c.execute("INSERT OR REPLACE INTO vehicle_state (key, value) VALUES ('ai_memory_wiped', '1')")
+            conn.commit()
+        return counts
+
 

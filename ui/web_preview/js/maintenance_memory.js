@@ -624,3 +624,148 @@ function submitTeachPersonaFact() {
     closeTeachPersonaModal();
   });
 }
+
+// ============================================================================
+// PRIVACY & PERSONAL DATA WIPE CONTROLLER
+// ============================================================================
+let _privacyInventoryCache = null;
+let _pendingWipeCategories = [];
+
+const WIPE_CATEGORY_ORDER = ['ai_memory', 'voice_clips', 'phone_accounts', 'trips_logs'];
+
+function _formatWipeSummaryText(catKey, info) {
+  if (!info) return 'Unavailable';
+  if (catKey === 'ai_memory') {
+    return `${info.episodic || 0} memories • ${info.facts || 0} facts • ${info.diary || 0} diary • ${info.speech_log || 0} chat msgs`;
+  }
+  if (catKey === 'voice_clips') {
+    return `${info.cached_phrases || 0} cached clips (${info.mb || 0} MB) • ${info.ring_clips || 0} RAM clips${info.has_last_speech ? ' + last_speech.wav' : ''}`;
+  }
+  if (catKey === 'phone_accounts') {
+    return `${info.contacts || 0} contacts • ${info.calls || 0} calls • ${info.sms_messages || 0} SMS${info.oauth_linked ? ' • Google Linked' : ''}`;
+  }
+  if (catKey === 'trips_logs') {
+    return `${info.trips || 0} trips • ${info.archive_files || 0} ZIPs • ${info.log_files || 0} logs (${info.mb || 0} MB)`;
+  }
+  return `${info.total_items || 0} items`;
+}
+
+function loadPrivacyInventory() {
+  return fetch('/api/privacy/inventory')
+    .then(r => r.json())
+    .then(d => {
+      if (!d || d.status !== 'ok' || !d.inventory) return null;
+      _privacyInventoryCache = d.inventory;
+      WIPE_CATEGORY_ORDER.forEach(k => {
+        const metaEl = document.getElementById('wipeMeta_' + k);
+        if (metaEl) metaEl.innerText = _formatWipeSummaryText(k, d.inventory[k]);
+      });
+      return d.inventory;
+    })
+    .catch(err => {
+      console.warn('[PRIVACY] Inventory error:', err);
+      return null;
+    });
+}
+
+function openSelectedPrivacyWipeModal() {
+  const chosen = WIPE_CATEGORY_ORDER.filter(k => {
+    const chk = document.getElementById('wipeChk_' + k);
+    return chk && chk.checked;
+  });
+  if (chosen.length === 0) {
+    if (window.showToast) window.showToast('Select at least one category to wipe.');
+    return;
+  }
+  openPrivacyWipeModal(chosen);
+}
+
+function openPrivacyWipeModal(categories) {
+  _pendingWipeCategories = Array.isArray(categories) && categories.length
+    ? categories.filter(c => WIPE_CATEGORY_ORDER.includes(c))
+    : [...WIPE_CATEGORY_ORDER];
+  const modal = document.getElementById('privacyWipeModal');
+  const listEl = document.getElementById('privacyWipeSummaryList');
+  const renderList = (inv) => {
+    if (!listEl) return;
+    listEl.innerHTML = _pendingWipeCategories.map(k => {
+      const info = inv ? inv[k] : null;
+      const title = info ? info.label : k;
+      const desc = info ? _formatWipeSummaryText(k, info) : 'Scanning...';
+      return `
+        <div style="background:#0f172a; border:1px solid #334155; border-radius:8px; padding:10px 12px; display:flex; justify-content:space-between; align-items:center; gap:10px;">
+          <span style="font-size:12px; font-weight:800; color:#fff;">${title}</span>
+          <span style="font-size:11px; color:#fca5a5; text-align:right;">${desc}</span>
+        </div>
+      `;
+    }).join('');
+  };
+  renderList(_privacyInventoryCache);
+  if (modal) modal.style.display = 'flex';
+  loadPrivacyInventory().then(inv => {
+    if (inv) renderList(inv);
+  });
+}
+
+function closePrivacyWipeModal() {
+  const modal = document.getElementById('privacyWipeModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function confirmExecutePrivacyWipe() {
+  const btn = document.getElementById('btnConfirmPrivacyWipe');
+  const prevText = btn ? btn.innerText : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = '⏳ WIPING...';
+  }
+  fetch('/api/privacy/wipe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ categories: _pendingWipeCategories })
+  })
+    .then(r => r.json())
+    .then(data => {
+      closePrivacyWipeModal();
+      if (data && data.inventory) {
+        _privacyInventoryCache = data.inventory;
+        WIPE_CATEGORY_ORDER.forEach(k => {
+          const metaEl = document.getElementById('wipeMeta_' + k);
+          if (metaEl) metaEl.innerText = _formatWipeSummaryText(k, data.inventory[k]);
+        });
+      }
+      if (_pendingWipeCategories.includes('ai_memory')) {
+        const hist = document.getElementById('chatHistoryBox');
+        if (hist) hist.innerHTML = '';
+        try {
+          Object.keys(localStorage).forEach(lk => {
+            if (lk.includes('chat') || lk.includes('memory')) localStorage.removeItem(lk);
+          });
+        } catch (e) {}
+        if (typeof loadLivingMindData === 'function') loadLivingMindData();
+      }
+      if (_pendingWipeCategories.includes('voice_clips')) {
+        if (typeof loadTtsCacheStats === 'function') loadTtsCacheStats();
+      }
+      if (_pendingWipeCategories.includes('phone_accounts')) {
+        if (typeof loadPhoneStatus === 'function') loadPhoneStatus();
+        if (typeof loadPhoneContacts === 'function') loadPhoneContacts();
+        if (typeof loadSmsThreads === 'function') loadSmsThreads();
+        if (typeof loadGoogleAuthStatus === 'function') loadGoogleAuthStatus();
+      }
+      if (_pendingWipeCategories.includes('trips_logs')) {
+        if (typeof loadTripArchiveData === 'function') loadTripArchiveData();
+      }
+      if (window.showToast) window.showToast('🛡️ Selected personal info wiped cleanly!');
+    })
+    .catch(err => {
+      console.error('[PRIVACY] Wipe error:', err);
+      if (window.showToast) window.showToast('Privacy wipe failed: ' + err);
+    })
+    .finally(() => {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerText = prevText || '🗑️ CONFIRM PERMANENT WIPE';
+      }
+    });
+}
