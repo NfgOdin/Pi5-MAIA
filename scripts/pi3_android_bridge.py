@@ -228,7 +228,7 @@ def list_contacts() -> Dict[str, Any]:
 
 def list_phone_dir(raw_path: str) -> Dict[str, Any]:
     norm = _normalize_phone_path(raw_path)
-    q_path = shlex.quote(norm)
+    q_path = shlex.quote(norm.rstrip("/") + "/")
     rc, out, err = _run_adb(["shell", f"ls -la {q_path}"], timeout=5.0)
     if rc != 0:
         return {"status": "error", "error": err or f"Unable to browse {norm}", "path": f"pi3://{norm.lstrip('/')}", "items": []}
