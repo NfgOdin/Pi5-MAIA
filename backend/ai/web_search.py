@@ -157,6 +157,35 @@ _US_STATE_NAMES = {
 }
 
 
+def _query_wttr_weather(query: str, timeout: float = 3.0) -> List[Dict[str, str]]:
+    """Query wttr.in single-hop JSON endpoint for fast real-time weather without API keys."""
+    loc = _extract_location_for_weather(query)
+    url = f"https://wttr.in/{urllib.parse.quote(loc)}?format=j1"
+    data = json.loads(_http_get_text(url, timeout=timeout))
+    cur = (data.get("current_condition") or [{}])[0]
+    area = (data.get("nearest_area") or [{}])[0]
+    day0 = (data.get("weather") or [{}])[0]
+    temp_f = cur.get("temp_F")
+    if temp_f is None:
+        return []
+    feels_f = cur.get("FeelsLikeF")
+    desc = ((cur.get("weatherDesc") or [{}])[0].get("value") or "").strip()
+    hum = cur.get("humidity")
+    wind_mph = cur.get("windspeedMiles")
+    wind_dir = cur.get("winddir16Point") or ""
+    area_name = ((area.get("areaName") or [{}])[0].get("value") or loc).strip()
+    region = ((area.get("region") or [{}])[0].get("value") or "").strip()
+    place_label = f"{area_name}, {region}".strip(", ")
+    hi = day0.get("maxtempF")
+    lo = day0.get("mintempF")
+    cond_part = f"{desc}, " if desc else ""
+    feels_part = f" (feels like {feels_f}°F)" if feels_f is not None else ""
+    snip = f"Current weather in {place_label}: {cond_part}{temp_f}°F{feels_part}, humidity {hum}%, wind {wind_mph} mph {wind_dir}".strip() + "."
+    if hi is not None and lo is not None:
+        snip += f" Today's high {hi}°F / low {lo}°F."
+    return [{"title": f"Weather — {place_label}", "snippet": snip, "url": f"https://wttr.in/{urllib.parse.quote(loc)}"}]
+
+
 def _query_open_meteo_weather(query: str, timeout: float = 3.0) -> List[Dict[str, str]]:
     """Query Open-Meteo geocoding + forecast APIs for exact real-time weather without API keys."""
     loc = _extract_location_for_weather(query)
@@ -333,22 +362,38 @@ def search_web_snippets(query: str, timeout: float = 4.0, max_results: int = 3) 
     sources: List[Dict[str, str]] = []
     net_error: Optional[str] = None
 
-    try:
-        if any(re.search(p, ql) for p in _WEATHER_PATTERNS):
-            sources = _query_open_meteo_weather(clean_q, timeout=min(3.0, timeout))
-        elif any(re.search(p, ql) for p in _NEWS_PATTERNS):
+    if any(re.search(p, ql) for p in _WEATHER_PATTERNS):
+        for fn in (_query_wttr_weather, _query_open_meteo_weather):
+            try:
+                sources = fn(clean_q, timeout=min(3.0, timeout))
+                if sources:
+                    break
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                net_error = str(exc)
+            except Exception:
+                pass
+    elif any(re.search(p, ql) for p in _NEWS_PATTERNS):
+        try:
             sources = _query_google_news_rss(clean_q, timeout=min(3.5, timeout), max_results=max_results)
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            net_error = str(exc)
+        except Exception:
+            pass
 
-        if not sources:
-            sources = _query_ddg_instant(clean_q, timeout=min(2.5, timeout))
-        if not sources:
-            sources = _query_wikipedia(clean_q, timeout=min(3.0, timeout))
-        if not sources:
-            sources = _query_google_news_rss(clean_q, timeout=min(3.0, timeout), max_results=max_results)
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        net_error = str(exc)
-    except Exception:
-        pass
+    if not sources:
+        for fn in (
+            lambda: _query_ddg_instant(clean_q, timeout=min(2.5, timeout)),
+            lambda: _query_wikipedia(clean_q, timeout=min(3.0, timeout)),
+            lambda: _query_google_news_rss(clean_q, timeout=min(3.0, timeout), max_results=max_results),
+        ):
+            try:
+                sources = fn()
+                if sources:
+                    break
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                net_error = str(exc)
+            except Exception:
+                pass
 
     if not sources:
         return {
