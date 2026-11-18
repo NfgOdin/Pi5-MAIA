@@ -1,11 +1,14 @@
 """HTTP route handlers for core status, settings, display, Google OAuth, OTA updates, and UI navigation."""
 
 import json
-from pathlib import Path
+import os
+import shlex
 import subprocess
+import sys
 import threading
 import time
 import urllib.request
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
 
@@ -159,12 +162,25 @@ def handle_post(handler: Any, parsed: Any, state: Any) -> bool:
     if path == "/api/system/update/apply":
         repo_dir = str(_repo_dir(state))
         try:
+            subprocess.run(["git", "-C", repo_dir, "fetch", "origin", "main"], capture_output=True, text=True, timeout=25)
             pull_res = subprocess.run(["git", "-C", repo_dir, "reset", "--hard", "origin/main"], capture_output=True, text=True, timeout=30)
 
             def delayed_restart() -> None:
                 time.sleep(1.5)
-                restart_cmd = f"pkill -f 'backend/daemon.py'; sleep 1; nohup python3 {repo_dir}/backend/daemon.py > {repo_dir}/daemon.log 2>&1 &"
-                subprocess.Popen(["/bin/bash", "-c", restart_cmd])
+                my_pid = os.getpid()
+                q_repo = shlex.quote(repo_dir)
+                q_py = shlex.quote(sys.executable or "python3")
+                restart_cmd = (
+                    f"sleep 0.5; kill {my_pid} 2>/dev/null || true; sleep 1.2; "
+                    f"cd {q_repo} && nohup {q_py} {q_repo}/backend/daemon.py < /dev/null > {q_repo}/daemon.log 2>&1 &"
+                )
+                subprocess.Popen(
+                    ["/bin/bash", "-c", restart_cmd],
+                    start_new_session=True,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
 
             threading.Thread(target=delayed_restart, daemon=True).start()
             send_json(
