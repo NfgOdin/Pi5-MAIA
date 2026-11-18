@@ -4,11 +4,23 @@
 let currentPhoneTab = 'history';
 let activeSmsThreadNumber = '';
 let activeCallPollingInterval = null;
+let phoneStatusRefreshInterval = null;
 
 function initPhoneStudio() {
   loadPhoneStatus();
   loadPhoneContacts();
   switchPhoneTab(currentPhoneTab);
+  if (!phoneStatusRefreshInterval) {
+    phoneStatusRefreshInterval = setInterval(() => {
+      const screen = document.getElementById('screenPhone');
+      if (screen && screen.classList.contains('active')) {
+        loadPhoneStatus();
+      } else {
+        clearInterval(phoneStatusRefreshInterval);
+        phoneStatusRefreshInterval = null;
+      }
+    }, 6000);
+  }
 }
 
 function loadPhoneStatus() {
@@ -27,11 +39,15 @@ function updatePhoneUI(phone) {
     const parts = [];
     if (phone.bt_hfp_connected) parts.push('BT HFP');
     if (phone.android_usb_connected) parts.push('PI3 USB');
+    if (phone.tether_active) parts.push('TETHER');
     if (phone.connected) {
       const tag = parts.length ? parts.join(' + ') : 'LINKED';
-      badge.innerText = `📱 ${phone.device_name || 'PHONE'} (${tag})`;
-      badge.style.color = '#38bdf8';
-      badge.style.borderColor = '#0284c7';
+      const battSuffix = (typeof phone.phone_battery_pct === 'number' && phone.phone_battery_pct >= 0)
+        ? ` • ${phone.phone_battery_pct}%`
+        : '';
+      badge.innerText = `📱 ${phone.device_name || 'PHONE'} (${tag}${battSuffix})`;
+      badge.style.color = phone.tether_active ? '#34d399' : '#38bdf8';
+      badge.style.borderColor = phone.tether_active ? '#059669' : '#0284c7';
     } else {
       badge.innerText = '📱 OFFLINE (BT / PI3 USB)';
       badge.style.color = '#94a3b8';
