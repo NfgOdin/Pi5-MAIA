@@ -222,12 +222,15 @@ function renderKinshipQuickPills(contacts) {
     container.innerHTML = '<div style="grid-column:span 2; font-size:11px; color:#94a3b8;">No kinship contacts configured.</div>';
     return;
   }
-  container.innerHTML = contacts.map(c => `
-    <div class="kinship-pill" onclick="phoneDial('${c.phone}')" title="Call ${c.kinship} (${c.phone})">
-      <span style="font-size:22px;">${c.avatar_icon || '👤'}</span>
-      <div style="overflow:hidden;">
+  // Keep VIP / family quick-call pills compact so the Touch Dialpad always fits on 1024x600
+  const vipQuick = contacts.filter(c => c.vip || c.direct_announce);
+  const quickList = (vipQuick.length ? vipQuick : contacts).slice(0, 4);
+  container.innerHTML = quickList.map(c => `
+    <div class="kinship-pill" style="min-width:0; overflow:hidden;" onclick="phoneDial('${c.phone}')" title="Call ${c.kinship} (${c.phone})">
+      <span style="font-size:20px; flex-shrink:0;">${c.avatar_icon || '👤'}</span>
+      <div style="overflow:hidden; min-width:0; flex:1;">
         <div style="font-size:12px; font-weight:900; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;">${c.kinship || c.name}</div>
-        <div style="font-size:9px; color:#94a3b8;">${c.name}</div>
+        <div style="font-size:9px; color:#94a3b8; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;">${c.name}</div>
       </div>
     </div>
   `).join('');
