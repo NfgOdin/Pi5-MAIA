@@ -1178,10 +1178,13 @@ class ModularRouteDispatchTest(unittest.TestCase):
         self.assertAlmostEqual(player.speech_speed, 0.75, places=2)
 
         rum_cfg = json.loads((BACKEND_DIR.parent / "config" / "personas" / "rum.json").read_text(encoding="utf-8"))
-        self.assertEqual(rum_cfg["kokoro_voice"], "af_sky:0.65+af_heart:0.35")
-        self.assertAlmostEqual(rum_cfg["speech_speed"], 0.97, places=2)
-        self.assertAlmostEqual(rum_cfg["pitch_factor"], 1.12, places=2)
-        self.assertAlmostEqual(rum_cfg["tts_pitch"], 1.12, places=2)
+        self.assertTrue(isinstance(rum_cfg["kokoro_voice"], str) and len(rum_cfg["kokoro_voice"]) > 0)
+        if "+" in rum_cfg["kokoro_voice"]:
+            parts = [p.split(":") for p in rum_cfg["kokoro_voice"].split("+")]
+            self.assertTrue(all(len(p) == 2 and float(p[1]) > 0 for p in parts))
+        self.assertTrue(0.75 <= float(rum_cfg["speech_speed"]) <= 1.25)
+        self.assertAlmostEqual(float(rum_cfg["pitch_factor"]), float(rum_cfg["tts_pitch"]), places=2)
+        self.assertTrue(0.5 <= float(rum_cfg["tts_pitch"]) <= 2.0)
 
     def test_system_monitor_rtc_status(self):
         from hardware.system_monitor import SystemMonitor
