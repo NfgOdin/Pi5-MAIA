@@ -170,8 +170,9 @@ class RagMemoryEngine:
 
     @contextmanager
     def _get_connection(self):
-        conn = sqlite3.connect(self.db_path, timeout=10.0, check_same_thread=False)
+        conn = sqlite3.connect(self.db_path, timeout=15.0, check_same_thread=False)
         try:
+            conn.execute("PRAGMA busy_timeout = 15000;")
             conn.execute("PRAGMA journal_mode = WAL;")
             conn.execute("PRAGMA synchronous = NORMAL;")
             conn.execute("PRAGMA temp_store = MEMORY;")
@@ -645,7 +646,7 @@ class RagMemoryEngine:
         return chunks
 
     def ingest_manuals_directory(self, manuals_dir: Optional[str] = None, force: bool = False) -> Dict[str, Any]:
-        """Idempotently index PDF/MD/TXT manuals into Hybrid RAG using mtime/size manifest."""
+        """Idempotently index PDF/MD/TXT manuals into Hybrid RAG without holding long DB locks."""
         mdir = Path(manuals_dir) if manuals_dir else MANUALS_DIR
         if not mdir.exists():
             return {"status": "missing_dir", "dir": str(mdir), "indexed_files": 0, "total_chunks": 0}
@@ -661,6 +662,7 @@ class RagMemoryEngine:
         removed_now = 0
         details: List[Dict[str, Any]] = []
 
+        # Phase 1: Brief read-only check + stale pruning (<10ms lock)
         with self._get_connection() as conn:
             c = conn.cursor()
             manifest = {
@@ -669,8 +671,6 @@ class RagMemoryEngine:
                     "SELECT file_name, file_size, mtime, category, chunk_count FROM manual_index_manifest"
                 ).fetchall()
             }
-
-            # Prune removed files cleanly
             for stale_name in list(manifest.keys()):
                 if stale_name not in disk_files:
                     slug = re.sub(r"[^a-z0-9]+", "_", Path(stale_name).stem.lower()).strip("_")[:28] or "manual"
@@ -678,27 +678,42 @@ class RagMemoryEngine:
                     c.execute("DELETE FROM rag_documents WHERE doc_id LIKE ?", (f"manual_{slug}_%",))
                     c.execute("DELETE FROM manual_index_manifest WHERE file_name = ?", (stale_name,))
                     removed_now += 1
+            if removed_now:
+                conn.commit()
 
-            for fname, fpath in disk_files.items():
-                st = fpath.stat()
-                fsize = int(st.st_size)
-                fmtime = round(float(st.st_mtime), 2)
-                prev = manifest.get(fname)
-                if not force and prev and prev["size"] == fsize and abs(prev["mtime"] - fmtime) < 0.05:
-                    skipped_now += 1
-                    details.append({"file": fname, "chunks": int(prev["chunks"]), "status": "cached"})
-                    continue
+        # Phase 2: Extract + chunk + embed outside SQLite locks, then commit briefly per file
+        for fname, fpath in disk_files.items():
+            st = fpath.stat()
+            fsize = int(st.st_size)
+            fmtime = round(float(st.st_mtime), 2)
+            prev = manifest.get(fname)
+            if not force and prev and prev["size"] == fsize and abs(prev["mtime"] - fmtime) < 0.05:
+                skipped_now += 1
+                details.append({"file": fname, "chunks": int(prev["chunks"]), "status": "cached"})
+                continue
 
-                raw_text = self._extract_manual_text(fpath)
-                short_label, cat = self._manual_label_and_category(fname)
-                chunks = self._chunk_manual_text(raw_text, fname, short_label, cat)
-                slug = re.sub(r"[^a-z0-9]+", "_", Path(fname).stem.lower()).strip("_")[:28] or "manual"
+            raw_text = self._extract_manual_text(fpath)
+            short_label, cat = self._manual_label_and_category(fname)
+            chunks = self._chunk_manual_text(raw_text, fname, short_label, cat)
+            slug = re.sub(r"[^a-z0-9]+", "_", Path(fname).stem.lower()).strip("_")[:28] or "manual"
+            prepared = [
+                (
+                    ch["doc_id"],
+                    ch["category"],
+                    ch["title"],
+                    ch["content"],
+                    json.dumps(ch["metadata"]),
+                    self.embed_engine.embed_text(f"{ch['title']}. {ch['content']}").tobytes(),
+                )
+                for ch in chunks
+            ]
+
+            with self._get_connection() as conn:
+                c = conn.cursor()
                 c.execute("DELETE FROM rag_embeddings WHERE doc_id LIKE ?", (f"manual_{slug}_%",))
                 c.execute("DELETE FROM rag_documents WHERE doc_id LIKE ?", (f"manual_{slug}_%",))
-
-                for ch in chunks:
-                    vec = self.embed_engine.embed_text(f"{ch['title']}. {ch['content']}")
-                    c.execute("""
+                if prepared:
+                    c.executemany("""
                         INSERT INTO rag_documents (doc_id, category, title, content, metadata_json, created_at)
                         VALUES (?, ?, ?, ?, ?, ?)
                         ON CONFLICT(doc_id) DO UPDATE SET
@@ -707,22 +722,22 @@ class RagMemoryEngine:
                             content=excluded.content,
                             metadata_json=excluded.metadata_json,
                             created_at=excluded.created_at
-                    """, (ch["doc_id"], ch["category"], ch["title"], ch["content"], json.dumps(ch["metadata"]), now_iso))
-                    c.execute("""
+                    """, [(d_id, cat_s, ttl, cnt, m_json, now_iso) for d_id, cat_s, ttl, cnt, m_json, _ in prepared])
+                    c.executemany("""
                         INSERT INTO rag_embeddings (doc_id, vector)
                         VALUES (?, ?)
                         ON CONFLICT(doc_id) DO UPDATE SET vector=excluded.vector
-                    """, (ch["doc_id"], vec.tobytes()))
-
+                    """, [(d_id, vec_b) for d_id, _, _, _, _, vec_b in prepared])
                 c.execute("""
                     INSERT OR REPLACE INTO manual_index_manifest
                     (file_name, file_size, mtime, category, chunk_count, indexed_at)
                     VALUES (?, ?, ?, ?, ?, ?)
-                """, (fname, fsize, fmtime, cat, len(chunks), now_iso))
-                indexed_now += 1
-                details.append({"file": fname, "chunks": len(chunks), "status": "indexed"})
-                print(f"[RAG MANUAL] Indexed {fname} -> {len(chunks)} chunks ({cat})")
-            conn.commit()
+                """, (fname, fsize, fmtime, cat, len(prepared), now_iso))
+                conn.commit()
+
+            indexed_now += 1
+            details.append({"file": fname, "chunks": len(prepared), "status": "indexed"})
+            print(f"[RAG MANUAL] Indexed {fname} -> {len(prepared)} chunks ({cat})")
 
         if indexed_now or removed_now:
             self._invalidate_vec_cache()
