@@ -740,12 +740,13 @@ class LLMClient:
         try:
             with open(self.config_file, "w") as f:
                 json.dump(self.settings, f, indent=2)
-            alt_config = os.path.join(os.path.dirname(__file__), "ai_config.json")
-            try:
-                with open(alt_config, "w") as f:
-                    json.dump(self.settings, f, indent=2)
-            except Exception:
-                pass
+            if not getattr(self, "_explicit_config", False):
+                alt_config = os.path.join(os.path.dirname(__file__), "ai_config.json")
+                try:
+                    with open(alt_config, "w") as f:
+                        json.dump(self.settings, f, indent=2)
+                except Exception:
+                    pass
             print("[LLM] Saved updated AI settings.")
         except Exception as e:
             print(f"[LLM] Failed saving settings: {e}")
